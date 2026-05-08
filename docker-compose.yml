@@ -1,6 +1,11 @@
 services:
   workshop:
-    build: .
+    build:
+      context: .
+      args:
+        VITE_AZURE_CLIENT_ID: ${VITE_AZURE_CLIENT_ID}
+        VITE_AZURE_TENANT_ID: ${VITE_AZURE_TENANT_ID}
+        VITE_SHOPKEEP_URL: ${VITE_SHOPKEEP_URL:-}
     container_name: workshop
     ports:
       - "3006:3006"

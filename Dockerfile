@@ -10,6 +10,16 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
+
+# Vite bakes these into the JS bundle at build time.
+# Values come from the host .env via docker-compose build args.
+ARG VITE_AZURE_CLIENT_ID
+ARG VITE_AZURE_TENANT_ID
+ARG VITE_SHOPKEEP_URL
+ENV VITE_AZURE_CLIENT_ID=$VITE_AZURE_CLIENT_ID
+ENV VITE_AZURE_TENANT_ID=$VITE_AZURE_TENANT_ID
+ENV VITE_SHOPKEEP_URL=$VITE_SHOPKEEP_URL
+
 RUN npm run build
 
 FROM node:22-alpine AS runner
