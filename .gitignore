@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+*.db
+*.db-wal
+*.db-shm
+*.log
+.vite/
+.claude/
+docs/
+tsconfig.*.tsbuildinfo
+uploads/

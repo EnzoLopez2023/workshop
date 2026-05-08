@@ -1,0 +1,402 @@
+# The Workshop — Project Companion
+
+A personal woodworking project tracker built as a warm, single-user web app. Capture ideas, plan cut lists, track materials and costs, log build progress, record finishes, and import projects directly from Shaper Tools Hub — with optional AI-assisted parsing.
+
+---
+
+## What it does
+
+| Feature | Description |
+|---|---|
+| **Project tracker** | Full lifecycle from idea → planning → in progress → completed, with difficulty, estimated hours, wood types, and tool lists |
+| **Cut list** | Per-project parts list with dimensions (length × width × thickness) and material |
+| **Cut plan optimizer** | Visual guillotine-packing layout for sheet goods — enter stock sheets and kerf, get an SVG layout with waste % |
+| **Materials list** | Shopping-list items with qty, cost, and purchased checkboxes; cost totals auto-calculated |
+| **Build log** | Timestamped notes with optional photo attachments — a running journal of the build |
+| **Finish log** | Record finish products, type (stain, oil, poly…), color, coat count, and date applied |
+| **Project links** | Relate projects to each other (companion piece, sequel build, etc.) |
+| **Project templates** | Save any project as a reusable template; clone it with one click |
+| **Shopping list** | Cross-project view of all unpurchased materials, grouped by project |
+| **Shaper Hub import** | Paste a Shaper Tools Hub share URL — AI extracts title, description, materials, instructions, and all project photos |
+| **AI URL analysis** | Analyze any inspiration URL to pre-fill a new project's fields (title, description, difficulty, wood types, cut list, materials) |
+| **Unit conversions** | Quick-reference tables for lumber dimensions, sheet goods, and common woodworking measurements |
+| **Image gallery** | Upload sketches and inspiration photos per project; PDF plans supported; hero image shown on project cards |
+
+---
+
+## Tech stack
+
+### Frontend
+
+| Layer | Technology |
+|---|---|
+| Framework | React 19 with TypeScript (strict mode) |
+| Routing | React Router v7 (`<Routes>` / `<Route>`) |
+| Build tool | Vite 8 + `@vitejs/plugin-react` |
+| Styling | Tailwind CSS v4 (via `@tailwindcss/vite` plugin) + global CSS variables |
+| Icons | Lucide React |
+| Fonts | Playfair Display (headings, serif), Inter (body, sans-serif) |
+| Auth client | `@azure/msal-react` + `@azure/msal-browser` (Azure AD) |
+
+TypeScript is compiled with `tsc -b` then bundled by Vite. `noUnusedLocals`, `noUnusedParameters`, and `strict` are all on.
+
+### Backend
+
+| Layer | Technology |
+|---|---|
+| Runtime | Node.js 22 (ESM, `"type": "module"`) |
+| HTTP framework | Express 5 |
+| Database | SQLite via `better-sqlite3` (WAL mode, foreign keys ON) |
+| File uploads | Multer (disk storage, MIME validation via `file-type`) |
+| Auth | JWT validation with `jose` against Azure AD JWKS endpoint |
+| Rate limiting | `express-rate-limit` on AI-powered routes |
+| AI | `@anthropic-ai/sdk` — `claude-sonnet-4-6` for analysis, `claude-haiku-4-5` available for fast tasks |
+| Environment | `dotenv` |
+
+The entire backend is a **single file** — `server.js`. The SQLite schema is declared inline with `CREATE TABLE IF NOT EXISTS`. There is no migration framework; additive changes use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` guards at startup.
+
+### Deployment
+
+| Mode | How |
+|---|---|
+| Local dev | Two processes: `npm run server` + `npm run dev` (or `npm run start:all` in Git Bash) |
+| Docker | Three-stage `node:22-alpine` Dockerfile; `docker compose up` |
+
+---
+
+## Project structure
+
+```
+Workshop/
+├── server.js               # Entire Express API — schema, auth, routes
+├── vite.config.ts          # Vite config; proxies /api → :3006
+├── tsconfig.app.json       # TypeScript config for src/
+├── docker-compose.yml      # Single-service compose; named volume for /data
+├── Dockerfile              # deps → builder → runner (three-stage)
+├── deploy.ps1              # PowerShell deploy script (build → up → health check)
+├── .env.example            # All supported env vars with comments
+│
+└── src/
+    ├── main.tsx            # Entry point — MSAL provider wraps <AuthGuard>
+    ├── App.tsx             # Route table (React Router v7)
+    ├── index.css           # Global styles, CSS custom properties, media queries
+    │
+    ├── auth/
+    │   ├── AuthGuard.tsx   # Redirects to login if unauthenticated; shows spinner during redirect
+    │   ├── LoginPage.tsx   # Branded login screen
+    │   └── msalConfig.ts   # MSAL PublicClientApplication config
+    │
+    ├── components/
+    │   ├── Header.tsx          # Sticky nav — logo, nav icons, New Project, avatar, sign-out
+    │   ├── ProjectCard.tsx     # Dashboard card for a workshop project
+    │   ├── ShaperProjectCard.tsx # Dashboard card for a Shaper Hub project
+    │   ├── StatusBadge.tsx     # Colored pill for project status
+    │   ├── CutPlanOptimizer.tsx # Stock sheet inputs → calls cutPlan.ts → renders CutPlanSheet
+    │   ├── CutPlanSheet.tsx    # SVG layout rendering for a single sheet
+    │   └── ErrorBoundary.tsx   # React error boundary — wraps the app
+    │
+    ├── pages/
+    │   ├── Dashboard.tsx           # Project grid + template shelf + Shaper Hub section
+    │   ├── ProjectDetail.tsx       # Full project view — all tabs, build/finish logs, gallery
+    │   ├── ProjectForm.tsx         # Create/edit workshop project with AI analyze
+    │   ├── ShaperProjectDetail.tsx # Read-only Shaper Hub project view
+    │   ├── ShaperProjectForm.tsx   # Create/edit Shaper Hub project with AI analyze + cut list
+    │   ├── ConversionTables.tsx    # Static woodworking unit reference tables
+    │   └── ShoppingList.tsx        # Cross-project materials to buy
+    │
+    ├── lib/
+    │   └── cutPlan.ts      # Guillotine packing algorithm (BSSF scoring, kerf, rotation)
+    │
+    ├── services/
+    │   └── api.ts          # Typed fetch wrappers for every API endpoint
+    │
+    └── types/
+        └── project.ts      # All shared TypeScript interfaces and enums
+```
+
+---
+
+## Local development setup
+
+### Prerequisites
+
+- Node.js 22+
+- An Azure AD tenant (required for auth — see [Auth setup](#auth-setup) below)
+- An Anthropic API key (optional — AI features degrade gracefully without it)
+
+### Steps
+
+**1. Clone and install**
+
+```bash
+git clone <repo-url>
+cd Workshop
+npm install
+```
+
+**2. Configure environment**
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and fill in the required values (all described in the file). At minimum you need `AZURE_TENANT_ID` and `API_AUDIENCE`:
+
+```env
+PORT=3006
+DB_PATH=./workshop.db
+
+ANTHROPIC_API_KEY=                 # optional — AI features disabled if blank
+
+AZURE_TENANT_ID=<your-tenant-id>   # required
+API_AUDIENCE=<your-app-client-id>  # required
+
+ALLOWED_OID=                       # optional — restrict to your user OID only
+```
+
+**3. Start both servers**
+
+In two terminals:
+
+```bash
+# Terminal 1 — API on :3006
+npm run server
+
+# Terminal 2 — Vite dev server on :5180, proxies /api to :3006
+npm run dev
+```
+
+Or in one Git Bash terminal:
+
+```bash
+npm run start:all
+```
+
+> `start:all` uses `&` for background processes and works in Git Bash. Use two terminals on Windows cmd/PowerShell.
+
+**4. Open the app**
+
+Navigate to `http://localhost:5180`. The SQLite database (`workshop.db`) and uploads directory are created automatically on first run.
+
+---
+
+## Auth setup
+
+Authentication is handled by Azure Active Directory. The backend validates every API request against an Azure AD JWT; the frontend uses MSAL to sign in and attach the token.
+
+### Register an app in Azure AD
+
+1. Go to **Azure Portal → Azure Active Directory → App registrations → New registration**
+2. Name it (e.g. `Workshop Dev`)
+3. Set **Redirect URI**: `http://localhost:5180` (Single-page application type)
+4. After registration, note:
+   - **Application (client) ID** → this is `API_AUDIENCE` and is used in `msalConfig.ts`
+   - **Directory (tenant) ID** → this is `AZURE_TENANT_ID`
+5. Under **Authentication**, ensure **ID tokens** and **Access tokens** are checked for the SPA platform
+
+### Configure the frontend MSAL client
+
+Open [`src/auth/msalConfig.ts`](src/auth/msalConfig.ts) and confirm the `clientId` and `authority` match your registration:
+
+```ts
+export const msalConfig: Configuration = {
+  auth: {
+    clientId: '<your-application-client-id>',
+    authority: 'https://login.microsoftonline.com/<your-tenant-id>',
+    redirectUri: 'http://localhost:5180',
+  },
+  ...
+};
+```
+
+### Restrict access to yourself only (optional)
+
+If your Azure AD tenant has multiple users and you only want yourself to access the app, set `ALLOWED_OID` in `.env` to your user's Object ID. Decode an access token at [jwt.ms](https://jwt.ms) to find the `oid` claim.
+
+---
+
+## Database
+
+SQLite file at `DB_PATH` (default `./workshop.db`). No migration tool — the schema is declared with `CREATE TABLE IF NOT EXISTS` at startup. Additive migrations (`ALTER TABLE ... ADD COLUMN`) run automatically on startup for existing databases.
+
+### Tables
+
+| Table | Purpose |
+|---|---|
+| `projects` | Core project records — title, description, status, difficulty, wood types, tools, template flag |
+| `project_images` | Images attached to projects — stored on disk (`file_path`), or as external URLs (`image_url`) |
+| `cut_list_items` | Parts list rows — shared by both `projects` and `shaper_projects` via nullable FK columns |
+| `materials` | Per-project materials with cost and purchased flag |
+| `build_log_entries` | Timestamped journal entries with optional photo attachment (stored on disk) |
+| `finish_log_entries` | Finish product records — type, color, coats, date |
+| `project_links` | Many-to-many project relationships (one direction stored, UNION query provides both) |
+| `shaper_projects` | Shaper Tools Hub projects — URL, description, photo, materials JSON, instructions |
+
+Images and build log photos are stored as files under `UPLOADS_PATH` (`./uploads/` in dev, `/data/uploads/` in Docker). The DB stores only the filename; the Express route serves the file.
+
+---
+
+## AI features
+
+### Project URL analysis (`POST /api/projects/analyze-url`)
+
+Fetches the given URL, strips HTML to plain text, and sends it to `claude-sonnet-4-6` with a structured extraction prompt. Returns a pre-filled project payload: title, description, difficulty, estimated hours, wood types, tools needed, cut list, and materials.
+
+### Shaper Hub analysis (`POST /api/shaper-projects/analyze-url`)
+
+Same fetch-and-extract pattern, but with Shaper-specific output fields. Additionally:
+- Extracts `__NEXT_DATA__` (Next.js SSR page props JSON) from the page `<script>` tag — gives Claude structured data instead of scraped text
+- Extracts `application/ld+json` blobs for additional structured context
+- Returns `image_urls[]` — all project photo URLs found in the structured data, shown as removable thumbnails before saving
+
+If `ANTHROPIC_API_KEY` is not set, both endpoints return a `503` with a clear message. All other app features continue to work.
+
+**SSRF protection**: both analyze endpoints resolve the target URL's hostname via DNS and reject requests to private/loopback IP ranges before fetching.
+
+---
+
+## API reference
+
+All routes require a valid Azure AD Bearer token in the `Authorization` header.
+
+### Projects
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/health` | Health check — returns `{ status, db }` |
+| `GET` | `/api/projects` | List all non-template projects (summary with hero image id, cost, parts count) |
+| `GET` | `/api/projects/:id` | Full project detail — includes images, cut list, materials, build log, finish log, links |
+| `POST` | `/api/projects` | Create project |
+| `PUT` | `/api/projects/:id` | Update project fields |
+| `DELETE` | `/api/projects/:id` | Delete project and all related data (cascade) |
+| `POST` | `/api/projects/analyze-url` | AI-analyze a URL and return suggested project fields |
+
+### Images
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/projects/:id/images` | Upload a file (`multipart/form-data`) or register a URL (`{ url, kind }`) |
+| `GET` | `/api/images/:id` | Serve image file (or redirect to external URL) |
+| `DELETE` | `/api/images/:id` | Delete image (removes file from disk) |
+
+### Cut list
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/projects/:id/cut-list` | Add a part |
+| `PUT` | `/api/cut-list/:id` | Update a part |
+| `DELETE` | `/api/cut-list/:id` | Delete a part |
+
+### Cut plan config
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/projects/:id/cut-plan-config` | Load saved stock sheet / kerf configuration |
+| `PUT` | `/api/projects/:id/cut-plan-config` | Save cut plan configuration |
+
+### Materials
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/projects/:id/materials` | Add a material |
+| `PUT` | `/api/materials/:id` | Update a material |
+| `DELETE` | `/api/materials/:id` | Delete a material |
+| `PATCH` | `/api/materials/:id/purchased` | Toggle purchased flag |
+| `GET` | `/api/shopping-list` | All unpurchased materials across all projects |
+
+### Build log
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/projects/:id/build-log` | List entries for a project |
+| `POST` | `/api/projects/:id/build-log` | Add entry (note + optional photo upload) |
+| `GET` | `/api/build-log/:id/image` | Serve the attached photo |
+| `DELETE` | `/api/build-log/:id` | Delete entry (removes photo file from disk) |
+
+### Finish log
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/projects/:id/finish-log` | List finish entries |
+| `POST` | `/api/projects/:id/finish-log` | Add finish entry |
+| `PUT` | `/api/finish-log/:id` | Update finish entry |
+| `DELETE` | `/api/finish-log/:id` | Delete finish entry |
+
+### Project links
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/projects/:id/links` | List related projects (bidirectional UNION query) |
+| `POST` | `/api/projects/:id/links` | Add a relationship link |
+| `DELETE` | `/api/project-links/:id` | Remove a link |
+
+### Templates
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/templates` | List all templates |
+| `POST` | `/api/projects/:id/save-as-template` | Clone a project as a template |
+| `POST` | `/api/templates/:id/clone` | Create a new project from a template (atomic transaction) |
+| `DELETE` | `/api/templates/:id` | Delete a template (guards against deleting regular projects) |
+
+### Shaper Hub projects
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/shaper-projects` | List all Shaper Hub projects |
+| `GET` | `/api/shaper-projects/:id` | Full detail including images and cut list |
+| `POST` | `/api/shaper-projects/analyze-url` | AI-analyze a Shaper Hub URL |
+| `POST` | `/api/shaper-projects` | Create Shaper Hub project |
+| `PUT` | `/api/shaper-projects/:id` | Update Shaper Hub project |
+| `DELETE` | `/api/shaper-projects/:id` | Delete and clean up image files |
+| `POST` | `/api/shaper-projects/:id/images` | Upload file or register URL as project image |
+| `POST` | `/api/shaper-projects/:id/cut-list` | Add a cut list part |
+
+---
+
+## Docker deployment
+
+```bash
+# Copy and fill in your env vars
+cp .env.example .env
+
+# Build and start
+.\deploy.ps1
+```
+
+`deploy.ps1` runs `docker compose build`, brings up the container, waits, then hits `/api/health` and prints the result. Logs:
+
+```bash
+docker compose logs -f workshop
+```
+
+The SQLite database and uploaded files live in a named Docker volume (`workshop-data`) mounted at `/data` — they survive rebuilds.
+
+### Environment variables in Docker
+
+Pass secrets via the `.env` file (excluded from the image by `.dockerignore`). The compose file forwards `AZURE_TENANT_ID`, `API_AUDIENCE`, `ALLOWED_OID`, and `ANTHROPIC_API_KEY` explicitly.
+
+---
+
+## Cut plan optimizer internals
+
+`src/lib/cutPlan.ts` implements a **guillotine packing algorithm** with **Best Short-Side Fit (BSSF)** scoring:
+
+1. Sort pieces by area descending (largest first)
+2. For each piece, try both orientations in every open sheet's free rectangles
+3. Score each candidate placement: minimize the shorter leftover dimension (BSSF), break ties by the longer
+4. If no open sheet fits, open a new sheet from the stock inventory (respects material + thickness matching)
+5. After placing a piece, split the used free rectangle into two new free rectangles (horizontal or vertical split chosen by whichever leaves the more uniform remainder)
+
+Material matching is label-token-based — a stock sheet labeled `"3/4 Baltic Birch"` matches any piece whose material contains both tokens. Thickness matching compares parsed inch values with a 0.005″ tolerance.
+
+---
+
+## Notes for developers
+
+- **No test suite** — this is a personal single-user app; correctness is verified by using it
+- **No ORM** — all queries are hand-written prepared statements in the `stmts` object at the top of `server.js`
+- **Image storage** — files land in `UPLOADS_PATH`; the DB stores only the filename. Deleting an image row also deletes the file from disk
+- **Template cloning** — uses `db.transaction()` to copy cut list rows and materials atomically
+- **Auth without AI** — remove `<AuthGuard>` in `src/main.tsx` to run locally without Azure AD (dev convenience only)
+- **Adding a route** — add the prepared statement to `stmts`, add the Express handler following the existing pattern, add a typed wrapper to `src/services/api.ts`

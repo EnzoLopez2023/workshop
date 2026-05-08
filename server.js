@@ -1,0 +1,1401 @@
+import express from 'express';
+import Database from 'better-sqlite3';
+import { fileURLToPath } from 'url';
+import { dirname, join, basename, extname } from 'path';
+import { mkdirSync, unlink } from 'fs';
+import { unlink as unlinkAsync } from 'fs/promises';
+import { lookup as dnsLookup } from 'dns/promises';
+import { isIP } from 'net';
+import { randomUUID } from 'crypto';
+import multer from 'multer';
+import dotenv from 'dotenv';
+import Anthropic from '@anthropic-ai/sdk';
+import { jwtVerify, createRemoteJWKSet } from 'jose';
+import rateLimit from 'express-rate-limit';
+import { fileTypeFromFile } from 'file-type';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = dirname(__filename);
+
+const PORT         = process.env.PORT         ?? 3006;
+const DB_PATH      = process.env.DB_PATH      ?? join(__dirname, 'workshop.db');
+const UPLOADS_PATH = process.env.UPLOADS_PATH ?? join(__dirname, 'uploads');
+
+mkdirSync(UPLOADS_PATH, { recursive: true });
+
+// ── Database ──────────────────────────────────────────────────────────────────
+
+const db = new Database(DB_PATH);
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS projects (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    title           TEXT NOT NULL,
+    description     TEXT,
+    source_url      TEXT,
+    cut_plan_url    TEXT,
+    status          TEXT NOT NULL DEFAULT 'idea',
+    difficulty      TEXT NOT NULL DEFAULT 'Intermediate',
+    estimated_hours INTEGER NOT NULL DEFAULT 0,
+    wood_types      TEXT,
+    tools_needed    TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS project_images (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    kind       TEXT NOT NULL,
+    image_data BLOB,
+    image_type TEXT,
+    image_url  TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_images_project ON project_images(project_id, kind, sort_order);
+
+  CREATE TABLE IF NOT EXISTS cut_list_items (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    part_name  TEXT NOT NULL,
+    qty        INTEGER NOT NULL DEFAULT 1,
+    length     TEXT,
+    width      TEXT,
+    thickness  TEXT,
+    material   TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_cutlist_project ON cut_list_items(project_id, sort_order);
+
+  CREATE TABLE IF NOT EXISTS materials (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    name       TEXT NOT NULL,
+    qty_label  TEXT,
+    cost       REAL NOT NULL DEFAULT 0,
+    purchased  INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_materials_project ON materials(project_id, sort_order);
+
+  CREATE TABLE IF NOT EXISTS build_log_entries (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    note        TEXT NOT NULL,
+    file_path   TEXT,
+    image_type  TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_buildlog_project ON build_log_entries(project_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS finish_log_entries (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id   INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    product_name TEXT NOT NULL,
+    finish_type  TEXT,
+    color        TEXT,
+    coats        INTEGER,
+    notes        TEXT,
+    applied_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_finishlog_project ON finish_log_entries(project_id);
+
+  CREATE TABLE IF NOT EXISTS project_links (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id        INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    linked_project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    relationship      TEXT NOT NULL DEFAULT 'related',
+    UNIQUE(project_id, linked_project_id)
+  );
+`);
+
+// Additive column migrations for existing DBs — keep idempotent.
+const projectCols = new Set(db.prepare(`PRAGMA table_info(projects)`).all().map(c => c.name));
+if (!projectCols.has('source_url')) {
+  db.exec(`ALTER TABLE projects ADD COLUMN source_url TEXT`);
+}
+if (!projectCols.has('cut_plan_url')) {
+  db.exec(`ALTER TABLE projects ADD COLUMN cut_plan_url TEXT`);
+}
+
+const imageCols = new Set(db.prepare(`PRAGMA table_info(project_images)`).all().map(c => c.name));
+if (!imageCols.has('file_path')) {
+  db.exec(`ALTER TABLE project_images ADD COLUMN file_path TEXT`);
+}
+
+if (!projectCols.has('cut_plan_config')) {
+  db.exec(`ALTER TABLE projects ADD COLUMN cut_plan_config TEXT`);
+}
+
+if (!imageCols.has('shaper_project_id')) {
+  db.exec(`ALTER TABLE project_images ADD COLUMN shaper_project_id INTEGER REFERENCES shaper_projects(id) ON DELETE CASCADE`);
+}
+
+const cutTableInfo = db.prepare(`PRAGMA table_info(cut_list_items)`).all();
+const cutCols = new Set(cutTableInfo.map(c => c.name));
+if (!cutCols.has('shaper_project_id')) {
+  db.exec(`ALTER TABLE cut_list_items ADD COLUMN shaper_project_id INTEGER REFERENCES shaper_projects(id) ON DELETE CASCADE`);
+}
+
+// cut_list_items needs two adjustments:
+//   - project_id must be nullable (rows can belong to a shaper_project instead)
+//   - exactly one of project_id / shaper_project_id must be set (CHECK constraint)
+// SQLite can't ALTER a column constraint, so detect and recreate when needed.
+// Wrapped in try/finally so a failure restores PRAGMA foreign_keys = ON for the
+// rest of the process lifetime.
+const projectIdCol = cutTableInfo.find(c => c.name === 'project_id');
+const cutTableSql  = (db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='cut_list_items'`).get()?.sql ?? '').toUpperCase();
+const needsRecreate = (projectIdCol && projectIdCol.notnull === 1) || !cutTableSql.includes('CHECK');
+if (needsRecreate) {
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE cut_list_items_new (
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id        INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+          shaper_project_id INTEGER REFERENCES shaper_projects(id) ON DELETE CASCADE,
+          part_name         TEXT NOT NULL,
+          qty               INTEGER NOT NULL DEFAULT 1,
+          length            TEXT,
+          width             TEXT,
+          thickness         TEXT,
+          material          TEXT,
+          sort_order        INTEGER NOT NULL DEFAULT 0,
+          CHECK ((project_id IS NULL) <> (shaper_project_id IS NULL))
+        );
+        INSERT INTO cut_list_items_new (id, project_id, shaper_project_id, part_name, qty, length, width, thickness, material, sort_order)
+          SELECT id, project_id, shaper_project_id, part_name, qty, length, width, thickness, material, sort_order
+          FROM cut_list_items;
+        DROP TABLE cut_list_items;
+        ALTER TABLE cut_list_items_new RENAME TO cut_list_items;
+        CREATE INDEX IF NOT EXISTS idx_cutlist_project ON cut_list_items(project_id, sort_order);
+        CREATE INDEX IF NOT EXISTS idx_cutlist_shaper  ON cut_list_items(shaper_project_id, sort_order);
+      `);
+    })();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
+if (!projectCols.has('is_template')) {
+  db.exec(`ALTER TABLE projects ADD COLUMN is_template INTEGER NOT NULL DEFAULT 0`);
+}
+if (!projectCols.has('template_name')) {
+  db.exec(`ALTER TABLE projects ADD COLUMN template_name TEXT`);
+}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS shaper_projects (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    title        TEXT NOT NULL DEFAULT '',
+    shaper_url   TEXT NOT NULL DEFAULT '',
+    description  TEXT,
+    photo_url    TEXT,
+    materials    TEXT NOT NULL DEFAULT '[]',
+    instructions TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+// ── Prepared statements ───────────────────────────────────────────────────────
+
+const stmts = {
+  listProjects: db.prepare(`
+    SELECT p.*,
+      (SELECT COUNT(*) FROM cut_list_items c WHERE c.project_id = p.id) AS parts_count,
+      (SELECT COALESCE(SUM(m.cost), 0) FROM materials m WHERE m.project_id = p.id) AS total_cost,
+      (SELECT pi.id FROM project_images pi
+        WHERE pi.project_id = p.id AND pi.kind = 'sketch'
+          AND (pi.image_type IS NULL OR pi.image_type != 'application/pdf')
+        ORDER BY pi.sort_order, pi.id LIMIT 1) AS hero_image_id,
+      (SELECT GROUP_CONCAT(c.part_name, ' ') FROM cut_list_items c WHERE c.project_id = p.id) AS cut_list_names,
+      (SELECT GROUP_CONCAT(m.name, ' ') FROM materials m WHERE m.project_id = p.id) AS material_names
+    FROM projects p
+    WHERE p.is_template = 0 OR p.is_template IS NULL
+    ORDER BY p.updated_at DESC
+  `),
+  getProject: db.prepare(`SELECT * FROM projects WHERE id = ?`),
+  insertProject: db.prepare(`
+    INSERT INTO projects (title, description, source_url, cut_plan_url, status, difficulty, estimated_hours, wood_types, tools_needed)
+    VALUES (@title, @description, @source_url, @cut_plan_url, @status, @difficulty, @estimated_hours, @wood_types, @tools_needed)
+  `),
+  updateProject: db.prepare(`
+    UPDATE projects SET
+      title           = @title,
+      description     = @description,
+      source_url      = @source_url,
+      cut_plan_url    = @cut_plan_url,
+      status          = @status,
+      difficulty      = @difficulty,
+      estimated_hours = @estimated_hours,
+      wood_types      = @wood_types,
+      tools_needed    = @tools_needed,
+      updated_at      = datetime('now')
+    WHERE id = @id
+  `),
+  deleteProject: db.prepare(`DELETE FROM projects WHERE id = ?`),
+
+  listImages: db.prepare(`
+    SELECT id, project_id, kind, image_type, image_url, sort_order
+    FROM project_images WHERE project_id = ? ORDER BY kind, sort_order, id
+  `),
+  getImage: db.prepare(`SELECT image_data, image_type, file_path FROM project_images WHERE id = ?`),
+  insertImage: db.prepare(`
+    INSERT INTO project_images (project_id, kind, image_data, image_type, image_url, file_path, sort_order)
+    VALUES (@project_id, @kind, @image_data, @image_type, @image_url, @file_path, @sort_order)
+  `),
+  deleteImage: db.prepare(`DELETE FROM project_images WHERE id = ?`),
+
+  listCutList: db.prepare(`SELECT * FROM cut_list_items WHERE project_id = ? ORDER BY sort_order, id`),
+  insertCutItem: db.prepare(`
+    INSERT INTO cut_list_items (project_id, part_name, qty, length, width, thickness, material, sort_order)
+    VALUES (@project_id, @part_name, @qty, @length, @width, @thickness, @material, @sort_order)
+  `),
+  updateCutItem: db.prepare(`
+    UPDATE cut_list_items SET
+      part_name = @part_name, qty = @qty, length = @length, width = @width,
+      thickness = @thickness, material = @material, sort_order = @sort_order
+    WHERE id = @id
+  `),
+  deleteCutItem: db.prepare(`DELETE FROM cut_list_items WHERE id = ?`),
+
+  listMaterials: db.prepare(`SELECT * FROM materials WHERE project_id = ? ORDER BY sort_order, id`),
+  insertMaterial: db.prepare(`
+    INSERT INTO materials (project_id, name, qty_label, cost, purchased, sort_order)
+    VALUES (@project_id, @name, @qty_label, @cost, @purchased, @sort_order)
+  `),
+  updateMaterial: db.prepare(`
+    UPDATE materials SET name = @name, qty_label = @qty_label, cost = @cost,
+      purchased = @purchased, sort_order = @sort_order
+    WHERE id = @id
+  `),
+  deleteMaterial: db.prepare(`DELETE FROM materials WHERE id = ?`),
+
+  listShaperProjects: db.prepare(`SELECT * FROM shaper_projects ORDER BY updated_at DESC`),
+  getShaperProject:   db.prepare(`SELECT * FROM shaper_projects WHERE id = ?`),
+  insertShaperProject: db.prepare(`
+    INSERT INTO shaper_projects (title, shaper_url, description, photo_url, materials, instructions)
+    VALUES (@title, @shaper_url, @description, @photo_url, @materials, @instructions)
+  `),
+  updateShaperProject: db.prepare(`
+    UPDATE shaper_projects SET
+      title        = @title,
+      shaper_url   = @shaper_url,
+      description  = @description,
+      photo_url    = @photo_url,
+      materials    = @materials,
+      instructions = @instructions,
+      updated_at   = datetime('now')
+    WHERE id = @id
+  `),
+  deleteShaperProject: db.prepare(`DELETE FROM shaper_projects WHERE id = ?`),
+
+  listShaperImages:    db.prepare(`SELECT * FROM project_images WHERE shaper_project_id = ? ORDER BY sort_order, id`),
+  insertShaperImage:   db.prepare(`
+    INSERT INTO project_images (shaper_project_id, kind, image_type, image_url, file_path, sort_order)
+    VALUES (@shaper_project_id, @kind, @image_type, @image_url, @file_path, @sort_order)
+  `),
+  listShaperCutList:   db.prepare(`SELECT * FROM cut_list_items WHERE shaper_project_id = ? ORDER BY sort_order, id`),
+  insertShaperCutItem: db.prepare(`
+    INSERT INTO cut_list_items (shaper_project_id, part_name, qty, length, width, thickness, material, sort_order)
+    VALUES (@shaper_project_id, @part_name, @qty, @length, @width, @thickness, @material, @sort_order)
+  `),
+  shaperHeroImage:     db.prepare(`
+    SELECT id FROM project_images
+    WHERE shaper_project_id = ? AND (image_type IS NULL OR image_type != 'application/pdf')
+    ORDER BY sort_order, id LIMIT 1
+  `),
+
+  getCutPlanConfig:  db.prepare(`SELECT cut_plan_config FROM projects WHERE id = ?`),
+  saveCutPlanConfig: db.prepare(`UPDATE projects SET cut_plan_config = @config WHERE id = @id`),
+
+  // ── Build log ────────────────────────────────────────────────────────────────
+  listBuildLog:        db.prepare(`SELECT * FROM build_log_entries WHERE project_id = ? ORDER BY created_at DESC`),
+  insertBuildLogEntry: db.prepare(`INSERT INTO build_log_entries (project_id, note, file_path, image_type) VALUES (@project_id, @note, @file_path, @image_type)`),
+  getBuildLogEntry:    db.prepare(`SELECT * FROM build_log_entries WHERE id = ?`),
+  deleteBuildLogEntry: db.prepare(`DELETE FROM build_log_entries WHERE id = ?`),
+
+  // ── Finish log ───────────────────────────────────────────────────────────────
+  listFinishLog:        db.prepare(`SELECT * FROM finish_log_entries WHERE project_id = ? ORDER BY applied_at DESC`),
+  insertFinishLogEntry: db.prepare(`INSERT INTO finish_log_entries (project_id, product_name, finish_type, color, coats, notes, applied_at) VALUES (@project_id, @product_name, @finish_type, @color, @coats, @notes, @applied_at)`),
+  updateFinishLogEntry: db.prepare(`UPDATE finish_log_entries SET product_name = @product_name, finish_type = @finish_type, color = @color, coats = @coats, notes = @notes, applied_at = @applied_at WHERE id = @id`),
+  deleteFinishLogEntry: db.prepare(`DELETE FROM finish_log_entries WHERE id = ?`),
+
+  // ── Shopping list ────────────────────────────────────────────────────────────
+  getShoppingList: db.prepare(`
+    SELECT m.*, p.title AS project_title
+    FROM materials m
+    JOIN projects p ON p.id = m.project_id
+    WHERE (p.is_template = 0 OR p.is_template IS NULL)
+    ORDER BY p.title, m.sort_order, m.id
+  `),
+  setPurchased: db.prepare(`UPDATE materials SET purchased = @purchased WHERE id = @id`),
+
+  // ── Project links ────────────────────────────────────────────────────────────
+  listProjectLinks: db.prepare(`
+    SELECT pl.id, pl.relationship, p.id AS linked_id, p.title AS linked_title, p.status AS linked_status
+    FROM project_links pl JOIN projects p ON p.id = pl.linked_project_id WHERE pl.project_id = ?
+    UNION
+    SELECT pl.id, pl.relationship, p.id AS linked_id, p.title AS linked_title, p.status AS linked_status
+    FROM project_links pl JOIN projects p ON p.id = pl.project_id WHERE pl.linked_project_id = ?
+  `),
+  insertProjectLink: db.prepare(`INSERT OR IGNORE INTO project_links (project_id, linked_project_id, relationship) VALUES (@project_id, @linked_project_id, @relationship)`),
+  deleteProjectLink: db.prepare(`DELETE FROM project_links WHERE id = ?`),
+
+  // ── Templates ────────────────────────────────────────────────────────────────
+  listTemplates: db.prepare(`
+    SELECT p.*,
+      (SELECT COUNT(*) FROM cut_list_items c WHERE c.project_id = p.id) AS parts_count,
+      (SELECT pi.id FROM project_images pi WHERE pi.project_id = p.id AND pi.kind = 'sketch'
+        AND (pi.image_type IS NULL OR pi.image_type != 'application/pdf')
+       ORDER BY pi.sort_order, pi.id LIMIT 1) AS hero_image_id
+    FROM projects p WHERE p.is_template = 1 ORDER BY COALESCE(p.template_name, p.title)
+  `),
+  setTemplate: db.prepare(`UPDATE projects SET is_template = 1, template_name = @template_name WHERE id = @id`),
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const toJsonArray = (v) => {
+  if (Array.isArray(v)) return JSON.stringify(v);
+  if (typeof v === 'string' && v.trim()) {
+    return JSON.stringify(v.split(',').map(s => s.trim()).filter(Boolean));
+  }
+  return JSON.stringify([]);
+};
+
+const parseJsonArray = (s) => {
+  if (!s) return [];
+  try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { return []; }
+};
+
+const hydrateProject = (p) => p && ({
+  ...p,
+  wood_types: parseJsonArray(p.wood_types),
+  tools_needed: parseJsonArray(p.tools_needed),
+});
+
+// Extract Next.js SSR data embedded as __NEXT_DATA__ JSON — present in most Next.js pages.
+const extractNextData = (html) => {
+  const m = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+};
+
+// Extract all JSON-LD blocks (schema.org structured data).
+const extractJsonLd = (html) => {
+  const results = [];
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    try { results.push(JSON.parse(m[1])); } catch { /* skip malformed */ }
+  }
+  return results;
+};
+
+
+// ── File upload (multer — disk storage) ──────────────────────────────────────
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOADS_PATH),
+    filename: (_req, file, cb) => {
+      const ext = extname(file.originalname).toLowerCase();
+      cb(null, `${randomUUID()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 200 * 1024 * 1024 },
+});
+
+// Server-side MIME sniffing. The client-supplied req.file.mimetype is not
+// trustworthy — an HTML file uploaded as image/jpeg would otherwise be served
+// back as image/jpeg from our origin (still safe), but worse, anything we
+// echoed as text/html could host stored XSS. Sniff magic bytes instead.
+const ALLOWED_UPLOAD_MIMES = new Set([
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic',
+  'image/heif', 'image/avif', 'image/bmp', 'image/tiff',
+  'application/pdf',
+]);
+
+async function sniffMimeOrReject(filePath) {
+  const detected = await fileTypeFromFile(filePath);
+  if (!detected || !ALLOWED_UPLOAD_MIMES.has(detected.mime)) {
+    await unlinkAsync(filePath).catch(() => {});
+    const e = new Error('Unsupported file type — only images and PDFs are accepted');
+    e.status = 400;
+    throw e;
+  }
+  return detected.mime;
+}
+
+// ── SSRF-safe outbound fetch ─────────────────────────────────────────────────
+//
+// analyze-url endpoints take a URL from the user and fetch it server-side.
+// Without guardrails an attacker (or a confused user) could point them at
+// cloud metadata endpoints (169.254.169.254), localhost, RFC1918 hosts, or
+// long-tail content that exhausts memory. Block private addresses both
+// before the initial connect AND on the final URL after redirects.
+
+function isPrivateOrReservedIp(ip) {
+  const v4 = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return (
+      a === 0 || a === 10 || a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      a >= 224
+    );
+  }
+  const v6 = ip.toLowerCase();
+  return (
+    v6 === '::' || v6 === '::1' ||
+    v6.startsWith('fc') || v6.startsWith('fd') ||
+    v6.startsWith('fe80:') || v6.startsWith('::ffff:127.') ||
+    v6.startsWith('::ffff:10.') || v6.startsWith('::ffff:169.254.') ||
+    v6.startsWith('::ffff:172.') || v6.startsWith('::ffff:192.168.')
+  );
+}
+
+async function assertHostIsPublic(hostname) {
+  if (isIP(hostname)) {
+    if (isPrivateOrReservedIp(hostname)) throw new Error('private/internal address blocked');
+    return;
+  }
+  const { address } = await dnsLookup(hostname);
+  if (isPrivateOrReservedIp(address)) throw new Error('private/internal address blocked');
+}
+
+const FETCH_TIMEOUT_MS    = 15_000;
+const MAX_RESPONSE_BYTES  = 5 * 1024 * 1024;
+
+async function safeFetchHtml(rawUrl) {
+  let parsed;
+  try { parsed = new URL(rawUrl); } catch { throw new Error('invalid url'); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('only http and https URLs are allowed');
+  }
+  await assertHostIsPublic(parsed.hostname);
+
+  const resp = await fetch(rawUrl, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Workshop AI Analyzer)' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+
+  // Re-validate after redirects: resp.url is the final URL.
+  const finalUrl = new URL(resp.url || rawUrl);
+  if (finalUrl.protocol !== 'http:' && finalUrl.protocol !== 'https:') {
+    throw new Error('redirect to disallowed scheme');
+  }
+  await assertHostIsPublic(finalUrl.hostname);
+
+  if (!resp.ok) throw new Error(`fetch failed with status ${resp.status}`);
+
+  // Stream and cap.
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_RESPONSE_BYTES) {
+      reader.cancel();
+      throw new Error('response too large');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf-8');
+}
+
+// ── Anthropic client (lazy, optional) ─────────────────────────────────────────
+
+let _anthropic = null;
+const getAnthropic = () => {
+  if (_anthropic) return _anthropic;
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return null;
+  _anthropic = new Anthropic({ apiKey: key });
+  return _anthropic;
+};
+
+// Extract og/twitter meta tags directly from HTML — more reliable than AI for SPAs.
+const decodeEntities = (s) => s
+  .replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&#39;/g, "'")
+  .replace(/&amp;/g,  '&').replace(/&lt;/g,   '<').replace(/&gt;/g,  '>')
+  .replace(/&nbsp;/g, ' ').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+
+const extractOgMeta = (html) => {
+  const tag = (prop) => {
+    const m = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']*?)["']`, 'i'))
+           ?? html.match(new RegExp(`<meta[^>]+content=["']([^"']*?)["'][^>]+(?:property|name)=["']${prop}["']`, 'i'));
+    const v = m?.[1]?.trim() ?? null;
+    return v ? decodeEntities(v) : null;
+  };
+  return {
+    title:       tag('og:title')       || tag('twitter:title'),
+    description: tag('og:description') || tag('twitter:description'),
+    image:       tag('og:image')       || tag('twitter:image:src') || tag('twitter:image'),
+  };
+};
+
+// Strip HTML to plain text and clip to a token-friendly size for Claude.
+const htmlToPlainText = (html) => {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<\/(p|div|li|h[1-6]|tr|br)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
+// ── App ───────────────────────────────────────────────────────────────────────
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+const TENANT_ID    = process.env.AZURE_TENANT_ID;
+const API_AUDIENCE = process.env.API_AUDIENCE;
+const ALLOWED_OID  = process.env.ALLOWED_OID || '';
+
+if (!TENANT_ID || !API_AUDIENCE) {
+  console.error('[auth] AZURE_TENANT_ID and API_AUDIENCE must be set. Refusing to start with auth disabled.');
+  process.exit(1);
+}
+
+const JWKS = createRemoteJWKSet(
+  new URL(`https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys`)
+);
+
+async function requireAuth(req, res, next) {
+  const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? '');
+  if (!m) return res.status(401).json({ error: 'missing token' });
+  try {
+    const { payload } = await jwtVerify(m[1], JWKS, {
+      issuer: `https://login.microsoftonline.com/${TENANT_ID}/v2.0`,
+      audience: API_AUDIENCE,
+    });
+    if (ALLOWED_OID && payload.oid !== ALLOWED_OID) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    req.user = { oid: payload.oid, email: payload.preferred_username ?? payload.email };
+    next();
+  } catch {
+    return res.status(401).json({ error: 'invalid token' });
+  }
+}
+
+// `<img src>` and `<iframe src>` cannot send Authorization headers, so image
+// fetches stay open. Structured data and the AI endpoints are fully gated.
+// `/health` is open so monitors and CI probes can hit it without a token.
+function isExemptPath(path) {
+  return path === '/health'
+    || /^\/images\/\d+$/.test(path)
+    || /^\/build-log\/\d+\/image$/.test(path);
+}
+
+const app = express();
+app.set('trust proxy', 1);   // IIS/ARR is one hop in front
+app.use(express.json());
+app.use(express.static(join(__dirname, 'dist')));
+
+app.use('/api', (req, res, next) => {
+  if (isExemptPath(req.path)) return next();
+  return requireAuth(req, res, next);
+});
+
+// Rate limit the paid AI endpoints — keyed per user (oid), not per IP.
+const aiLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,    // 1 hour
+  limit: 30,                    // 30 analyze calls / user / hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.oid ?? req.ip,
+  message: { error: 'rate limit exceeded — try again later' },
+});
+app.use(['/api/projects/analyze-url', '/api/shaper-projects/analyze-url'], aiLimiter);
+
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', db: DB_PATH });
+});
+
+// ── Projects ──────────────────────────────────────────────────────────────────
+
+app.get('/api/projects', (_req, res) => {
+  const rows = stmts.listProjects.all().map(hydrateProject);
+  res.json(rows);
+});
+
+app.get('/api/projects/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const project = hydrateProject(stmts.getProject.get(id));
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const images    = stmts.listImages.all(id);
+  const cut_list  = stmts.listCutList.all(id);
+  const materials = stmts.listMaterials.all(id).map(m => ({ ...m, purchased: !!m.purchased }));
+  const total_cost = materials.reduce((sum, m) => sum + (m.cost || 0), 0);
+  const parts_count = cut_list.length;
+  const build_log  = stmts.listBuildLog.all(id);
+  const finish_log = stmts.listFinishLog.all(id);
+  const links      = stmts.listProjectLinks.all(id, id);
+
+  res.json({ ...project, images, cut_list, materials, total_cost, parts_count, build_log, finish_log, links });
+});
+
+app.post('/api/projects', (req, res) => {
+  const body = req.body ?? {};
+  const info = stmts.insertProject.run({
+    title: body.title ?? 'Untitled project',
+    description: body.description ?? null,
+    source_url: body.source_url || null,
+    cut_plan_url: body.cut_plan_url || null,
+    status: body.status ?? 'idea',
+    difficulty: body.difficulty ?? 'Intermediate',
+    estimated_hours: Number(body.estimated_hours) || 0,
+    wood_types: toJsonArray(body.wood_types),
+    tools_needed: toJsonArray(body.tools_needed),
+  });
+  res.status(201).json(hydrateProject(stmts.getProject.get(info.lastInsertRowid)));
+});
+
+app.put('/api/projects/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const existing = stmts.getProject.get(id);
+  if (!existing) return res.status(404).json({ error: 'Project not found' });
+
+  const body = req.body ?? {};
+  stmts.updateProject.run({
+    id,
+    title: body.title ?? existing.title,
+    description: body.description ?? existing.description,
+    source_url: body.source_url !== undefined ? (body.source_url || null) : existing.source_url,
+    cut_plan_url: body.cut_plan_url !== undefined ? (body.cut_plan_url || null) : existing.cut_plan_url,
+    status: body.status ?? existing.status,
+    difficulty: body.difficulty ?? existing.difficulty,
+    estimated_hours: body.estimated_hours !== undefined
+      ? Number(body.estimated_hours) || 0
+      : existing.estimated_hours,
+    wood_types: body.wood_types !== undefined ? toJsonArray(body.wood_types) : existing.wood_types,
+    tools_needed: body.tools_needed !== undefined ? toJsonArray(body.tools_needed) : existing.tools_needed,
+  });
+  res.json(hydrateProject(stmts.getProject.get(id)));
+});
+
+// Collect every disk-resident filename owned by a project so we can unlink
+// them after the cascading DB delete. Runs before the delete so we still
+// have the rows to inspect.
+function collectProjectFiles(projectId) {
+  const imgs    = db.prepare(`SELECT file_path FROM project_images   WHERE project_id = ? AND file_path IS NOT NULL`).all(projectId);
+  const builds  = db.prepare(`SELECT file_path FROM build_log_entries WHERE project_id = ? AND file_path IS NOT NULL`).all(projectId);
+  return [...imgs, ...builds].map(r => r.file_path);
+}
+function collectShaperProjectFiles(shaperProjectId) {
+  const imgs = db.prepare(`SELECT file_path FROM project_images WHERE shaper_project_id = ? AND file_path IS NOT NULL`).all(shaperProjectId);
+  return imgs.map(r => r.file_path);
+}
+async function unlinkAll(filenames) {
+  await Promise.all(filenames.map(f => unlinkAsync(join(UPLOADS_PATH, basename(f))).catch(() => {})));
+}
+
+app.delete('/api/projects/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const filesToRemove = collectProjectFiles(id);
+  const info = stmts.deleteProject.run(id);
+  if (info.changes === 0) return res.status(404).json({ error: 'Project not found' });
+  await unlinkAll(filesToRemove);
+  res.json({ success: true });
+});
+
+app.get('/api/projects/:id/cut-plan-config', (req, res) => {
+  const row = stmts.getCutPlanConfig.get(Number(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Project not found' });
+  const config = row.cut_plan_config ? JSON.parse(row.cut_plan_config) : null;
+  res.json({ config });
+});
+
+app.put('/api/projects/:id/cut-plan-config', (req, res) => {
+  const id = Number(req.params.id);
+  stmts.saveCutPlanConfig.run({ config: JSON.stringify(req.body), id });
+  res.json({ success: true });
+});
+
+// ── Analyze project URL with Claude ──────────────────────────────────────────
+
+const ANALYZE_SYSTEM = `You extract structured woodworking-project data from a webpage.
+Return ONLY a single JSON object matching this exact shape — no prose, no markdown fences:
+
+{
+  "title": string,
+  "description": string,                     // 1-3 sentences, plus a "## Build Steps" section if numbered steps exist
+  "difficulty": "Beginner" | "Intermediate" | "Advanced",
+  "estimated_hours": number,                 // 0 if not stated
+  "wood_types": string[],                    // e.g. ["Plywood", "Walnut"]
+  "tools_needed": string[],                  // e.g. ["Pocket-hole jig", "Table saw"]
+  "cut_list": [
+    { "part_name": string, "qty": number, "length": string|null, "width": string|null, "thickness": string|null, "material": string|null }
+  ],
+  "materials": [
+    { "name": string, "qty_label": string|null }   // hardware, fasteners, finish, sheet goods
+  ]
+}
+
+Rules:
+- "Easy" → "Beginner", "Hard" / "Advanced" → "Advanced", default → "Intermediate".
+- Dimensions stay as the page presents them (e.g. "27 1/2"). Do not convert units.
+- Pull screw sizes mentioned in step text into materials (e.g. {"name":"1 1/4\\" pocket screws","qty_label":null}).
+- If a field is missing, use the empty value ([], "", or 0). Do not invent numbers.`;
+
+app.post('/api/projects/analyze-url', async (req, res) => {
+  const { url } = req.body ?? {};
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ error: 'url is required' });
+  }
+
+  const anthropic = getAnthropic();
+  if (!anthropic) {
+    return res.status(503).json({ error: 'AI is not configured. Set ANTHROPIC_API_KEY in .env to enable Analyze.' });
+  }
+
+  let html;
+  try {
+    html = await safeFetchHtml(url);
+  } catch (err) {
+    return res.status(502).json({ error: `Fetch failed: ${err.message}` });
+  }
+
+  const nextData = extractNextData(html);
+  const jsonLd   = extractJsonLd(html);
+  const textLimit = (nextData || jsonLd.length > 0) ? 15_000 : 60_000;
+  const text = htmlToPlainText(html).slice(0, textLimit);
+
+  try {
+    const structuredParts = [];
+    if (nextData?.props?.pageProps) {
+      structuredParts.push(`Next.js page data:\n${JSON.stringify(nextData.props.pageProps).slice(0, 14_000)}`);
+    }
+    if (jsonLd.length > 0) {
+      structuredParts.push(`JSON-LD structured data:\n${JSON.stringify(jsonLd).slice(0, 6_000)}`);
+    }
+    const structuredContext = structuredParts.length > 0
+      ? `\nStructured data extracted from page:\n---\n${structuredParts.join('\n\n')}\n---\n`
+      : '';
+
+    const msg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      system: ANALYZE_SYSTEM,
+      messages: [{
+        role: 'user',
+        content: `Source URL: ${url}${structuredContext}\nPage text:\n---\n${text}\n---\n\nReturn the JSON object.`,
+      }],
+    });
+
+    const out = msg.content.find(b => b.type === 'text')?.text ?? '';
+    const jsonStart = out.indexOf('{');
+    const jsonEnd   = out.lastIndexOf('}');
+    if (jsonStart < 0 || jsonEnd < 0) {
+      return res.status(502).json({ error: 'AI did not return JSON', raw: out });
+    }
+    const parsed = JSON.parse(out.slice(jsonStart, jsonEnd + 1));
+    res.json(parsed);
+  } catch (err) {
+    console.error('analyze-url error', err);
+    res.status(500).json({ error: err.message ?? 'Analyze failed' });
+  }
+});
+
+// ── Images ────────────────────────────────────────────────────────────────────
+
+app.get('/api/images/:id', (req, res) => {
+  const row = stmts.getImage.get(Number(req.params.id));
+  if (!row) return res.status(404).end();
+
+  if (row.file_path) {
+    // Serve from disk — basename prevents path traversal
+    return res.sendFile(join(UPLOADS_PATH, basename(row.file_path)), {
+      headers: {
+        'Content-Type': row.image_type || 'application/octet-stream',
+        'Cache-Control': 'public, max-age=3600',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  }
+
+  if (!row.image_data) return res.status(404).end();
+  res.setHeader('Content-Type', row.image_type || 'image/jpeg');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(row.image_data);
+});
+
+app.post('/api/projects/:id/images', upload.single('file'), async (req, res) => {
+  const project_id = Number(req.params.id);
+  if (!stmts.getProject.get(project_id)) {
+    if (req.file) await unlinkAsync(join(UPLOADS_PATH, req.file.filename)).catch(() => {});
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const { kind, url } = req.body ?? {};
+  if (kind !== 'sketch' && kind !== 'inspiration') {
+    if (req.file) await unlinkAsync(join(UPLOADS_PATH, req.file.filename)).catch(() => {});
+    return res.status(400).json({ error: 'kind must be "sketch" or "inspiration"' });
+  }
+
+  const sort_order = Date.now();
+
+  if (req.file) {
+    let mime;
+    try { mime = await sniffMimeOrReject(join(UPLOADS_PATH, req.file.filename)); }
+    catch (err) { return res.status(err.status ?? 400).json({ error: err.message }); }
+    const info = stmts.insertImage.run({
+      project_id, kind,
+      image_data: null, image_type: mime,
+      image_url: null, file_path: req.file.filename,
+      sort_order,
+    });
+    return res.status(201).json({ id: info.lastInsertRowid, kind, image_type: mime });
+  }
+
+  if (url) {
+    const info = stmts.insertImage.run({
+      project_id, kind,
+      image_data: null, image_type: null,
+      image_url: url, file_path: null,
+      sort_order,
+    });
+    return res.status(201).json({ id: info.lastInsertRowid, kind, image_url: url });
+  }
+
+  res.status(400).json({ error: 'provide file or url' });
+});
+
+app.delete('/api/images/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const row = stmts.getImage.get(id);
+  const info = stmts.deleteImage.run(id);
+  if (info.changes === 0) return res.status(404).json({ error: 'Image not found' });
+  if (row?.file_path) {
+    unlink(join(UPLOADS_PATH, basename(row.file_path)), () => {});
+  }
+  res.json({ success: true });
+});
+
+// ── Cut list ──────────────────────────────────────────────────────────────────
+
+app.post('/api/projects/:id/cut-list', (req, res) => {
+  const project_id = Number(req.params.id);
+  if (!stmts.getProject.get(project_id)) return res.status(404).json({ error: 'Project not found' });
+
+  const b = req.body ?? {};
+  const info = stmts.insertCutItem.run({
+    project_id,
+    part_name: b.part_name ?? 'Part',
+    qty: Number(b.qty) || 1,
+    length: b.length ?? null,
+    width: b.width ?? null,
+    thickness: b.thickness ?? null,
+    material: b.material ?? null,
+    sort_order: Number(b.sort_order) || Date.now(),
+  });
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+app.put('/api/cut-list/:id', (req, res) => {
+  const b = req.body ?? {};
+  if (typeof b.part_name !== 'string' || !b.part_name.trim()) {
+    return res.status(400).json({ error: 'part_name is required' });
+  }
+  const info = stmts.updateCutItem.run({
+    id: Number(req.params.id),
+    part_name: b.part_name.trim(),
+    qty: Number(b.qty) || 1,
+    length: b.length ?? null,
+    width: b.width ?? null,
+    thickness: b.thickness ?? null,
+    material: b.material ?? null,
+    sort_order: Number(b.sort_order) || 0,
+  });
+  if (info.changes === 0) return res.status(404).json({ error: 'Cut list item not found' });
+  res.json({ success: true });
+});
+
+app.delete('/api/cut-list/:id', (req, res) => {
+  const info = stmts.deleteCutItem.run(Number(req.params.id));
+  if (info.changes === 0) return res.status(404).json({ error: 'Cut list item not found' });
+  res.json({ success: true });
+});
+
+// ── Materials ─────────────────────────────────────────────────────────────────
+
+app.post('/api/projects/:id/materials', (req, res) => {
+  const project_id = Number(req.params.id);
+  if (!stmts.getProject.get(project_id)) return res.status(404).json({ error: 'Project not found' });
+
+  const b = req.body ?? {};
+  const info = stmts.insertMaterial.run({
+    project_id,
+    name: b.name ?? 'Material',
+    qty_label: b.qty_label ?? null,
+    cost: Number(b.cost) || 0,
+    purchased: b.purchased ? 1 : 0,
+    sort_order: Number(b.sort_order) || Date.now(),
+  });
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+app.put('/api/materials/:id', (req, res) => {
+  const b = req.body ?? {};
+  if (typeof b.name !== 'string' || !b.name.trim()) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+  const info = stmts.updateMaterial.run({
+    id: Number(req.params.id),
+    name: b.name.trim(),
+    qty_label: b.qty_label ?? null,
+    cost: Number(b.cost) || 0,
+    purchased: b.purchased ? 1 : 0,
+    sort_order: Number(b.sort_order) || 0,
+  });
+  if (info.changes === 0) return res.status(404).json({ error: 'Material not found' });
+  res.json({ success: true });
+});
+
+app.delete('/api/materials/:id', (req, res) => {
+  const info = stmts.deleteMaterial.run(Number(req.params.id));
+  if (info.changes === 0) return res.status(404).json({ error: 'Material not found' });
+  res.json({ success: true });
+});
+
+app.patch('/api/materials/:id/purchased', (req, res) => {
+  stmts.setPurchased.run({ purchased: req.body.purchased ? 1 : 0, id: Number(req.params.id) });
+  res.json({ success: true });
+});
+
+// ── Shopping list ─────────────────────────────────────────────────────────────
+
+app.get('/api/shopping-list', (_req, res) => {
+  const rows = stmts.getShoppingList.all().map(m => ({ ...m, purchased: !!m.purchased }));
+  res.json(rows);
+});
+
+// ── Build log ─────────────────────────────────────────────────────────────────
+
+app.get('/api/projects/:id/build-log', (req, res) => {
+  res.json(stmts.listBuildLog.all(Number(req.params.id)));
+});
+
+app.post('/api/projects/:id/build-log', upload.single('file'), async (req, res) => {
+  const project_id = Number(req.params.id);
+  if (!stmts.getProject.get(project_id)) {
+    if (req.file) await unlinkAsync(join(UPLOADS_PATH, req.file.filename)).catch(() => {});
+    return res.status(404).json({ error: 'Project not found' });
+  }
+  const { note = '' } = req.body ?? {};
+  let mime = null;
+  if (req.file) {
+    try { mime = await sniffMimeOrReject(join(UPLOADS_PATH, req.file.filename)); }
+    catch (err) { return res.status(err.status ?? 400).json({ error: err.message }); }
+  }
+  const info = stmts.insertBuildLogEntry.run({
+    project_id,
+    note,
+    file_path:  req.file ? req.file.filename : null,
+    image_type: mime,
+  });
+  res.status(201).json(stmts.getBuildLogEntry.get(info.lastInsertRowid));
+});
+
+app.get('/api/build-log/:id/image', (req, res) => {
+  const row = stmts.getBuildLogEntry.get(Number(req.params.id));
+  if (!row?.file_path) return res.status(404).end();
+  res.sendFile(join(UPLOADS_PATH, basename(row.file_path)), {
+    headers: {
+      'Content-Type': row.image_type || 'image/jpeg',
+      'Cache-Control': 'public, max-age=3600',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+});
+
+app.delete('/api/build-log/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const row = stmts.getBuildLogEntry.get(id);
+  const info = stmts.deleteBuildLogEntry.run(id);
+  if (info.changes === 0) return res.status(404).json({ error: 'Build log entry not found' });
+  if (row?.file_path) unlink(join(UPLOADS_PATH, basename(row.file_path)), () => {});
+  res.json({ success: true });
+});
+
+// ── Finish log ────────────────────────────────────────────────────────────────
+
+app.get('/api/projects/:id/finish-log', (req, res) => {
+  res.json(stmts.listFinishLog.all(Number(req.params.id)));
+});
+
+app.post('/api/projects/:id/finish-log', (req, res) => {
+  const project_id = Number(req.params.id);
+  if (!stmts.getProject.get(project_id)) return res.status(404).json({ error: 'Project not found' });
+  const b = req.body ?? {};
+  const info = stmts.insertFinishLogEntry.run({
+    project_id,
+    product_name: b.product_name ?? 'Product',
+    finish_type:  b.finish_type  ?? null,
+    color:        b.color        ?? null,
+    coats:        b.coats        ? Number(b.coats) : null,
+    notes:        b.notes        ?? null,
+    applied_at:   b.applied_at   || new Date().toISOString().slice(0, 10),
+  });
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+app.put('/api/finish-log/:id', (req, res) => {
+  const b = req.body ?? {};
+  stmts.updateFinishLogEntry.run({
+    id:           Number(req.params.id),
+    product_name: b.product_name ?? '',
+    finish_type:  b.finish_type  ?? null,
+    color:        b.color        ?? null,
+    coats:        b.coats        ? Number(b.coats) : null,
+    notes:        b.notes        ?? null,
+    applied_at:   b.applied_at   || new Date().toISOString().slice(0, 10),
+  });
+  res.json({ success: true });
+});
+
+app.delete('/api/finish-log/:id', (req, res) => {
+  const info = stmts.deleteFinishLogEntry.run(Number(req.params.id));
+  if (info.changes === 0) return res.status(404).json({ error: 'Finish log entry not found' });
+  res.json({ success: true });
+});
+
+// ── Project links ─────────────────────────────────────────────────────────────
+
+app.get('/api/projects/:id/links', (req, res) => {
+  const id = Number(req.params.id);
+  res.json(stmts.listProjectLinks.all(id, id));
+});
+
+// Reject the reverse direction too (B→A when A→B exists), so the UNION-based
+// listing doesn't double-count an unordered pair.
+const reverseLinkExists = db.prepare(`SELECT 1 FROM project_links WHERE project_id = ? AND linked_project_id = ?`);
+
+app.post('/api/projects/:id/links', (req, res) => {
+  const project_id = Number(req.params.id);
+  const { linked_project_id, relationship = 'related' } = req.body ?? {};
+  const linkedId = Number(linked_project_id);
+  if (!linkedId || linkedId === project_id) {
+    return res.status(400).json({ error: 'Invalid linked_project_id' });
+  }
+  if (!stmts.getProject.get(linkedId)) {
+    return res.status(404).json({ error: 'Linked project not found' });
+  }
+  if (reverseLinkExists.get(linkedId, project_id)) {
+    return res.status(409).json({ error: 'These projects are already linked' });
+  }
+  stmts.insertProjectLink.run({ project_id, linked_project_id: linkedId, relationship });
+  res.status(201).json({ success: true });
+});
+
+app.delete('/api/project-links/:id', (req, res) => {
+  const info = stmts.deleteProjectLink.run(Number(req.params.id));
+  if (info.changes === 0) return res.status(404).json({ error: 'Link not found' });
+  res.json({ success: true });
+});
+
+// ── Templates ─────────────────────────────────────────────────────────────────
+
+app.get('/api/templates', (_req, res) => {
+  const rows = stmts.listTemplates.all().map(hydrateProject);
+  res.json(rows);
+});
+
+app.post('/api/projects/:id/save-as-template', (req, res) => {
+  const sourceId = Number(req.params.id);
+  const source = stmts.getProject.get(sourceId);
+  if (!source) return res.status(404).json({ error: 'Project not found' });
+
+  const templateName = (req.body?.template_name || source.title).trim();
+
+  const newId = db.transaction(() => {
+    const info = stmts.insertProject.run({
+      title: templateName, description: source.description ?? null,
+      source_url: source.source_url ?? null, cut_plan_url: null,
+      status: 'idea', difficulty: source.difficulty ?? 'Intermediate',
+      estimated_hours: source.estimated_hours ?? 0,
+      wood_types: source.wood_types, tools_needed: source.tools_needed,
+    });
+    const id = info.lastInsertRowid;
+    stmts.setTemplate.run({ template_name: templateName, id });
+    for (const item of stmts.listCutList.all(sourceId)) {
+      stmts.insertCutItem.run({ project_id: id, part_name: item.part_name, qty: item.qty, length: item.length, width: item.width, thickness: item.thickness, material: item.material, sort_order: item.sort_order });
+    }
+    for (const mat of stmts.listMaterials.all(sourceId)) {
+      stmts.insertMaterial.run({ project_id: id, name: mat.name, qty_label: mat.qty_label, cost: mat.cost, purchased: 0, sort_order: mat.sort_order });
+    }
+    return id;
+  })();
+
+  res.status(201).json(hydrateProject(stmts.getProject.get(newId)));
+});
+
+app.post('/api/templates/:id/clone', (req, res) => {
+  const templateId = Number(req.params.id);
+  const template = stmts.getProject.get(templateId);
+  if (!template || !template.is_template) return res.status(404).json({ error: 'Template not found' });
+
+  const title = (req.body?.title || template.template_name || template.title).trim();
+
+  const newId = db.transaction(() => {
+    const info = stmts.insertProject.run({
+      title, description: template.description ?? null,
+      source_url: template.source_url ?? null, cut_plan_url: null,
+      status: 'idea', difficulty: template.difficulty ?? 'Intermediate',
+      estimated_hours: template.estimated_hours ?? 0,
+      wood_types: template.wood_types, tools_needed: template.tools_needed,
+    });
+    const id = info.lastInsertRowid;
+    for (const item of stmts.listCutList.all(templateId)) {
+      stmts.insertCutItem.run({ project_id: id, part_name: item.part_name, qty: item.qty, length: item.length, width: item.width, thickness: item.thickness, material: item.material, sort_order: item.sort_order });
+    }
+    for (const mat of stmts.listMaterials.all(templateId)) {
+      stmts.insertMaterial.run({ project_id: id, name: mat.name, qty_label: mat.qty_label, cost: mat.cost, purchased: 0, sort_order: mat.sort_order });
+    }
+    return id;
+  })();
+
+  res.status(201).json(hydrateProject(stmts.getProject.get(newId)));
+});
+
+app.delete('/api/templates/:id', (req, res) => {
+  const row = stmts.getProject.get(Number(req.params.id));
+  if (!row || !row.is_template) return res.status(404).json({ error: 'Template not found' });
+  stmts.deleteProject.run(row.id);
+  res.json({ success: true });
+});
+
+// ── Shaper Hub Projects ───────────────────────────────────────────────────────
+
+const SHAPER_ANALYZE_SYSTEM = `You extract structured data from a Shaper Tools Hub project page.
+
+Return ONLY a single JSON object — no prose, no markdown fences:
+
+{
+  "title":        string,
+  "description":  string,
+  "materials":    [{"name": string, "qty": string}],
+  "instructions": string,
+  "image_urls":   string[]
+}
+
+Rules:
+- title: the project name
+- description: 1-3 sentence summary of what is being made
+- materials: list of required materials, lumber, sheet goods, hardware, fasteners
+- instructions: full step-by-step instructions if available, else a summary of the build process
+- image_urls: all image URLs found in the structured data for this project (photos, renders, diagrams). Include every distinct image URL you find. Return [] if none found.
+- Return "" for missing text fields, [] for missing arrays
+- Do NOT invent content not found in the page
+- ALWAYS write all output in English, regardless of the source page language. Translate any non-English content.`;
+
+app.get('/api/shaper-projects', (_req, res) => {
+  const rows = stmts.listShaperProjects.all().map(s => {
+    const hero = stmts.shaperHeroImage.get(s.id);
+    return { ...s, materials: parseJsonArray(s.materials), hero_image_id: hero ? hero.id : null };
+  });
+  res.json(rows);
+});
+
+app.get('/api/shaper-projects/:id', (req, res) => {
+  const row = stmts.getShaperProject.get(Number(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const images   = stmts.listShaperImages.all(row.id);
+  const cut_list = stmts.listShaperCutList.all(row.id);
+  res.json({ ...row, materials: parseJsonArray(row.materials), images, cut_list });
+});
+
+app.post('/api/shaper-projects/analyze-url', async (req, res) => {
+  const { url } = req.body ?? {};
+  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
+
+  const anthropic = getAnthropic();
+  if (!anthropic) return res.status(503).json({ error: 'AI is not configured. Set ANTHROPIC_API_KEY to enable Analyze.' });
+
+  let html;
+  try {
+    html = await safeFetchHtml(url);
+  } catch (err) {
+    return res.status(502).json({ error: `Fetch failed: ${err.message}` });
+  }
+
+  const og       = extractOgMeta(html);
+  const nextData = extractNextData(html);
+  const jsonLd   = extractJsonLd(html);
+
+  // When structured JSON is available, plain text adds little and wastes tokens.
+  const textLimit = (nextData || jsonLd.length > 0) ? 15_000 : 60_000;
+  const text = htmlToPlainText(html).slice(0, textLimit);
+
+  try {
+    const ogContext = [
+      og.title       ? `og:title: ${og.title}`             : '',
+      og.description ? `og:description: ${og.description}` : '',
+    ].filter(Boolean).join('\n');
+
+    // Build structured context from Next.js SSR data and JSON-LD.
+    const structuredParts = [];
+    if (nextData?.props?.pageProps) {
+      structuredParts.push(`Next.js page data:\n${JSON.stringify(nextData.props.pageProps).slice(0, 14_000)}`);
+    }
+    if (jsonLd.length > 0) {
+      structuredParts.push(`JSON-LD structured data:\n${JSON.stringify(jsonLd).slice(0, 6_000)}`);
+    }
+    const structuredContext = structuredParts.length > 0
+      ? `\nStructured data extracted from page:\n---\n${structuredParts.join('\n\n')}\n---\n`
+      : '';
+
+    const msg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      system: SHAPER_ANALYZE_SYSTEM,
+      messages: [{ role: 'user', content: `Source URL: ${url}\n${ogContext ? `\n${ogContext}\n` : ''}${structuredContext}\nPage text:\n---\n${text}\n---\n\nReturn the JSON object. Translate everything to English.` }],
+    });
+    const out = msg.content.find(b => b.type === 'text')?.text ?? '';
+    const js  = out.indexOf('{');
+    const je  = out.lastIndexOf('}');
+    if (js < 0 || je < 0) return res.status(502).json({ error: 'AI did not return JSON', raw: out });
+    const parsed = JSON.parse(out.slice(js, je + 1));
+
+    const primaryPhoto = og.image || '';
+    const allImageUrls = Array.isArray(parsed.image_urls)
+      ? parsed.image_urls.filter(u => typeof u === 'string' && u.startsWith('http'))
+      : [];
+    // Exclude the og:image from the extra list — it's already the primary photo
+    const extraImageUrls = allImageUrls.filter(u => u !== primaryPhoto);
+
+    res.json({
+      title:        parsed.title       || og.title       || '',
+      description:  parsed.description || og.description || '',
+      photo_url:    primaryPhoto,
+      materials:    Array.isArray(parsed.materials) ? parsed.materials : [],
+      instructions: parsed.instructions || '',
+      image_urls:   extraImageUrls,
+    });
+  } catch (err) {
+    console.error('shaper analyze-url error', err);
+    res.status(500).json({ error: err.message ?? 'Analyze failed' });
+  }
+});
+
+app.post('/api/shaper-projects', (req, res) => {
+  const b = req.body ?? {};
+  const info = stmts.insertShaperProject.run({
+    title:        b.title        ?? '',
+    shaper_url:   b.shaper_url   ?? '',
+    description:  b.description  ?? null,
+    photo_url:    b.photo_url    ?? null,
+    materials:    JSON.stringify(Array.isArray(b.materials) ? b.materials : []),
+    instructions: b.instructions ?? null,
+  });
+  const row = stmts.getShaperProject.get(info.lastInsertRowid);
+  res.status(201).json({ ...row, materials: parseJsonArray(row.materials) });
+});
+
+app.put('/api/shaper-projects/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const existing = stmts.getShaperProject.get(id);
+  if (!existing) return res.status(404).json({ error: 'Not found' });
+  const b = req.body ?? {};
+  stmts.updateShaperProject.run({
+    id,
+    title:        b.title        !== undefined ? b.title        : existing.title,
+    shaper_url:   b.shaper_url   !== undefined ? b.shaper_url   : existing.shaper_url,
+    description:  b.description  !== undefined ? (b.description  || null) : existing.description,
+    photo_url:    b.photo_url    !== undefined ? (b.photo_url    || null) : existing.photo_url,
+    materials:    b.materials    !== undefined ? JSON.stringify(Array.isArray(b.materials) ? b.materials : []) : existing.materials,
+    instructions: b.instructions !== undefined ? (b.instructions || null) : existing.instructions,
+  });
+  const row = stmts.getShaperProject.get(id);
+  res.json({ ...row, materials: parseJsonArray(row.materials) });
+});
+
+app.post('/api/shaper-projects/:id/images', upload.single('file'), async (req, res) => {
+  const shaper_project_id = Number(req.params.id);
+  if (!stmts.getShaperProject.get(shaper_project_id)) {
+    if (req.file) await unlinkAsync(join(UPLOADS_PATH, req.file.filename)).catch(() => {});
+    return res.status(404).json({ error: 'Not found' });
+  }
+  const { kind = 'sketch', url } = req.body ?? {};
+  const sort_order = Date.now();
+  if (req.file) {
+    let mime;
+    try { mime = await sniffMimeOrReject(join(UPLOADS_PATH, req.file.filename)); }
+    catch (err) { return res.status(err.status ?? 400).json({ error: err.message }); }
+    const info = stmts.insertShaperImage.run({ shaper_project_id, kind, image_type: mime, image_url: null, file_path: req.file.filename, sort_order });
+    return res.status(201).json({ id: info.lastInsertRowid, kind, image_type: mime });
+  }
+  if (url) {
+    const info = stmts.insertShaperImage.run({ shaper_project_id, kind, image_type: null, image_url: url, file_path: null, sort_order });
+    return res.status(201).json({ id: info.lastInsertRowid, kind, image_url: url });
+  }
+  res.status(400).json({ error: 'provide file or url' });
+});
+
+app.post('/api/shaper-projects/:id/cut-list', (req, res) => {
+  const shaper_project_id = Number(req.params.id);
+  if (!stmts.getShaperProject.get(shaper_project_id)) return res.status(404).json({ error: 'Not found' });
+  const b = req.body ?? {};
+  const info = stmts.insertShaperCutItem.run({
+    shaper_project_id,
+    part_name:  b.part_name  ?? 'Part',
+    qty:        Number(b.qty) || 1,
+    length:     b.length     ?? null,
+    width:      b.width      ?? null,
+    thickness:  b.thickness  ?? null,
+    material:   b.material   ?? null,
+    sort_order: Number(b.sort_order) || Date.now(),
+  });
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+app.delete('/api/shaper-projects/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const filesToRemove = collectShaperProjectFiles(id);
+  const info = stmts.deleteShaperProject.run(id);
+  if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+  await unlinkAll(filesToRemove);
+  res.json({ success: true });
+});
+
+app.get('/{*path}', (_req, res) => {
+  res.sendFile(join(__dirname, 'dist', 'index.html'));
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+
+app.listen(PORT, () => {
+  console.log(`Workshop API listening on http://localhost:${PORT}`);
+});

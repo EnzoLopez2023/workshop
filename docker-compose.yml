@@ -1,0 +1,21 @@
+services:
+  workshop:
+    build: .
+    container_name: workshop
+    ports:
+      - "3006:3006"
+    volumes:
+      - workshop-data:/data
+    env_file:
+      - .env
+    environment:
+      PORT: 3006
+      DB_PATH: /data/workshop.db
+      UPLOADS_PATH: /data/uploads
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID}
+      API_AUDIENCE: ${API_AUDIENCE}
+      ALLOWED_OID: ${ALLOWED_OID}
+    restart: unless-stopped
+
+volumes:
+  workshop-data:
