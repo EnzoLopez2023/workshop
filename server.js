@@ -205,6 +205,23 @@ db.exec(`
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS notebook_pages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT NOT NULL DEFAULT 'Untitled',
+    body       TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS notebook_links (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    page_id    INTEGER NOT NULL REFERENCES notebook_pages(id) ON DELETE CASCADE,
+    url        TEXT NOT NULL,
+    caption    TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_notebook_links_page ON notebook_links(page_id, sort_order);
 `);
 
 // ── Prepared statements ───────────────────────────────────────────────────────
@@ -362,6 +379,17 @@ const stmts = {
     FROM projects p WHERE p.is_template = 1 ORDER BY COALESCE(p.template_name, p.title)
   `),
   setTemplate: db.prepare(`UPDATE projects SET is_template = 1, template_name = @template_name WHERE id = @id`),
+
+  // ── Notebook ──────────────────────────────────────────────────────────────────
+  listNotebookPages:  db.prepare(`SELECT id, title, substr(body,1,200) AS body_preview, created_at, updated_at FROM notebook_pages ORDER BY updated_at DESC`),
+  getNotebookPage:    db.prepare(`SELECT * FROM notebook_pages WHERE id = ?`),
+  insertNotebookPage: db.prepare(`INSERT INTO notebook_pages (title, body) VALUES (@title, @body)`),
+  updateNotebookPage: db.prepare(`UPDATE notebook_pages SET title = @title, body = @body, updated_at = datetime('now') WHERE id = @id`),
+  deleteNotebookPage: db.prepare(`DELETE FROM notebook_pages WHERE id = ?`),
+  listNotebookLinks:  db.prepare(`SELECT * FROM notebook_links WHERE page_id = ? ORDER BY sort_order, id`),
+  insertNotebookLink: db.prepare(`INSERT INTO notebook_links (page_id, url, caption, sort_order) VALUES (@page_id, @url, @caption, @sort_order)`),
+  deleteNotebookLink: db.prepare(`DELETE FROM notebook_links WHERE id = ?`),
+  notebookLinkCount:  db.prepare(`SELECT COUNT(*) AS n FROM notebook_links WHERE page_id = ?`),
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1388,6 +1416,60 @@ app.delete('/api/shaper-projects/:id', async (req, res) => {
   if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
   await unlinkAll(filesToRemove);
   res.json({ success: true });
+});
+
+// ── Notebook ───────────────────────────────────────────────────────────────────
+
+app.get('/api/notebook', (_req, res) => {
+  res.json(stmts.listNotebookPages.all());
+});
+
+app.post('/api/notebook', (req, res) => {
+  const { title = 'Untitled', body = '' } = req.body ?? {};
+  const info = stmts.insertNotebookPage.run({ title, body });
+  const page = stmts.getNotebookPage.get(info.lastInsertRowid);
+  res.status(201).json({ ...page, links: [] });
+});
+
+app.get('/api/notebook/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const page = stmts.getNotebookPage.get(id);
+  if (!page) return res.status(404).json({ error: 'Notebook page not found' });
+  const links = stmts.listNotebookLinks.all(id);
+  res.json({ ...page, links });
+});
+
+app.put('/api/notebook/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const page = stmts.getNotebookPage.get(id);
+  if (!page) return res.status(404).json({ error: 'Notebook page not found' });
+  const { title = page.title, body = page.body } = req.body ?? {};
+  stmts.updateNotebookPage.run({ id, title, body });
+  const updated = stmts.getNotebookPage.get(id);
+  res.json({ ...updated, links: stmts.listNotebookLinks.all(id) });
+});
+
+app.delete('/api/notebook/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!stmts.getNotebookPage.get(id)) return res.status(404).json({ error: 'Notebook page not found' });
+  stmts.deleteNotebookPage.run(id);
+  res.status(204).end();
+});
+
+app.post('/api/notebook/:id/links', (req, res) => {
+  const page_id = Number(req.params.id);
+  if (!stmts.getNotebookPage.get(page_id)) return res.status(404).json({ error: 'Notebook page not found' });
+  const { url, caption = null } = req.body ?? {};
+  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
+  const sort_order = (stmts.notebookLinkCount.get(page_id)?.n ?? 0);
+  const info = stmts.insertNotebookLink.run({ page_id, url, caption, sort_order });
+  const link = stmts.listNotebookLinks.all(page_id).find(l => l.id === info.lastInsertRowid);
+  res.status(201).json(link);
+});
+
+app.delete('/api/notebook-links/:id', (req, res) => {
+  stmts.deleteNotebookLink.run(Number(req.params.id));
+  res.status(204).end();
 });
 
 app.get('/{*path}', (_req, res) => {

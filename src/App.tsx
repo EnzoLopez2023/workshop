@@ -7,6 +7,8 @@ import ShaperProjectDetail from './pages/ShaperProjectDetail';
 import ShaperProjectForm from './pages/ShaperProjectForm';
 import ConversionTables from './pages/ConversionTables';
 import ShoppingList from './pages/ShoppingList';
+import NotebookList from './pages/NotebookList';
+import NotebookPage from './pages/NotebookPage';
 
 export default function App() {
   return (
@@ -22,6 +24,8 @@ export default function App() {
         <Route path="/shaper/:id/edit"   element={<ShaperProjectForm />} />
         <Route path="/conversions"       element={<ConversionTables />} />
         <Route path="/shopping-list"     element={<ShoppingList />} />
+        <Route path="/notebook"          element={<NotebookList />} />
+        <Route path="/notebook/:id"      element={<NotebookPage />} />
         <Route path="*"                  element={<Navigate to="/" replace />} />
       </Routes>
     </div>

@@ -1,4 +1,4 @@
-import { Plus, Hammer, LogOut, Ruler, ShoppingCart } from 'lucide-react';
+import { Plus, Hammer, LogOut, Ruler, ShoppingCart, BookOpen } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -90,6 +90,9 @@ export default function Header() {
             <span className="header-new-label">New Project</span>
           </button>
         )}
+        <button className="btn btn-ghost" onClick={() => navigate('/notebook')} title="Notebook" style={{ gap: 6 }}>
+          <BookOpen size={15} strokeWidth={2} />
+        </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div
             title={displayName}

@@ -200,3 +200,30 @@ export const STATUS_LABELS: Record<ProjectStatus, string> = {
   in_progress: 'In Progress',
   completed: 'Completed',
 };
+
+// ── Notebook ──────────────────────────────────────────────────────────────────
+
+export interface NotebookLink {
+  id: number;
+  page_id: number;
+  url: string;
+  caption: string | null;
+  sort_order: number;
+}
+
+export interface NotebookPageSummary {
+  id: number;
+  title: string;
+  body_preview: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotebookPageDetail {
+  id: number;
+  title: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+  links: NotebookLink[];
+}
