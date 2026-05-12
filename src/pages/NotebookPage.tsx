@@ -13,6 +13,18 @@ function extractYouTubeId(url: string): string | null {
   return m ? m[1] : null;
 }
 
+const URL_RE = /https?:\/\/[^\s<>"]+/g;
+
+function linkifyBody(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return escaped.replace(URL_RE, url =>
+    `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--color-rust);word-break:break-all">${url}</a>`
+  );
+}
+
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso + 'Z').getTime();
   const min = Math.floor(diff / 60000);
@@ -35,6 +47,7 @@ export default function NotebookPage() {
   const [body, setBody] = useState('');
   const [links, setLinks] = useState<NotebookLink[]>([]);
   const [urlInput, setUrlInput] = useState('');
+  const [preview, setPreview] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [addingLink, setAddingLink] = useState(false);
@@ -138,18 +151,40 @@ export default function NotebookPage() {
       </div>
 
       {/* Body */}
-      <textarea
-        value={body}
-        onChange={e => setBody(e.target.value)}
-        placeholder="Start writing…"
-        style={{
-          width: '100%', minHeight: 220, resize: 'vertical', padding: '14px 16px',
-          fontFamily: 'var(--font-sans)', fontSize: '0.92rem', lineHeight: 1.65,
-          border: '1px solid var(--color-line)', borderRadius: 10,
-          background: 'var(--color-cream)', color: 'var(--color-ink)',
-          outline: 'none', boxSizing: 'border-box',
-        }}
-      />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+        <button
+          className="btn btn-ghost"
+          onClick={() => setPreview(p => !p)}
+          style={{ fontSize: '0.75rem', padding: '3px 10px', color: 'var(--color-muted)' }}
+        >
+          {preview ? 'Edit' : 'Preview'}
+        </button>
+      </div>
+      {preview ? (
+        <div
+          style={{
+            width: '100%', minHeight: 220, padding: '14px 16px',
+            fontFamily: 'var(--font-sans)', fontSize: '0.92rem', lineHeight: 1.65,
+            border: '1px solid var(--color-line)', borderRadius: 10,
+            background: 'var(--color-cream)', color: 'var(--color-ink)',
+            boxSizing: 'border-box', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          }}
+          dangerouslySetInnerHTML={{ __html: linkifyBody(body) }}
+        />
+      ) : (
+        <textarea
+          value={body}
+          onChange={e => setBody(e.target.value)}
+          placeholder="Start writing…"
+          style={{
+            width: '100%', minHeight: 220, resize: 'vertical', padding: '14px 16px',
+            fontFamily: 'var(--font-sans)', fontSize: '0.92rem', lineHeight: 1.65,
+            border: '1px solid var(--color-line)', borderRadius: 10,
+            background: 'var(--color-cream)', color: 'var(--color-ink)',
+            outline: 'none', boxSizing: 'border-box',
+          }}
+        />
+      )}
 
       {/* Links & Embeds */}
       <div style={{ marginTop: 32 }}>
