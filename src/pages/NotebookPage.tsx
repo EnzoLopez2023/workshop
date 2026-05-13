@@ -67,7 +67,15 @@ export default function NotebookPage() {
     }).catch(err => console.error(err));
   }, [pageId]);
 
-  const handleSave = async () => {
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (dirty) e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
+
+  const handleSave = async (): Promise<boolean> => {
     setSaving(true);
     setSaveError('');
     try {
@@ -75,11 +83,21 @@ export default function NotebookPage() {
       serverTitle.current = updated.title;
       serverBody.current = updated.body;
       setPage(updated);
+      return true;
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : 'Save failed');
+      return false;
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleBack = async () => {
+    if (dirty) {
+      const ok = await handleSave();
+      if (!ok) return;
+    }
+    navigate('/notebook');
   };
 
   const handleAddLink = async () => {
@@ -119,7 +137,7 @@ export default function NotebookPage() {
     <div className="page-container" style={{ maxWidth: 780 }}>
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
-        <button onClick={() => navigate('/notebook')} className="btn btn-ghost" style={{ gap: 6, flexShrink: 0 }}>
+        <button onClick={handleBack} className="btn btn-ghost" style={{ gap: 6, flexShrink: 0 }}>
           <ArrowLeft size={14} /> Notebook
         </button>
         <input
