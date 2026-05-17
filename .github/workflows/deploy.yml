@@ -70,18 +70,18 @@ jobs:
           az webapp restart -g $env:RG -n $env:WEBAPP
 
       - name: Wait for app to come up
-        # App Service needs a moment to pull the image and start the
-        # container. Poll /api/health until 200 or 60 s elapses.
+        # Container cold start (Docker pull + Node boot) takes 2–4 minutes
+        # on B1. Poll /api/health for 5 min before giving up.
         run: |
           $url = "https://$env:WEBAPP.azurewebsites.net/api/health"
-          $deadline = (Get-Date).AddSeconds(60)
+          $deadline = (Get-Date).AddSeconds(300)
           while ((Get-Date) -lt $deadline) {
             try {
-              $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 5
+              $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 8
               if ($r.StatusCode -eq 200) {
                 Write-Host "Healthy: $($r.Content)"
                 exit 0
               }
-            } catch { Start-Sleep -Seconds 3 }
+            } catch { Start-Sleep -Seconds 5 }
           }
-          throw "Health check did not pass within 60s — check Azure portal app logs"
+          throw "Health check did not pass within 5 min — check Azure portal app logs"
