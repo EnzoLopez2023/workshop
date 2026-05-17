@@ -71,17 +71,19 @@ jobs:
 
       - name: Wait for app to come up
         # Container cold start (Docker pull + Node boot) takes 2–4 minutes
-        # on B1. Poll /api/health for 5 min before giving up.
+        # on B1. Poll /api/health for 5 min via curl (more reliable than
+        # Invoke-WebRequest on Windows for TLS edge cases).
         run: |
           $url = "https://$env:WEBAPP.azurewebsites.net/api/health"
-          $deadline = (Get-Date).AddSeconds(300)
-          while ((Get-Date) -lt $deadline) {
-            try {
-              $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 8
-              if ($r.StatusCode -eq 200) {
-                Write-Host "Healthy: $($r.Content)"
-                exit 0
-              }
-            } catch { Start-Sleep -Seconds 5 }
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            cmd /c "curl -fsS --max-time 8 $url > nul 2>&1"
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Healthy after $($i*5)s"
+              $ok = $true
+              break
+            }
+            Start-Sleep -Seconds 5
           }
-          throw "Health check did not pass within 5 min — check Azure portal app logs"
+          if (-not $ok) { throw "Health check did not pass within 5 min" }
+          exit 0
