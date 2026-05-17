@@ -1,3 +1,5 @@
+# Built and pushed to Azure Container Registry by GitHub Actions on every
+# push to main. See .github/workflows/deploy.yml and AZURE_ARCHITECTURE.md.
 FROM node:22-alpine AS deps
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
