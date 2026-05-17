@@ -1,43 +1,90 @@
-name: Build & Deploy Workshop
+name: Build & Deploy Workshop to Azure
+
+# Builds the image in ACR (server-side, so no local Docker needed by the
+# runner) and tells the Azure web app to pull the new image.
+#
+# Runs on the self-hosted Windows runner because that's where `az` is
+# already authenticated against the Visual Studio Enterprise subscription.
+# If you ever move to a GitHub-hosted runner, replace the implicit
+# `az` session with `azure/login` + OIDC federated credentials.
+#
+# Deploys leave /home/data/ untouched — see AZURE_ARCHITECTURE.md for
+# what survives a deploy vs what doesn't.
 
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'azure-infra/**'
+      - '.gitignore'
   workflow_dispatch:
 
 concurrency:
   group: deploy-workshop
   cancel-in-progress: false
 
+env:
+  RG: rg-personal-apps-prod
+  ACR: acrenzolopez01
+  IMAGE: workshop:latest
+  WEBAPP: app-workshop-prod-lwxhu7jxlrbtu
+  VITE_AZURE_CLIENT_ID: 0f303f8f-207f-4b7f-84a5-b5d0abcf49d1
+  VITE_AZURE_TENANT_ID: 52188f12-db6b-46c6-88ff-08c802f0ed3b
+
 jobs:
   deploy:
     runs-on: self-hosted
     defaults:
       run:
+        shell: powershell
         working-directory: C:\Source\Repo\Workshop
 
     steps:
       - name: Sync repo
-        shell: powershell
         run: |
           git fetch --all --prune
           git reset --hard origin/main
 
-      - name: Build image
-        shell: powershell
-        run: docker compose build
-
-      - name: Restart container
-        shell: powershell
-        run: docker compose up -d
-
-      - name: Wait for server
-        shell: powershell
-        run: Start-Sleep -Seconds 4
-
-      - name: Health check
-        shell: powershell
+      - name: Confirm Azure session
         run: |
-          $r = Invoke-RestMethod -Uri 'http://localhost:3006/api/health' -TimeoutSec 10
-          if ($r.status -ne 'ok') { throw "Health check failed: $($r | ConvertTo-Json)" }
-          Write-Host "OK - db: $($r.db)"
+          $sub = (az account show --query id -o tsv)
+          if (-not $sub) { throw "az is not logged in on this runner" }
+          Write-Host "Subscription: $sub"
+
+      - name: Build image in ACR
+        # ACR builds server-side. The Vite build needs the MSAL identifiers
+        # baked in (see MIGRATION_RCA.md issue #3) — pass as --build-arg.
+        # Don't trust the local exit code on Windows; verify via task list.
+        # See MIGRATION_RCA.md issue #4.
+        run: |
+          $build = az acr build `
+            --registry $env:ACR `
+            --image    $env:IMAGE `
+            --build-arg "VITE_AZURE_CLIENT_ID=$env:VITE_AZURE_CLIENT_ID" `
+            --build-arg "VITE_AZURE_TENANT_ID=$env:VITE_AZURE_TENANT_ID" `
+            .
+          $latest = (az acr task list-runs --registry $env:ACR --top 1 --query "[0].status" -o tsv)
+          Write-Host "Latest ACR run status: $latest"
+          if ($latest -ne 'Succeeded') { throw "ACR build did not succeed (status: $latest)" }
+
+      - name: Restart web app to pull new image
+        run: |
+          az webapp restart -g $env:RG -n $env:WEBAPP
+
+      - name: Wait for app to come up
+        # App Service needs a moment to pull the image and start the
+        # container. Poll /api/health until 200 or 60 s elapses.
+        run: |
+          $url = "https://$env:WEBAPP.azurewebsites.net/api/health"
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 5
+              if ($r.StatusCode -eq 200) {
+                Write-Host "Healthy: $($r.Content)"
+                exit 0
+              }
+            } catch { Start-Sleep -Seconds 3 }
+          }
+          throw "Health check did not pass within 60s — check Azure portal app logs"
