@@ -1,15 +1,8 @@
-name: Build & Deploy Workshop to Azure
+# GitHub Actions deploy for Workshop → Azure App Service (Linux containers).
+# Runs on a GitHub-hosted ubuntu-latest runner — no self-hosted runner needed.
+# Azure auth uses OIDC federated credentials (no static secrets, no DPAPI).
 
-# Builds the image in ACR (server-side, so no local Docker needed by the
-# runner) and tells the Azure web app to pull the new image.
-#
-# Runs on the self-hosted Windows runner because that's where `az` is
-# already authenticated against the Visual Studio Enterprise subscription.
-# If you ever move to a GitHub-hosted runner, replace the implicit
-# `az` session with `azure/login` + OIDC federated credentials.
-#
-# Deploys leave /home/data/ untouched — see AZURE_ARCHITECTURE.md for
-# what survives a deploy vs what doesn't.
+name: Build & Deploy Workshop to Azure
 
 on:
   push:
@@ -24,66 +17,67 @@ concurrency:
   group: deploy-workshop
   cancel-in-progress: false
 
+# Required for azure/login@v2 to request an OIDC JWT from GitHub.
+permissions:
+  id-token: write
+  contents: read
+
 env:
-  RG: rg-personal-apps-prod
-  ACR: acrenzolopez01
-  IMAGE: workshop:latest
+  RG:     rg-personal-apps-prod
+  ACR:    acrenzolopez01
+  IMAGE:  workshop:latest
   WEBAPP: app-workshop-prod-lwxhu7jxlrbtu
+
+  # OIDC SP — these IDs are NOT secrets; the federated credential scopes them
+  # to this repo + branch only (MIGRATION_RCA.md #9).
+  AZURE_CLIENT_ID:       dbd68ead-ad3f-4c2b-8559-36112970db42
+  AZURE_TENANT_ID:       de625678-c55b-4494-9558-14946cbb6133
+  AZURE_SUBSCRIPTION_ID: 1cf02211-8d77-4658-bb6a-0f83ec831c3b
+
+  # Vite build-time Entra IDs — baked into the frontend bundle.
   VITE_AZURE_CLIENT_ID: 0f303f8f-207f-4b7f-84a5-b5d0abcf49d1
   VITE_AZURE_TENANT_ID: 52188f12-db6b-46c6-88ff-08c802f0ed3b
 
 jobs:
   deploy:
-    runs-on: self-hosted
-    defaults:
-      run:
-        shell: powershell
-        working-directory: C:\Source\Repo\Workshop
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Sync repo
-        run: |
-          git fetch --all --prune
-          git reset --hard origin/main
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Confirm Azure session
-        run: |
-          $sub = (az account show --query id -o tsv)
-          if (-not $sub) { throw "az is not logged in on this runner" }
-          Write-Host "Subscription: $sub"
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ env.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Build image in ACR
-        # ACR builds server-side. The Vite build needs the MSAL identifiers
-        # baked in (see MIGRATION_RCA.md issue #3) — pass as --build-arg.
-        #
-        # On Windows, `az acr build` crashes streaming Vite's "✓" char
-        # (MIGRATION_RCA.md issue #4). The build itself succeeds server-side.
-        # We wrap in cmd.exe with `& exit 0` and force PS to exit clean.
-        # The next step's health check verifies the new image actually runs.
+        # ACR builds server-side — no Docker daemon needed on the runner.
+        # VITE_* vars must be baked in at build time (MIGRATION_RCA.md #3).
         run: |
-          cmd /c "az acr build --registry $env:ACR --image $env:IMAGE --build-arg VITE_AZURE_CLIENT_ID=$env:VITE_AZURE_CLIENT_ID --build-arg VITE_AZURE_TENANT_ID=$env:VITE_AZURE_TENANT_ID . > nul 2>&1 & exit 0"
-          Write-Host "az acr build returned. Image push verified by next step's health check."
-          exit 0
+          az acr build \
+            --registry "$ACR" \
+            --image "$IMAGE" \
+            --build-arg "VITE_AZURE_CLIENT_ID=$VITE_AZURE_CLIENT_ID" \
+            --build-arg "VITE_AZURE_TENANT_ID=$VITE_AZURE_TENANT_ID" \
+            .
 
       - name: Restart web app to pull new image
-        run: |
-          az webapp restart -g $env:RG -n $env:WEBAPP
+        run: az webapp restart -g "$RG" -n "$WEBAPP"
 
       - name: Wait for app to come up
-        # Container cold start (Docker pull + Node boot) takes 2–4 minutes
-        # on B1. Poll /api/health for 5 min via curl (more reliable than
-        # Invoke-WebRequest on Windows for TLS edge cases).
+        # Container cold start (Docker pull + Node boot) on B1 reliably
+        # takes 2-4 minutes. Poll /api/health for up to 5 minutes.
         run: |
-          $url = "https://$env:WEBAPP.azurewebsites.net/api/health"
-          $ok = $false
-          for ($i = 0; $i -lt 60; $i++) {
-            cmd /c "curl -fsS --max-time 8 $url > nul 2>&1"
-            if ($LASTEXITCODE -eq 0) {
-              Write-Host "Healthy after $($i*5)s"
-              $ok = $true
-              break
-            }
-            Start-Sleep -Seconds 5
-          }
-          if (-not $ok) { throw "Health check did not pass within 5 min" }
-          exit 0
+          url="https://$WEBAPP.azurewebsites.net/api/health"
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 8 "$url" > /dev/null 2>&1; then
+              echo "Healthy after $((i * 5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Health check did not pass within 5 min" >&2
+          exit 1
