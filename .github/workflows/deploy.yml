@@ -58,20 +58,12 @@ jobs:
         #
         # On Windows, `az acr build` crashes streaming Vite's "✓" char
         # (MIGRATION_RCA.md issue #4). The build itself succeeds server-side.
-        # We suppress the streaming output AND ignore the CLI exit code, then
-        # ask ACR for the authoritative status. ErrorActionPreference is set
-        # to Continue so native non-zero exits don't terminate the step.
+        # We wrap the az call in cmd.exe with `& exit 0` so PS sees a clean
+        # exit code regardless of the unicode crash. Then we ask ACR for the
+        # authoritative status — that's our real success signal.
         run: |
-          $ErrorActionPreference = 'Continue'
-          $PSNativeCommandUseErrorActionPreference = $false
-          az acr build `
-            --registry $env:ACR `
-            --image    $env:IMAGE `
-            --build-arg "VITE_AZURE_CLIENT_ID=$env:VITE_AZURE_CLIENT_ID" `
-            --build-arg "VITE_AZURE_TENANT_ID=$env:VITE_AZURE_TENANT_ID" `
-            . 2>&1 | Out-Null
+          cmd /c "az acr build --registry $env:ACR --image $env:IMAGE --build-arg VITE_AZURE_CLIENT_ID=$env:VITE_AZURE_CLIENT_ID --build-arg VITE_AZURE_TENANT_ID=$env:VITE_AZURE_TENANT_ID . > nul 2>&1 & exit 0"
 
-          $ErrorActionPreference = 'Stop'
           $latest = (az acr task list-runs --registry $env:ACR --top 1 --query "[0].status" -o tsv)
           $runId  = (az acr task list-runs --registry $env:ACR --top 1 --query "[0].runId" -o tsv)
           Write-Host "ACR run $runId status: $latest"
