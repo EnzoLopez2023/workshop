@@ -38,6 +38,11 @@ env:
   VITE_AZURE_CLIENT_ID: 0f303f8f-207f-4b7f-84a5-b5d0abcf49d1
   VITE_AZURE_TENANT_ID: 52188f12-db6b-46c6-88ff-08c802f0ed3b
 
+  # Tabloom integration (read-only notebook). Workshop's frontend acquires
+  # a token for Tabloom's API scope and calls Tabloom directly.
+  VITE_TABLOOM_API_BASE_URL: https://app-tabloom-prod-lwxhu7jxlrbtu.azurewebsites.net
+  VITE_TABLOOM_CLIENT_ID:    b30f09b9-e100-4aa5-af22-ce359ff13fba
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -62,6 +67,8 @@ jobs:
             --image "$IMAGE" \
             --build-arg "VITE_AZURE_CLIENT_ID=$VITE_AZURE_CLIENT_ID" \
             --build-arg "VITE_AZURE_TENANT_ID=$VITE_AZURE_TENANT_ID" \
+            --build-arg "VITE_TABLOOM_API_BASE_URL=$VITE_TABLOOM_API_BASE_URL" \
+            --build-arg "VITE_TABLOOM_CLIENT_ID=$VITE_TABLOOM_CLIENT_ID" \
             .
 
       - name: Restart web app to pull new image

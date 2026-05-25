@@ -8,6 +8,7 @@ import AuthGuard from './auth/AuthGuard';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import { setMsalInstance } from './services/api';
+import { setMsalInstance as setTabloomMsalInstance } from './services/tabloomApi';
 import './index.css';
 
 const rootEl = document.getElementById('root')!;
@@ -33,6 +34,7 @@ try {
     .initialize()
     .then(() => {
       setMsalInstance(msalInstance);
+      setTabloomMsalInstance(msalInstance);
       createRoot(rootEl).render(
         <React.StrictMode>
           <ErrorBoundary>

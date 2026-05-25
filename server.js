@@ -1418,59 +1418,9 @@ app.delete('/api/shaper-projects/:id', async (req, res) => {
   res.json({ success: true });
 });
 
-// ── Notebook ───────────────────────────────────────────────────────────────────
-
-app.get('/api/notebook', (_req, res) => {
-  res.json(stmts.listNotebookPages.all());
-});
-
-app.post('/api/notebook', (req, res) => {
-  const { title = 'Untitled', body = '' } = req.body ?? {};
-  const info = stmts.insertNotebookPage.run({ title, body });
-  const page = stmts.getNotebookPage.get(info.lastInsertRowid);
-  res.status(201).json({ ...page, links: [] });
-});
-
-app.get('/api/notebook/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const page = stmts.getNotebookPage.get(id);
-  if (!page) return res.status(404).json({ error: 'Notebook page not found' });
-  const links = stmts.listNotebookLinks.all(id);
-  res.json({ ...page, links });
-});
-
-app.put('/api/notebook/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const page = stmts.getNotebookPage.get(id);
-  if (!page) return res.status(404).json({ error: 'Notebook page not found' });
-  const { title = page.title, body = page.body } = req.body ?? {};
-  stmts.updateNotebookPage.run({ id, title, body });
-  const updated = stmts.getNotebookPage.get(id);
-  res.json({ ...updated, links: stmts.listNotebookLinks.all(id) });
-});
-
-app.delete('/api/notebook/:id', (req, res) => {
-  const id = Number(req.params.id);
-  if (!stmts.getNotebookPage.get(id)) return res.status(404).json({ error: 'Notebook page not found' });
-  stmts.deleteNotebookPage.run(id);
-  res.status(204).end();
-});
-
-app.post('/api/notebook/:id/links', (req, res) => {
-  const page_id = Number(req.params.id);
-  if (!stmts.getNotebookPage.get(page_id)) return res.status(404).json({ error: 'Notebook page not found' });
-  const { url, caption = null } = req.body ?? {};
-  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
-  const sort_order = (stmts.notebookLinkCount.get(page_id)?.n ?? 0);
-  const info = stmts.insertNotebookLink.run({ page_id, url, caption, sort_order });
-  const link = stmts.listNotebookLinks.all(page_id).find(l => l.id === info.lastInsertRowid);
-  res.status(201).json(link);
-});
-
-app.delete('/api/notebook-links/:id', (req, res) => {
-  stmts.deleteNotebookLink.run(Number(req.params.id));
-  res.status(204).end();
-});
+// Notebook routes removed: the Workshop notebook UI is now a read-only view
+// onto a Tabloom notebook (see src/services/tabloomApi.ts). The notebook_pages
+// and notebook_links tables are left in place but unused.
 
 app.get('/{*path}', (_req, res) => {
   res.sendFile(join(__dirname, 'dist', 'index.html'));

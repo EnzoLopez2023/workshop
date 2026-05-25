@@ -1,0 +1,158 @@
+/* Tabloom-rendered HTML fragments mounted inside Workshop's notebook view.
+ * Adapted from tabloom/lib/html-export.js STYLESHEET. Scoped to
+ * `.tabloom-content` so it doesn't bleed into Workshop's own theme. Custom
+ * properties are inlined as literal values for the same reason. */
+
+.tabloom-content {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.62;
+  color: #1f1d18;
+}
+
+.tabloom-content .page-meta {
+  font-size: 12px;
+  color: #8a8576;
+  margin-bottom: 8px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tabloom-content .page-meta .crumb { color: #5c5749; font-weight: 500; }
+.tabloom-content .page-meta .sep { color: #8a8576; }
+
+.tabloom-content h1 {
+  font-family: 'Newsreader', 'Source Serif 4', 'Georgia', serif;
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 1.18;
+  letter-spacing: -0.014em;
+  margin: 6px 0 14px;
+  color: #1f1d18;
+}
+.tabloom-content h2 {
+  font-family: 'Newsreader', 'Source Serif 4', 'Georgia', serif;
+  font-weight: 500;
+  font-size: 23px;
+  letter-spacing: -0.012em;
+  margin: 28px 0 10px;
+  color: #1f1d18;
+}
+.tabloom-content h3 {
+  font-family: 'Newsreader', 'Source Serif 4', 'Georgia', serif;
+  font-weight: 500;
+  font-size: 18px;
+  letter-spacing: -0.008em;
+  margin: 22px 0 8px;
+  color: #1f1d18;
+}
+
+.tabloom-content p { margin: 0 0 14px; }
+
+.tabloom-content blockquote {
+  border-left: 3px solid #7a9e5e;
+  padding: 4px 14px;
+  color: #5c5749;
+  background: #eaf2df;
+  margin: 14px 0;
+  border-radius: 4px;
+}
+.tabloom-content blockquote p:last-child { margin-bottom: 0; }
+
+.tabloom-content pre.codeblock {
+  background: #f4efe2;
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 14px 0;
+}
+.tabloom-content code {
+  font-family: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', monospace;
+  font-size: 0.92em;
+  background: #f4efe2;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.tabloom-content pre.codeblock code { background: transparent; padding: 0; }
+
+.tabloom-content hr { border: none; border-top: 1px solid #e0dbcc; margin: 28px 0; }
+
+.tabloom-content ul,
+.tabloom-content ol { padding-left: 22px; margin: 8px 0 14px; }
+.tabloom-content li { margin: 4px 0; }
+
+.tabloom-content ul.tasklist { list-style: none; padding-left: 0; }
+.tabloom-content li.taskitem { display: flex; gap: 8px; align-items: flex-start; }
+.tabloom-content li.taskitem input { margin-top: 5px; }
+
+.tabloom-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 14px 0;
+  font-size: 14px;
+}
+.tabloom-content th,
+.tabloom-content td {
+  border: 1px solid #e0dbcc;
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.tabloom-content th { background: #fdfbf5; font-weight: 600; }
+
+.tabloom-content figure { margin: 18px 0; }
+.tabloom-content figure img { max-width: 100%; height: auto; border-radius: 6px; }
+.tabloom-content figcaption {
+  font-size: 12.5px;
+  color: #8a8576;
+  text-align: center;
+  margin-top: 6px;
+  font-style: italic;
+}
+.tabloom-content .figcaption-ocr {
+  font-size: 11px;
+  color: #8a8576;
+  text-align: center;
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', monospace;
+}
+
+.tabloom-content .callout {
+  background: #eaf2df;
+  border-left: 3px solid #7a9e5e;
+  padding: 10px 14px;
+  border-radius: 4px;
+  margin: 14px 0;
+}
+
+.tabloom-content .tag-inline {
+  background: #eaf2df;
+  color: #5c5749;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.88em;
+  font-weight: 500;
+}
+
+.tabloom-content .tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 24px;
+}
+.tabloom-content .tags-row .tag {
+  background: #eaf2df;
+  color: #5c5749;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.tabloom-content a {
+  color: #7a9e5e;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

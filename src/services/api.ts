@@ -5,7 +5,6 @@ import type {
   CutListItem, Material, AnalyzedProject,
   ShaperProject, ShaperProjectPayload, ShaperAnalysisResult,
   BuildLogEntry, FinishLogEntry, ShoppingListItem, TemplateListItem,
-  NotebookLink, NotebookPageSummary, NotebookPageDetail,
 } from '../types/project';
 
 const BASE = '/api';
@@ -239,17 +238,6 @@ export const cloneTemplate = (templateId: number, title?: string) =>
 export const deleteTemplate = (id: number) =>
   request<{ success: boolean }>(`/templates/${id}`, { method: 'DELETE' });
 
-// ── Notebook ──────────────────────────────────────────────────────────────────
-
-export const listNotebookPages  = () => request<NotebookPageSummary[]>('/notebook');
-export const getNotebookPage    = (id: number) => request<NotebookPageDetail>(`/notebook/${id}`);
-export const createNotebookPage = (title?: string, body?: string) =>
-  request<NotebookPageDetail>('/notebook', json('POST', { title, body }));
-export const updateNotebookPage = (id: number, title: string, body: string) =>
-  request<NotebookPageDetail>(`/notebook/${id}`, json('PUT', { title, body }));
-export const deleteNotebookPage = (id: number) =>
-  request<void>(`/notebook/${id}`, { method: 'DELETE' });
-export const addNotebookLink    = (pageId: number, url: string, caption?: string) =>
-  request<NotebookLink>(`/notebook/${pageId}/links`, json('POST', { url, caption }));
-export const deleteNotebookLink = (id: number) =>
-  request<void>(`/notebook-links/${id}`, { method: 'DELETE' });
+// Notebook reads/writes are no longer served by this backend — the Workshop
+// notebook UI is a read-only window onto Tabloom's "Workshop" notebook. See
+// src/services/tabloomApi.ts.

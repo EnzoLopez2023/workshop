@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, BookOpen, Plus, Trash2 } from 'lucide-react';
-import { listNotebookPages, createNotebookPage, deleteNotebookPage } from '../services/api';
-import type { NotebookPageSummary } from '../types/project';
+import { ArrowLeft, BookOpen } from 'lucide-react';
+import { listTabloomWorkshopPages, type TabloomPageSummary } from '../services/tabloomApi';
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso + 'Z').getTime();
@@ -18,49 +17,25 @@ function relativeTime(iso: string): string {
 
 export default function NotebookList() {
   const navigate = useNavigate();
-  const [pages, setPages] = useState<NotebookPageSummary[]>([]);
+  const [pages, setPages] = useState<TabloomPageSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    listNotebookPages()
+    listTabloomWorkshopPages()
       .then(setPages)
-      .catch(err => console.error(err))
+      .catch(err => {
+        console.error(err);
+        setLoadError(err instanceof Error ? err.message : 'Failed to load');
+      })
       .finally(() => setLoading(false));
   }, []);
-
-  const handleNew = async () => {
-    setCreating(true);
-    try {
-      const page = await createNotebookPage();
-      navigate(`/notebook/${page.id}`);
-    } catch (err) {
-      console.error(err);
-      setCreating(false);
-    }
-  };
-
-  const handleDelete = async (id: number) => {
-    setPages(prev => prev.filter(p => p.id !== id));
-    setConfirmDelete(null);
-    try {
-      await deleteNotebookPage(id);
-    } catch (err) {
-      console.error(err);
-      listNotebookPages().then(setPages).catch(() => {});
-    }
-  };
 
   return (
     <div className="page-container" style={{ maxWidth: 780 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32, gap: 12 }}>
         <button onClick={() => navigate(-1)} className="btn btn-ghost" style={{ gap: 6 }}>
           <ArrowLeft size={14} /> Back
-        </button>
-        <button className="btn btn-primary" onClick={handleNew} disabled={creating} style={{ gap: 6 }}>
-          <Plus size={15} strokeWidth={2.4} />
-          {creating ? 'Creating…' : 'New Page'}
         </button>
       </div>
 
@@ -69,14 +44,24 @@ export default function NotebookList() {
         <h1 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: '2rem', fontWeight: 700 }}>Notebook</h1>
       </div>
       <p style={{ margin: '0 0 36px', color: 'var(--color-muted)', fontSize: '0.9rem' }}>
-        {pages.length === 0 && !loading ? 'No pages yet.' : `${pages.length} page${pages.length !== 1 ? 's' : ''}`}
+        {pages.length === 0 && !loading
+          ? 'Read-only view of the "Workshop" notebook in Tabloom.'
+          : `${pages.length} page${pages.length !== 1 ? 's' : ''} · from Tabloom`}
       </p>
 
       {loading ? (
         <div style={{ textAlign: 'center', color: 'var(--color-muted)', padding: 48 }}>Loading…</div>
+      ) : loadError === 'workshop_notebook_missing' ? (
+        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--color-muted)' }}>
+          No "Workshop" notebook found in Tabloom. Create one in Tabloom to populate this view.
+        </div>
+      ) : loadError ? (
+        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--color-rust)' }}>
+          Could not load pages: {loadError}
+        </div>
       ) : pages.length === 0 ? (
         <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--color-muted)' }}>
-          Create your first page with the button above.
+          No pages in your Workshop notebook yet. Create one in Tabloom.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -91,43 +76,14 @@ export default function NotebookList() {
                 <div style={{ fontFamily: 'var(--font-serif)', fontWeight: 700, fontSize: '1.05rem', color: 'var(--color-ink)', marginBottom: 4 }}>
                   {page.title || 'Untitled'}
                 </div>
-                {page.body_preview && (
+                {page.snippet && (
                   <div style={{ fontSize: '0.82rem', color: 'var(--color-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 6 }}>
-                    {page.body_preview}
+                    {page.snippet}
                   </div>
                 )}
                 <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', letterSpacing: '0.04em' }}>
-                  {relativeTime(page.updated_at)}
+                  {relativeTime(page.edited_at)}
                 </div>
-              </div>
-              <div onClick={e => e.stopPropagation()}>
-                {confirmDelete === page.id ? (
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button
-                      className="btn btn-ghost"
-                      style={{ fontSize: '0.75rem', color: 'var(--color-rust)', padding: '4px 10px' }}
-                      onClick={() => handleDelete(page.id)}
-                    >
-                      Delete
-                    </button>
-                    <button
-                      className="btn btn-ghost"
-                      style={{ fontSize: '0.75rem', padding: '4px 10px' }}
-                      onClick={() => setConfirmDelete(null)}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    className="btn btn-ghost"
-                    style={{ color: 'var(--color-muted)', padding: '6px 8px' }}
-                    onClick={() => setConfirmDelete(page.id)}
-                    title="Delete page"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                )}
               </div>
             </div>
           ))}
