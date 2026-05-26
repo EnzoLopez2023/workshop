@@ -21,142 +21,112 @@ export default function LandingPage() {
 
   return (
     <main
-      style={{
-        position: 'relative',
-        minHeight: '100dvh',
-        backgroundColor: 'var(--color-cream)',
-        color: 'var(--color-ink)',
-        overflow: 'hidden',
-      }}
+      className="relative min-h-[100dvh] overflow-hidden"
+      style={{ backgroundColor: 'var(--color-cream)', color: 'var(--color-ink)' }}
     >
-      {/* Warm gradient blobs — PulseWire's pattern, recolored */}
-      <div aria-hidden style={{
-        position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none', overflow: 'hidden',
-      }}>
-        <div style={{
-          position: 'absolute', top: -180, left: -180,
-          width: 520, height: 520, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(160,82,45,0.18), transparent 70%)',
-          filter: 'blur(40px)',
-        }} />
-        <div style={{
-          position: 'absolute', bottom: -160, right: -180,
-          width: 480, height: 480, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(124,62,31,0.14), transparent 70%)',
-          filter: 'blur(40px)',
-        }} />
+      {/* Warm gradient blobs — PulseWire's pattern, recolored. Smaller on mobile. */}
+      <div aria-hidden className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <div
+          className="absolute -top-32 -left-32 w-72 h-72 md:-top-44 md:-left-44 md:w-[520px] md:h-[520px] rounded-full"
+          style={{
+            background: 'radial-gradient(circle, rgba(160,82,45,0.18), transparent 70%)',
+            filter: 'blur(40px)',
+          }}
+        />
+        <div
+          className="absolute -bottom-28 -right-28 w-64 h-64 md:-bottom-40 md:-right-44 md:w-[480px] md:h-[480px] rounded-full"
+          style={{
+            background: 'radial-gradient(circle, rgba(124,62,31,0.14), transparent 70%)',
+            filter: 'blur(40px)',
+          }}
+        />
       </div>
 
       {/* ── Sticky header ── */}
       <header
+        className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 md:px-6 md:py-4"
         style={{
-          position: 'sticky', top: 0, zIndex: 10,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 24px',
           backgroundColor: 'rgba(245, 240, 234, 0.85)',
           backdropFilter: 'blur(8px)',
           borderBottom: '1px solid var(--color-line)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            backgroundColor: 'var(--color-ink-soft)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Hammer size={16} color="var(--color-cream)" strokeWidth={2.4} />
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center"
+            style={{ backgroundColor: 'var(--color-ink-soft)' }}
+          >
+            <Hammer className="w-3.5 h-3.5 md:w-4 md:h-4" color="var(--color-cream)" strokeWidth={2.4} />
           </div>
-          <span style={{
-            fontFamily: 'var(--font-serif)', fontWeight: 700, fontSize: '1.05rem',
-            letterSpacing: '-0.01em',
-          }}>
+          <span
+            className="font-bold text-sm md:text-base tracking-tight"
+            style={{ fontFamily: 'var(--font-serif)' }}
+          >
             The Workshop
           </span>
         </div>
         <button
           onClick={handleLogin}
           disabled={isSubmitting}
+          className="rounded-full font-semibold cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 md:px-3.5 md:py-2 text-xs md:text-sm"
           style={{
-            padding: '8px 14px', borderRadius: 999,
-            border: '1px solid var(--color-rust)', backgroundColor: 'transparent',
-            color: 'var(--color-rust)', fontSize: '0.82rem', fontWeight: 600,
-            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+            border: '1px solid var(--color-rust)',
+            backgroundColor: 'transparent',
+            color: 'var(--color-rust)',
           }}
         >
-          Sign in <ArrowRight size={14} />
+          Sign in <ArrowRight className="w-3 h-3 md:w-3.5 md:h-3.5" />
         </button>
       </header>
 
-      <div style={{
-        position: 'relative', zIndex: 1,
-        maxWidth: 960, margin: '0 auto', padding: '0 24px',
-      }}>
+      <div className="relative z-[1] mx-auto px-4 md:px-6" style={{ maxWidth: 960 }}>
         {/* ── Hero ── */}
         <section
-          style={{
-            textAlign: 'center',
-            padding: '64px 0 32px',
-            animation: 'fadeUp 0.6s ease-out both',
-          }}
+          className="text-center pt-7 pb-4 md:pt-16 md:pb-8"
+          style={{ animation: 'fadeUp 0.6s ease-out both' }}
         >
-          <p className="eyebrow" style={{ marginBottom: 16 }}>
+          <p className="eyebrow mb-3 md:mb-4">
             Personal project companion · Plan · Build · Curate
           </p>
-          <h1 style={{
-            fontFamily: 'var(--font-serif)',
-            fontSize: 'clamp(2.2rem, 5vw, 3.6rem)',
-            fontWeight: 700,
-            lineHeight: 1.1,
-            letterSpacing: '-0.02em',
-            margin: 0,
-          }}>
+          <h1
+            className="font-bold leading-[1.1] tracking-tight m-0 text-[1.7rem] md:text-5xl lg:text-6xl"
+            style={{ fontFamily: 'var(--font-serif)' }}
+          >
             From rough sketch
           </h1>
-          <h1 style={{
-            fontFamily: 'var(--font-serif)',
-            fontSize: 'clamp(2.2rem, 5vw, 3.6rem)',
-            fontWeight: 700,
-            lineHeight: 1.1,
-            letterSpacing: '-0.02em',
-            color: 'var(--color-rust)',
-            margin: 0,
-          }}>
+          <h1
+            className="font-bold leading-[1.1] tracking-tight m-0 text-[1.7rem] md:text-5xl lg:text-6xl"
+            style={{ fontFamily: 'var(--font-serif)', color: 'var(--color-rust)' }}
+          >
             to finished build.
           </h1>
-          <p style={{
-            maxWidth: 560, margin: '20px auto 0',
-            color: 'var(--color-muted)', fontSize: '1rem', lineHeight: 1.6,
-          }}>
+          <p
+            className="mx-auto mt-3 md:mt-5 max-w-[560px] text-sm md:text-base leading-relaxed"
+            style={{ color: 'var(--color-muted)' }}
+          >
             A warm, single-user companion for woodworking projects. Capture
             ideas, plan cut lists, log every build step, and import inspiration
             straight from Shaper Hub.
           </p>
         </section>
 
-        {/* ── Three pillar cards (Cairn-inspired stat row) ── */}
-        <section
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: 12,
-            paddingBottom: 48,
-          }}
-        >
+        {/* ── Three pillar cards — horizontal rows on mobile, stacked cards on desktop ── */}
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-3 pb-6 md:pb-12">
           <Pillar
-            icon={<Ruler size={20} />}
+            icon={<Ruler className="w-4 h-4 md:w-5 md:h-5" />}
             title="Plan"
             description="Cut lists, sheet-goods optimizer, materials and cost tracking."
             delay={0.15}
           />
           <Pillar
-            icon={<Hammer size={20} />}
+            icon={<Hammer className="w-4 h-4 md:w-5 md:h-5" />}
             title="Build"
             description="Timestamped build log with photos, finish records, project status."
             delay={0.25}
             accent
           />
           <Pillar
-            icon={<BookOpen size={20} />}
+            icon={<BookOpen className="w-4 h-4 md:w-5 md:h-5" />}
             title="Curate"
             description="Shaper Hub imports, freeform notebook, reusable project templates."
             delay={0.35}
@@ -164,21 +134,17 @@ export default function LandingPage() {
         </section>
 
         {/* ── "A glimpse inside" preview (PulseWire-inspired demo cards) ── */}
-        <section style={{ paddingBottom: 56, animation: 'fadeUp 0.7s 0.45s ease-out both' }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            marginBottom: 16,
-          }}>
-            <p className="eyebrow" style={{ margin: 0 }}>A glimpse inside</p>
-            <div style={{ flex: 1, height: 1, backgroundColor: 'var(--color-line)' }} />
-            <Sparkles size={14} color="var(--color-muted)" />
+        <section
+          className="pb-8 md:pb-14"
+          style={{ animation: 'fadeUp 0.7s 0.45s ease-out both' }}
+        >
+          <div className="flex items-center gap-3 mb-3 md:mb-4">
+            <p className="eyebrow m-0">A glimpse inside</p>
+            <div className="flex-1 h-px" style={{ backgroundColor: 'var(--color-line)' }} />
+            <Sparkles className="w-3 h-3 md:w-3.5 md:h-3.5" color="var(--color-muted)" />
           </div>
 
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: 12,
-          }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
             <PreviewCard
               title="Walnut wall shelf"
               status="in progress"
@@ -196,37 +162,43 @@ export default function LandingPage() {
               tag="Beginner"
             />
           </div>
-          <p style={{
-            marginTop: 12, fontSize: '0.78rem', color: 'var(--color-muted)',
-            textAlign: 'center', fontStyle: 'italic',
-          }}>
+          <p
+            className="mt-2.5 md:mt-3 text-center italic text-[0.72rem] md:text-[0.78rem]"
+            style={{ color: 'var(--color-muted)' }}
+          >
             Sample projects. Your workshop is private and lives only in your account.
           </p>
         </section>
 
         {/* ── Footer CTA ── */}
         <footer
+          className="text-center py-7 pb-10 md:py-10 md:pb-14"
           style={{
             borderTop: '1px solid var(--color-line)',
-            padding: '40px 0 56px', textAlign: 'center',
             animation: 'fadeUp 0.7s 0.6s ease-out both',
           }}
         >
-          <p style={{ color: 'var(--color-muted)', fontSize: '0.88rem', marginBottom: 24 }}>
-            Build logs · finish logs · cut plan optimizer · shopping list
-            <br />
-            Shaper Hub import · AI-assisted analysis · project templates
+          <p
+            className="mb-5 md:mb-6 text-xs md:text-sm"
+            style={{ color: 'var(--color-muted)' }}
+          >
+            <span className="hidden md:inline">
+              Build logs · finish logs · cut plan optimizer · shopping list
+              <br />
+              Shaper Hub import · AI-assisted analysis · project templates
+            </span>
+            <span className="md:hidden">
+              Build & finish logs · cut plans · shopping list · Shaper Hub · AI
+            </span>
           </p>
           <button
             onClick={handleLogin}
             disabled={isSubmitting}
+            className="rounded-[14px] font-bold cursor-pointer inline-flex items-center justify-center gap-3 px-6 py-3 md:px-7 md:py-3.5 text-sm md:text-base"
             style={{
-              padding: '14px 28px', borderRadius: 14,
-              backgroundColor: '#fff', color: '#1a1a1a',
+              backgroundColor: '#fff',
+              color: '#1a1a1a',
               border: '1px solid var(--color-line)',
-              fontSize: '0.95rem', fontWeight: 700,
-              cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 12,
               boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
               opacity: isSubmitting ? 0.6 : 1,
             }}
@@ -253,12 +225,14 @@ export default function LandingPage() {
           </button>
 
           {error && (
-            <div style={{
-              marginTop: 16, padding: '10px 14px', maxWidth: 360,
-              marginLeft: 'auto', marginRight: 'auto',
-              backgroundColor: '#fef2f2', border: '1px solid #fca5a5',
-              borderRadius: 10, color: '#991b1b', fontSize: '0.85rem',
-            }}>
+            <div
+              className="mt-4 mx-auto max-w-[360px] px-3.5 py-2.5 rounded-[10px] text-sm"
+              style={{
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fca5a5',
+                color: '#991b1b',
+              }}
+            >
               {error}
             </div>
           )}
@@ -279,34 +253,36 @@ function Pillar({
 }) {
   return (
     <div
+      className="flex flex-row md:flex-col items-center md:items-start gap-3 md:gap-0 p-3 md:p-5 rounded-[14px]"
       style={{
-        padding: '20px',
-        borderRadius: 14,
         backgroundColor: accent ? 'rgba(160,82,45,0.06)' : 'var(--color-paper)',
         border: `1px solid ${accent ? 'rgba(160,82,45,0.25)' : 'var(--color-line)'}`,
         animation: `fadeUp 0.6s ${delay}s ease-out both`,
       }}
     >
-      <div style={{
-        width: 36, height: 36, borderRadius: 10,
-        backgroundColor: accent ? 'var(--color-rust)' : 'var(--color-cream-2)',
-        color: accent ? 'var(--color-cream)' : 'var(--color-ink-soft)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        marginBottom: 12,
-      }}>
+      <div
+        className="flex-shrink-0 w-9 h-9 md:w-10 md:h-10 rounded-[10px] flex items-center justify-center md:mb-3"
+        style={{
+          backgroundColor: accent ? 'var(--color-rust)' : 'var(--color-cream-2)',
+          color: accent ? 'var(--color-cream)' : 'var(--color-ink-soft)',
+        }}
+      >
         {icon}
       </div>
-      <h3 style={{
-        fontFamily: 'var(--font-serif)', fontSize: '1.2rem', fontWeight: 700,
-        margin: '0 0 4px', color: 'var(--color-ink)',
-      }}>
-        {title}
-      </h3>
-      <p style={{
-        margin: 0, color: 'var(--color-muted)', fontSize: '0.85rem', lineHeight: 1.5,
-      }}>
-        {description}
-      </p>
+      <div className="flex-1 min-w-0">
+        <h3
+          className="m-0 font-bold text-base md:text-xl"
+          style={{ fontFamily: 'var(--font-serif)', color: 'var(--color-ink)' }}
+        >
+          {title}
+        </h3>
+        <p
+          className="m-0 text-[0.78rem] md:text-[0.85rem] leading-snug md:leading-normal mt-0.5 md:mt-1"
+          style={{ color: 'var(--color-muted)' }}
+        >
+          {description}
+        </p>
+      </div>
     </div>
   )
 }
@@ -323,20 +299,21 @@ function PreviewCard({
 }) {
   return (
     <div
+      className="p-3 md:p-4 rounded-[14px]"
       style={{
-        padding: '16px',
-        borderRadius: 14,
         backgroundColor: 'var(--color-paper)',
         border: '1px solid var(--color-line)',
       }}
     >
-      {/* Mock hero image — stylized woodgrain bar */}
-      <div style={{
-        height: 80, borderRadius: 8, marginBottom: 12,
-        background: 'repeating-linear-gradient(95deg, #C9A27D 0, #B8916C 3px, #C9A27D 6px, #BC9772 9px)',
-        opacity: 0.55,
-      }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+      {/* Mock hero image — stylized woodgrain bar, slim on mobile */}
+      <div
+        className="h-11 md:h-20 rounded-lg mb-2.5 md:mb-3"
+        style={{
+          background: 'repeating-linear-gradient(95deg, #C9A27D 0, #B8916C 3px, #C9A27D 6px, #BC9772 9px)',
+          opacity: 0.55,
+        }}
+      />
+      <div className="flex items-center gap-1.5 mb-1.5">
         <span
           className="pill"
           style={{
@@ -351,13 +328,13 @@ function PreviewCard({
           {tag}
         </span>
       </div>
-      <h4 style={{
-        fontFamily: 'var(--font-serif)', fontSize: '1.05rem', fontWeight: 700,
-        margin: '0 0 8px', color: 'var(--color-ink)',
-      }}>
+      <h4
+        className="m-0 mb-1.5 md:mb-2 font-bold text-base md:text-[1.05rem]"
+        style={{ fontFamily: 'var(--font-serif)', color: 'var(--color-ink)' }}
+      >
         {title}
       </h4>
-      <div style={{ display: 'flex', gap: 16, fontSize: '0.78rem', color: 'var(--color-muted)' }}>
+      <div className="flex gap-3 md:gap-4 text-[0.72rem] md:text-[0.78rem]" style={{ color: 'var(--color-muted)' }}>
         <span>{parts} parts</span>
         <span aria-hidden>·</span>
         <span>~{hours}h est.</span>
