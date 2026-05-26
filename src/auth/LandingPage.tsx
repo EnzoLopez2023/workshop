@@ -89,13 +89,13 @@ export default function LandingPage() {
             Personal project companion · Plan · Build · Curate
           </p>
           <h1
-            className="font-bold leading-[1.1] tracking-tight m-0 text-[1.7rem] md:text-5xl lg:text-6xl"
+            className="font-bold leading-[1.1] tracking-tight m-0 text-[2.4rem] md:text-5xl lg:text-6xl"
             style={{ fontFamily: 'var(--font-serif)' }}
           >
             From rough sketch
           </h1>
           <h1
-            className="font-bold leading-[1.1] tracking-tight m-0 text-[1.7rem] md:text-5xl lg:text-6xl"
+            className="font-bold leading-[1.1] tracking-tight m-0 text-[2.4rem] md:text-5xl lg:text-6xl"
             style={{ fontFamily: 'var(--font-serif)', color: 'var(--color-rust)' }}
           >
             to finished build.
@@ -108,6 +108,59 @@ export default function LandingPage() {
             ideas, plan cut lists, log every build step, and import inspiration
             straight from Shaper Hub.
           </p>
+
+          {/* Primary CTA — Cairn-style: sits between subhead and pillar cards */}
+          <button
+            onClick={handleLogin}
+            disabled={isSubmitting}
+            className="mt-6 md:mt-8 rounded-[14px] font-bold cursor-pointer inline-flex items-center justify-center gap-3 px-6 py-3 md:px-7 md:py-3.5 text-sm md:text-base"
+            style={{
+              backgroundColor: '#fff',
+              color: '#1a1a1a',
+              border: '1px solid var(--color-line)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+              opacity: isSubmitting ? 0.6 : 1,
+            }}
+          >
+            {isSubmitting ? (
+              <>
+                <svg style={{ width: 20, height: 20, animation: 'spin 1s linear infinite' }} viewBox="0 0 24 24" fill="none">
+                  <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8V0C5.37 0 0 5.37 0 12h4z" />
+                </svg>
+                Redirecting…
+              </>
+            ) : (
+              <>
+                <svg viewBox="0 0 21 21" style={{ width: 20, height: 20, flexShrink: 0 }}>
+                  <rect x="1"  y="1"  width="9" height="9" rx="0.5" fill="#F25022" />
+                  <rect x="11" y="1"  width="9" height="9" rx="0.5" fill="#7FBA00" />
+                  <rect x="1"  y="11" width="9" height="9" rx="0.5" fill="#00A4EF" />
+                  <rect x="11" y="11" width="9" height="9" rx="0.5" fill="#FFB900" />
+                </svg>
+                Sign in with Microsoft
+              </>
+            )}
+          </button>
+          <p
+            className="mt-2.5 md:mt-3 text-xs md:text-sm"
+            style={{ color: 'var(--color-muted)' }}
+          >
+            Requires a Microsoft account
+          </p>
+
+          {error && (
+            <div
+              className="mt-4 mx-auto max-w-[360px] px-3.5 py-2.5 rounded-[10px] text-sm"
+              style={{
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fca5a5',
+                color: '#991b1b',
+              }}
+            >
+              {error}
+            </div>
+          )}
         </section>
 
         {/* ── Three pillar cards — horizontal rows on mobile, stacked cards on desktop ── */}
@@ -170,16 +223,16 @@ export default function LandingPage() {
           </p>
         </section>
 
-        {/* ── Footer CTA ── */}
+        {/* ── Footer — feature recap, button now lives in the hero ── */}
         <footer
-          className="text-center py-7 pb-10 md:py-10 md:pb-14"
+          className="text-center py-6 pb-10 md:py-8 md:pb-14"
           style={{
             borderTop: '1px solid var(--color-line)',
             animation: 'fadeUp 0.7s 0.6s ease-out both',
           }}
         >
           <p
-            className="mb-5 md:mb-6 text-xs md:text-sm"
+            className="text-xs md:text-sm"
             style={{ color: 'var(--color-muted)' }}
           >
             <span className="hidden md:inline">
@@ -191,51 +244,6 @@ export default function LandingPage() {
               Build & finish logs · cut plans · shopping list · Shaper Hub · AI
             </span>
           </p>
-          <button
-            onClick={handleLogin}
-            disabled={isSubmitting}
-            className="rounded-[14px] font-bold cursor-pointer inline-flex items-center justify-center gap-3 px-6 py-3 md:px-7 md:py-3.5 text-sm md:text-base"
-            style={{
-              backgroundColor: '#fff',
-              color: '#1a1a1a',
-              border: '1px solid var(--color-line)',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-              opacity: isSubmitting ? 0.6 : 1,
-            }}
-          >
-            {isSubmitting ? (
-              <>
-                <svg style={{ width: 20, height: 20, animation: 'spin 1s linear infinite' }} viewBox="0 0 24 24" fill="none">
-                  <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8V0C5.37 0 0 5.37 0 12h4z" />
-                </svg>
-                Redirecting…
-              </>
-            ) : (
-              <>
-                <svg viewBox="0 0 21 21" style={{ width: 20, height: 20, flexShrink: 0 }}>
-                  <rect x="1"  y="1"  width="9" height="9" rx="0.5" fill="#F25022" />
-                  <rect x="11" y="1"  width="9" height="9" rx="0.5" fill="#7FBA00" />
-                  <rect x="1"  y="11" width="9" height="9" rx="0.5" fill="#00A4EF" />
-                  <rect x="11" y="11" width="9" height="9" rx="0.5" fill="#FFB900" />
-                </svg>
-                Sign in with Microsoft
-              </>
-            )}
-          </button>
-
-          {error && (
-            <div
-              className="mt-4 mx-auto max-w-[360px] px-3.5 py-2.5 rounded-[10px] text-sm"
-              style={{
-                backgroundColor: '#fef2f2',
-                border: '1px solid #fca5a5',
-                color: '#991b1b',
-              }}
-            >
-              {error}
-            </div>
-          )}
         </footer>
       </div>
     </main>
