@@ -46,8 +46,8 @@ Production runs on **Azure App Service (Linux container)** — not Docker on a s
 
 ## Active work — invariants to preserve
 
-- **Notebook feature** (`src/pages/NotebookList.tsx`, `src/pages/NotebookPage.tsx`, tables `notebook_pages` + `notebook_links`, routes `/notebook`, `/notebook/:id`). Most recent feature work; auto-saves on back navigation (see `50b0cab`) and supports a Preview mode with clickable links. Don't break the save-on-unmount behaviour during refactors.
-- **Vite build-time env var pipeline** (`Dockerfile` lines 16-25, `docker-compose.yml` `build.args`, `deploy.yml` env + `--build-arg`). `VITE_AZURE_CLIENT_ID` and `VITE_AZURE_TENANT_ID` are **baked into the JS bundle at `npm run build`** — they must be passed as Docker `--build-arg`s, not as App Service runtime app settings. Forgetting this ships a bundle that throws "VITE_AZURE_CLIENT_ID must be set" at startup. Fix `4ba7f14` exists specifically because of this trap; the prod values now live as env entries at the top of `deploy.yml`.
+- **Notebook feature** (`src/pages/NotebookList.tsx`, `src/pages/NotebookPage.tsx`, routes `/notebook`, `/notebook/:id`). The notebook UI is a **read-only window onto Tabloom** — there are no local `notebook_pages` tables in Workshop anymore. Pages are fetched from Tabloom's `/api/integrations/workshop/*` endpoints via `src/services/tabloomApi.ts`. The token is a Tabloom-scoped access token obtained by `src/auth/getTabloomToken.ts`.
+- **Vite build-time env var pipeline** (`Dockerfile` lines 16-25, `docker-compose.yml` `build.args`, `deploy.yml` env + `--build-arg`). `VITE_AZURE_CLIENT_ID`, `VITE_AZURE_TENANT_ID`, `VITE_TABLOOM_API_BASE_URL`, and `VITE_TABLOOM_CLIENT_ID` are **baked into the JS bundle at `npm run build`** — they must be passed as Docker `--build-arg`s, not as App Service runtime app settings. Forgetting this ships a bundle that throws at startup. The prod values live as env entries at the top of `deploy.yml`.
 - **`cut_list_items` table.** Either `project_id` or `shaper_project_id` is set, never both — enforced by a `CHECK` constraint. The migration that adds this (`server.js` ~140-187) recreates the table; it must run with `foreign_keys = OFF` and restore to ON in a `finally` block.
 
 ## How to verify changes
@@ -64,6 +64,26 @@ Production runs on **Azure App Service (Linux container)** — not Docker on a s
 | Trigger a deploy without a code change | GH UI → Actions → "Build & Deploy Workshop to Azure" → Run workflow, or push a commit that touches a non-ignored path |
 
 TypeScript runs with `strict`, `noUnusedLocals`, `noUnusedParameters` — unused imports/params fail the build.
+
+## Tabloom integration
+
+Workshop's notebook view pulls from Tabloom's read-only integration API. Key files:
+
+| File | Role |
+|---|---|
+| `src/auth/getTabloomToken.ts` | Acquires an **access token** for Tabloom's AAD app (`VITE_TABLOOM_CLIENT_ID`) with scope `api://<id>/access_as_user` |
+| `src/services/tabloomApi.ts` | Typed `fetch` wrappers for `/api/integrations/workshop/pages` and `/api/integrations/workshop/pages/:id` |
+| `src/pages/NotebookList.tsx` | Lists pages from Tabloom |
+| `src/pages/NotebookPage.tsx` | Renders a single page's exported HTML inside `.tabloom-content` |
+| `src/styles/tabloom-content.css` | Scoped CSS matching Tabloom's HTML export format |
+
+**Token type matters.** Tabloom's backend validates JWT audience against both `<guid>` and `api://<guid>` (fixed in `5d84e72`). Workshop sends an **access token** (not an ID token). Tabloom's own frontend sends ID tokens — both are accepted.
+
+**CORS.** Tabloom's App Service `ALLOWED_ORIGINS` is set to `https://workshop.enzolopez.net`. The OPTIONS preflight must not be challenged with auth (fixed in `d9d43e0` — Tabloom skips `requireAuth` for OPTIONS).
+
+**Required build args** (both needed in `deploy.yml` and `docker-compose.yml`):
+- `VITE_TABLOOM_API_BASE_URL` — Tabloom's origin (`https://app-tabloom-prod-lwxhu7jxlrbtu.azurewebsites.net`)
+- `VITE_TABLOOM_CLIENT_ID` — Tabloom's AAD client ID (`b30f09b9-e100-4aa5-af22-ce359ff13fba`)
 
 ## Anthropic SDK usage
 
