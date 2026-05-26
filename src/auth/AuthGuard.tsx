@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
 import { Hammer } from 'lucide-react'
-import LoginPage from './LoginPage'
+import LandingPage from './LandingPage'
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useIsAuthenticated()
@@ -40,7 +40,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     )
   }
 
-  if (!isAuthenticated) return <LoginPage />
+  if (!isAuthenticated) return <LandingPage />
 
   return <>{children}</>
 }
