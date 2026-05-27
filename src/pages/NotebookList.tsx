@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, BookOpen } from 'lucide-react';
+import { ArrowLeft, BookOpen, Plus } from 'lucide-react';
 import { listTabloomWorkshopPages, type TabloomPageSummary } from '../services/tabloomApi';
 
 function relativeTime(iso: string): string {
@@ -37,6 +37,9 @@ export default function NotebookList() {
         <button onClick={() => navigate(-1)} className="btn btn-ghost" style={{ gap: 6 }}>
           <ArrowLeft size={14} /> Back
         </button>
+        <button onClick={() => navigate('/notebook/new')} className="btn btn-primary" style={{ gap: 6 }}>
+          <Plus size={14} /> New page
+        </button>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
@@ -45,8 +48,8 @@ export default function NotebookList() {
       </div>
       <p style={{ margin: '0 0 36px', color: 'var(--color-muted)', fontSize: '0.9rem' }}>
         {pages.length === 0 && !loading
-          ? 'Read-only view of the "Workshop" notebook in Tabloom.'
-          : `${pages.length} page${pages.length !== 1 ? 's' : ''} · from Tabloom`}
+          ? 'Edit any page or create a new one — changes sync back to Tabloom.'
+          : `${pages.length} page${pages.length !== 1 ? 's' : ''} · synced with Tabloom`}
       </p>
 
       {loading ? (
@@ -61,7 +64,7 @@ export default function NotebookList() {
         </div>
       ) : pages.length === 0 ? (
         <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--color-muted)' }}>
-          No pages in your Workshop notebook yet. Create one in Tabloom.
+          No pages yet. Tap “New page” to start one.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
