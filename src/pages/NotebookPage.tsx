@@ -38,7 +38,9 @@ export default function NotebookPage() {
   const [page, setPage] = useState<TabloomPageDetail | null>(null);
   const [title, setTitle] = useState('');
   const [bodyMd, setBodyMd] = useState('');
-  const [tab, setTab] = useState<Tab>('edit');
+  // New pages open in Edit (nothing to preview yet); existing pages open
+  // in Preview so reading is the default action.
+  const [tab, setTab] = useState<Tab>(isNew ? 'edit' : 'preview');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -255,8 +257,8 @@ export default function NotebookPage() {
       )}
 
       <div style={{ display: 'flex', gap: 4, marginBottom: 12, borderBottom: '1px solid var(--color-line)' }}>
-        <TabButton active={tab === 'edit'}    onClick={() => setTab('edit')}    icon={<Pencil size={13} />}>Edit</TabButton>
         <TabButton active={tab === 'preview'} onClick={() => setTab('preview')} icon={<Eye size={13} />}>Preview</TabButton>
+        <TabButton active={tab === 'edit'}    onClick={() => setTab('edit')}    icon={<Pencil size={13} />}>Edit</TabButton>
       </div>
 
       {tab === 'edit' ? (
