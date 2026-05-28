@@ -49,11 +49,7 @@
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: var(--color-ink-soft);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-cream);
+  display: block;
   flex-shrink: 0;
 }
 
@@ -736,11 +732,7 @@
   width: 66px;
   height: 66px;
   border-radius: 18px;
-  background: var(--color-ink-soft);
-  color: var(--color-cream);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   box-shadow: 0 8px 24px rgba(61, 40, 23, 0.28);
 }
 

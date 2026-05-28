@@ -7,7 +7,7 @@ import {
   type Variants,
 } from 'framer-motion'
 import { useMsal } from '@azure/msal-react'
-import { Hammer, ArrowRight, Lock } from 'lucide-react'
+import { ArrowRight, Lock } from 'lucide-react'
 import { loginRequest } from './msalConfig'
 import '../styles/landing.css'
 
@@ -307,9 +307,7 @@ export default function LandingPage() {
         transition={{ duration: 0.38 }}
       >
         <div className="landing-nav-brand">
-          <div className="landing-nav-icon">
-            <Hammer size={16} strokeWidth={2.2} />
-          </div>
+          <img className="landing-nav-icon" src="/favicon.svg" alt="The Workshop" />
           <span>The Workshop</span>
         </div>
         <button className="landing-nav-cta" onClick={signIn}>
@@ -515,9 +513,7 @@ export default function LandingPage() {
           viewport={{ once: true }}
           transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
         >
-          <div className="bottom-cta-icon">
-            <Hammer size={26} strokeWidth={2} />
-          </div>
+          <img className="bottom-cta-icon" src="/favicon.svg" alt="The Workshop" />
           <h2 className="bottom-cta-h2">Your next project is waiting.</h2>
           <p className="bottom-cta-sub">
             Sign in with your Microsoft account to open your workshop.

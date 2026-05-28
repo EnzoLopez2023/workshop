@@ -1,4 +1,4 @@
-import { Plus, Hammer, LogOut, Ruler, ShoppingCart, BookOpen } from 'lucide-react';
+import { Plus, LogOut, Ruler, ShoppingCart, BookOpen } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -43,13 +43,13 @@ export default function Header() {
           onClick={() => navigate('/')}
           style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}
         >
-          <div style={{
-            width: 36, height: 36, borderRadius: 9, flexShrink: 0,
-            backgroundColor: 'var(--color-ink-soft)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Hammer size={18} color="var(--color-cream)" strokeWidth={2.2} />
-          </div>
+          <img
+            src="/favicon.svg"
+            alt="The Workshop"
+            width={36}
+            height={36}
+            style={{ borderRadius: 9, flexShrink: 0, display: 'block' }}
+          />
           <div style={{ lineHeight: 1.1, textAlign: 'left', minWidth: 0 }}>
             <div style={{
               fontFamily: 'var(--font-serif)', fontWeight: 700, fontSize: '1.05rem',
