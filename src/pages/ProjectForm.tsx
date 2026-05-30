@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
+import { toast } from 'sonner';
 import { ArrowLeft, Save, Upload, Link as LinkIcon, Plus, Trash2, X, Sparkles, FileText, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import {
   createProject, updateProject, getProject,
@@ -63,6 +65,19 @@ export default function ProjectForm() {
 
   const sketchFileRef = useRef<HTMLInputElement>(null);
   const inspirationFileRef = useRef<HTMLInputElement>(null);
+  const topActionsRef = useRef<HTMLDivElement>(null);
+  const [showStickyBar, setShowStickyBar] = useState(false);
+
+  useEffect(() => {
+    const el = topActionsRef.current;
+    if (!el || !editing) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowStickyBar(!entry.isIntersecting),
+      { threshold: 0, rootMargin: '-72px 0px 0px 0px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [editing]);
 
   // Load existing project when editing
   useEffect(() => {
@@ -147,8 +162,11 @@ export default function ProjectForm() {
           })),
         ]);
       }
+
+      toast.success('Fields pre-filled — review before saving');
     } catch (err) {
       setAnalyzeError('Could not analyze: ' + (err as Error).message);
+      toast.error('AI analysis failed');
     } finally {
       setAnalyzing(false);
     }
@@ -263,7 +281,9 @@ export default function ProjectForm() {
       navigate(`/projects/${savedId}`);
     } catch (err) {
       console.error(err);
-      setSaveError('Could not save: ' + (err as Error).message);
+      const msg = 'Could not save: ' + (err as Error).message;
+      setSaveError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -271,7 +291,48 @@ export default function ProjectForm() {
 
   return (
     <div className="page-container" style={{ maxWidth: 820 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
+      {/* Sticky save bar — appears when top actions scroll out of view (edit mode only) */}
+      <AnimatePresence>
+        {editing && showStickyBar && (
+          <motion.div
+            initial={{ y: -56, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -56, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            style={{
+              position: 'fixed', top: 65, left: 0, right: 0, zIndex: 15,
+              backgroundColor: 'var(--color-paper)',
+              borderBottom: '1px solid var(--color-line)',
+              boxShadow: '0 4px 16px rgba(28,15,7,0.08)',
+            }}
+          >
+            <div style={{
+              maxWidth: 820, margin: '0 auto',
+              padding: '10px 40px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+            }}>
+              <span style={{
+                fontFamily: 'var(--font-serif)', fontWeight: 600,
+                fontSize: '1rem', color: 'var(--color-ink)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {form.title || 'Untitled project'}
+              </span>
+              <button
+                className="btn btn-muted"
+                onClick={() => { setSaveError(null); handleSave(); }}
+                disabled={saving}
+                style={{ flexShrink: 0 }}
+              >
+                <Save size={14} />
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div ref={topActionsRef} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
         <button className="btn btn-ghost" onClick={goBack} style={{ background: 'transparent', border: 'none' }}>
           <ArrowLeft size={15} />
           Back

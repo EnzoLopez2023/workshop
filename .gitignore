@@ -6,7 +6,6 @@ dist/
 *.db-shm
 *.log
 .vite/
-.claude/
 docs/
 tsconfig.*.tsbuildinfo
 uploads/

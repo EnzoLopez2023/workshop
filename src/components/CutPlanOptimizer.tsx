@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Scissors, Plus, Trash2, AlertTriangle, AlertCircle, Download, Save } from 'lucide-react';
 import type { CutListItem } from '../types/project';
 import { parseInches, buildCutPieces, optimizeCuts } from '../lib/cutPlan';
@@ -157,7 +158,6 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
   const [skipped, setSkipped] = useState<string[]>([]);
   const [inputError, setInputError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
-  const [configSaved, setConfigSaved] = useState(false);
   const [hasSavedConfig, setHasSavedConfig] = useState(false);
 
   // Load saved config on mount
@@ -189,11 +189,10 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
     if (projectId == null) return;
     saveCutPlanConfig(projectId, { stockRows, kerfStr })
       .then(() => {
-        setConfigSaved(true);
         setHasSavedConfig(true);
-        setTimeout(() => setConfigSaved(false), 2000);
+        toast.success('Cut plan config saved');
       })
-      .catch(() => { /* ignore */ });
+      .catch(() => toast.error('Could not save config'));
   };
 
   const handleGenerate = () => {
@@ -244,7 +243,7 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
     const html = buildPrintHtml(result, colorMap, stockRows);
     const win = window.open('', '_blank');
     if (!win) {
-      setInputError('Pop-up blocked — please allow pop-ups and try again.');
+      toast.error('Pop-up blocked — please allow pop-ups and try again.');
       return;
     }
     win.document.write(html);
@@ -377,7 +376,7 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
           {projectId != null && (
             <button className="btn btn-ghost" onClick={saveConfig} style={{ fontSize: '0.8rem' }}>
               <Save size={13} />
-              {configSaved ? 'Saved!' : 'Save Config'}
+              Save Config
             </button>
           )}
           <button className="btn btn-muted" onClick={handleGenerate}>

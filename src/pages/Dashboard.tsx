@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { Search, Boxes, ArrowUpRight, Hammer, Cpu, Plus, Copy, Trash2, LayoutTemplate } from 'lucide-react';
 import { listProjects, listShaperProjects, listTemplates, cloneTemplate, deleteTemplate, imageUrl } from '../services/api';
 import type { ProjectListItem, ProjectStatus, ShaperProject, TemplateListItem } from '../types/project';
 import ProjectCard from '../components/ProjectCard';
 import ShaperProjectCard from '../components/ShaperProjectCard';
+import { ProjectCardSkeleton } from '../components/Skeleton';
 
 type StatusFilter = 'all' | ProjectStatus;
 
@@ -71,7 +73,12 @@ export default function Dashboard() {
   return (
     <div className="page-container">
       {/* Hero */}
-      <div style={{ marginBottom: 40 }}>
+      <motion.div
+        style={{ marginBottom: 40 }}
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+      >
         <span
           className="pill"
           style={{
@@ -101,7 +108,7 @@ export default function Dashboard() {
           Capture ideas, gather inspiration, plan your cuts, and keep every detail of your
           woodworking projects in one considered place.
         </p>
-      </div>
+      </motion.div>
 
       {/* Search + filters */}
       <div style={{
@@ -152,7 +159,13 @@ export default function Dashboard() {
 
       {/* Grid */}
       {loading ? (
-        <div className="empty-state">Loading…</div>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+          gap: 22,
+        }}>
+          {[0, 1, 2, 3, 4, 5].map(i => <ProjectCardSkeleton key={i} />)}
+        </div>
       ) : filtered.length === 0 ? (
         <div className="card empty-state">
           {projects.length === 0
@@ -160,15 +173,24 @@ export default function Dashboard() {
             : 'No projects match those filters.'}
         </div>
       ) : (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-          gap: 22,
-        }}>
+        <motion.div
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 22 }}
+          initial="hidden"
+          animate="visible"
+          variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.06 } } }}
+        >
           {filtered.map(p => (
-            <ProjectCard key={p.id} project={p} onClick={() => navigate(`/projects/${p.id}`)} />
+            <motion.div
+              key={p.id}
+              variants={{
+                hidden: { opacity: 0, y: 14 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.22, 1, 0.36, 1] as const } },
+              }}
+            >
+              <ProjectCard project={p} onClick={() => navigate(`/projects/${p.id}`)} />
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       )}
 
       {/* Shaper Hub section */}

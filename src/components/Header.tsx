@@ -1,6 +1,7 @@
-import { Plus, LogOut, Ruler, ShoppingCart, BookOpen } from 'lucide-react';
+import { Plus, LogOut, Ruler, ShoppingCart, BookOpen, Moon, Sun, Settings } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useTheme } from '../contexts/ThemeContext';
 
 function ShaperIcon({ size = 16 }: { size?: number }) {
   return (
@@ -20,6 +21,7 @@ export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const isDashboard = location.pathname === '/';
+  const { resolvedTheme, setTheme } = useTheme();
 
   const account = accounts[0] ?? null;
   const displayName = account?.name ?? account?.username ?? '';
@@ -92,6 +94,24 @@ export default function Header() {
         )}
         <button className="btn btn-ghost" onClick={() => navigate('/notebook')} title="Notebook" style={{ gap: 6 }}>
           <BookOpen size={15} strokeWidth={2} />
+        </button>
+        <button
+          className="btn btn-ghost"
+          onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+          title={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={{ gap: 6, padding: '8px 10px' }}
+        >
+          {resolvedTheme === 'dark'
+            ? <Sun size={15} strokeWidth={2} />
+            : <Moon size={15} strokeWidth={2} />}
+        </button>
+        <button
+          className="btn btn-ghost"
+          onClick={() => navigate('/settings')}
+          title="Settings"
+          style={{ gap: 6, padding: '8px 10px' }}
+        >
+          <Settings size={15} strokeWidth={2} />
         </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div

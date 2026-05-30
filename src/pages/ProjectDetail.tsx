@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { motion, useScroll, useTransform } from 'framer-motion';
+import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, Clock, Layers, DollarSign, Gauge, Trash2, ExternalLink, FileText, X, Scissors,
-  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate,
+  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate, Printer, Download,
 } from 'lucide-react';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import {
@@ -17,6 +19,7 @@ import type {
   ProjectDetail as Project, FinishLogEntry, ProjectListItem,
 } from '../types/project';
 import StatusBadge from '../components/StatusBadge';
+import { ProjectDetailSkeleton } from '../components/Skeleton';
 
 export default function ProjectDetail() {
   const navigate = useNavigate();
@@ -87,14 +90,18 @@ export default function ProjectDetail() {
       setProject({ ...project, build_log: [entry, ...project.build_log] });
       setBuildNote(''); setBuildFile(null); setShowBuildForm(false);
       if (buildFileRef.current) buildFileRef.current.value = '';
-    } catch (err) { console.error(err); }
+      toast.success('Build note saved');
+    } catch (err) { console.error(err); toast.error('Could not save note'); }
     setBuildAdding(false);
   };
 
   const handleDeleteBuildLog = async (id: number) => {
     if (!project) return;
     setProject({ ...project, build_log: project.build_log.filter(e => e.id !== id) });
-    try { await deleteBuildLogEntry(id); } catch (err) { console.error(err); load(); }
+    try {
+      await deleteBuildLogEntry(id);
+      toast.success('Note deleted');
+    } catch (err) { console.error(err); load(); }
   };
 
   const handleAddFinishLog = async () => {
@@ -112,14 +119,18 @@ export default function ProjectDetail() {
       load();
       setFinishForm({ product_name: '', finish_type: '', color: '', coats: '', notes: '', applied_at: new Date().toISOString().slice(0, 10) });
       setShowFinishForm(false);
-    } catch (err) { console.error(err); }
+      toast.success('Finish entry saved');
+    } catch (err) { console.error(err); toast.error('Could not save entry'); }
     setFinishAdding(false);
   };
 
   const handleDeleteFinishLog = async (id: number) => {
     if (!project) return;
     setProject({ ...project, finish_log: project.finish_log.filter(e => e.id !== id) });
-    try { await deleteFinishLogEntry(id); } catch (err) { console.error(err); load(); }
+    try {
+      await deleteFinishLogEntry(id);
+      toast.success('Entry deleted');
+    } catch (err) { console.error(err); load(); }
   };
 
   const handleOpenLinkForm = async () => {
@@ -136,14 +147,18 @@ export default function ProjectDetail() {
       await addProjectLink(project.id, Number(linkProjectId), linkRelationship);
       load();
       setLinkProjectId(''); setShowLinkForm(false);
-    } catch (err) { console.error(err); }
+      toast.success('Project linked');
+    } catch (err) { console.error(err); toast.error('Could not link project'); }
     setLinkAdding(false);
   };
 
   const handleRemoveLink = async (id: number) => {
     if (!project) return;
     setProject({ ...project, links: project.links.filter(l => l.id !== id) });
-    try { await removeProjectLink(id); } catch (err) { console.error(err); load(); }
+    try {
+      await removeProjectLink(id);
+      toast.success('Link removed');
+    } catch (err) { console.error(err); load(); }
   };
 
   const handleSaveAsTemplate = async () => {
@@ -152,7 +167,8 @@ export default function ProjectDetail() {
       await saveAsTemplate(project.id, project.title);
       setSavedAsTemplate(true);
       setTimeout(() => setSavedAsTemplate(false), 3000);
-    } catch (err) { console.error(err); }
+      toast.success('Saved as template');
+    } catch (err) { console.error(err); toast.error('Could not save template'); }
   };
 
   const handleDelete = async () => {
@@ -168,40 +184,88 @@ export default function ProjectDetail() {
     }
   };
 
-  if (loading || !project) {
-    return (
-      <div className="empty-state">
-        {loading ? 'Loading project…' : 'Project not found'}
-      </div>
-    );
-  }
+  if (loading) return <ProjectDetailSkeleton />;
+  if (!project) return <div className="empty-state">Project not found</div>;
 
   const sketches = project.images.filter(i => i.kind === 'sketch');
   const inspiration = project.images.filter(i => i.kind === 'inspiration');
   const heroImage = sketches.find(i => i.image_type !== 'application/pdf');
 
+  return <ProjectDetailView project={project} heroImage={heroImage ?? null} sketches={sketches} inspiration={inspiration} onNavigate={navigate} onLoad={load} setLightbox={setLightbox} lightbox={lightbox} confirmDelete={confirmDelete} setConfirmDelete={setConfirmDelete} deleting={deleting} savedAsTemplate={savedAsTemplate} showCutPlan={showCutPlan} setShowCutPlan={setShowCutPlan} showBuildForm={showBuildForm} setShowBuildForm={setShowBuildForm} buildNote={buildNote} setBuildNote={setBuildNote} buildFile={buildFile} setBuildFile={setBuildFile} buildAdding={buildAdding} buildFileRef={buildFileRef} showFinishForm={showFinishForm} setShowFinishForm={setShowFinishForm} finishForm={finishForm} setFinishForm={setFinishForm} finishAdding={finishAdding} showLinkForm={showLinkForm} setShowLinkForm={setShowLinkForm} allProjects={allProjects} linkProjectId={linkProjectId} setLinkProjectId={setLinkProjectId} linkRelationship={linkRelationship} setLinkRelationship={setLinkRelationship} linkAdding={linkAdding} projectId={projectId} handleAddBuildLog={handleAddBuildLog} handleDeleteBuildLog={handleDeleteBuildLog} handleAddFinishLog={handleAddFinishLog} handleDeleteFinishLog={handleDeleteFinishLog} handleOpenLinkForm={handleOpenLinkForm} handleAddLink={handleAddLink} handleRemoveLink={handleRemoveLink} handleSaveAsTemplate={handleSaveAsTemplate} handleDelete={handleDelete} togglePurchased={togglePurchased} />;
+}
+
+function ProjectDetailView({ project, heroImage, sketches, inspiration, onNavigate, onLoad: _onLoad, setLightbox, lightbox, confirmDelete, setConfirmDelete, deleting, savedAsTemplate, showCutPlan, setShowCutPlan, showBuildForm, setShowBuildForm, buildNote, setBuildNote, buildFile, setBuildFile, buildAdding, buildFileRef, showFinishForm, setShowFinishForm, finishForm, setFinishForm, finishAdding, showLinkForm, setShowLinkForm, allProjects, linkProjectId, setLinkProjectId, linkRelationship, setLinkRelationship, linkAdding, projectId, handleAddBuildLog, handleDeleteBuildLog, handleAddFinishLog, handleDeleteFinishLog, handleOpenLinkForm, handleAddLink, handleRemoveLink, handleSaveAsTemplate, handleDelete, togglePurchased }: {
+  project: import('../types/project').ProjectDetail;
+  heroImage: import('../types/project').ProjectImage | null;
+  sketches: import('../types/project').ProjectImage[];
+  inspiration: import('../types/project').ProjectImage[];
+  onNavigate: ReturnType<typeof useNavigate>;
+  onLoad: () => void;
+  setLightbox: (v: { src: string; pdf: boolean } | null) => void;
+  lightbox: { src: string; pdf: boolean } | null;
+  confirmDelete: boolean; setConfirmDelete: (v: boolean) => void;
+  deleting: boolean; savedAsTemplate: boolean;
+  showCutPlan: boolean; setShowCutPlan: (v: (prev: boolean) => boolean) => void;
+  showBuildForm: boolean; setShowBuildForm: (v: (prev: boolean) => boolean) => void;
+  buildNote: string; setBuildNote: (v: string) => void;
+  buildFile: File | null; setBuildFile: (v: File | null) => void;
+  buildAdding: boolean;
+  buildFileRef: React.RefObject<HTMLInputElement | null>;
+  showFinishForm: boolean; setShowFinishForm: (v: (prev: boolean) => boolean) => void;
+  finishForm: { product_name: string; finish_type: string; color: string; coats: string; notes: string; applied_at: string };
+  setFinishForm: React.Dispatch<React.SetStateAction<{ product_name: string; finish_type: string; color: string; coats: string; notes: string; applied_at: string }>>;
+  finishAdding: boolean;
+  showLinkForm: boolean; setShowLinkForm: (v: boolean) => void;
+  allProjects: import('../types/project').ProjectListItem[];
+  linkProjectId: string; setLinkProjectId: (v: string) => void;
+  linkRelationship: string; setLinkRelationship: (v: string) => void;
+  linkAdding: boolean;
+  projectId: number;
+  handleAddBuildLog: () => Promise<void>;
+  handleDeleteBuildLog: (id: number) => Promise<void>;
+  handleAddFinishLog: () => Promise<void>;
+  handleDeleteFinishLog: (id: number) => Promise<void>;
+  handleOpenLinkForm: () => Promise<void>;
+  handleAddLink: () => Promise<void>;
+  handleRemoveLink: (id: number) => Promise<void>;
+  handleSaveAsTemplate: () => Promise<void>;
+  handleDelete: () => Promise<void>;
+  togglePurchased: (matId: number, purchased: boolean) => Promise<void>;
+}) {
+  const heroRef = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] });
+  const heroImgY = useTransform(scrollYProgress, [0, 1], ['0%', '22%']);
+  const heroOverlayOpacity = useTransform(scrollYProgress, [0, 0.7], [1, 0]);
+  const navigate = onNavigate;
+
   return (
     <div style={{ position: 'relative', paddingBottom: 80 }}>
       {/* Hero banner */}
-      <div style={{
-        position: 'relative', width: '100%',
-        height: heroImage ? 380 : 180,
-        backgroundColor: 'var(--color-cream-2)',
-        overflow: 'hidden',
-      }}>
+      <div
+        ref={heroRef}
+        style={{
+          position: 'relative', width: '100%',
+          height: heroImage ? 380 : 180,
+          backgroundColor: 'var(--color-cream-2)',
+          overflow: 'hidden',
+        }}
+      >
         {heroImage && (
-          <img
+          <motion.img
             src={imageUrl(heroImage.id)}
             alt={project.title}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            style={{ width: '100%', height: '115%', objectFit: 'cover', y: heroImgY }}
           />
         )}
-        <div style={{
-          position: 'absolute', inset: 0,
-          background: heroImage
-            ? 'linear-gradient(180deg, rgba(245,240,234,0.2) 0%, rgba(245,240,234,0.85) 100%)'
-            : 'transparent',
-        }} />
+        <motion.div
+          style={{
+            position: 'absolute', inset: 0,
+            background: heroImage
+              ? 'linear-gradient(180deg, rgba(245,240,234,0.2) 0%, rgba(245,240,234,0.85) 100%)'
+              : 'transparent',
+            opacity: heroOverlayOpacity,
+          }}
+        />
 
         <button
           onClick={() => navigate('/')}
@@ -403,7 +467,18 @@ export default function ProjectDetail() {
 
         {/* Cut List */}
         {project.cut_list.length > 0 && (
-          <Section title="Cut List">
+          <Section title="Cut List" right={
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-ghost" onClick={() => printCutList(project)} style={{ fontSize: '0.8rem', padding: '7px 11px' }}>
+                <Printer size={13} />
+                <span className="header-nav-label">Print</span>
+              </button>
+              <button className="btn btn-ghost" onClick={() => exportCutListCsv(project)} style={{ fontSize: '0.8rem', padding: '7px 11px' }}>
+                <Download size={13} />
+                <span className="header-nav-label">CSV</span>
+              </button>
+            </div>
+          }>
             <div className="card table-scroll" style={{ overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                 <thead>
@@ -457,9 +532,15 @@ export default function ProjectDetail() {
           <Section
             title="Materials & Hardware"
             right={
-              <span style={{ fontSize: '0.88rem', color: 'var(--color-muted)' }}>
-                Total: <strong style={{ color: 'var(--color-ink)' }}>{formatMoney(project.total_cost)}</strong>
-              </span>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <span style={{ fontSize: '0.88rem', color: 'var(--color-muted)' }}>
+                  Total: <strong style={{ color: 'var(--color-ink)' }}>{formatMoney(project.total_cost)}</strong>
+                </span>
+                <button className="btn btn-ghost" onClick={() => exportMaterialsCsv(project)} style={{ fontSize: '0.8rem', padding: '7px 11px' }}>
+                  <Download size={13} />
+                  <span className="header-nav-label">CSV</span>
+                </button>
+              </div>
             }
           >
             <div className="card">
@@ -705,7 +786,7 @@ export default function ProjectDetail() {
         </div>
       </div>
 
-      {lightbox && <Lightbox src={lightbox.src} pdf={lightbox.pdf} onClose={closeLightbox} />}
+      {lightbox && <Lightbox src={lightbox.src} pdf={lightbox.pdf} onClose={() => setLightbox(null)} />}
     </div>
   );
 }
@@ -820,6 +901,79 @@ function formatMoney(n: number) {
 function formatDims(l: string | null, w: string | null, t: string | null) {
   const parts = [l, w, t].filter(Boolean);
   return parts.length > 0 ? parts.join(' × ') : '—';
+}
+
+function escHtml(s: string) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function downloadCsv(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportCutListCsv(project: import('../types/project').ProjectDetail) {
+  const lines = ['Part,Qty,Length,Width,Thickness,Material'];
+  for (const c of project.cut_list) {
+    lines.push(`"${c.part_name}",${c.qty},"${c.length ?? ''}","${c.width ?? ''}","${c.thickness ?? ''}","${c.material ?? ''}"`);
+  }
+  downloadCsv(lines.join('\n'), `${project.title.replace(/[^a-z0-9]/gi, '-')}-cut-list.csv`);
+}
+
+function exportMaterialsCsv(project: import('../types/project').ProjectDetail) {
+  const lines = ['Name,Qty,Cost,Purchased'];
+  for (const m of project.materials) {
+    lines.push(`"${m.name}","${m.qty_label ?? ''}",${m.cost ?? 0},${m.purchased ? 'Yes' : 'No'}`);
+  }
+  downloadCsv(lines.join('\n'), `${project.title.replace(/[^a-z0-9]/gi, '-')}-materials.csv`);
+}
+
+function printCutList(project: import('../types/project').ProjectDetail) {
+  const totalQty = project.cut_list.reduce((s, c) => s + (c.qty || 0), 0);
+  const date = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const rows = project.cut_list.map(c => `
+    <tr>
+      <td>${escHtml(c.part_name)}</td>
+      <td>${c.qty}</td>
+      <td style="color:#8B7A6B">${escHtml(formatDims(c.length, c.width, c.thickness))}</td>
+      <td style="color:#A0522D">${escHtml(c.material ?? '—')}</td>
+    </tr>`).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(project.title)} — Cut List</title>
+<style>
+  @page { size: letter portrait; margin: 0.75in; }
+  * { box-sizing: border-box; }
+  body { font-family: Georgia, 'Playfair Display', serif; font-size: 11px; color: #1C0F07; margin: 0; }
+  .brand { border-left: 4px solid #A0522D; padding-left: 16px; margin-bottom: 28px; }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .meta { font-size: 10px; color: #8B7A6B; font-family: Arial, sans-serif; }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; font-family: Arial, sans-serif; }
+  th { text-align: left; padding: 8px 12px; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: #8B7A6B; border-bottom: 2px solid #A0522D; }
+  td { padding: 10px 12px; border-bottom: 1px solid #EDE8E3; }
+  tfoot td { font-weight: 700; border-top: 2px solid #1C0F07; border-bottom: none; }
+  @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+</style></head><body>
+<div class="brand"><h1>${escHtml(project.title)}</h1><div class="meta">Cut List · ${escHtml(date)} · ${project.cut_list.length} parts</div></div>
+<table>
+  <thead><tr><th>PART</th><th>QTY</th><th>DIMENSIONS (L × W × T)</th><th>MATERIAL</th></tr></thead>
+  <tbody>${rows}</tbody>
+  <tfoot><tr><td>Total</td><td>${totalQty} pcs</td><td></td><td></td></tr></tfoot>
+</table>
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { toast.error('Pop-up blocked — allow pop-ups and try again'); return; }
+  win.document.write(html);
+  win.document.close();
 }
 
 function Lightbox({ src, pdf, onClose }: { src: string; pdf?: boolean; onClose: () => void }) {

@@ -15,6 +15,19 @@
   --font-sans:   'Inter', system-ui, -apple-system, sans-serif;
 }
 
+/* ── Dark theme ─────────────────────────────────────────────────────────────── */
+:root[data-theme="dark"] {
+  --color-cream:     #171009;
+  --color-cream-2:   #1F1510;
+  --color-paper:     #261A12;
+  --color-ink:       #EFE4D6;
+  --color-ink-soft:  #B07840;
+  --color-muted:     #8A7565;
+  --color-line:      #3A2A1E;
+  --color-rust:      #C87040;
+  --color-rust-dark: #A85C2A;
+}
+
 html, body, #root {
   height: 100%;
 }
@@ -26,6 +39,22 @@ html, body, #root {
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-line) 25%,
+    var(--color-cream-2) 50%,
+    var(--color-line) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
 }
 
 body {

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, Check } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, Check, Printer } from 'lucide-react';
 import { getShoppingList, togglePurchased } from '../services/api';
 import type { ShoppingListItem } from '../types/project';
 
@@ -46,10 +46,20 @@ export default function ShoppingList() {
         <button onClick={() => navigate(-1)} className="btn btn-ghost" style={{ gap: 6 }}>
           <ArrowLeft size={14} /> Back
         </button>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: 'var(--color-muted)', cursor: 'pointer' }}>
-          <input type="checkbox" checked={showPurchased} onChange={e => setShowPurchased(e.target.checked)} style={{ width: 14, height: 14, accentColor: 'var(--color-ink-soft)' }} />
-          Show purchased
-        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: 'var(--color-muted)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={showPurchased} onChange={e => setShowPurchased(e.target.checked)} style={{ width: 14, height: 14, accentColor: 'var(--color-ink-soft)' }} />
+            Show purchased
+          </label>
+          <button
+            className="btn btn-ghost"
+            onClick={() => printShoppingList(grouped, items)}
+            style={{ fontSize: '0.82rem', gap: 6 }}
+          >
+            <Printer size={14} />
+            Print
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
@@ -129,3 +139,61 @@ export default function ShoppingList() {
 }
 
 function formatMoney(n: number) { return `$${(n || 0).toFixed(2)}`; }
+
+function escHtml(s: string) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function printShoppingList(
+  grouped: { id: number; title: string; items: ShoppingListItem[] }[],
+  allItems: ShoppingListItem[],
+) {
+  const date = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const unpurchased = allItems.filter(i => !i.purchased);
+  const total = unpurchased.reduce((s, i) => s + (i.cost || 0), 0);
+
+  const sections = grouped.map(({ title, items }) => `
+    <div class="project">
+      <div class="project-title">${escHtml(title)}</div>
+      <table>
+        <tbody>
+          ${items.map(item => `
+            <tr>
+              <td style="padding: 8px 0 8px 8px; width: 18px;">
+                <span style="display:inline-block;width:14px;height:14px;border:1.5px solid #8B7A6B;border-radius:3px;vertical-align:middle;background:${item.purchased ? '#A0522D' : 'white'}"></span>
+              </td>
+              <td style="padding: 8px 6px; ${item.purchased ? 'text-decoration:line-through;color:#8B7A6B;' : ''}">${escHtml(item.name)}${item.qty_label ? `<span style="color:#8B7A6B;font-size:10px;margin-left:6px">${escHtml(item.qty_label)}</span>` : ''}</td>
+              <td style="padding: 8px 0; text-align: right; ${item.purchased ? 'color:#8B7A6B;text-decoration:line-through;' : ''}">${item.cost > 0 ? formatMoney(item.cost) : ''}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Shopping List</title>
+<style>
+  @page { size: letter portrait; margin: 0.75in; }
+  * { box-sizing: border-box; }
+  body { font-family: Georgia, serif; font-size: 11px; color: #1C0F07; margin: 0; }
+  .brand { border-left: 4px solid #A0522D; padding-left: 16px; margin-bottom: 28px; }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+  .meta { font-size: 10px; color: #8B7A6B; font-family: Arial, sans-serif; }
+  .project { margin-bottom: 24px; }
+  .project-title { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #8B7A6B; border-bottom: 1px solid #EDE8E3; padding-bottom: 6px; margin-bottom: 2px; }
+  table { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; }
+  .total { font-weight: 700; border-top: 2px solid #1C0F07; padding-top: 8px; margin-top: 4px; display: flex; justify-content: space-between; font-family: Arial, sans-serif; font-size: 12px; }
+  @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+</style></head><body>
+<div class="brand">
+  <h1>Shopping List</h1>
+  <div class="meta">${unpurchased.length} items · ${escHtml(date)}</div>
+</div>
+${sections}
+${total > 0 ? `<div class="total"><span>Estimated Total</span><span>${formatMoney(total)}</span></div>` : ''}
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+}
