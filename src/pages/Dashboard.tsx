@@ -110,6 +110,47 @@ export default function Dashboard() {
         </p>
       </motion.div>
 
+      {/* Stats strip */}
+      {!loading && projects.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.32, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+          className="dash-stats"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: 12,
+            marginBottom: 36,
+            padding: '18px 24px',
+            borderRadius: 14,
+            border: '1px solid var(--color-line)',
+            background: 'var(--color-paper)',
+          }}
+        >
+          <DashStat
+            label="In Progress"
+            value={String(projects.filter(p => p.status === 'in_progress').length)}
+            sub="active builds"
+          />
+          <DashStat
+            label="In Queue"
+            value={String(projects.filter(p => p.status === 'idea' || p.status === 'planning').length)}
+            sub="ideas & plans"
+          />
+          <DashStat
+            label="Total Parts"
+            value={String(projects.filter(p => p.status !== 'completed').reduce((s, p) => s + (p.parts_count || 0), 0))}
+            sub="across active projects"
+          />
+          <DashStat
+            label="Est. Value"
+            value={`$${projects.reduce((s, p) => s + (p.total_cost || 0), 0).toFixed(0)}`}
+            sub="in materials"
+          />
+        </motion.div>
+      )}
+
       {/* Search + filters */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12,
@@ -371,6 +412,16 @@ export default function Dashboard() {
           </a>
         </div>
       )}
+    </div>
+  );
+}
+
+function DashStat({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value" style={{ fontSize: '1.6rem' }}>{value}</div>
+      <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', marginTop: 2 }}>{sub}</div>
     </div>
   );
 }

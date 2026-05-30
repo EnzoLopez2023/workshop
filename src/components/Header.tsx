@@ -1,7 +1,8 @@
-import { Plus, LogOut, Ruler, ShoppingCart, BookOpen, Moon, Sun, Settings } from 'lucide-react';
+import { Plus, LogOut, Ruler, ShoppingCart, BookOpen, Moon, Sun, Settings, Search } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
+import { Tooltip } from './Tooltip';
 
 function ShaperIcon({ size = 16 }: { size?: number }) {
   return (
@@ -92,27 +93,40 @@ export default function Header() {
             <span className="header-new-label">New Project</span>
           </button>
         )}
-        <button className="btn btn-ghost" onClick={() => navigate('/notebook')} title="Notebook" style={{ gap: 6 }}>
-          <BookOpen size={15} strokeWidth={2} />
-        </button>
-        <button
-          className="btn btn-ghost"
-          onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-          title={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          style={{ gap: 6, padding: '8px 10px' }}
-        >
-          {resolvedTheme === 'dark'
-            ? <Sun size={15} strokeWidth={2} />
-            : <Moon size={15} strokeWidth={2} />}
-        </button>
-        <button
-          className="btn btn-ghost"
-          onClick={() => navigate('/settings')}
-          title="Settings"
-          style={{ gap: 6, padding: '8px 10px' }}
-        >
-          <Settings size={15} strokeWidth={2} />
-        </button>
+        <Tooltip content="Search & navigate (⌘K)">
+          <button
+            className="btn btn-ghost"
+            onClick={() => window.dispatchEvent(new CustomEvent('workshop:palette'))}
+            style={{ gap: 6, padding: '8px 10px' }}
+          >
+            <Search size={15} strokeWidth={2} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Notebook">
+          <button className="btn btn-ghost" onClick={() => navigate('/notebook')} style={{ gap: 6 }}>
+            <BookOpen size={15} strokeWidth={2} />
+          </button>
+        </Tooltip>
+        <Tooltip content={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+            style={{ gap: 6, padding: '8px 10px' }}
+          >
+            {resolvedTheme === 'dark'
+              ? <Sun size={15} strokeWidth={2} />
+              : <Moon size={15} strokeWidth={2} />}
+          </button>
+        </Tooltip>
+        <Tooltip content="Settings">
+          <button
+            className="btn btn-ghost"
+            onClick={() => navigate('/settings')}
+            style={{ gap: 6, padding: '8px 10px' }}
+          >
+            <Settings size={15} strokeWidth={2} />
+          </button>
+        </Tooltip>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div
             title={displayName}

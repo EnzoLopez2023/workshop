@@ -1,8 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { ArrowLeft, Save, Upload, Link as LinkIcon, Plus, Trash2, X, Sparkles, FileText, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { Tooltip } from '../components/Tooltip';
+import {
+  DndContext, closestCenter, PointerSensor,
+  useSensor, useSensors, type DragEndEvent,
+} from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, arrayMove, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { ArrowLeft, Save, Upload, Link as LinkIcon, Plus, Trash2, X, Sparkles, FileText, CheckCircle, AlertCircle, Loader, GripVertical } from 'lucide-react';
 import {
   createProject, updateProject, getProject,
   uploadImage, addInspirationUrl, deleteImage,
@@ -242,6 +249,38 @@ export default function ProjectForm() {
     setMaterials(prev => prev.filter((_, i) => i !== idx));
   };
 
+  // ── Drag to reorder ─────────────────────────────────────────────────────────
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+
+  const handleCutDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setCutList(prev => {
+      const oldIdx = prev.findIndex(r => (r.id ?? r._localId) === active.id);
+      const newIdx = prev.findIndex(r => (r.id ?? r._localId) === over.id);
+      const reordered = arrayMove(prev, oldIdx, newIdx);
+      reordered.forEach((row, idx) => {
+        if (row.id) updateCutItem(row.id, { sort_order: idx } as Parameters<typeof updateCutItem>[1]).catch(() => {});
+      });
+      return reordered;
+    });
+  }, []);
+
+  const handleMatDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setMaterials(prev => {
+      const oldIdx = prev.findIndex(r => (r.id ?? r._localId) === active.id);
+      const newIdx = prev.findIndex(r => (r.id ?? r._localId) === over.id);
+      const reordered = arrayMove(prev, oldIdx, newIdx);
+      reordered.forEach((row, idx) => {
+        if (row.id) updateMaterial(row.id, { sort_order: idx } as Parameters<typeof updateMaterial>[1]).catch(() => {});
+      });
+      return reordered;
+    });
+  }, []);
+
   // ── Save ────────────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
@@ -367,17 +406,18 @@ export default function ProjectForm() {
             placeholder="https://learn.kregtool.com/plans/…"
             style={{ flex: 1 }}
           />
-          <button
-            type="button"
-            className="btn btn-muted"
-            onClick={handleAnalyze}
-            disabled={analyzing || !form.source_url.trim()}
-            title="Use AI to fill in description, cut list, materials, and tools from this page"
-            style={{ whiteSpace: 'nowrap' }}
-          >
-            <Sparkles size={14} />
-            {analyzing ? 'Analyzing…' : 'Analyze with AI'}
-          </button>
+          <Tooltip content="AI fills in title, description, cut list & materials from this URL">
+            <button
+              type="button"
+              className="btn btn-muted"
+              onClick={handleAnalyze}
+              disabled={analyzing || !form.source_url.trim()}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              <Sparkles size={14} />
+              {analyzing ? 'Analyzing…' : 'Analyze with AI'}
+            </button>
+          </Tooltip>
         </div>
         {analyzeError ? (
           <div style={{ fontSize: '0.78rem', color: 'var(--color-rust)', marginTop: 6 }}>{analyzeError}</div>
@@ -533,40 +573,23 @@ export default function ProjectForm() {
             No parts yet. Add your first cut.
           </div>
         ) : (
-          cutList.map((row, i) => (
-            <div
-              key={row.id ?? row._localId}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '2fr 0.7fr 1fr 1fr 1fr 1.4fr auto',
-                gap: 8, alignItems: 'center',
-                padding: '8px 8px',
-                borderTop: i === 0 ? 'none' : '1px solid var(--color-line)',
-              }}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleCutDragEnd}>
+            <SortableContext
+              items={cutList.map(r => String(r.id ?? r._localId ?? ''))}
+              strategy={verticalListSortingStrategy}
             >
-              <input placeholder="Part name" value={row.part_name ?? ''}
-                     onChange={e => updateCutRow(i, { part_name: e.target.value })} />
-              <input type="number" min={1} placeholder="Qty" value={row.qty ?? 1}
-                     onChange={e => updateCutRow(i, { qty: Number(e.target.value) || 1 })} />
-              <input placeholder='Length' value={row.length ?? ''}
-                     onChange={e => updateCutRow(i, { length: e.target.value })} />
-              <input placeholder='Width' value={row.width ?? ''}
-                     onChange={e => updateCutRow(i, { width: e.target.value })} />
-              <input placeholder='Thickness' value={row.thickness ?? ''}
-                     onChange={e => updateCutRow(i, { thickness: e.target.value })} />
-              <input placeholder='Material' value={row.material ?? ''}
-                     onChange={e => updateCutRow(i, { material: e.target.value })} />
-              <button
-                onClick={() => removeCutRow(i)}
-                style={{
-                  background: 'transparent', border: 'none', color: 'var(--color-muted)',
-                  cursor: 'pointer', padding: 8,
-                }}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))
+              {cutList.map((row, i) => (
+                <SortableCutRow
+                  key={String(row.id ?? row._localId)}
+                  id={String(row.id ?? row._localId ?? '')}
+                  row={row}
+                  isFirst={i === 0}
+                  onChange={patch => updateCutRow(i, patch)}
+                  onRemove={() => removeCutRow(i)}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         )}
       </div>
       <button className="btn btn-ghost" onClick={addCutRow} style={{ marginTop: 10 }}>
@@ -582,39 +605,23 @@ export default function ProjectForm() {
             No materials yet.
           </div>
         ) : (
-          materials.map((row, i) => (
-            <div
-              key={row.id ?? row._localId}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'auto 2.2fr 1.2fr 1fr auto',
-                gap: 8, alignItems: 'center',
-                padding: '8px 10px',
-                borderTop: i === 0 ? 'none' : '1px solid var(--color-line)',
-              }}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMatDragEnd}>
+            <SortableContext
+              items={materials.map(r => String(r.id ?? r._localId ?? ''))}
+              strategy={verticalListSortingStrategy}
             >
-              <input
-                type="checkbox" checked={!!row.purchased}
-                onChange={e => updateMatRow(i, { purchased: e.target.checked })}
-                style={{ width: 16, height: 16, accentColor: 'var(--color-ink-soft)', cursor: 'pointer' }}
-              />
-              <input placeholder="Name" value={row.name ?? ''}
-                     onChange={e => updateMatRow(i, { name: e.target.value })} />
-              <input placeholder="Qty (e.g. 4 pcs, 1 quart)" value={row.qty_label ?? ''}
-                     onChange={e => updateMatRow(i, { qty_label: e.target.value })} />
-              <input type="number" min={0} step="0.01" placeholder="Cost" value={row.cost ?? 0}
-                     onChange={e => updateMatRow(i, { cost: Number(e.target.value) || 0 })} />
-              <button
-                onClick={() => removeMatRow(i)}
-                style={{
-                  background: 'transparent', border: 'none', color: 'var(--color-muted)',
-                  cursor: 'pointer', padding: 8,
-                }}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))
+              {materials.map((row, i) => (
+                <SortableMatRow
+                  key={String(row.id ?? row._localId)}
+                  id={String(row.id ?? row._localId ?? '')}
+                  row={row}
+                  isFirst={i === 0}
+                  onChange={patch => updateMatRow(i, patch)}
+                  onRemove={() => removeMatRow(i)}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         )}
       </div>
       <button className="btn btn-ghost" onClick={addMatRow} style={{ marginTop: 10 }}>
@@ -828,4 +835,94 @@ function UploadProgressPanel({
 
 function csvToArr(s: string): string[] {
   return s.split(',').map(x => x.trim()).filter(Boolean);
+}
+
+function SortableCutRow({
+  id, row, isFirst, onChange, onRemove,
+}: {
+  id: string;
+  row: CutDraft;
+  isFirst: boolean;
+  onChange: (patch: Partial<CutDraft>) => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    display: 'grid',
+    gridTemplateColumns: 'auto 2fr 0.7fr 1fr 1fr 1fr 1.4fr auto',
+    gap: 8, alignItems: 'center',
+    padding: '8px 8px',
+    borderTop: isFirst ? 'none' : '1px solid var(--color-line)',
+    background: 'var(--color-paper)',
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <button
+        {...attributes} {...listeners}
+        style={{ background: 'none', border: 'none', cursor: 'grab', color: 'var(--color-muted)', padding: '4px 2px', touchAction: 'none' }}
+        tabIndex={-1}
+        aria-label="Drag to reorder"
+      >
+        <GripVertical size={14} />
+      </button>
+      <input placeholder="Part name" value={row.part_name ?? ''} onChange={e => onChange({ part_name: e.target.value })} />
+      <input type="number" min={1} placeholder="Qty" value={row.qty ?? 1} onChange={e => onChange({ qty: Number(e.target.value) || 1 })} />
+      <input placeholder="Length" value={row.length ?? ''} onChange={e => onChange({ length: e.target.value })} />
+      <input placeholder="Width" value={row.width ?? ''} onChange={e => onChange({ width: e.target.value })} />
+      <input placeholder="Thickness" value={row.thickness ?? ''} onChange={e => onChange({ thickness: e.target.value })} />
+      <input placeholder="Material" value={row.material ?? ''} onChange={e => onChange({ material: e.target.value })} />
+      <button onClick={onRemove} style={{ background: 'transparent', border: 'none', color: 'var(--color-muted)', cursor: 'pointer', padding: 8 }}>
+        <Trash2 size={14} />
+      </button>
+    </div>
+  );
+}
+
+function SortableMatRow({
+  id, row, isFirst, onChange, onRemove,
+}: {
+  id: string;
+  row: MatDraft;
+  isFirst: boolean;
+  onChange: (patch: Partial<MatDraft>) => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    display: 'grid',
+    gridTemplateColumns: 'auto auto 2.2fr 1.2fr 1fr auto',
+    gap: 8, alignItems: 'center',
+    padding: '8px 10px',
+    borderTop: isFirst ? 'none' : '1px solid var(--color-line)',
+    background: 'var(--color-paper)',
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <button
+        {...attributes} {...listeners}
+        style={{ background: 'none', border: 'none', cursor: 'grab', color: 'var(--color-muted)', padding: '4px 2px', touchAction: 'none' }}
+        tabIndex={-1}
+        aria-label="Drag to reorder"
+      >
+        <GripVertical size={14} />
+      </button>
+      <input
+        type="checkbox" checked={!!row.purchased}
+        onChange={e => onChange({ purchased: e.target.checked })}
+        style={{ width: 16, height: 16, accentColor: 'var(--color-ink-soft)', cursor: 'pointer' }}
+      />
+      <input placeholder="Name" value={row.name ?? ''} onChange={e => onChange({ name: e.target.value })} />
+      <input placeholder="Qty (e.g. 4 pcs, 1 quart)" value={row.qty_label ?? ''} onChange={e => onChange({ qty_label: e.target.value })} />
+      <input type="number" min={0} step="0.01" placeholder="Cost" value={row.cost ?? 0} onChange={e => onChange({ cost: Number(e.target.value) || 0 })} />
+      <button onClick={onRemove} style={{ background: 'transparent', border: 'none', color: 'var(--color-muted)', cursor: 'pointer', padding: 8 }}>
+        <Trash2 size={14} />
+      </button>
+    </div>
+  );
 }

@@ -15,6 +15,19 @@
   --font-sans:   'Inter', system-ui, -apple-system, sans-serif;
 }
 
+/* ── Command palette (cmdk) ─────────────────────────────────────────────────── */
+[cmdk-item][aria-selected="true"] {
+  background-color: var(--color-cream-2);
+}
+[cmdk-item] {
+  outline: none;
+  user-select: none;
+  transition: background-color 0.1s;
+}
+[cmdk-group-heading] {
+  display: none; /* we render our own heading inside PaletteGroup */
+}
+
 /* ── Dark theme ─────────────────────────────────────────────────────────────── */
 :root[data-theme="dark"] {
   --color-cream:     #171009;
@@ -327,6 +340,11 @@ textarea { resize: vertical; min-height: 88px; }
 
   /* Meta card stats: 2-column on mobile */
   .stat-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Dashboard stats strip: 2-column on mobile */
+  .dash-stats {
     grid-template-columns: repeat(2, 1fr) !important;
   }
 

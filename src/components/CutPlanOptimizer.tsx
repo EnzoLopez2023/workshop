@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { Tooltip } from './Tooltip';
 import { Scissors, Plus, Trash2, AlertTriangle, AlertCircle, Download, Save } from 'lucide-react';
 import type { CutListItem } from '../types/project';
 import { parseInches, buildCutPieces, optimizeCuts } from '../lib/cutPlan';
@@ -361,9 +362,11 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
       {/* Kerf + Generate */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <label style={{ fontSize: '0.82rem', color: 'var(--color-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>
-            Saw Kerf
-          </label>
+          <Tooltip content="Blade width lost per cut — typically 1/8&quot; for a table saw" placement="top">
+            <label style={{ fontSize: '0.82rem', color: 'var(--color-muted)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'help' }}>
+              Saw Kerf
+            </label>
+          </Tooltip>
           <input
             type="number" min={0} max={0.5} step={0.0625}
             value={kerfStr}

@@ -1,9 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import Header from './components/Header';
+import CommandPalette from './components/CommandPalette';
 import Dashboard from './pages/Dashboard';
 import ProjectDetail from './pages/ProjectDetail';
 import ProjectForm from './pages/ProjectForm';
@@ -24,26 +26,47 @@ const PAGE_TRANSITION = {
 
 function AppRoutes() {
   const location = useLocation();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen(v => !v);
+      }
+    };
+    const onCustom = () => setPaletteOpen(v => !v);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('workshop:palette', onCustom);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('workshop:palette', onCustom);
+    };
+  }, []);
+
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div key={location.pathname} {...PAGE_TRANSITION}>
-        <Routes>
-          <Route path="/"                  element={<Dashboard />} />
-          <Route path="/projects/new"      element={<ProjectForm />} />
-          <Route path="/projects/:id"      element={<ProjectDetail />} />
-          <Route path="/projects/:id/edit" element={<ProjectForm />} />
-          <Route path="/shaper/new"        element={<ShaperProjectForm />} />
-          <Route path="/shaper/:id"        element={<ShaperProjectDetail />} />
-          <Route path="/shaper/:id/edit"   element={<ShaperProjectForm />} />
-          <Route path="/conversions"       element={<ConversionTables />} />
-          <Route path="/shopping-list"     element={<ShoppingList />} />
-          <Route path="/notebook"          element={<NotebookList />} />
-          <Route path="/notebook/:id"      element={<NotebookPage />} />
-          <Route path="/settings"          element={<Settings />} />
-          <Route path="*"                  element={<Navigate to="/" replace />} />
-        </Routes>
-      </motion.div>
-    </AnimatePresence>
+    <>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div key={location.pathname} {...PAGE_TRANSITION}>
+          <Routes>
+            <Route path="/"                  element={<Dashboard />} />
+            <Route path="/projects/new"      element={<ProjectForm />} />
+            <Route path="/projects/:id"      element={<ProjectDetail />} />
+            <Route path="/projects/:id/edit" element={<ProjectForm />} />
+            <Route path="/shaper/new"        element={<ShaperProjectForm />} />
+            <Route path="/shaper/:id"        element={<ShaperProjectDetail />} />
+            <Route path="/shaper/:id/edit"   element={<ShaperProjectForm />} />
+            <Route path="/conversions"       element={<ConversionTables />} />
+            <Route path="/shopping-list"     element={<ShoppingList />} />
+            <Route path="/notebook"          element={<NotebookList />} />
+            <Route path="/notebook/:id"      element={<NotebookPage />} />
+            <Route path="/settings"          element={<Settings />} />
+            <Route path="*"                  element={<Navigate to="/" replace />} />
+          </Routes>
+        </motion.div>
+      </AnimatePresence>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+    </>
   );
 }
 
