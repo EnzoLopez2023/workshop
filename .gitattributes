@@ -1,0 +1,5 @@
+# Keep LF in the repo for tooling-rewritten and shell-executed files so the
+# version-bump pre-commit hook never trips core.safecrlf. See azure-infra/STANDARDS.md.
+version.json          text eol=lf
+.githooks/pre-commit  text eol=lf
+*.sh                  text eol=lf
