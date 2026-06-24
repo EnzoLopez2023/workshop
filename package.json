@@ -9,7 +9,11 @@
     "preview": "vite preview",
     "server": "node server.js",
     "start:all": "npm run server & npm run dev",
-    "icons": "node scripts/gen-icons.mjs"
+    "icons": "node scripts/gen-icons.mjs",
+    "prepare": "node scripts/setup-hooks.mjs || exit 0",
+    "bump:patch": "node scripts/version.mjs patch",
+    "bump:minor": "node scripts/version.mjs minor",
+    "bump:major": "node scripts/version.mjs major"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",

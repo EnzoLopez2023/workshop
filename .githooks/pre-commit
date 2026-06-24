@@ -1,0 +1,6 @@
+#!/bin/sh
+# Auto-increment the build number on every commit and include it in the commit.
+# Wired via `git config core.hooksPath .githooks` (done by scripts/setup-hooks.mjs
+# on npm install). Runs cross-platform: Git for Windows executes this via sh.
+node scripts/version.mjs build || exit 1
+git add version.json

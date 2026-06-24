@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Cross-app standards** (versioning, Key Vault/secrets, deploy/CI, auth, iOS readiness, Azure registry) are defined in the canonical [azure-infra/STANDARDS.md](../azure-infra/STANDARDS.md). Consult it first; it wins over this file for shared conventions.
+
 ## Deploy reality (READ FIRST)
 
 Production runs on **Azure App Service (Linux container)** — not Docker on a self-hosted box, not IIS.
