@@ -1,5 +1,6 @@
 import type { IPublicClientApplication } from '@azure/msal-browser'
 import { getTabloomToken } from '../auth/getTabloomToken'
+import { isDemoMode, DemoBlockedError } from '../demo/demoMode'
 
 const BASE = import.meta.env.VITE_TABLOOM_API_BASE_URL as string | undefined
 
@@ -36,6 +37,9 @@ let msal: IPublicClientApplication | null = null
 export function setMsalInstance(instance: IPublicClientApplication) { msal = instance }
 
 async function authHeader(): Promise<string> {
+  // The notebook is a live window onto Tabloom, which requires a real signed-in
+  // account — there's nothing to show (or a token to get) in demo mode.
+  if (isDemoMode()) throw new DemoBlockedError('The notebook is only available when signed in.')
   if (!msal) throw new Error('Tabloom client: MSAL not initialized')
   const token = await getTabloomToken(msal)
   return `Bearer ${token}`

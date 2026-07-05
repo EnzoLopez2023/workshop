@@ -183,6 +183,27 @@
   transform: translateX(3px);
 }
 
+/* Sign-in + Demo side by side */
+.landing-cta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Demo is the secondary, ghost-style action */
+.landing-cta-demo {
+  background: transparent;
+  color: var(--color-muted);
+  box-shadow: none;
+}
+
+.landing-cta-demo:hover {
+  color: var(--color-ink);
+  background: var(--color-paper);
+}
+
 .landing-cta-note {
   margin: 0;
   font-size: 12px;

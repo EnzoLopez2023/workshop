@@ -2,7 +2,7 @@ import express from 'express';
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename, extname } from 'path';
-import { mkdirSync, unlink } from 'fs';
+import { mkdirSync, unlink, existsSync, renameSync, copyFileSync } from 'fs';
 import { unlink as unlinkAsync } from 'fs/promises';
 import { lookup as dnsLookup } from 'dns/promises';
 import { isIP } from 'net';
@@ -25,13 +25,24 @@ const UPLOADS_PATH = process.env.UPLOADS_PATH ?? join(__dirname, 'uploads');
 
 mkdirSync(UPLOADS_PATH, { recursive: true });
 
-// ── Database ──────────────────────────────────────────────────────────────────
+// ── Database (per-user, isolated by MSAL OID) ─────────────────────────────────
+//
+// Each Microsoft user gets their own SQLite file at USERS_DIR/<oid>.db, created
+// lazily on first request and seeded from a starter snapshot. There is no shared
+// global connection — every request resolves its own { db, stmts } via getUserDb
+// (see the auth middleware). initSchema/buildStmts are factories run per file.
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const DATA_DIR     = dirname(DB_PATH);
+const USERS_DIR    = process.env.USERS_DIR    ?? join(DATA_DIR, 'users');
+const SEED_DB_PATH = process.env.SEED_DB_PATH ?? join(DATA_DIR, 'workshop-seed.db');
+// The legacy single-user DB (DB_PATH) becomes the primary user's own workspace;
+// its pre-migration contents seed every other user and demo mode. ALLOWED_OID —
+// formerly the single-user gate — now only identifies that primary user.
+const PRIMARY_USER_OID = process.env.ALLOWED_OID || '';
+const OID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-db.exec(`
+function initSchema(db) {
+  db.exec(`
   CREATE TABLE IF NOT EXISTS projects (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     title           TEXT NOT NULL,
@@ -223,10 +234,12 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_notebook_links_page ON notebook_links(page_id, sort_order);
 `);
+}
 
 // ── Prepared statements ───────────────────────────────────────────────────────
 
-const stmts = {
+function buildStmts(db) {
+  return {
   listProjects: db.prepare(`
     SELECT p.*,
       (SELECT COUNT(*) FROM cut_list_items c WHERE c.project_id = p.id) AS parts_count,
@@ -390,7 +403,90 @@ const stmts = {
   insertNotebookLink: db.prepare(`INSERT INTO notebook_links (page_id, url, caption, sort_order) VALUES (@page_id, @url, @caption, @sort_order)`),
   deleteNotebookLink: db.prepare(`DELETE FROM notebook_links WHERE id = ?`),
   notebookLinkCount:  db.prepare(`SELECT COUNT(*) AS n FROM notebook_links WHERE page_id = ?`),
-};
+
+  // Reject the reverse direction of a pair (B→A when A→B already exists) so the
+  // UNION-based link listing doesn't double-count an unordered pair.
+  reverseLinkExists:  db.prepare(`SELECT 1 FROM project_links WHERE project_id = ? AND linked_project_id = ?`),
+  };
+}
+
+// ── Per-user DB resolution + seeding ──────────────────────────────────────────
+
+const dbHandles = new Map();   // oid → { db, stmts }
+
+function openDb(path) {
+  const database = new Database(path);
+  database.pragma('journal_mode = WAL');
+  database.pragma('foreign_keys = ON');
+  initSchema(database);
+  return database;
+}
+
+// Build the starter snapshot once, from the legacy single-user DB, BEFORE that
+// file is claimed by the primary user (getUserDb renames it away). This captures
+// the real current data as the seed for every new user and for demo mode.
+function ensureSeedTemplate() {
+  if (existsSync(SEED_DB_PATH) || !existsSync(DB_PATH)) return;
+  try {
+    const legacy = new Database(DB_PATH);
+    legacy.pragma('wal_checkpoint(TRUNCATE)');
+    legacy.close();
+    copyFileSync(DB_PATH, SEED_DB_PATH);
+    console.log(`[seed] created starter snapshot → ${SEED_DB_PATH}`);
+  } catch (err) {
+    console.error('[seed] failed to build seed template:', err.message);
+  }
+}
+
+mkdirSync(USERS_DIR, { recursive: true });
+ensureSeedTemplate();
+
+function getUserDb(oid) {
+  const cached = dbHandles.get(oid);
+  if (cached) return cached;
+  if (!OID_RE.test(oid)) throw new Error('invalid oid');
+
+  const target = join(USERS_DIR, `${oid}.db`);
+
+  if (!existsSync(target)) {
+    if (PRIMARY_USER_OID && oid === PRIMARY_USER_OID && existsSync(DB_PATH)) {
+      // Primary user inherits the legacy DB as their own workspace.
+      renameSync(DB_PATH, target);
+      for (const ext of ['-wal', '-shm']) {
+        if (existsSync(DB_PATH + ext)) { try { renameSync(DB_PATH + ext, target + ext); } catch { /* tolerated */ } }
+      }
+      console.log(`[migrate] moved legacy DB → ${target}`);
+    } else if (existsSync(SEED_DB_PATH)) {
+      // Everyone else starts from the starter snapshot.
+      copyFileSync(SEED_DB_PATH, target);
+    }
+  }
+
+  const db = openDb(target);
+  const entry = { db, stmts: buildStmts(db) };
+  dbHandles.set(oid, entry);
+  return entry;
+}
+
+// Demo mode reads the shared starter snapshot; writes are blocked upstream.
+let demoEntry = null;
+function getDemoDb() {
+  if (demoEntry) return demoEntry;
+  if (!existsSync(SEED_DB_PATH)) return null;
+  const db = openDb(SEED_DB_PATH);
+  demoEntry = { db, stmts: buildStmts(db) };
+  return demoEntry;
+}
+
+// Auth-exempt image routes have no token: pick the user DB named by ?oid=, else
+// fall back to the demo snapshot. Returns { db, stmts } or null.
+function resolveReadDb(req) {
+  const oid = String(req.query.oid ?? '');
+  if (OID_RE.test(oid)) {
+    try { return getUserDb(oid); } catch { return getDemoDb(); }
+  }
+  return getDemoDb();
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -607,7 +703,6 @@ const htmlToPlainText = (html) => {
 
 const TENANT_ID    = process.env.AZURE_TENANT_ID;
 const API_AUDIENCE = process.env.API_AUDIENCE;
-const ALLOWED_OID  = process.env.ALLOWED_OID || '';
 
 if (!TENANT_ID || !API_AUDIENCE) {
   console.error('[auth] AZURE_TENANT_ID and API_AUDIENCE must be set. Refusing to start with auth disabled.');
@@ -626,9 +721,9 @@ async function requireAuth(req, res, next) {
       issuer: `https://login.microsoftonline.com/${TENANT_ID}/v2.0`,
       audience: API_AUDIENCE,
     });
-    if (ALLOWED_OID && payload.oid !== ALLOWED_OID) {
-      return res.status(403).json({ error: 'forbidden' });
-    }
+    // Multi-user now: any valid tenant token is accepted and scoped to its own
+    // per-OID database. (ALLOWED_OID no longer gates access — see PRIMARY_USER_OID.)
+    if (!payload.oid) return res.status(401).json({ error: 'invalid token' });
     req.user = { oid: payload.oid, email: payload.preferred_username ?? payload.email };
     next();
   } catch {
@@ -636,8 +731,22 @@ async function requireAuth(req, res, next) {
   }
 }
 
+// Attach the caller's own isolated database to the request.
+function withUserDb(req, res, next) {
+  try {
+    const { db, stmts } = getUserDb(req.user.oid);
+    req.db = db;
+    req.stmts = stmts;
+    next();
+  } catch (err) {
+    console.error('[withUserDb]', err.message);
+    res.status(500).json({ error: 'workspace unavailable' });
+  }
+}
+
 // `<img src>` and `<iframe src>` cannot send Authorization headers, so image
-// fetches stay open. Structured data and the AI endpoints are fully gated.
+// fetches stay open (they resolve their DB from ?oid= / the demo snapshot).
+// Structured data and the AI endpoints are fully gated.
 // `/health` is open so monitors and CI probes can hit it without a token.
 function isExemptPath(path) {
   return path === '/health'
@@ -650,9 +759,23 @@ app.set('trust proxy', 1);   // IIS/ARR is one hop in front
 app.use(express.json());
 app.use(express.static(join(__dirname, 'dist')));
 
+const DEMO_READONLY_MSG = 'Demo mode is read-only — sign in with Microsoft to make changes.';
+
 app.use('/api', (req, res, next) => {
-  if (isExemptPath(req.path)) return next();
-  return requireAuth(req, res, next);
+  // Exemption is GET-only — only `<img>`/`<iframe>` loads need it. Any write
+  // (e.g. DELETE /api/images/:id) still goes through auth + per-user scoping.
+  if (req.method === 'GET' && isExemptPath(req.path)) return next();
+  // Demo mode: no token, read-only against the shared starter snapshot.
+  if (req.get('X-Demo') === '1') {
+    if (req.method !== 'GET') return res.status(403).json({ error: DEMO_READONLY_MSG });
+    const entry = getDemoDb();
+    if (!entry) return res.status(503).json({ error: 'demo data unavailable' });
+    req.db = entry.db;
+    req.stmts = entry.stmts;
+    return next();
+  }
+  // Authenticated: verify the token, then attach that user's own database.
+  return requireAuth(req, res, () => withUserDb(req, res, next));
 });
 
 // Rate limit the paid AI endpoints — keyed per user (oid), not per IP.
@@ -672,12 +795,14 @@ app.get('/api/health', (_req, res) => {
 
 // ── Projects ──────────────────────────────────────────────────────────────────
 
-app.get('/api/projects', (_req, res) => {
+app.get('/api/projects', (req, res) => {
+  const { db, stmts } = req;
   const rows = stmts.listProjects.all().map(hydrateProject);
   res.json(rows);
 });
 
 app.get('/api/projects/:id', (req, res) => {
+  const { db, stmts } = req;
   const id = Number(req.params.id);
   const project = hydrateProject(stmts.getProject.get(id));
   if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -695,6 +820,7 @@ app.get('/api/projects/:id', (req, res) => {
 });
 
 app.post('/api/projects', (req, res) => {
+  const { db, stmts } = req;
   const body = req.body ?? {};
   const info = stmts.insertProject.run({
     title: body.title ?? 'Untitled project',
@@ -711,6 +837,7 @@ app.post('/api/projects', (req, res) => {
 });
 
 app.put('/api/projects/:id', (req, res) => {
+  const { db, stmts } = req;
   const id = Number(req.params.id);
   const existing = stmts.getProject.get(id);
   if (!existing) return res.status(404).json({ error: 'Project not found' });
@@ -736,12 +863,12 @@ app.put('/api/projects/:id', (req, res) => {
 // Collect every disk-resident filename owned by a project so we can unlink
 // them after the cascading DB delete. Runs before the delete so we still
 // have the rows to inspect.
-function collectProjectFiles(projectId) {
+function collectProjectFiles(db, projectId) {
   const imgs    = db.prepare(`SELECT file_path FROM project_images   WHERE project_id = ? AND file_path IS NOT NULL`).all(projectId);
   const builds  = db.prepare(`SELECT file_path FROM build_log_entries WHERE project_id = ? AND file_path IS NOT NULL`).all(projectId);
   return [...imgs, ...builds].map(r => r.file_path);
 }
-function collectShaperProjectFiles(shaperProjectId) {
+function collectShaperProjectFiles(db, shaperProjectId) {
   const imgs = db.prepare(`SELECT file_path FROM project_images WHERE shaper_project_id = ? AND file_path IS NOT NULL`).all(shaperProjectId);
   return imgs.map(r => r.file_path);
 }
@@ -750,8 +877,9 @@ async function unlinkAll(filenames) {
 }
 
 app.delete('/api/projects/:id', async (req, res) => {
+  const { db, stmts } = req;
   const id = Number(req.params.id);
-  const filesToRemove = collectProjectFiles(id);
+  const filesToRemove = collectProjectFiles(db, id);
   const info = stmts.deleteProject.run(id);
   if (info.changes === 0) return res.status(404).json({ error: 'Project not found' });
   await unlinkAll(filesToRemove);
@@ -759,6 +887,7 @@ app.delete('/api/projects/:id', async (req, res) => {
 });
 
 app.get('/api/projects/:id/cut-plan-config', (req, res) => {
+  const { db, stmts } = req;
   const row = stmts.getCutPlanConfig.get(Number(req.params.id));
   if (!row) return res.status(404).json({ error: 'Project not found' });
   const config = row.cut_plan_config ? JSON.parse(row.cut_plan_config) : null;
@@ -766,6 +895,7 @@ app.get('/api/projects/:id/cut-plan-config', (req, res) => {
 });
 
 app.put('/api/projects/:id/cut-plan-config', (req, res) => {
+  const { db, stmts } = req;
   const id = Number(req.params.id);
   stmts.saveCutPlanConfig.run({ config: JSON.stringify(req.body), id });
   res.json({ success: true });
@@ -859,7 +989,9 @@ app.post('/api/projects/analyze-url', async (req, res) => {
 // ── Images ────────────────────────────────────────────────────────────────────
 
 app.get('/api/images/:id', (req, res) => {
-  const row = stmts.getImage.get(Number(req.params.id));
+  const rdb = resolveReadDb(req);
+  if (!rdb) return res.status(404).end();
+  const row = rdb.stmts.getImage.get(Number(req.params.id));
   if (!row) return res.status(404).end();
 
   if (row.file_path) {
@@ -881,6 +1013,7 @@ app.get('/api/images/:id', (req, res) => {
 });
 
 app.post('/api/projects/:id/images', upload.single('file'), async (req, res) => {
+  const { db, stmts } = req;
   const project_id = Number(req.params.id);
   if (!stmts.getProject.get(project_id)) {
     if (req.file) await unlinkAsync(join(UPLOADS_PATH, req.file.filename)).catch(() => {});
@@ -922,6 +1055,7 @@ app.post('/api/projects/:id/images', upload.single('file'), async (req, res) => 
 });
 
 app.delete('/api/images/:id', (req, res) => {
+  const { stmts } = req;
   const id = Number(req.params.id);
   const row = stmts.getImage.get(id);
   const info = stmts.deleteImage.run(id);
@@ -935,6 +1069,7 @@ app.delete('/api/images/:id', (req, res) => {
 // ── Cut list ──────────────────────────────────────────────────────────────────
 
 app.post('/api/projects/:id/cut-list', (req, res) => {
+  const { db, stmts } = req;
   const project_id = Number(req.params.id);
   if (!stmts.getProject.get(project_id)) return res.status(404).json({ error: 'Project not found' });
 
@@ -953,6 +1088,7 @@ app.post('/api/projects/:id/cut-list', (req, res) => {
 });
 
 app.put('/api/cut-list/:id', (req, res) => {
+  const { db, stmts } = req;
   const b = req.body ?? {};
   if (typeof b.part_name !== 'string' || !b.part_name.trim()) {
     return res.status(400).json({ error: 'part_name is required' });
@@ -972,6 +1108,7 @@ app.put('/api/cut-list/:id', (req, res) => {
 });
 
 app.delete('/api/cut-list/:id', (req, res) => {
+  const { db, stmts } = req;
   const info = stmts.deleteCutItem.run(Number(req.params.id));
   if (info.changes === 0) return res.status(404).json({ error: 'Cut list item not found' });
   res.json({ success: true });
@@ -980,6 +1117,7 @@ app.delete('/api/cut-list/:id', (req, res) => {
 // ── Materials ─────────────────────────────────────────────────────────────────
 
 app.post('/api/projects/:id/materials', (req, res) => {
+  const { db, stmts } = req;
   const project_id = Number(req.params.id);
   if (!stmts.getProject.get(project_id)) return res.status(404).json({ error: 'Project not found' });
 
@@ -996,6 +1134,7 @@ app.post('/api/projects/:id/materials', (req, res) => {
 });
 
 app.put('/api/materials/:id', (req, res) => {
+  const { db, stmts } = req;
   const b = req.body ?? {};
   if (typeof b.name !== 'string' || !b.name.trim()) {
     return res.status(400).json({ error: 'name is required' });
@@ -1013,19 +1152,22 @@ app.put('/api/materials/:id', (req, res) => {
 });
 
 app.delete('/api/materials/:id', (req, res) => {
+  const { db, stmts } = req;
   const info = stmts.deleteMaterial.run(Number(req.params.id));
   if (info.changes === 0) return res.status(404).json({ error: 'Material not found' });
   res.json({ success: true });
 });
 
 app.patch('/api/materials/:id/purchased', (req, res) => {
+  const { db, stmts } = req;
   stmts.setPurchased.run({ purchased: req.body.purchased ? 1 : 0, id: Number(req.params.id) });
   res.json({ success: true });
 });
 
 // ── Shopping list ─────────────────────────────────────────────────────────────
 
-app.get('/api/shopping-list', (_req, res) => {
+app.get('/api/shopping-list', (req, res) => {
+  const { db, stmts } = req;
   const rows = stmts.getShoppingList.all().map(m => ({ ...m, purchased: !!m.purchased }));
   res.json(rows);
 });
@@ -1033,10 +1175,12 @@ app.get('/api/shopping-list', (_req, res) => {
 // ── Build log ─────────────────────────────────────────────────────────────────
 
 app.get('/api/projects/:id/build-log', (req, res) => {
+  const { db, stmts } = req;
   res.json(stmts.listBuildLog.all(Number(req.params.id)));
 });
 
 app.post('/api/projects/:id/build-log', upload.single('file'), async (req, res) => {
+  const { db, stmts } = req;
   const project_id = Number(req.params.id);
   if (!stmts.getProject.get(project_id)) {
     if (req.file) await unlinkAsync(join(UPLOADS_PATH, req.file.filename)).catch(() => {});
@@ -1058,7 +1202,9 @@ app.post('/api/projects/:id/build-log', upload.single('file'), async (req, res) 
 });
 
 app.get('/api/build-log/:id/image', (req, res) => {
-  const row = stmts.getBuildLogEntry.get(Number(req.params.id));
+  const rdb = resolveReadDb(req);
+  if (!rdb) return res.status(404).end();
+  const row = rdb.stmts.getBuildLogEntry.get(Number(req.params.id));
   if (!row?.file_path) return res.status(404).end();
   res.sendFile(join(UPLOADS_PATH, basename(row.file_path)), {
     headers: {
@@ -1070,6 +1216,7 @@ app.get('/api/build-log/:id/image', (req, res) => {
 });
 
 app.delete('/api/build-log/:id', (req, res) => {
+  const { db, stmts } = req;
   const id = Number(req.params.id);
   const row = stmts.getBuildLogEntry.get(id);
   const info = stmts.deleteBuildLogEntry.run(id);
@@ -1081,10 +1228,12 @@ app.delete('/api/build-log/:id', (req, res) => {
 // ── Finish log ────────────────────────────────────────────────────────────────
 
 app.get('/api/projects/:id/finish-log', (req, res) => {
+  const { db, stmts } = req;
   res.json(stmts.listFinishLog.all(Number(req.params.id)));
 });
 
 app.post('/api/projects/:id/finish-log', (req, res) => {
+  const { db, stmts } = req;
   const project_id = Number(req.params.id);
   if (!stmts.getProject.get(project_id)) return res.status(404).json({ error: 'Project not found' });
   const b = req.body ?? {};
@@ -1101,6 +1250,7 @@ app.post('/api/projects/:id/finish-log', (req, res) => {
 });
 
 app.put('/api/finish-log/:id', (req, res) => {
+  const { db, stmts } = req;
   const b = req.body ?? {};
   stmts.updateFinishLogEntry.run({
     id:           Number(req.params.id),
@@ -1115,6 +1265,7 @@ app.put('/api/finish-log/:id', (req, res) => {
 });
 
 app.delete('/api/finish-log/:id', (req, res) => {
+  const { db, stmts } = req;
   const info = stmts.deleteFinishLogEntry.run(Number(req.params.id));
   if (info.changes === 0) return res.status(404).json({ error: 'Finish log entry not found' });
   res.json({ success: true });
@@ -1123,15 +1274,13 @@ app.delete('/api/finish-log/:id', (req, res) => {
 // ── Project links ─────────────────────────────────────────────────────────────
 
 app.get('/api/projects/:id/links', (req, res) => {
+  const { db, stmts } = req;
   const id = Number(req.params.id);
   res.json(stmts.listProjectLinks.all(id, id));
 });
 
-// Reject the reverse direction too (B→A when A→B exists), so the UNION-based
-// listing doesn't double-count an unordered pair.
-const reverseLinkExists = db.prepare(`SELECT 1 FROM project_links WHERE project_id = ? AND linked_project_id = ?`);
-
 app.post('/api/projects/:id/links', (req, res) => {
+  const { db, stmts } = req;
   const project_id = Number(req.params.id);
   const { linked_project_id, relationship = 'related' } = req.body ?? {};
   const linkedId = Number(linked_project_id);
@@ -1141,7 +1290,7 @@ app.post('/api/projects/:id/links', (req, res) => {
   if (!stmts.getProject.get(linkedId)) {
     return res.status(404).json({ error: 'Linked project not found' });
   }
-  if (reverseLinkExists.get(linkedId, project_id)) {
+  if (stmts.reverseLinkExists.get(linkedId, project_id)) {
     return res.status(409).json({ error: 'These projects are already linked' });
   }
   stmts.insertProjectLink.run({ project_id, linked_project_id: linkedId, relationship });
@@ -1149,6 +1298,7 @@ app.post('/api/projects/:id/links', (req, res) => {
 });
 
 app.delete('/api/project-links/:id', (req, res) => {
+  const { db, stmts } = req;
   const info = stmts.deleteProjectLink.run(Number(req.params.id));
   if (info.changes === 0) return res.status(404).json({ error: 'Link not found' });
   res.json({ success: true });
@@ -1156,12 +1306,14 @@ app.delete('/api/project-links/:id', (req, res) => {
 
 // ── Templates ─────────────────────────────────────────────────────────────────
 
-app.get('/api/templates', (_req, res) => {
+app.get('/api/templates', (req, res) => {
+  const { db, stmts } = req;
   const rows = stmts.listTemplates.all().map(hydrateProject);
   res.json(rows);
 });
 
 app.post('/api/projects/:id/save-as-template', (req, res) => {
+  const { db, stmts } = req;
   const sourceId = Number(req.params.id);
   const source = stmts.getProject.get(sourceId);
   if (!source) return res.status(404).json({ error: 'Project not found' });
@@ -1191,6 +1343,7 @@ app.post('/api/projects/:id/save-as-template', (req, res) => {
 });
 
 app.post('/api/templates/:id/clone', (req, res) => {
+  const { db, stmts } = req;
   const templateId = Number(req.params.id);
   const template = stmts.getProject.get(templateId);
   if (!template || !template.is_template) return res.status(404).json({ error: 'Template not found' });
@@ -1219,6 +1372,7 @@ app.post('/api/templates/:id/clone', (req, res) => {
 });
 
 app.delete('/api/templates/:id', (req, res) => {
+  const { db, stmts } = req;
   const row = stmts.getProject.get(Number(req.params.id));
   if (!row || !row.is_template) return res.status(404).json({ error: 'Template not found' });
   stmts.deleteProject.run(row.id);
@@ -1249,7 +1403,8 @@ Rules:
 - Do NOT invent content not found in the page
 - ALWAYS write all output in English, regardless of the source page language. Translate any non-English content.`;
 
-app.get('/api/shaper-projects', (_req, res) => {
+app.get('/api/shaper-projects', (req, res) => {
+  const { db, stmts } = req;
   const rows = stmts.listShaperProjects.all().map(s => {
     const hero = stmts.shaperHeroImage.get(s.id);
     return { ...s, materials: parseJsonArray(s.materials), hero_image_id: hero ? hero.id : null };
@@ -1258,6 +1413,7 @@ app.get('/api/shaper-projects', (_req, res) => {
 });
 
 app.get('/api/shaper-projects/:id', (req, res) => {
+  const { db, stmts } = req;
   const row = stmts.getShaperProject.get(Number(req.params.id));
   if (!row) return res.status(404).json({ error: 'Not found' });
   const images   = stmts.listShaperImages.all(row.id);
@@ -1339,6 +1495,7 @@ app.post('/api/shaper-projects/analyze-url', async (req, res) => {
 });
 
 app.post('/api/shaper-projects', (req, res) => {
+  const { db, stmts } = req;
   const b = req.body ?? {};
   const info = stmts.insertShaperProject.run({
     title:        b.title        ?? '',
@@ -1353,6 +1510,7 @@ app.post('/api/shaper-projects', (req, res) => {
 });
 
 app.put('/api/shaper-projects/:id', (req, res) => {
+  const { db, stmts } = req;
   const id = Number(req.params.id);
   const existing = stmts.getShaperProject.get(id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
@@ -1371,6 +1529,7 @@ app.put('/api/shaper-projects/:id', (req, res) => {
 });
 
 app.post('/api/shaper-projects/:id/images', upload.single('file'), async (req, res) => {
+  const { db, stmts } = req;
   const shaper_project_id = Number(req.params.id);
   if (!stmts.getShaperProject.get(shaper_project_id)) {
     if (req.file) await unlinkAsync(join(UPLOADS_PATH, req.file.filename)).catch(() => {});
@@ -1393,6 +1552,7 @@ app.post('/api/shaper-projects/:id/images', upload.single('file'), async (req, r
 });
 
 app.post('/api/shaper-projects/:id/cut-list', (req, res) => {
+  const { db, stmts } = req;
   const shaper_project_id = Number(req.params.id);
   if (!stmts.getShaperProject.get(shaper_project_id)) return res.status(404).json({ error: 'Not found' });
   const b = req.body ?? {};
@@ -1410,8 +1570,9 @@ app.post('/api/shaper-projects/:id/cut-list', (req, res) => {
 });
 
 app.delete('/api/shaper-projects/:id', async (req, res) => {
+  const { db, stmts } = req;
   const id = Number(req.params.id);
-  const filesToRemove = collectShaperProjectFiles(id);
+  const filesToRemove = collectShaperProjectFiles(db, id);
   const info = stmts.deleteShaperProject.run(id);
   if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
   await unlinkAll(filesToRemove);

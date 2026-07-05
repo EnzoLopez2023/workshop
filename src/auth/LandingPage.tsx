@@ -7,8 +7,9 @@ import {
   type Variants,
 } from 'framer-motion'
 import { useMsal } from '@azure/msal-react'
-import { ArrowRight, Lock } from 'lucide-react'
+import { ArrowRight, Lock, PlayCircle } from 'lucide-react'
 import { loginRequest } from './msalConfig'
+import { enterDemoMode } from '../demo/demoMode'
 import '../styles/landing.css'
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -290,6 +291,8 @@ export default function LandingPage() {
   const heroOpacity = useTransform(scrollYProgress, [0, 0.65], [1, 0])
 
   const signIn = () => instance.loginRedirect(loginRequest)
+  // Flip the demo flag, then reload so AuthGuard re-reads it and renders the app.
+  const startDemo = () => { enterDemoMode(); window.location.reload() }
 
   const cardVariants: Variants = {
     hidden:  { opacity: 0, y: 22, scale: 0.97 },
@@ -360,12 +363,18 @@ export default function LandingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.42, duration: 0.44 }}
           >
-            <button className="landing-cta-btn" onClick={signIn}>
-              <MsLogo size={17} />
-              Sign in with Microsoft
-              <ArrowRight size={14} className="cta-arrow" />
-            </button>
-            <p className="landing-cta-note">Requires a Microsoft account</p>
+            <div className="landing-cta-row">
+              <button className="landing-cta-btn" onClick={signIn}>
+                <MsLogo size={17} />
+                Sign in with Microsoft
+                <ArrowRight size={14} className="cta-arrow" />
+              </button>
+              <button className="landing-cta-btn landing-cta-demo" onClick={startDemo}>
+                <PlayCircle size={17} />
+                Demo
+              </button>
+            </div>
+            <p className="landing-cta-note">Sign in with a Microsoft account — or explore the demo, no account needed</p>
           </motion.div>
         </div>
 

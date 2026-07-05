@@ -1,5 +1,6 @@
 import type { IPublicClientApplication } from '@azure/msal-browser';
 import { getApiToken } from '../auth/getToken';
+import { isDemoMode, notifyDemoBlock, DemoBlockedError } from '../demo/demoMode';
 import type {
   ProjectListItem, ProjectDetail, ProjectFormPayload,
   CutListItem, Material, AnalyzedProject,
@@ -9,8 +10,26 @@ import type {
 
 const BASE = '/api';
 
+const DEMO_WRITE_MSG = "You're in demo mode — sign in with Microsoft to save changes.";
+
 let msal: IPublicClientApplication | null = null;
 export function setMsalInstance(instance: IPublicClientApplication) { msal = instance; }
+
+// The signed-in user's Azure AD OID (MSAL exposes it as localAccountId). Used to
+// scope auth-exempt `<img>` requests to the caller's own isolated database.
+function currentOid(): string | null {
+  const account = msal?.getActiveAccount() ?? msal?.getAllAccounts()[0] ?? null;
+  return account?.localAccountId ?? null;
+}
+
+// Throw (and toast) if a write is attempted in demo mode — call before any
+// mutating request so nothing ever leaves the browser.
+function blockIfDemo(): void {
+  if (isDemoMode()) {
+    notifyDemoBlock(DEMO_WRITE_MSG);
+    throw new DemoBlockedError(DEMO_WRITE_MSG);
+  }
+}
 
 async function authHeaders(): Promise<Record<string, string>> {
   if (!msal) return {};
@@ -19,7 +38,11 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const auth = await authHeaders();
+  const method = (options?.method ?? 'GET').toUpperCase();
+  // Demo mode: no token, GET-only against the shared starter snapshot.
+  const demo = isDemoMode();
+  if (demo && method !== 'GET') blockIfDemo();
+  const auth = demo ? { 'X-Demo': '1' } : await authHeaders();
   const res = await fetch(`${BASE}${url}`, {
     ...options,
     headers: { ...auth, ...(options?.headers as Record<string, string> | undefined) },
@@ -54,7 +77,10 @@ export const analyzeProjectUrl = (url: string) =>
 
 // ── Images ────────────────────────────────────────────────────────────────────
 
-export const imageUrl = (id: number) => `${BASE}/images/${id}`;
+export const imageUrl = (id: number) => {
+  const oid = currentOid();
+  return oid ? `${BASE}/images/${id}?oid=${oid}` : `${BASE}/images/${id}`;
+};
 
 export const uploadImage = async (
   projectId: number,
@@ -62,6 +88,7 @@ export const uploadImage = async (
   file: File,
   onProgress?: (pct: number) => void,
 ): Promise<{ id: number }> => {
+  blockIfDemo();
   const auth = await authHeaders();
   return new Promise((resolve, reject) => {
     const form = new FormData();
@@ -145,6 +172,7 @@ export const uploadShaperImage = async (
   file: File,
   onProgress?: (pct: number) => void,
 ): Promise<{ id: number }> => {
+  blockIfDemo();
   const auth = await authHeaders();
   return new Promise((resolve, reject) => {
     const form = new FormData();
@@ -177,7 +205,10 @@ export const addShaperCutItem = (shaperProjectId: number, item: Partial<CutListI
 
 // ── Build log ─────────────────────────────────────────────────────────────────
 
-export const buildLogImageUrl = (entryId: number) => `${BASE}/build-log/${entryId}/image`;
+export const buildLogImageUrl = (entryId: number) => {
+  const oid = currentOid();
+  return oid ? `${BASE}/build-log/${entryId}/image?oid=${oid}` : `${BASE}/build-log/${entryId}/image`;
+};
 
 export const addBuildLogEntry = async (
   projectId: number,
@@ -185,6 +216,7 @@ export const addBuildLogEntry = async (
   file?: File,
   onProgress?: (pct: number) => void,
 ): Promise<BuildLogEntry> => {
+  blockIfDemo();
   const auth = await authHeaders();
   return new Promise((resolve, reject) => {
     const form = new FormData();

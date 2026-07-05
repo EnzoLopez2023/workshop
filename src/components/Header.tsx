@@ -1,8 +1,9 @@
-import { Plus, LogOut, Ruler, ShoppingCart, BookOpen, Moon, Sun, Settings, Search } from 'lucide-react';
+import { Plus, LogOut, Ruler, ShoppingCart, BookOpen, Moon, Sun, Settings, Search, PlayCircle } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 import { Tooltip } from './Tooltip';
+import { isDemoMode, exitDemoMode } from '../demo/demoMode';
 
 function ShaperIcon({ size = 16 }: { size?: number }) {
   return (
@@ -33,8 +34,15 @@ export default function Header() {
     .map((s: string) => s[0]?.toUpperCase())
     .join('') || '?';
 
+  const demo = isDemoMode();
+
   const handleSignOut = () => {
     instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+  };
+
+  const handleExitDemo = () => {
+    exitDemoMode();
+    window.location.assign('/');
   };
 
   return (
@@ -127,32 +135,53 @@ export default function Header() {
             <Settings size={15} strokeWidth={2} />
           </button>
         </Tooltip>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div
-            title={displayName}
-            style={{
-              width: 32, height: 32, borderRadius: '50%',
-              backgroundColor: 'var(--color-ink-soft)',
-              color: 'var(--color-cream)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em',
-              flexShrink: 0,
-            }}
-          >
-            {initials}
+        {demo ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
+              title="You're exploring sample data — changes aren't saved"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '5px 10px', borderRadius: 999,
+                border: '1px solid var(--color-line)', background: 'var(--color-paper)',
+                color: 'var(--color-muted)', fontSize: '0.72rem', fontWeight: 700,
+                letterSpacing: '0.04em', whiteSpace: 'nowrap',
+              }}
+            >
+              <PlayCircle size={13} strokeWidth={2.2} /> DEMO · READ-ONLY
+            </span>
+            <button className="btn btn-ghost" onClick={handleExitDemo} style={{ gap: 6 }}>
+              <LogOut size={15} strokeWidth={2} />
+              <span className="header-nav-label">Exit demo</span>
+            </button>
           </div>
-          <button
-            onClick={handleSignOut}
-            title="Sign out"
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              padding: 6, borderRadius: 7,
-              color: 'var(--color-muted)', display: 'flex', alignItems: 'center',
-            }}
-          >
-            <LogOut size={16} strokeWidth={2} />
-          </button>
-        </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div
+              title={displayName}
+              style={{
+                width: 32, height: 32, borderRadius: '50%',
+                backgroundColor: 'var(--color-ink-soft)',
+                color: 'var(--color-cream)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em',
+                flexShrink: 0,
+              }}
+            >
+              {initials}
+            </div>
+            <button
+              onClick={handleSignOut}
+              title="Sign out"
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                padding: 6, borderRadius: 7,
+                color: 'var(--color-muted)', display: 'flex', alignItems: 'center',
+              }}
+            >
+              <LogOut size={16} strokeWidth={2} />
+            </button>
+          </div>
+        )}
       </div>
 
     </header>
