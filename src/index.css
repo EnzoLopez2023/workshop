@@ -15,6 +15,14 @@
   --font-sans:   'Inter', system-ui, -apple-system, sans-serif;
 }
 
+/* Page backdrop veil + card shadows (light defaults; dark overrides below).
+   Kept as plain custom properties so they're not turned into Tailwind utilities. */
+:root {
+  --color-page-veil: linear-gradient(180deg, rgba(245, 240, 234, 0.74) 0%, rgba(239, 232, 223, 0.86) 100%);
+  --shadow-card:       0 1px 2px rgba(60, 35, 15, 0.04), 0 6px 16px -8px rgba(60, 35, 15, 0.12);
+  --shadow-card-hover: 0 2px 6px rgba(60, 35, 15, 0.06), 0 16px 36px -14px rgba(60, 35, 15, 0.22);
+}
+
 /* ── Command palette (cmdk) ─────────────────────────────────────────────────── */
 [cmdk-item][aria-selected="true"] {
   background-color: var(--color-cream-2);
@@ -39,6 +47,11 @@
   --color-line:      #3A2A1E;
   --color-rust:      #C87040;
   --color-rust-dark: #A85C2A;
+
+  /* Deeper veil + shadows so light text/cards read over the photo backdrop. */
+  --color-page-veil: linear-gradient(180deg, rgba(23, 16, 9, 0.80) 0%, rgba(18, 12, 6, 0.90) 100%);
+  --shadow-card:       0 1px 2px rgba(0, 0, 0, 0.30), 0 8px 20px -10px rgba(0, 0, 0, 0.50);
+  --shadow-card-hover: 0 2px 8px rgba(0, 0, 0, 0.40), 0 20px 44px -16px rgba(0, 0, 0, 0.66);
 }
 
 html, body, #root {
@@ -167,6 +180,11 @@ textarea { resize: vertical; min-height: 88px; }
   background: var(--color-paper);
   border: 1px solid var(--color-line);
   border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.card:hover {
+  box-shadow: var(--shadow-card-hover);
 }
 
 .chip {

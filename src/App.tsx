@@ -6,6 +6,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import Header from './components/Header';
 import CommandPalette from './components/CommandPalette';
+import PageBackground from './components/PageBackground';
 import Dashboard from './pages/Dashboard';
 import ProjectDetail from './pages/ProjectDetail';
 import ProjectForm from './pages/ProjectForm';
@@ -74,9 +75,12 @@ export default function App() {
   return (
     <ThemeProvider>
     <SettingsProvider>
-      <div style={{ minHeight: '100vh', backgroundColor: 'var(--color-cream)' }}>
-        <Header />
-        <AppRoutes />
+      <div style={{ minHeight: '100vh' }}>
+        <PageBackground />
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <Header />
+          <AppRoutes />
+        </div>
         <Toaster
           position="bottom-right"
           toastOptions={{
