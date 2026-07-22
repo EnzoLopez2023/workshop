@@ -6,11 +6,11 @@ import { mkdirSync, unlink, existsSync, renameSync, copyFileSync } from 'fs';
 import { unlink as unlinkAsync } from 'fs/promises';
 import { lookup as dnsLookup } from 'dns/promises';
 import { isIP } from 'net';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash, createSecretKey } from 'crypto';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
-import { jwtVerify, createRemoteJWKSet } from 'jose';
+import { jwtVerify, createRemoteJWKSet, SignJWT } from 'jose';
 import rateLimit from 'express-rate-limit';
 import { fileTypeFromFile } from 'file-type';
 
@@ -40,6 +40,15 @@ const SEED_DB_PATH = process.env.SEED_DB_PATH ?? join(DATA_DIR, 'workshop-seed.d
 // formerly the single-user gate — now only identifies that primary user.
 const PRIMARY_USER_OID = process.env.ALLOWED_OID || '';
 const OID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Per-user DB filenames are keyed by identity. Microsoft users keep their raw
+// Entra `oid` (a GUID). Apple users are keyed `apple_<sha256(sub)>` — the raw
+// Apple subject is hashed so the filename is fixed-length/charset-safe and never
+// lands on disk. USER_KEY_RE accepts either form and is the sole filename
+// validator (also blocks path traversal); getUserDb/resolveReadDb gate on it.
+const APPLE_KEY_RE = /^apple_[0-9a-f]{64}$/;
+const USER_KEY_RE  = new RegExp(`^(?:${OID_RE.source.slice(1, -1)}|${APPLE_KEY_RE.source.slice(1, -1)})$`, 'i');
+const appleUserKey = (sub) => `apple_${createHash('sha256').update(String(sub)).digest('hex')}`;
 
 function initSchema(db) {
   db.exec(`
@@ -233,6 +242,17 @@ db.exec(`
     sort_order INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS idx_notebook_links_page ON notebook_links(page_id, sort_order);
+
+  -- Single-row profile per user DB. Populated for Sign in with Apple users:
+  -- Apple only sends the display name on the FIRST consent, so we persist it
+  -- (and the email from the verified token) once and reuse it on later sign-ins
+  -- and refreshes. Microsoft users get their name from the token client-side.
+  CREATE TABLE IF NOT EXISTS user_profile (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    display_name TEXT,
+    email        TEXT,
+    updated_at   TEXT DEFAULT (datetime('now'))
+  );
 `);
 }
 
@@ -444,22 +464,24 @@ ensureSeedTemplate();
 function getUserDb(oid) {
   const cached = dbHandles.get(oid);
   if (cached) return cached;
-  if (!OID_RE.test(oid)) throw new Error('invalid oid');
+  if (!USER_KEY_RE.test(oid)) throw new Error('invalid user key');
 
   const target = join(USERS_DIR, `${oid}.db`);
 
   if (!existsSync(target)) {
     if (PRIMARY_USER_OID && oid === PRIMARY_USER_OID && existsSync(DB_PATH)) {
-      // Primary user inherits the legacy DB as their own workspace.
+      // Primary user (Enzo) inherits the legacy DB as their own workspace.
       renameSync(DB_PATH, target);
       for (const ext of ['-wal', '-shm']) {
         if (existsSync(DB_PATH + ext)) { try { renameSync(DB_PATH + ext, target + ext); } catch { /* tolerated */ } }
       }
       console.log(`[migrate] moved legacy DB → ${target}`);
-    } else if (existsSync(SEED_DB_PATH)) {
-      // Everyone else starts from the starter snapshot.
-      copyFileSync(SEED_DB_PATH, target);
     }
+    // Everyone else starts EMPTY: openDb() creates the file and initSchema()
+    // builds a blank schema. We deliberately do NOT seed from SEED_DB_PATH here —
+    // that snapshot is the primary user's real data and must not be handed to
+    // other accounts once Apple sign-in opens the app to any Apple ID. The seed
+    // snapshot still backs demo mode only (getDemoDb).
   }
 
   const db = openDb(target);
@@ -482,7 +504,7 @@ function getDemoDb() {
 // fall back to the demo snapshot. Returns { db, stmts } or null.
 function resolveReadDb(req) {
   const oid = String(req.query.oid ?? '');
-  if (OID_RE.test(oid)) {
+  if (USER_KEY_RE.test(oid)) {
     try { return getUserDb(oid); } catch { return getDemoDb(); }
   }
   return getDemoDb();
@@ -712,19 +734,121 @@ if (!TENANT_ID || !API_AUDIENCE) {
 const JWKS = createRemoteJWKSet(
   new URL(`https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys`)
 );
+// Accept both issuer versions (v1 sts.windows.net / v2 login.microsoftonline)
+// and both audience forms (api://<clientId> or the bare clientId), matching how
+// AAD mints the token depending on the app-registration manifest and client.
+// This is what lets a *native* MSAL access token validate — the web app happened
+// to send the v2/bare-audience shape the old single-value check assumed.
+const ACCEPTED_ISSUERS = [
+  `https://login.microsoftonline.com/${TENANT_ID}/v2.0`,
+  `https://sts.windows.net/${TENANT_ID}/`,
+];
+const ACCEPTED_AUDIENCES = [`api://${API_AUDIENCE}`, API_AUDIENCE];
 
+// ── Auth (Sign in with Apple — additive second identity) ──────────────────
+// A second, independent sign-in path that never touches the Entra path above.
+// Apple id_tokens are verified once (against Apple's JWKS) at POST /api/auth/apple;
+// we then mint our own short-lived session JWT that clients send as the bearer
+// (Apple id_tokens can't be silently refreshed, so we own the session instead).
+//
+// IMPORTANT (deploy safety): the whole Apple path is *disabled* when SESSION_SECRET
+// is unset — the server still boots and the Microsoft/Entra path is unaffected.
+// This lets this code deploy to prod BEFORE the Apple/session config exists,
+// unlike the AZURE_*/API_AUDIENCE vars above which hard-fail. Set SESSION_SECRET
+// (+ APPLE_BUNDLE_ID) to turn Apple sign-in on.
+const APPLE_BUNDLE_ID       = process.env.APPLE_BUNDLE_ID       || '';  // native app audience
+const APPLE_WEB_SERVICES_ID = process.env.APPLE_WEB_SERVICES_ID || '';  // web Services ID audience (if web Apple sign-in comes later)
+const SESSION_SECRET        = process.env.SESSION_SECRET        || '';  // HMAC key for our session JWTs
+const APPLE_AUTH_ENABLED    = Boolean(SESSION_SECRET);
+
+const APPLE_JWKS   = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'));
+const APPLE_ISSUER = 'https://appleid.apple.com';
+const APPLE_AUDIENCES = [APPLE_BUNDLE_ID, APPLE_WEB_SERVICES_ID].filter(Boolean);
+
+const SESSION_ISSUER   = 'workshop-api';
+const SESSION_AUDIENCE = 'workshop-clients';
+const SESSION_KEY = APPLE_AUTH_ENABLED ? createSecretKey(Buffer.from(SESSION_SECRET, 'utf8')) : null;
+const ACCESS_TTL  = '1h';
+const REFRESH_TTL = '60d';
+
+if (APPLE_AUTH_ENABLED && APPLE_AUDIENCES.length === 0) {
+  console.warn('[auth] SESSION_SECRET is set but neither APPLE_BUNDLE_ID nor APPLE_WEB_SERVICES_ID is — Apple tokens cannot be verified until an audience is configured.');
+} else if (!APPLE_AUTH_ENABLED) {
+  console.log('[auth] Apple sign-in disabled (SESSION_SECRET unset); Microsoft/Entra sign-in only.');
+}
+
+// Mint a Workshop session pair (access + refresh) for a user key. HS256 over
+// SESSION_KEY. `typ` keeps an access token from being replayed as a refresh one.
+async function mintSession(userKey) {
+  const sign = (typ, ttl, extra = {}) =>
+    new SignJWT({ uk: userKey, typ, ...extra })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuer(SESSION_ISSUER).setAudience(SESSION_AUDIENCE)
+      .setIssuedAt().setExpirationTime(ttl).sign(SESSION_KEY);
+  const accessToken  = await sign('access',  ACCESS_TTL);
+  const refreshToken = await sign('refresh', REFRESH_TTL, { jti: randomUUID() });
+  return { accessToken, refreshToken };
+}
+
+// Verify one of our session tokens; returns the validated user key.
+async function verifySession(token, expectedTyp) {
+  const { payload } = await jwtVerify(token, SESSION_KEY, {
+    issuer: SESSION_ISSUER, audience: SESSION_AUDIENCE,
+  });
+  if (payload.typ !== expectedTyp) throw new Error('wrong token type');
+  const uk = typeof payload.uk === 'string' ? payload.uk : '';
+  if (!USER_KEY_RE.test(uk)) throw new Error('bad user key');
+  return uk;
+}
+
+// Resolve a bearer token to a user key. Tries our own session token first
+// (local HMAC, no network) then falls back to an Entra access token. Throws if
+// neither verifies. Shared by the /api middleware and (indirectly) requireAuth.
+async function userKeyFromBearer(token) {
+  if (SESSION_KEY) {
+    try { return await verifySession(token, 'access'); }
+    catch { /* not one of ours — try Entra below */ }
+  }
+  const { payload } = await jwtVerify(token, JWKS, {
+    issuer: ACCEPTED_ISSUERS, audience: ACCEPTED_AUDIENCES,
+  });
+  const oid = typeof payload.oid === 'string' ? payload.oid : '';
+  if (!OID_RE.test(oid)) throw new Error('Token missing valid oid claim');
+  return oid;
+}
+
+// Read/populate the single-row profile. `name` (from the Apple client, first
+// consent only) and `email` are stored the first time they're seen and then
+// kept — Apple only sends the name once, so we never overwrite a stored name
+// with a blank. Returns the current { display_name, email }.
+function upsertProfile(db, name, email) {
+  db.prepare('INSERT OR IGNORE INTO user_profile (id) VALUES (1)').run();
+  const cur = db.prepare('SELECT display_name, email FROM user_profile WHERE id = 1').get() ?? {};
+  const nextName  = (name  && !cur.display_name) ? name  : (cur.display_name ?? null);
+  const nextEmail = (email && !cur.email)        ? email : (cur.email ?? null);
+  if (nextName !== (cur.display_name ?? null) || nextEmail !== (cur.email ?? null)) {
+    db.prepare("UPDATE user_profile SET display_name = ?, email = ?, updated_at = datetime('now') WHERE id = 1")
+      .run(nextName, nextEmail);
+  }
+  return { display_name: nextName, email: nextEmail };
+}
+
+function readProfile(db) {
+  try { return db.prepare('SELECT display_name, email FROM user_profile WHERE id = 1').get() ?? {}; }
+  catch { return {}; }
+}
+
+// Verify a bearer (Entra access token OR our Apple session token) and attach the
+// resolved per-user key as req.user.oid — the DB key used downstream by
+// withUserDb/getUserDb. The name `oid` is kept for backward-compat with existing
+// handlers even though the value may now be an `apple_<hash>` key.
 async function requireAuth(req, res, next) {
   const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? '');
   if (!m) return res.status(401).json({ error: 'missing token' });
   try {
-    const { payload } = await jwtVerify(m[1], JWKS, {
-      issuer: `https://login.microsoftonline.com/${TENANT_ID}/v2.0`,
-      audience: API_AUDIENCE,
-    });
-    // Multi-user now: any valid tenant token is accepted and scoped to its own
-    // per-OID database. (ALLOWED_OID no longer gates access — see PRIMARY_USER_OID.)
-    if (!payload.oid) return res.status(401).json({ error: 'invalid token' });
-    req.user = { oid: payload.oid, email: payload.preferred_username ?? payload.email };
+    const userKey = await userKeyFromBearer(m[1]);
+    if (!USER_KEY_RE.test(userKey)) return res.status(401).json({ error: 'invalid token' });
+    req.user = { oid: userKey };
     next();
   } catch {
     return res.status(401).json({ error: 'invalid token' });
@@ -760,6 +884,48 @@ app.use(express.json());
 app.use(express.static(join(__dirname, 'dist')));
 
 const DEMO_READONLY_MSG = 'Demo mode is read-only — sign in with Microsoft to make changes.';
+
+// Sign in with Apple — exchange a verified Apple id_token for a Workshop session.
+// Public (declared BEFORE the /api auth gate below). Disabled with 503 until the
+// session config is present (see APPLE_AUTH_ENABLED).
+app.post('/api/auth/apple', async (req, res) => {
+  if (!APPLE_AUTH_ENABLED) return res.status(503).json({ error: 'Apple sign-in not configured' });
+  const idToken = req.body?.id_token;
+  if (typeof idToken !== 'string' || !idToken) return res.status(400).json({ error: 'Missing id_token' });
+  let payload;
+  try {
+    ({ payload } = await jwtVerify(idToken, APPLE_JWKS, { issuer: APPLE_ISSUER, audience: APPLE_AUDIENCES }));
+  } catch {
+    return res.status(401).json({ error: 'Invalid Apple token' });
+  }
+  const sub = typeof payload.sub === 'string' ? payload.sub : '';
+  if (!sub) return res.status(401).json({ error: 'Apple token missing sub' });
+  const userKey = appleUserKey(sub);
+  // The display name only arrives (in the client body) on the FIRST Apple consent;
+  // email comes from the verified token. Persist both so later sign-ins — including
+  // on other devices — can show the real name instead of a placeholder.
+  const name  = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 100) : '';
+  const email = typeof payload.email === 'string' ? payload.email : '';
+  let profile = {};
+  try { profile = upsertProfile(getUserDb(userKey).db, name, email); }
+  catch (err) { console.error('getUserDb/profile(apple) error:', err); }
+  const tokens = await mintSession(userKey);
+  res.json({ ...tokens, userKey, expiresIn: 3600, displayName: profile.display_name ?? null, email: profile.email ?? null });
+});
+
+// Rotate a session: verify a refresh token, issue a fresh access + refresh pair.
+// Also returns the stored profile so clients self-heal the display name.
+app.post('/api/auth/refresh', async (req, res) => {
+  if (!APPLE_AUTH_ENABLED) return res.status(503).json({ error: 'Apple sign-in not configured' });
+  const rt = req.body?.refresh_token;
+  if (typeof rt !== 'string' || !rt) return res.status(400).json({ error: 'Missing refresh_token' });
+  let userKey;
+  try { userKey = await verifySession(rt, 'refresh'); }
+  catch { return res.status(401).json({ error: 'Invalid refresh token' }); }
+  const profile = readProfile(getUserDb(userKey).db);
+  const tokens = await mintSession(userKey);
+  res.json({ ...tokens, userKey, expiresIn: 3600, displayName: profile.display_name ?? null, email: profile.email ?? null });
+});
 
 app.use('/api', (req, res, next) => {
   // Exemption is GET-only — only `<img>`/`<iframe>` loads need it. Any write
