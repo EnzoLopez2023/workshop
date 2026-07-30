@@ -169,8 +169,11 @@ export interface ShaperProject {
   photo_url: string | null;
   materials: ShaperMaterial[];
   instructions: string | null;
-  images: ProjectImage[];
-  cut_list: CutListItem[];
+  /** Detail endpoint only — the list response omits these. */
+  images?: ProjectImage[];
+  cut_list?: CutListItem[];
+  /** List endpoint only — denormalized count so cards need no detail fetch. */
+  part_count?: number;
   hero_image_id: number | null;
   created_at: string;
   updated_at: string;

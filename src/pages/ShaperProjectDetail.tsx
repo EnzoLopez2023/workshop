@@ -54,6 +54,10 @@ export default function ShaperProjectDetail() {
     return <div className="empty-state" style={{ paddingTop: 80 }}>Project not found.</div>;
   }
 
+  // The list endpoint omits these; the detail endpoint supplies them.
+  const images = project.images ?? [];
+  const cutList = project.cut_list ?? [];
+
   return (
     <>
     <div className="page-container" style={{ maxWidth: 900 }}>
@@ -97,12 +101,12 @@ export default function ShaperProjectDetail() {
       </div>
 
       {/* Hero photo — prefer uploaded images, fall back to photo_url */}
-      {(project.images.length > 0 || project.photo_url) && !heroBroken && (
+      {(images.length > 0 || project.photo_url) && !heroBroken && (
         <div style={{
           width: '100%', maxHeight: 420, borderRadius: 3, overflow: 'hidden', marginBottom: 36,
         }}>
           <img
-            src={project.images.length > 0 ? imageUrl(project.images[0].id) : project.photo_url!}
+            src={images.length > 0 ? imageUrl(images[0].id) : project.photo_url!}
             alt={project.title}
             style={{ width: '100%', height: 420, objectFit: 'cover', display: 'block' }}
             onError={() => setHeroBroken(true)}
@@ -198,11 +202,11 @@ export default function ShaperProjectDetail() {
         )}
 
         {/* Photo gallery (all uploaded images) */}
-        {project.images.length > 1 && (
+        {images.length > 1 && (
           <section>
             <SectionLabel>Photos</SectionLabel>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
-              {project.images.map(img => (
+              {images.map(img => (
                 <button
                   key={img.id}
                   onClick={() => setLightbox(imageUrl(img.id))}
@@ -223,7 +227,7 @@ export default function ShaperProjectDetail() {
         )}
 
         {/* Cut list */}
-        {project.cut_list.length > 0 && (
+        {cutList.length > 0 && (
           <section>
             <SectionLabel>Cut List</SectionLabel>
             <div className="card" style={{ overflow: 'hidden' }}>
@@ -236,7 +240,7 @@ export default function ShaperProjectDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {project.cut_list.map((row, i) => (
+                  {cutList.map((row, i) => (
                     <tr key={row.id} style={{ borderTop: i > 0 ? '1px solid var(--color-line)' : undefined }}>
                       <td style={{ padding: '8px 14px', fontWeight: 600 }}>{row.part_name}</td>
                       <td style={{ padding: '8px 14px', color: 'var(--color-muted)' }}>{row.qty}</td>
@@ -253,7 +257,7 @@ export default function ShaperProjectDetail() {
         )}
 
         {/* Cut Plan Optimizer */}
-        {project.cut_list.length > 0 && (
+        {cutList.length > 0 && (
           <section>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: showCutPlan ? 16 : 0 }}>
               <SectionLabel>Cut Plan Optimizer</SectionLabel>
@@ -262,7 +266,7 @@ export default function ShaperProjectDetail() {
                 {showCutPlan ? 'Hide' : 'Plan Cuts'}
               </button>
             </div>
-            {showCutPlan && <CutPlanOptimizer cutList={project.cut_list} projectId={project.id} />}
+            {showCutPlan && <CutPlanOptimizer cutList={cutList} projectId={project.id} />}
           </section>
         )}
 

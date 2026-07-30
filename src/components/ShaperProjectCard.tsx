@@ -38,11 +38,13 @@ export default function ShaperProjectCard({ project, onClick }: Props) {
       <span className="depart-foot">
         <span>
           <span className="stat-label">Material</span>
-          <span className="readout">{project.materials[0]?.name ?? '—'}</span>
+          <span className="readout">{project.materials?.[0]?.name ?? '—'}</span>
         </span>
         <span>
           <span className="stat-label">Parts</span>
-          <span className="readout">{String(project.cut_list.length).padStart(2, '0')}</span>
+          <span className="readout">
+            {String(project.part_count ?? project.cut_list?.length ?? 0).padStart(2, '0')}
+          </span>
         </span>
       </span>
     </button>

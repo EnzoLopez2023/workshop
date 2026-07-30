@@ -59,9 +59,9 @@ export default function ShaperProjectForm() {
         setTitle(p.title ?? '');
         setDescription(p.description ?? '');
         setPhotoUrl(p.photo_url ?? '');
-        setMaterials(p.materials.length > 0 ? p.materials.map(m => makeMat(m.name, m.qty)) : [makeMat()]);
+        setMaterials((p.materials ?? []).length > 0 ? p.materials!.map(m => makeMat(m.name, m.qty)) : [makeMat()]);
         setInstructions(p.instructions ?? '');
-        setCutRows(p.cut_list.map(c => ({
+        setCutRows((p.cut_list ?? []).map(c => ({
           _id: crypto.randomUUID(),
           serverId: c.id,
           part_name: c.part_name,

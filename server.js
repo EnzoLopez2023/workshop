@@ -331,7 +331,10 @@ function buildStmts(db) {
   `),
   deleteMaterial: db.prepare(`DELETE FROM materials WHERE id = ?`),
 
-  listShaperProjects: db.prepare(`SELECT * FROM shaper_projects ORDER BY updated_at DESC`),
+  listShaperProjects: db.prepare(`
+    SELECT s.*,
+      (SELECT COUNT(*) FROM cut_list_items c WHERE c.shaper_project_id = s.id) AS part_count
+    FROM shaper_projects s ORDER BY s.updated_at DESC`),
   getShaperProject:   db.prepare(`SELECT * FROM shaper_projects WHERE id = ?`),
   insertShaperProject: db.prepare(`
     INSERT INTO shaper_projects (title, shaper_url, description, photo_url, materials, instructions)
