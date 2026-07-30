@@ -85,11 +85,11 @@ export default function App() {
           position="bottom-right"
           toastOptions={{
             style: {
-              background: 'var(--color-paper)',
+              background: 'var(--color-flap)',
               color: 'var(--color-ink)',
               border: '1px solid var(--color-line)',
-              fontFamily: 'var(--font-sans)',
-              borderRadius: '12px',
+              fontFamily: 'var(--font-ui)',
+              borderRadius: '3px',
               fontSize: '0.88rem',
             },
           }}

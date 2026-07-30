@@ -71,15 +71,15 @@ export default function CommandPalette({ open, onClose }: Props) {
               transform: 'translateX(-50%)',
               width: '90vw', maxWidth: 580,
               zIndex: 1001,
-              borderRadius: 16,
+              borderRadius: 3,
               border: '1px solid var(--color-line)',
-              background: 'var(--color-paper)',
+              background: 'var(--color-flap)',
               boxShadow: '0 32px 80px rgba(0,0,0,0.28)',
               overflow: 'hidden',
             }}
           >
             <Command
-              style={{ display: 'flex', flexDirection: 'column', fontFamily: 'var(--font-sans)' }}
+              style={{ display: 'flex', flexDirection: 'column', fontFamily: 'var(--font-ui)' }}
               shouldFilter={true}
             >
               {/* Search input row */}
@@ -96,14 +96,14 @@ export default function CommandPalette({ open, onClose }: Props) {
                     flex: 1, border: 'none', outline: 'none',
                     background: 'transparent',
                     fontSize: '0.95rem', color: 'var(--color-ink)',
-                    fontFamily: 'var(--font-sans)',
+                    fontFamily: 'var(--font-ui)',
                     padding: 0,
                   }}
                 />
                 <kbd style={{
-                  fontSize: '0.68rem', fontFamily: 'var(--font-sans)',
+                  fontSize: '0.68rem', fontFamily: 'var(--font-ui)',
                   color: 'var(--color-muted)',
-                  background: 'var(--color-cream-2)',
+                  background: 'var(--color-flap-shade)',
                   border: '1px solid var(--color-line)',
                   borderRadius: 5, padding: '2px 6px',
                   flexShrink: 0,
@@ -191,7 +191,7 @@ function PaletteItem({ icon, label, sub, onSelect }: {
       onSelect={onSelect}
       style={{
         display: 'flex', alignItems: 'center', gap: 10,
-        padding: '9px 10px', borderRadius: 9,
+        padding: '9px 10px', borderRadius: 3,
         cursor: 'pointer', fontSize: '0.9rem',
         color: 'var(--color-ink)',
       }}
@@ -201,8 +201,8 @@ function PaletteItem({ icon, label, sub, onSelect }: {
       {sub && (
         <span style={{
           fontSize: '0.72rem', color: 'var(--color-muted)',
-          background: 'var(--color-cream-2)',
-          padding: '2px 8px', borderRadius: 99,
+          background: 'var(--color-flap-shade)',
+          padding: '2px 8px', borderRadius: 2,
           textTransform: 'capitalize',
         }}>
           {sub}

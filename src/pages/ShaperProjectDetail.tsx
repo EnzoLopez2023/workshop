@@ -68,7 +68,7 @@ export default function ShaperProjectDetail() {
           </button>
           {confirmDelete ? (
             <>
-              <span style={{ fontSize: '0.82rem', color: 'var(--color-rust)', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: '0.82rem', color: 'var(--color-amber)', whiteSpace: 'nowrap' }}>
                 Delete this project?
               </span>
               <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>
@@ -78,7 +78,7 @@ export default function ShaperProjectDetail() {
                 className="btn btn-ghost"
                 onClick={handleDelete}
                 disabled={deleting}
-                style={{ gap: 6, color: 'var(--color-rust)' }}
+                style={{ gap: 6, color: 'var(--color-amber)' }}
               >
                 <Trash2 size={13} />
                 {deleting ? 'Deleting…' : 'Yes, Delete'}
@@ -88,7 +88,7 @@ export default function ShaperProjectDetail() {
             <button
               className="btn btn-ghost"
               onClick={() => setConfirmDelete(true)}
-              style={{ gap: 6, color: 'var(--color-rust)' }}
+              style={{ gap: 6, color: 'var(--color-amber)' }}
             >
               <Trash2 size={13} /> Delete
             </button>
@@ -99,7 +99,7 @@ export default function ShaperProjectDetail() {
       {/* Hero photo — prefer uploaded images, fall back to photo_url */}
       {(project.images.length > 0 || project.photo_url) && !heroBroken && (
         <div style={{
-          width: '100%', maxHeight: 420, borderRadius: 14, overflow: 'hidden', marginBottom: 36,
+          width: '100%', maxHeight: 420, borderRadius: 3, overflow: 'hidden', marginBottom: 36,
         }}>
           <img
             src={project.images.length > 0 ? imageUrl(project.images[0].id) : project.photo_url!}
@@ -113,15 +113,15 @@ export default function ShaperProjectDetail() {
       {/* Title + badge */}
       <div style={{ marginBottom: 10, display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
         <div style={{
-          flexShrink: 0, width: 38, height: 38, borderRadius: 9,
-          backgroundColor: 'var(--color-ink-soft)',
+          flexShrink: 0, width: 38, height: 38, borderRadius: 3,
+          backgroundColor: 'var(--color-steel)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <Cpu size={18} color="var(--color-cream)" strokeWidth={2} />
+          <Cpu size={18} color="var(--color-concourse)" strokeWidth={2} />
         </div>
         <div>
           <h1 style={{
-            margin: 0, fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.6rem,3vw,2.2rem)',
+            margin: 0, fontFamily: 'var(--font-board)', fontSize: 'clamp(1.6rem,3vw,2.2rem)',
             fontWeight: 700, lineHeight: 1.1, color: 'var(--color-ink)',
           }}>
             {project.title}
@@ -207,7 +207,7 @@ export default function ShaperProjectDetail() {
                   key={img.id}
                   onClick={() => setLightbox(imageUrl(img.id))}
                   style={{
-                    padding: 0, border: '1px solid var(--color-line)', borderRadius: 8,
+                    padding: 0, border: '1px solid var(--color-line)', borderRadius: 3,
                     overflow: 'hidden', cursor: 'pointer', aspectRatio: '4/3', background: 'none',
                   }}
                 >
@@ -229,7 +229,7 @@ export default function ShaperProjectDetail() {
             <div className="card" style={{ overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
                 <thead>
-                  <tr style={{ backgroundColor: 'var(--color-cream-2)' }}>
+                  <tr>
                     {['Part', 'Qty', 'L', 'W', 'T', 'Material'].map(h => (
                       <th key={h} style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 700, fontSize: '0.72rem', letterSpacing: '0.08em', color: 'var(--color-muted)' }}>{h}</th>
                     ))}
@@ -284,7 +284,7 @@ export default function ShaperProjectDetail() {
           style={{
             position: 'absolute', top: 20, right: 20,
             background: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer',
-            color: '#fff', borderRadius: 8, padding: 8,
+            color: '#fff', borderRadius: 3, padding: 8,
             display: 'flex', alignItems: 'center',
           }}
         >
@@ -293,7 +293,7 @@ export default function ShaperProjectDetail() {
         <img
           src={lightbox}
           alt=""
-          style={{ maxWidth: '90vw', maxHeight: '88vh', borderRadius: 10, objectFit: 'contain' }}
+          style={{ maxWidth: '90vw', maxHeight: '88vh', borderRadius: 3, objectFit: 'contain' }}
           onClick={e => e.stopPropagation()}
         />
       </div>
@@ -303,5 +303,5 @@ export default function ShaperProjectDetail() {
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div className="eyebrow" style={{ marginBottom: 12 }}>{children}</div>;
+  return <div className="rail" style={{ marginBottom: 14 }}>{children}</div>;
 }

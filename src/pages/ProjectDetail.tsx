@@ -4,7 +4,7 @@ import { motion, useScroll, useTransform } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, Clock, Layers, DollarSign, Gauge, Trash2, ExternalLink, FileText, X, Scissors,
-  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate, Printer, Download,
+  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate, Printer, Download, Check,
 } from 'lucide-react';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import {
@@ -245,9 +245,10 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
         ref={heroRef}
         style={{
           position: 'relative', width: '100%',
-          height: heroImage ? 380 : 180,
-          backgroundColor: 'var(--color-cream-2)',
-          overflow: 'hidden',
+          height: heroImage ? 380 : 66,
+          backgroundColor: heroImage ? 'var(--color-flap-shade)' : 'transparent',
+          borderBottom: heroImage ? '1px solid var(--color-steel-dark)' : 'none',
+          overflow: heroImage ? 'hidden' : 'visible',
         }}
       >
         {heroImage && (
@@ -261,7 +262,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
           style={{
             position: 'absolute', inset: 0,
             background: heroImage
-              ? 'linear-gradient(180deg, rgba(245,240,234,0.2) 0%, rgba(245,240,234,0.85) 100%)'
+              ? 'linear-gradient(180deg, rgb(0 0 0 / 0.05) 0%, var(--color-concourse) 100%)'
               : 'transparent',
             opacity: heroOverlayOpacity,
           }}
@@ -270,10 +271,9 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
         <button
           onClick={() => navigate('/')}
           className="btn btn-ghost"
-          style={{
-            position: 'absolute', top: 20, left: 40, zIndex: 2,
-            backgroundColor: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(4px)',
-          }}
+          style={heroImage
+            ? { position: 'absolute', top: 20, left: 40, zIndex: 2, background: 'var(--color-flap)' }
+            : { position: 'absolute', top: 22, left: 40, zIndex: 3 }}
         >
           <ArrowLeft size={15} />
           All Projects
@@ -285,17 +285,17 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
         <div
           className="card"
           style={{
-            marginTop: heroImage ? -120 : 24,
+            marginTop: heroImage ? -120 : 20,
             padding: '28px 32px',
             position: 'relative', zIndex: 2,
-            boxShadow: '0 20px 50px -20px rgba(60, 35, 15, 0.22)',
+            boxShadow: 'var(--shadow-card-hover)',
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <StatusBadge status={project.status} />
               <h1 style={{
-                margin: '12px 0 0', fontFamily: 'var(--font-serif)',
+                margin: '12px 0 0', fontFamily: 'var(--font-board)',
                 fontSize: '2.4rem', fontWeight: 700, letterSpacing: '-0.02em',
               }}>
                 {project.title}
@@ -308,11 +308,11 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
               </button>
               <button className="btn btn-ghost" onClick={handleSaveAsTemplate} title="Save a copy as a reusable template" style={{ fontSize: '0.82rem' }}>
                 <LayoutTemplate size={13} />
-                {savedAsTemplate ? '✓ Saved!' : 'Save as Template'}
+                {savedAsTemplate ? 'Saved as template' : 'Save as Template'}
               </button>
               {confirmDelete ? (
                 <>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--color-rust)', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--color-amber)', whiteSpace: 'nowrap' }}>
                     Delete this project?
                   </span>
                   <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>
@@ -322,7 +322,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                     className="btn btn-ghost"
                     onClick={handleDelete}
                     disabled={deleting}
-                    style={{ gap: 6, color: 'var(--color-rust)' }}
+                    style={{ gap: 6, color: 'var(--color-amber)' }}
                   >
                     <Trash2 size={13} />
                     {deleting ? 'Deleting…' : 'Yes, Delete'}
@@ -332,7 +332,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                 <button
                   className="btn btn-ghost"
                   onClick={() => setConfirmDelete(true)}
-                  style={{ color: 'var(--color-rust)' }}
+                  style={{ color: 'var(--color-amber)' }}
                 >
                   <Trash2 size={14} />
                   Delete
@@ -357,7 +357,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                   href={project.source_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-rust"
+                  className="text-amber"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', textDecoration: 'none' }}
                 >
                   <ExternalLink size={13} />
@@ -369,7 +369,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                   href={project.cut_plan_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-rust"
+                  className="text-amber"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', textDecoration: 'none' }}
                 >
                   <Scissors size={13} />
@@ -384,7 +384,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
             gap: 20, marginTop: 24, paddingTop: 22,
             borderTop: '1px solid var(--color-line)',
           }}>
-            <Stat icon={<Gauge size={14} />} label="Difficulty" value={project.difficulty} />
+            <Stat icon={<Gauge size={14} />} label="Difficulty" value={project.difficulty.replace('_', ' ').toUpperCase()} />
             <Stat icon={<Clock size={14} />} label="Est. Hours" value={`${project.estimated_hours}h`} />
             <Stat icon={<Layers size={14} />} label="Parts" value={String(project.parts_count)} />
             <Stat icon={<DollarSign size={14} />} label="Est. Cost" value={formatMoney(project.total_cost)} />
@@ -393,9 +393,9 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
 
         {/* Wood + Tools chips */}
         {(project.wood_types.length > 0 || project.tools_needed.length > 0) && (
-          <div className="chip-groups" style={{
+          <div className="chip-groups board" style={{
             display: 'grid', gridTemplateColumns: '1fr 1fr',
-            gap: 32, marginTop: 36, marginBottom: 28,
+            gap: 0, marginTop: 26, marginBottom: 34,
           }}>
             <ChipGroup label="WOOD" items={project.wood_types} />
             <ChipGroup label="TOOLS" items={project.tools_needed} />
@@ -418,15 +418,15 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                       style={{
                         display: 'flex', flexDirection: 'column',
                         alignItems: 'center', justifyContent: 'center', gap: 10,
-                        width: '100%', aspectRatio: '1', borderRadius: 12,
-                        backgroundColor: 'var(--color-cream-2)',
+                        width: '100%', aspectRatio: '1', borderRadius: 3,
+                        backgroundColor: 'var(--color-flap-shade)',
                         border: '1px solid var(--color-line)',
                         color: 'var(--color-ink)',
                         padding: 12, textAlign: 'center', cursor: 'zoom-in',
                         font: 'inherit',
                       }}
                     >
-                      <FileText size={36} style={{ color: 'var(--color-rust)' }} />
+                      <FileText size={36} style={{ color: 'var(--color-amber)' }} />
                       <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Open PDF</span>
                     </button>
                   );
@@ -437,7 +437,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                     src={src}
                     alt="Sketch"
                     onClick={() => setLightbox({ src, pdf: false })}
-                    style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 12, cursor: 'zoom-in' }}
+                    style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 3, cursor: 'zoom-in' }}
                   />
                 );
               })}
@@ -457,7 +457,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                     src={src}
                     alt="Inspiration"
                     onClick={() => setLightbox({ src, pdf: false })}
-                    style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 12, cursor: 'zoom-in' }}
+                    style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 3, cursor: 'zoom-in' }}
                   />
                 );
               })}
@@ -482,7 +482,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
             <div className="card table-scroll" style={{ overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                 <thead>
-                  <tr style={{ backgroundColor: 'var(--color-cream)' }}>
+                  <tr>
                     <Th>PART</Th>
                     <Th>QTY</Th>
                     <Th>DIMENSIONS (L × W × T)</Th>
@@ -497,7 +497,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                       <Td style={{ color: 'var(--color-muted)' }}>
                         {formatDims(c.length, c.width, c.thickness)}
                       </Td>
-                      <Td style={{ color: 'var(--color-rust)' }}>{c.material ?? '—'}</Td>
+                      <Td style={{ color: 'var(--color-ink)' }}>{c.material ?? '—'}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -508,20 +508,15 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
 
         {/* Cut Plan Optimizer */}
         {project.cut_list.length > 0 && (
-          <section style={{ marginBottom: 40 }}>
-            <div style={{
-              display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-              marginBottom: showCutPlan ? 16 : 0,
-            }}>
-              <h2 className="section-title">Cut Plan Optimizer</h2>
-              <button
-                className="btn btn-ghost"
-                onClick={() => setShowCutPlan(v => !v)}
-                style={{ fontSize: '0.82rem' }}
-              >
-                <Scissors size={14} />
-                {showCutPlan ? 'Hide' : 'Plan Cuts'}
-              </button>
+          <section style={{ marginBottom: 34 }}>
+            <div className="rail" style={{ marginBottom: showCutPlan ? 14 : 0 }}>
+              <Scissors size={13} />
+              <h2 style={{ margin: 0, font: 'inherit', letterSpacing: 'inherit' }}>Cut Plan Optimizer</h2>
+              <div className="rail-actions">
+                <button className="btn btn-ghost" onClick={() => setShowCutPlan(v => !v)}>
+                  {showCutPlan ? 'Hide' : 'Plan Cuts'}
+                </button>
+              </div>
             </div>
             {showCutPlan && <CutPlanOptimizer cutList={project.cut_list} projectId={projectId} />}
           </section>
@@ -533,8 +528,8 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
             title="Materials & Hardware"
             right={
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <span style={{ fontSize: '0.88rem', color: 'var(--color-muted)' }}>
-                  Total: <strong style={{ color: 'var(--color-ink)' }}>{formatMoney(project.total_cost)}</strong>
+                <span style={{ fontSize: '0.62rem', letterSpacing: '0.09em', color: 'rgb(237 241 238 / 0.66)' }}>
+                  Total <strong className="readout" style={{ color: 'var(--color-amber-fill)', fontSize: '0.7rem' }}>{formatMoney(project.total_cost)}</strong>
                 </span>
                 <button className="btn btn-ghost" onClick={() => exportMaterialsCsv(project)} style={{ fontSize: '0.8rem', padding: '7px 11px' }}>
                   <Download size={13} />
@@ -558,7 +553,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                     type="checkbox"
                     checked={m.purchased}
                     onChange={e => togglePurchased(m.id, e.target.checked)}
-                    style={{ width: 16, height: 16, accentColor: 'var(--color-ink-soft)', cursor: 'pointer' }}
+                    style={{ width: 16, height: 16, accentColor: 'var(--color-steel)', cursor: 'pointer' }}
                   />
                   <div style={{ flex: 1 }}>
                     <div style={{
@@ -581,7 +576,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                   }}>
                     {formatMoney(m.cost)}
                   </div>
-                  {m.purchased && <span style={{ color: 'var(--color-rust)' }}>✓</span>}
+                  {m.purchased && <Check size={13} strokeWidth={3} style={{ color: 'var(--color-green)', flexShrink: 0 }} />}
                 </label>
               ))}
             </div>
@@ -686,7 +681,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                   {buildFile ? buildFile.name : 'Attach photo'}
                   <input ref={buildFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => setBuildFile(e.target.files?.[0] ?? null)} />
                 </label>
-                {buildFile && <button onClick={() => { setBuildFile(null); if (buildFileRef.current) buildFileRef.current.value = ''; }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', fontSize: '0.8rem' }}>✕ Remove</button>}
+                {buildFile && <button onClick={() => { setBuildFile(null); if (buildFileRef.current) buildFileRef.current.value = ''; }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} strokeWidth={2.5} /> Remove</button>}
               </div>
               <button className="btn btn-primary" onClick={handleAddBuildLog} disabled={buildAdding || (!buildNote.trim() && !buildFile)} style={{ marginTop: 14 }}>
                 {buildAdding ? 'Saving…' : 'Save Note'}
@@ -699,9 +694,8 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {project.build_log.map(entry => (
                 <div key={entry.id} className="card" style={{ padding: '16px 20px', display: 'flex', gap: 16 }}>
-                  <div style={{ flexShrink: 0, width: 3, borderRadius: 3, backgroundColor: 'var(--color-ink-soft)', alignSelf: 'stretch' }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginBottom: 6 }}>
+                    <div className="board-caps" style={{ fontSize: '0.6rem', letterSpacing: '0.12em', color: 'var(--color-muted)', marginBottom: 7 }}>
                       {new Date(entry.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </div>
                     {entry.note && <p style={{ margin: '0 0 10px', fontSize: '0.93rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{entry.note}</p>}
@@ -710,7 +704,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                         src={buildLogImageUrl(entry.id)}
                         alt="Build photo"
                         onClick={() => setLightbox({ src: buildLogImageUrl(entry.id), pdf: false })}
-                        style={{ maxWidth: 280, maxHeight: 200, objectFit: 'cover', borderRadius: 8, cursor: 'zoom-in', display: 'block' }}
+                        style={{ maxWidth: 280, maxHeight: 200, objectFit: 'cover', borderRadius: 3, cursor: 'zoom-in', display: 'block' }}
                       />
                     )}
                   </div>
@@ -766,7 +760,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                 <div key={link.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderTop: i > 0 ? '1px solid var(--color-line)' : 'none' }}>
                   <Link2 size={13} style={{ color: 'var(--color-muted)', flexShrink: 0 }} />
                   <span style={{ flex: 1, fontWeight: 500, fontSize: '0.9rem' }}>{link.linked_title}</span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)', background: 'var(--color-cream-2)', padding: '2px 8px', borderRadius: 99 }}>{link.relationship}</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)', background: 'var(--color-flap-shade)', padding: '2px 8px', borderRadius: 2 }}>{link.relationship}</span>
                   <StatusBadge status={link.linked_status} />
                   <button onClick={() => handleRemoveLink(link.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', padding: 4 }}>
                     <X size={13} />
@@ -778,12 +772,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
         </Section>
 
         {/* Footer tag */}
-        <div style={{
-          textAlign: 'center', marginTop: 56, color: 'var(--color-muted)',
-          fontSize: '0.85rem', letterSpacing: '0.06em', fontStyle: 'italic',
-        }}>
-          Measure twice · Cut once
-        </div>
+        <div className="board-plate">Measure twice &middot; Cut once</div>
       </div>
 
       {lightbox && <Lightbox src={lightbox.src} pdf={lightbox.pdf} onClose={() => setLightbox(null)} />}
@@ -808,9 +797,9 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
 function ChipGroup({ label, items }: { label: string; items: string[] }) {
   if (items.length === 0) return <div />;
   return (
-    <div>
-      <div className="label-caps" style={{ marginBottom: 10 }}>{label}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+    <div style={{ borderLeft: '1px solid var(--color-line)', marginLeft: -1 }}>
+      <div className="rail">{label}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, padding: '14px 16px' }}>
         {items.map((x, i) => <span key={i} className="chip">{x}</span>)}
       </div>
     </div>
@@ -819,29 +808,29 @@ function ChipGroup({ label, items }: { label: string; items: string[] }) {
 
 function Section({ title, icon, right, children }: { title: string; icon?: React.ReactNode; right?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section style={{ marginBottom: 40 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {icon && <span className="muted">{icon}</span>}
-          <h2 className="section-title">{title}</h2>
-        </div>
-        {right}
+    <section style={{ marginBottom: 34 }}>
+      <div className="rail" style={{ marginBottom: 14 }}>
+        {icon}
+        <h2 style={{ margin: 0, font: 'inherit', letterSpacing: 'inherit' }}>{title}</h2>
+        {right && <div className="rail-actions">{right}</div>}
       </div>
       {children}
     </section>
   );
 }
 
+/* Lamp glass, one colour per finish class — saturated so a 10px square still
+   reads as a lit signal rather than a smudge. */
 const FINISH_TYPE_COLORS: Record<string, string> = {
-  stain: '#8B4513', oil: '#CD853F', wax: '#D2B48C', varnish: '#B8860B',
-  lacquer: '#708090', sealant: '#2F4F4F', primer: '#A9A9A9', paint: '#4169E1', other: '#696969',
+  stain: '#A85A2A', oil: '#D69A2E', wax: '#C9B45A', varnish: '#B8792C',
+  lacquer: '#5590B5', sealant: '#3F8A64', primer: '#8A9A98', paint: '#8A78B8', other: '#6E5F9E',
 };
 
 function FinishLogRow({ entry, borderTop, onDelete }: { entry: FinishLogEntry; borderTop: boolean; onDelete: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderTop: borderTop ? '1px solid var(--color-line)' : 'none' }}>
       {entry.finish_type && (
-        <div style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, backgroundColor: FINISH_TYPE_COLORS[entry.finish_type] ?? 'var(--color-muted)' }} />
+        <div style={{ width: 10, height: 10, borderRadius: 2, flexShrink: 0, backgroundColor: FINISH_TYPE_COLORS[entry.finish_type] ?? 'var(--color-muted)' }} />
       )}
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{entry.product_name}</div>
@@ -943,30 +932,39 @@ function printCutList(project: import('../types/project').ProjectDetail) {
     <tr>
       <td>${escHtml(c.part_name)}</td>
       <td>${c.qty}</td>
-      <td style="color:#8B7A6B">${escHtml(formatDims(c.length, c.width, c.thickness))}</td>
-      <td style="color:#A0522D">${escHtml(c.material ?? '—')}</td>
+      <td class="dim">${escHtml(formatDims(c.length, c.width, c.thickness))}</td>
+      <td class="mat">${escHtml(c.material ?? '—')}</td>
     </tr>`).join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(project.title)} — Cut List</title>
 <style>
-  @page { size: letter portrait; margin: 0.75in; }
+  @page { size: letter portrait; margin: 0.7in; }
   * { box-sizing: border-box; }
-  body { font-family: Georgia, 'Playfair Display', serif; font-size: 11px; color: #1C0F07; margin: 0; }
-  .brand { border-left: 4px solid #A0522D; padding-left: 16px; margin-bottom: 28px; }
-  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.02em; }
-  .meta { font-size: 10px; color: #8B7A6B; font-family: Arial, sans-serif; }
-  table { width: 100%; border-collapse: collapse; margin-top: 4px; font-family: Arial, sans-serif; }
-  th { text-align: left; padding: 8px 12px; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: #8B7A6B; border-bottom: 2px solid #A0522D; }
-  td { padding: 10px 12px; border-bottom: 1px solid #EDE8E3; }
-  tfoot td { font-weight: 700; border-top: 2px solid #1C0F07; border-bottom: none; }
+  body { font-family: ui-monospace, 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+         font-size: 10.5px; color: #14181A; margin: 0; }
+  .brand { border-bottom: 2px solid #232A2F; padding-bottom: 10px; margin-bottom: 4px; }
+  .brand::after { content: ''; display: block; height: 1px; background: #C0CAC6; margin-top: 3px; }
+  h1 { font-size: 19px; font-weight: 700; margin: 0 0 5px; letter-spacing: 0.01em; text-transform: uppercase; }
+  .meta { font-size: 9px; color: #59686A; letter-spacing: 0.1em; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; margin-top: 22px; }
+  th { text-align: left; padding: 7px 10px; font-size: 8.5px; font-weight: 700; letter-spacing: 0.14em;
+       color: #EDF1EE; background: #2B3238; text-transform: uppercase; }
+  td { padding: 9px 10px; border-bottom: 1px solid #DCE2DE; font-variant-numeric: tabular-nums; }
+  tr:nth-child(even) td { background: #F1F4F1; }
+  .dim { color: #59686A; }
+  .mat { color: #8A4F00; }
+  tfoot td { font-weight: 700; border-top: 2px solid #232A2F; border-bottom: none; background: none;
+             text-transform: uppercase; letter-spacing: 0.08em; }
+  .plate { margin-top: 26px; font-size: 8px; letter-spacing: 0.24em; color: #59686A; text-transform: uppercase; }
   @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 </style></head><body>
-<div class="brand"><h1>${escHtml(project.title)}</h1><div class="meta">Cut List · ${escHtml(date)} · ${project.cut_list.length} parts</div></div>
+<div class="brand"><h1>${escHtml(project.title)}</h1><div class="meta">Cut List &middot; ${escHtml(date)} &middot; ${project.cut_list.length} parts</div></div>
 <table>
-  <thead><tr><th>PART</th><th>QTY</th><th>DIMENSIONS (L × W × T)</th><th>MATERIAL</th></tr></thead>
+  <thead><tr><th>PART</th><th>QTY</th><th>DIMENSIONS (L &times; W &times; T)</th><th>MATERIAL</th></tr></thead>
   <tbody>${rows}</tbody>
   <tfoot><tr><td>Total</td><td>${totalQty} pcs</td><td></td><td></td></tr></tfoot>
 </table>
+<div class="plate">Measure twice &middot; Cut once</div>
 <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script>
 </body></html>`;
 
@@ -1018,7 +1016,7 @@ function Lightbox({ src, pdf, onClose }: { src: string; pdf?: boolean; onClose: 
         style={{
           position: 'absolute', top: 20, right: 20,
           background: 'rgba(255,255,255,0.12)', border: 'none',
-          borderRadius: '50%', width: 40, height: 40,
+          borderRadius: 2, width: 40, height: 40,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer', color: 'white', zIndex: 1,
         }}
@@ -1032,7 +1030,7 @@ function Lightbox({ src, pdf, onClose }: { src: string; pdf?: boolean; onClose: 
           onClick={e => e.stopPropagation()}
           style={{
             width: '90vw', height: '90vh',
-            border: 'none', borderRadius: 10,
+            border: 'none', borderRadius: 3,
             backgroundColor: 'white',
             boxShadow: '0 32px 80px rgba(0,0,0,0.6)',
           }}
@@ -1044,7 +1042,7 @@ function Lightbox({ src, pdf, onClose }: { src: string; pdf?: boolean; onClose: 
           onClick={e => e.stopPropagation()}
           style={{
             maxWidth: '90vw', maxHeight: '90vh',
-            objectFit: 'contain', borderRadius: 10,
+            objectFit: 'contain', borderRadius: 3,
             boxShadow: '0 32px 80px rgba(0,0,0,0.6)',
           }}
         />

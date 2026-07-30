@@ -15,10 +15,11 @@ const rootEl = document.getElementById('root')!;
 
 function renderFatal(err: unknown) {
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'font-family:system-ui;padding:24px;max-width:640px;margin:40px auto;background:#fee2e2;border:1px solid #fca5a5;border-radius:12px;color:#7f1d1d';
+  wrap.style.cssText = 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;padding:24px;max-width:640px;margin:40px auto;background:#F7F9F6;border:1px solid #B3271F;border-top:3px solid #B3271F;color:#14181A';
   const title = document.createElement('h2');
   title.style.margin = '0 0 8px 0';
   title.textContent = 'Startup error';
+  title.style.cssText += 'text-transform:uppercase;letter-spacing:0.1em;font-size:15px';
   const pre = document.createElement('pre');
   pre.style.cssText = 'white-space:pre-wrap;font-size:12px';
   pre.textContent = String((err as Error)?.stack ?? err);

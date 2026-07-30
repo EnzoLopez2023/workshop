@@ -42,35 +42,32 @@ export default function ShoppingList() {
 
   return (
     <div className="page-container" style={{ maxWidth: 780 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32, gap: 12 }}>
-        <button onClick={() => navigate(-1)} className="btn btn-ghost" style={{ gap: 6 }}>
-          <ArrowLeft size={14} /> Back
-        </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: 'var(--color-muted)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={showPurchased} onChange={e => setShowPurchased(e.target.checked)} style={{ width: 14, height: 14, accentColor: 'var(--color-ink-soft)' }} />
+      <button onClick={() => navigate(-1)} className="btn btn-ghost" style={{ gap: 6, marginBottom: 24 }}>
+        <ArrowLeft size={14} /> Back
+      </button>
+
+      <div className="page-head">
+        <div className="page-head-main">
+          <h1 className="page-title">
+            <ShoppingCart size={20} strokeWidth={2.2} style={{ color: 'var(--color-amber)', display: 'inline-block', verticalAlign: '-2px', marginRight: 10 }} />
+            Shopping List
+          </h1>
+          <p className="page-sub">
+            {unpurchasedCount === 0
+              ? 'Everything on the manifest is bought.'
+              : `${unpurchasedCount} item${unpurchasedCount !== 1 ? 's' : ''} outstanding · est. ${formatMoney(totalCost)}`}
+          </p>
+        </div>
+        <div className="page-head-actions">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: 'var(--color-muted)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={showPurchased} onChange={e => setShowPurchased(e.target.checked)} style={{ width: 14, height: 14, accentColor: 'var(--color-steel)' }} />
             Show purchased
           </label>
-          <button
-            className="btn btn-ghost"
-            onClick={() => printShoppingList(grouped, items)}
-            style={{ fontSize: '0.82rem', gap: 6 }}
-          >
-            <Printer size={14} />
-            Print
+          <button className="btn btn-ghost" onClick={() => printShoppingList(grouped, items)} style={{ fontSize: '0.82rem', gap: 6 }}>
+            <Printer size={14} /> Print
           </button>
         </div>
       </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
-        <ShoppingCart size={22} style={{ color: 'var(--color-rust)' }} />
-        <h1 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: '2rem', fontWeight: 700 }}>Shopping List</h1>
-      </div>
-      <p style={{ margin: '0 0 36px', color: 'var(--color-muted)', fontSize: '0.9rem' }}>
-        {unpurchasedCount === 0
-          ? 'All items purchased.'
-          : `${unpurchasedCount} item${unpurchasedCount !== 1 ? 's' : ''} needed · est. ${formatMoney(totalCost)}`}
-      </p>
 
       {loading ? (
         <div style={{ textAlign: 'center', color: 'var(--color-muted)', padding: 48 }}>Loading…</div>
@@ -81,13 +78,14 @@ export default function ShoppingList() {
             : 'Everything has been purchased.'}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
           {grouped.map(({ id, title, items: projectItems }) => (
-            <div key={id}>
-              <div style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.1em', color: 'var(--color-muted)', textTransform: 'uppercase', marginBottom: 10 }}>
+            <div className="board" key={id}>
+              <div className="rail">
                 {title}
+                <span className="rail-count">{String(projectItems.filter(x => !x.purchased).length).padStart(2, '0')}</span>
               </div>
-              <div className="card">
+              <div>
                 {projectItems.map((item, i) => (
                   <label
                     key={item.id}
@@ -102,7 +100,7 @@ export default function ShoppingList() {
                       type="checkbox"
                       checked={item.purchased}
                       onChange={() => handleToggle(item.id, item.purchased)}
-                      style={{ width: 16, height: 16, accentColor: 'var(--color-ink-soft)', cursor: 'pointer', flexShrink: 0 }}
+                      style={{ cursor: 'pointer', flexShrink: 0 }}
                     />
                     <div style={{ flex: 1 }}>
                       <div style={{
@@ -117,8 +115,8 @@ export default function ShoppingList() {
                       )}
                     </div>
                     {item.cost > 0 && (
-                      <div style={{
-                        fontVariantNumeric: 'tabular-nums', fontSize: '0.88rem',
+                      <div className="readout" style={{
+                        fontSize: '0.88rem',
                         color: item.purchased ? 'var(--color-muted)' : 'var(--color-ink)',
                         textDecoration: item.purchased ? 'line-through' : 'none',
                         flexShrink: 0,
@@ -126,7 +124,7 @@ export default function ShoppingList() {
                         {formatMoney(item.cost)}
                       </div>
                     )}
-                    {item.purchased && <Check size={14} style={{ color: 'var(--color-rust)', flexShrink: 0 }} />}
+                    {item.purchased && <Check size={14} strokeWidth={3} style={{ color: 'var(--color-green)', flexShrink: 0 }} />}
                   </label>
                 ))}
               </div>
@@ -160,10 +158,10 @@ function printShoppingList(
           ${items.map(item => `
             <tr>
               <td style="padding: 8px 0 8px 8px; width: 18px;">
-                <span style="display:inline-block;width:14px;height:14px;border:1.5px solid #8B7A6B;border-radius:3px;vertical-align:middle;background:${item.purchased ? '#A0522D' : 'white'}"></span>
+                <span style="display:inline-block;width:13px;height:13px;border:1.5px solid #59686A;border-radius:1px;vertical-align:middle;background:${item.purchased ? '#2E7148' : '#fff'}"></span>
               </td>
-              <td style="padding: 8px 6px; ${item.purchased ? 'text-decoration:line-through;color:#8B7A6B;' : ''}">${escHtml(item.name)}${item.qty_label ? `<span style="color:#8B7A6B;font-size:10px;margin-left:6px">${escHtml(item.qty_label)}</span>` : ''}</td>
-              <td style="padding: 8px 0; text-align: right; ${item.purchased ? 'color:#8B7A6B;text-decoration:line-through;' : ''}">${item.cost > 0 ? formatMoney(item.cost) : ''}</td>
+              <td style="padding: 8px 6px; ${item.purchased ? 'text-decoration:line-through;color:#8FA09E;' : ''}">${escHtml(item.name)}${item.qty_label ? `<span style="color:#59686A;font-size:9.5px;margin-left:6px">${escHtml(item.qty_label)}</span>` : ''}</td>
+              <td style="padding: 8px 0; text-align: right; ${item.purchased ? 'color:#8FA09E;text-decoration:line-through;' : ''}">${item.cost > 0 ? formatMoney(item.cost) : ''}</td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -171,24 +169,33 @@ function printShoppingList(
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Shopping List</title>
 <style>
-  @page { size: letter portrait; margin: 0.75in; }
+  @page { size: letter portrait; margin: 0.7in; }
   * { box-sizing: border-box; }
-  body { font-family: Georgia, serif; font-size: 11px; color: #1C0F07; margin: 0; }
-  .brand { border-left: 4px solid #A0522D; padding-left: 16px; margin-bottom: 28px; }
-  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
-  .meta { font-size: 10px; color: #8B7A6B; font-family: Arial, sans-serif; }
-  .project { margin-bottom: 24px; }
-  .project-title { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #8B7A6B; border-bottom: 1px solid #EDE8E3; padding-bottom: 6px; margin-bottom: 2px; }
-  table { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; }
-  .total { font-weight: 700; border-top: 2px solid #1C0F07; padding-top: 8px; margin-top: 4px; display: flex; justify-content: space-between; font-family: Arial, sans-serif; font-size: 12px; }
+  body { font-family: ui-monospace, 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+         font-size: 10.5px; color: #14181A; margin: 0; }
+  .brand { border-bottom: 2px solid #232A2F; padding-bottom: 10px; margin-bottom: 4px; }
+  .brand::after { content: ''; display: block; height: 1px; background: #C0CAC6; margin-top: 3px; }
+  h1 { font-size: 19px; font-weight: 700; margin: 0 0 5px; text-transform: uppercase; letter-spacing: 0.01em; }
+  .meta { font-size: 9px; color: #59686A; letter-spacing: 0.1em; text-transform: uppercase; }
+  .project { margin-bottom: 22px; }
+  .project:first-of-type { margin-top: 24px; }
+  .project-title { font-size: 8.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+                   color: #EDF1EE; background: #2B3238; padding: 6px 10px; margin-bottom: 2px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td { border-bottom: 1px solid #DCE2DE; }
+  .total { font-weight: 700; border-top: 2px solid #232A2F; padding-top: 9px; margin-top: 6px;
+           display: flex; justify-content: space-between; font-size: 12px;
+           text-transform: uppercase; letter-spacing: 0.08em; }
+  .plate { margin-top: 26px; font-size: 8px; letter-spacing: 0.24em; color: #59686A; text-transform: uppercase; }
   @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 </style></head><body>
 <div class="brand">
   <h1>Shopping List</h1>
-  <div class="meta">${unpurchased.length} items · ${escHtml(date)}</div>
+  <div class="meta">${unpurchased.length} items &middot; ${escHtml(date)}</div>
 </div>
 ${sections}
 ${total > 0 ? `<div class="total"><span>Estimated Total</span><span>${formatMoney(total)}</span></div>` : ''}
+<div class="plate">Measure twice &middot; Cut once</div>
 <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script>
 </body></html>`;
 

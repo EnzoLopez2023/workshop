@@ -21,13 +21,13 @@ export function ProjectCardSkeleton() {
     <div className="card" style={{ overflow: 'hidden' }}>
       <Skeleton height={200} borderRadius={0} />
       <div style={{ padding: '14px 16px 16px' }}>
-        <Skeleton height={10} width={70} style={{ borderRadius: 99, marginBottom: 10 }} />
+        <Skeleton height={10} width={70} style={{ borderRadius: 2, marginBottom: 10 }} />
         <Skeleton height={18} width="72%" style={{ marginBottom: 8 }} />
         <Skeleton height={13} width="90%" style={{ marginBottom: 5 }} />
         <Skeleton height={13} width="65%" style={{ marginBottom: 14 }} />
         <div style={{ display: 'flex', gap: 8 }}>
-          <Skeleton height={24} width={64} style={{ borderRadius: 99 }} />
-          <Skeleton height={24} width={80} style={{ borderRadius: 99 }} />
+          <Skeleton height={24} width={64} style={{ borderRadius: 2 }} />
+          <Skeleton height={24} width={80} style={{ borderRadius: 2 }} />
         </div>
       </div>
     </div>
@@ -40,7 +40,7 @@ export function ProjectDetailSkeleton() {
       <Skeleton height={260} borderRadius={0} />
       <div className="detail-container">
         <div className="card" style={{ marginTop: -80, padding: '28px 32px', position: 'relative', zIndex: 2 }}>
-          <Skeleton height={22} width={90} style={{ borderRadius: 99, marginBottom: 14 }} />
+          <Skeleton height={22} width={90} style={{ borderRadius: 2, marginBottom: 14 }} />
           <Skeleton height={38} width="55%" style={{ marginBottom: 12 }} />
           <Skeleton height={14} width="80%" style={{ marginBottom: 6 }} />
           <Skeleton height={14} width="65%" style={{ marginBottom: 28 }} />

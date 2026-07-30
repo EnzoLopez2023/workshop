@@ -6,9 +6,18 @@ import { listProjects, listShaperProjects, listTemplates, cloneTemplate, deleteT
 import type { ProjectListItem, ProjectStatus, ShaperProject, TemplateListItem } from '../types/project';
 import ProjectCard from '../components/ProjectCard';
 import ShaperProjectCard from '../components/ShaperProjectCard';
+import SplitFlap from '../components/SplitFlap';
 import { ProjectCardSkeleton } from '../components/Skeleton';
 
 type StatusFilter = 'all' | ProjectStatus;
+
+// The board keeps its own time, the way one in a concourse does.
+function boardClock(d: Date) {
+  const day = d.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase();
+  const date = d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' }).toUpperCase();
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${day} ${date} · ${time}`;
+}
 
 const DIY_SITES = [
   { name: 'Kreg Tool Plans',       tagline: 'Pocket-hole projects & free plans',  url: 'https://learn.kregtool.com/projects-plans/' },
@@ -35,6 +44,12 @@ export default function Dashboard() {
   const [search, setSearch] = useState('');
   const [cloningId, setCloningId] = useState<number | null>(null);
   const [confirmDeleteTemplateId, setConfirmDeleteTemplateId] = useState<number | null>(null);
+  const [clock, setClock] = useState(() => boardClock(new Date()));
+
+  useEffect(() => {
+    const t = setInterval(() => setClock(boardClock(new Date())), 20_000);
+    return () => clearInterval(t);
+  }, []);
 
   const loadTemplates = () => listTemplates().then(setTemplates).catch(console.error);
 
@@ -60,6 +75,13 @@ export default function Dashboard() {
     catch (err) { console.error(err); }
   };
 
+  const counts = useMemo(() => ({
+    inProgress: projects.filter(p => p.status === 'in_progress').length,
+    queued: projects.filter(p => p.status === 'idea' || p.status === 'planning').length,
+    parts: projects.filter(p => p.status !== 'completed').reduce((s, p) => s + (p.parts_count || 0), 0),
+    value: projects.reduce((s, p) => s + (p.total_cost || 0), 0).toFixed(0),
+  }), [projects]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return projects.filter(p => {
@@ -72,95 +94,57 @@ export default function Dashboard() {
 
   return (
     <div className="page-container">
-      {/* Hero */}
-      <motion.div
-        style={{ marginBottom: 40 }}
-        initial={{ opacity: 0, y: 18 }}
+      {/* The board */}
+      <motion.section
+        style={{ marginBottom: 34 }}
+        initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
       >
-        <span
-          className="pill"
-          style={{
-            backgroundColor: 'var(--color-cream-2)',
-            color: 'var(--color-ink-soft)',
-            marginBottom: 16,
-          }}
-        >
-          <span style={{ fontSize: '0.75rem' }}>◆</span>
-          Your Workshop Journal
-        </span>
-        <h1 style={{
-          fontFamily: 'var(--font-serif)', margin: '14px 0 18px',
-          fontSize: 'clamp(2.4rem, 5vw, 3.6rem)', fontWeight: 700,
-          lineHeight: 1.08, color: 'var(--color-ink)', letterSpacing: '-0.02em',
-        }}>
-          Every project,
-          <br />
-          <span style={{ fontStyle: 'italic', color: 'var(--color-rust)', fontWeight: 600 }}>
-            from sketch to sawdust.
-          </span>
-        </h1>
-        <p style={{
-          maxWidth: 560, margin: 0, color: 'var(--color-muted)',
-          fontSize: '1rem', lineHeight: 1.55,
-        }}>
-          Capture ideas, gather inspiration, plan your cuts, and keep every detail of your
-          woodworking projects in one considered place.
-        </p>
-      </motion.div>
-
-      {/* Stats strip */}
-      {!loading && projects.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.32, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-          className="dash-stats"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 12,
-            marginBottom: 36,
-            padding: '18px 24px',
-            borderRadius: 14,
-            border: '1px solid var(--color-line)',
-            background: 'var(--color-paper)',
-          }}
-        >
-          <DashStat
-            label="In Progress"
-            value={String(projects.filter(p => p.status === 'in_progress').length)}
-            sub="active builds"
-          />
-          <DashStat
-            label="In Queue"
-            value={String(projects.filter(p => p.status === 'idea' || p.status === 'planning').length)}
-            sub="ideas & plans"
-          />
-          <DashStat
-            label="Total Parts"
-            value={String(projects.filter(p => p.status !== 'completed').reduce((s, p) => s + (p.parts_count || 0), 0))}
-            sub="across active projects"
-          />
-          <DashStat
-            label="Est. Value"
-            value={`$${projects.reduce((s, p) => s + (p.total_cost || 0), 0).toFixed(0)}`}
-            sub="in materials"
-          />
-        </motion.div>
-      )}
+        <div className="board">
+          <div className="rail riveted" style={{ paddingLeft: 26, paddingRight: 26 }}>
+            <span>Shop Board</span>
+            <span className="rail-count" style={{ letterSpacing: '0.12em' }}>{clock}</span>
+          </div>
+          <div className="dash-board">
+            <DashCell
+              label="In Progress"
+              value={loading ? '' : String(counts.inProgress).padStart(2, '0')}
+              sub="active builds"
+              tone="amber"
+            />
+            <DashCell
+              label="In Queue"
+              value={loading ? '' : String(counts.queued).padStart(2, '0')}
+              sub="ideas & plans"
+            />
+            <DashCell
+              label="Total Parts"
+              value={loading ? '' : String(counts.parts).padStart(3, '0')}
+              sub="across active projects"
+              minCells={3}
+            />
+            <DashCell
+              label="Est. Value"
+              value={loading ? '' : `$${counts.value}`}
+              sub="in materials"
+              minCells={4}
+              tone="green"
+            />
+          </div>
+        </div>
+      </motion.section>
 
       {/* Search + filters */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12,
-        marginBottom: 28, flexWrap: 'wrap',
+        marginBottom: 24, flexWrap: 'wrap',
       }}>
-        <div style={{ position: 'relative', flex: '1 1 360px', maxWidth: 500 }}>
+        <div style={{ position: 'relative', flex: '1 1 340px', maxWidth: 460 }}>
           <Search
-            size={16}
+            size={15}
             style={{
-              position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)',
+              position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
               color: 'var(--color-muted)',
             }}
           />
@@ -168,37 +152,29 @@ export default function Dashboard() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search projects, wood types…"
-            style={{
-              paddingLeft: 42,
-              borderRadius: 999,
-              backgroundColor: 'var(--color-paper)',
-            }}
+            style={{ paddingLeft: 36 }}
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {FILTERS.map(f => {
-            const active = filter === f.key;
-            return (
-              <button
-                key={f.key}
-                onClick={() => setFilter(f.key)}
-                className="btn"
-                style={{
-                  backgroundColor: active ? 'var(--color-ink-soft)' : 'var(--color-cream-2)',
-                  color: active ? 'var(--color-cream)' : 'var(--color-ink)',
-                  padding: '8px 16px',
-                  fontSize: '0.82rem',
-                }}
-              >
-                {f.label}
-              </button>
-            );
-          })}
+        <div className="filter-strip">
+          {FILTERS.map(f => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              aria-pressed={filter === f.key}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Grid */}
+      <div className="rail" style={{ marginBottom: 16 }}>
+        <Boxes size={13} strokeWidth={2.2} />
+        <span>Projects</span>
+        <span className="rail-count">{loading ? '—' : String(filtered.length).padStart(2, '0')}</span>
+      </div>
       {loading ? (
         <div style={{
           display: 'grid',
@@ -235,21 +211,20 @@ export default function Dashboard() {
       )}
 
       {/* Shaper Hub section */}
-      <div style={{ marginTop: 64 }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          marginBottom: 18,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Cpu size={15} className="text-rust" />
-            <span className="eyebrow">Shaper Tools Hub — CNC Projects</span>
-          </div>
+      <div style={{ marginTop: 56 }}>
+        <div className="rail" style={{ marginBottom: 16 }}>
+          <Cpu size={13} strokeWidth={2.2} />
+          <span>Shaper Tools Hub — CNC</span>
+          <span className="rail-count">{String(shaperProjects.length).padStart(2, '0')}</span>
           <button
             className="btn btn-ghost"
             onClick={() => navigate('/shaper/new')}
-            style={{ fontSize: '0.8rem', gap: 6 }}
+            style={{
+              marginLeft: 14, minHeight: 24, padding: '4px 8px',
+              color: 'var(--color-on-steel)', borderColor: 'rgba(237,241,238,0.3)',
+            }}
           >
-            <Plus size={13} /> Add Project
+            <Plus size={12} /> Add
           </button>
         </div>
 
@@ -258,10 +233,10 @@ export default function Dashboard() {
             No Shaper Hub projects yet.{' '}
             <button
               onClick={() => navigate('/shaper/new')}
-              className="text-rust"
+              className="text-amber"
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}
             >
-              Add your first one →
+              Add your first one
             </button>
           </div>
         ) : (
@@ -279,61 +254,69 @@ export default function Dashboard() {
 
       {/* Templates section */}
       {templates.length > 0 && (
-        <div style={{ marginTop: 64 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <LayoutTemplate size={15} className="text-rust" />
-              <span className="eyebrow">Project Templates</span>
-              <span className="muted" style={{ fontSize: '0.72rem', fontWeight: 600, background: 'var(--color-cream-2)', padding: '2px 8px', borderRadius: 99 }}>
-                {templates.length}
-              </span>
-            </div>
+        <div style={{ marginTop: 56 }}>
+          <div className="rail" style={{ marginBottom: 16 }}>
+            <LayoutTemplate size={13} strokeWidth={2.2} />
+            <span>Project Templates</span>
+            <span className="rail-count">{String(templates.length).padStart(2, '0')}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
             {templates.map(t => (
-              <div key={t.id} className="card" style={{ overflow: 'hidden' }}>
-                {t.hero_image_id ? (
-                  <img src={imageUrl(t.hero_image_id)} alt="" style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
-                ) : (
-                  <div style={{ height: 80, background: 'var(--color-cream-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <LayoutTemplate size={28} className="muted" style={{ opacity: 0.5 }} />
-                  </div>
+              <div key={t.id} className="card depart-card">
+                {t.hero_image_id && (
+                  <span className="depart-photo">
+                    <img src={imageUrl(t.hero_image_id)} alt="" />
+                  </span>
                 )}
-                <div style={{ padding: '14px 16px' }}>
-                  <div className="font-serif" style={{ fontWeight: 700, fontSize: '1.05rem', marginBottom: 4 }}>{t.template_name || t.title}</div>
-                  <div className="muted" style={{ fontSize: '0.76rem', marginBottom: 12 }}>
-                    {t.difficulty} · {t.parts_count} part{t.parts_count !== 1 ? 's' : ''}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                <span className="depart-head">
+                  <span className="board-caps depart-title">{t.template_name || t.title}</span>
+                  <span className="pill flag-idle">{t.difficulty}</span>
+                </span>
+                <span className="depart-foot" style={{ gridTemplateColumns: '1fr auto' }}>
+                  <span>
+                    <span className="stat-label">Parts</span>
+                    <span className="readout">{String(t.parts_count).padStart(2, '0')}</span>
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px' }}>
                     <button
-                      className="btn btn-primary"
+                      className="btn btn-muted"
                       onClick={() => handleUseTemplate(t.id)}
                       disabled={cloningId === t.id}
-                      style={{ flex: 1, fontSize: '0.8rem', padding: '8px 12px' }}
+                      style={{ minHeight: 30, padding: '6px 10px' }}
                     >
-                      <Copy size={13} />
-                      {cloningId === t.id ? 'Creating…' : 'Use Template'}
+                      <Copy size={12} />
+                      {cloningId === t.id ? 'Creating…' : 'Use'}
                     </button>
                     {confirmDeleteTemplateId === t.id ? (
                       <>
-                        <button className="btn btn-ghost" onClick={() => setConfirmDeleteTemplateId(null)} style={{ padding: '8px 10px', fontSize: '0.78rem' }}>
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() => setConfirmDeleteTemplateId(null)}
+                          style={{ minHeight: 30, padding: '6px 8px' }}
+                        >
                           Cancel
                         </button>
-                        <button className="btn btn-ghost" onClick={() => { handleDeleteTemplate(t.id); setConfirmDeleteTemplateId(null); }} style={{ padding: '8px 10px', color: 'var(--color-rust)' }}>
-                          <Trash2 size={13} />
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() => { handleDeleteTemplate(t.id); setConfirmDeleteTemplateId(null); }}
+                          style={{ minHeight: 30, padding: '6px 8px', color: 'var(--color-red)' }}
+                          aria-label="Confirm delete template"
+                        >
+                          <Trash2 size={12} />
                         </button>
                       </>
                     ) : (
                       <button
                         className="btn btn-ghost"
                         onClick={() => setConfirmDeleteTemplateId(t.id)}
-                        style={{ padding: '8px 10px', color: 'var(--color-muted)' }}
+                        style={{ minHeight: 30, padding: '6px 8px', color: 'var(--color-muted)' }}
+                        aria-label="Delete template"
                       >
-                        <Trash2 size={13} />
+                        <Trash2 size={12} />
                       </button>
                     )}
-                  </div>
-                </div>
+                  </span>
+                </span>
               </div>
             ))}
           </div>
@@ -341,33 +324,23 @@ export default function Dashboard() {
       )}
 
       {/* DIY site links */}
-      <div style={{ marginTop: 64 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-          <Hammer size={15} className="text-rust" />
-          <span className="eyebrow">Build Inspiration — Where the Sawdust Starts</span>
-        </div>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-          gap: 12,
-        }}>
+      <div style={{ marginTop: 56 }}>
+        <div className="board">
+          <div className="rail">
+            <Hammer size={13} strokeWidth={2.2} />
+            <span>Build Inspiration</span>
+            <span className="rail-count">{String(DIY_SITES.length).padStart(2, '0')}</span>
+          </div>
           {DIY_SITES.map(site => (
             <a
               key={site.url}
               href={site.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="card card-hover"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                gap: 12, padding: '14px 18px',
-                textDecoration: 'none', color: 'var(--color-ink)',
-              }}
+              className="board-row"
             >
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>{site.name}</div>
-                <div className="muted" style={{ fontSize: '0.76rem', marginTop: 2 }}>{site.tagline}</div>
-              </div>
+              <span className="board-caps" style={{ flex: '0 0 auto', minWidth: 190 }}>{site.name}</span>
+              <span className="muted" style={{ fontSize: '0.82rem', flex: 1 }}>{site.tagline}</span>
               <ArrowUpRight size={15} className="muted" style={{ flexShrink: 0 }} />
             </a>
           ))}
@@ -376,7 +349,7 @@ export default function Dashboard() {
 
       {/* Companion app — only shown when VITE_SHOPKEEP_URL is configured */}
       {import.meta.env.VITE_SHOPKEEP_URL && (
-        <div style={{ marginTop: 64, display: 'flex', justifyContent: 'center' }}>
+        <div style={{ marginTop: 56, display: 'flex', justifyContent: 'center' }}>
           <a
             href={import.meta.env.VITE_SHOPKEEP_URL}
             target="_blank"
@@ -384,31 +357,28 @@ export default function Dashboard() {
             className="card card-hover"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 14,
-              padding: '14px 22px',
+              padding: '14px 20px',
               textDecoration: 'none',
               color: 'var(--color-ink)',
-              backgroundColor: 'var(--color-cream-2)',
             }}
           >
             <div
               style={{
-                width: 36, height: 36, borderRadius: 9,
-                backgroundColor: 'var(--color-ink-soft)',
+                width: 34, height: 34, borderRadius: 'var(--r-flap)',
+                background: 'var(--steel-face)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 flexShrink: 0,
               }}
             >
-              <Boxes size={18} color="var(--color-cream)" strokeWidth={2.2} />
+              <Boxes size={17} color="var(--color-on-steel)" strokeWidth={2.2} />
             </div>
-            <div style={{ lineHeight: 1.25 }}>
-              <div className="muted" style={{ fontSize: '0.68rem', letterSpacing: '0.14em', fontWeight: 600 }}>
-                COMPANION APP
-              </div>
-              <div className="font-serif" style={{ fontWeight: 700, fontSize: '1rem' }}>
-                Shopkeep — your tool inventory
+            <div style={{ lineHeight: 1.3 }}>
+              <div className="stat-label" style={{ marginBottom: 2 }}>Companion App</div>
+              <div className="board-caps" style={{ fontSize: '0.86rem' }}>
+                Shopkeep — tool inventory
               </div>
             </div>
-            <ArrowUpRight size={18} className="muted" strokeWidth={2} />
+            <ArrowUpRight size={17} className="muted" strokeWidth={2} />
           </a>
         </div>
       )}
@@ -416,12 +386,25 @@ export default function Dashboard() {
   );
 }
 
-function DashStat({ label, value, sub }: { label: string; value: string; sub: string }) {
+function DashCell({
+  label, value, sub, minCells = 2, tone = 'ink',
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  minCells?: number;
+  tone?: 'ink' | 'amber' | 'green';
+}) {
   return (
-    <div>
+    <div className="dash-cell">
       <div className="stat-label">{label}</div>
-      <div className="stat-value" style={{ fontSize: '1.6rem' }}>{value}</div>
-      <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', marginTop: 2 }}>{sub}</div>
+      <SplitFlap
+        value={value}
+        cells={Math.max(minCells, value.length)}
+        tone={tone}
+        label={value ? `${label}: ${value}` : `${label}: loading`}
+      />
+      <div className="dash-cell-sub">{sub}</div>
     </div>
   );
 }

@@ -1,302 +1,1020 @@
 @import 'tailwindcss';
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE WORKSHOP — "CONCOURSE BOARD"
+
+   THESIS      A shop record read like a departure board: every project is a row
+               that flips into its new state, and the board's own grid — split
+               line, cell divider, steel frame — is the layout, not decoration.
+               It refuses the warm-paper / editorial-serif / terracotta
+               arrangement it replaces.
+   OWN-WORLD   Solari split-flap board, daylight rendition. Bone flap faces on a
+               cool concourse ground, brushed graphite steel frames, signal amber
+               / platform green / cancelled red. Martian Mono sets every letter
+               the board itself would set; Archivo sets everything read as prose.
+               No serif, no italic accent, no photography.
+   STORY       Read the whole shop at a glance the way a traveller reads a
+               concourse: what's moving, what's queued, what's done.
+   FORM        Rectangles. Radius tops out at 3px, because flaps are cut, not
+               rounded. Amber appears only where something can be acted on.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 @theme {
-  --color-cream:     #F5F0EA;
-  --color-cream-2:   #EFE8DF;
-  --color-paper:     #FFFFFF;
-  --color-ink:       #1C0F07;
-  --color-ink-soft:  #3D2817;
-  --color-muted:     #8B7A6B;
-  --color-line:      #EDE8E3;
-  --color-rust:      #A0522D;
-  --color-rust-dark: #7C3E1F;
+  /* Board surfaces */
+  --color-concourse:   #DDE3E0;  /* the hall the boards hang in */
+  --color-flap:        #F7F9F6;  /* a flap face, card surface */
+  --color-flap-shade:  #E5EAE6;  /* the shaded lower half of a flap; hover fill */
 
-  --font-serif:  'Playfair Display', Georgia, serif;
-  --font-sans:   'Inter', system-ui, -apple-system, sans-serif;
+  /* Lettering */
+  --color-ink:         #14181A;
+  --color-muted:       #59686A;
+
+  /* Frame */
+  --color-line:        #C0CAC6;  /* cell divider */
+  --color-steel:       #2B3238;  /* brushed frame, chrome band */
+  --color-steel-dark:  #1A2025;
+  --color-steel-light: #47535B;
+  --color-on-steel:    #EDF1EE;  /* lettering that sits on steel, in both themes */
+
+  /* Signals — the fill is the lamp, the ink is that same signal made legible */
+  --color-amber:       #8A4F00;
+  --color-amber-fill:  #FFB400;
+  --color-amber-deep:  #C77800;
+  --color-green:       #2E7148;
+  --color-green-fill:  #46A46A;
+  --color-red:         #B3271F;
+  --color-red-fill:    #D3392F;
+
+  --font-board: 'Martian Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --font-ui:    'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
-/* Page backdrop veil + card shadows (light defaults; dark overrides below).
-   Kept as plain custom properties so they're not turned into Tailwind utilities. */
+/* Plain custom properties: not meant to become Tailwind utilities. */
 :root {
-  --color-page-veil: linear-gradient(180deg, rgba(245, 240, 234, 0.74) 0%, rgba(239, 232, 223, 0.86) 100%);
-  --shadow-card:       0 1px 2px rgba(60, 35, 15, 0.04), 0 6px 16px -8px rgba(60, 35, 15, 0.12);
-  --shadow-card-hover: 0 2px 6px rgba(60, 35, 15, 0.06), 0 16px 36px -14px rgba(60, 35, 15, 0.22);
+  --color-split:      rgba(20, 24, 26, 0.16);    /* the seam across a flap */
+  --color-split-lip:  rgba(255, 255, 255, 0.85); /* light catching the lower flap */
+  --color-rivet:      rgba(255, 255, 255, 0.30);
+
+  --r-flap:  2px;
+  --r-panel: 3px;
+
+  --shadow-card:       0 1px 0 rgba(20, 24, 26, 0.06), 0 6px 14px -10px rgba(20, 24, 26, 0.34);
+  --shadow-card-hover: 0 2px 0 rgba(20, 24, 26, 0.10), 0 16px 28px -16px rgba(20, 24, 26, 0.46);
+  --shadow-steel:      inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 1px 0 rgba(20, 24, 26, 0.22);
+
+  /* Brushed steel: fine vertical grain over a top-lit band. */
+  --steel-face:
+    repeating-linear-gradient(90deg,
+      rgba(255,255,255,0.05) 0 1px,
+      rgba(0,0,0,0.055) 1px 2px,
+      rgba(255,255,255,0) 2px 4px),
+    linear-gradient(180deg, var(--color-steel-light) 0%, var(--color-steel) 42%, var(--color-steel-dark) 100%);
+
+  /* The empty board behind the page: a cell grid, never photography. */
+  --field-line: rgba(43, 50, 56, 0.11);
+  --field-seam: rgba(43, 50, 56, 0.185);
+  --field-glow: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 46%);
+
+  /* A real flap: graphite face, light lettering. Same in both renditions —
+     the module is the module whether the hall is lit or dark. */
+  --flap-face:    #2E363B;
+  --flap-face-lo: #232A2E;
+  --flap-letter:  #F2F4F1;
+
+  /* Signal washes: the colour of a lamp bleeding onto the panel behind it. */
+  --tint-amber: rgba(255, 180, 0, 0.13);
+  --tint-green: rgba(70, 164, 106, 0.13);
+  --tint-red:   rgba(211, 57, 47, 0.11);
 }
 
-/* ── Command palette (cmdk) ─────────────────────────────────────────────────── */
+/* ── Night board — the world's native form ────────────────────────────────── */
+:root[data-theme="dark"] {
+  --color-concourse:   #0C0F10;
+  --color-flap:        #171B1D;
+  --color-flap-shade:  #101415;
+  --color-ink:         #EFF2ED;
+  --color-muted:       #8B9794;
+  --color-line:        #2C3335;
+  --color-steel:       #39434A;
+  --color-steel-dark:  #232B30;
+  --color-steel-light: #566269;
+  --color-on-steel:    #EDF1EE;
+
+  --color-amber:       #FFB400;
+  --color-amber-fill:  #FFB400;
+  --color-amber-deep:  #C77800;
+  --color-green:       #6BC48D;
+  --color-green-fill:  #46A46A;
+  --color-red:         #F0736A;
+  --color-red-fill:    #D3392F;
+
+  --color-split:      rgba(0, 0, 0, 0.62);
+  --color-split-lip:  rgba(255, 255, 255, 0.07);
+  --color-rivet:      rgba(255, 255, 255, 0.22);
+
+  --shadow-card:       0 1px 0 rgba(0, 0, 0, 0.5), 0 8px 18px -12px rgba(0, 0, 0, 0.8);
+  --shadow-card-hover: 0 2px 0 rgba(0, 0, 0, 0.6), 0 20px 34px -18px rgba(0, 0, 0, 0.9);
+
+  --tint-amber: rgba(255, 180, 0, 0.11);
+  --tint-green: rgba(107, 196, 141, 0.11);
+  --tint-red:   rgba(240, 115, 106, 0.11);
+
+  --field-line: rgba(237, 241, 238, 0.05);
+  --field-seam: rgba(237, 241, 238, 0.085);
+  --field-glow: radial-gradient(120% 70% at 50% -10%, rgba(120,150,160,0.16) 0%, rgba(0,0,0,0) 60%);
+}
+
+/* ── The hall ─────────────────────────────────────────────────────────────── */
+/* Rank on rank of blank flap cells running off behind the content. */
+.page-field {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--color-concourse);
+}
+.page-field-cells {
+  position: absolute;
+  inset: -6% -14%;
+  background-image:
+    /* the seam across the middle of every cell */
+    repeating-linear-gradient(to bottom,
+      transparent 0 27px, var(--field-seam) 27px 28px, transparent 28px 56px),
+    /* cell rows */
+    repeating-linear-gradient(to bottom,
+      var(--field-line) 0 1px, transparent 1px 56px),
+    /* cell columns */
+    repeating-linear-gradient(to right,
+      var(--field-line) 0 1px, transparent 1px 116px);
+  -webkit-mask-image: radial-gradient(135% 100% at 50% 0%, #000 26%, transparent 80%);
+  mask-image: radial-gradient(135% 100% at 50% 0%, #000 26%, transparent 80%);
+}
+/* Light falling on the hall from above. */
+.page-field::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--field-glow);
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  background-color: var(--color-concourse);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection { background: var(--color-amber-fill); color: #14181A; }
+
+/* ── Lettering ────────────────────────────────────────────────────────────── */
+
+h1, h2, h3, h4 {
+  font-family: var(--font-board);
+  font-stretch: 80%;
+  text-transform: uppercase;
+  letter-spacing: 0.005em;
+  font-weight: 700;
+  line-height: 1.14;
+  text-wrap: balance;
+}
+
+/* Every label the board itself would set: column heads, chips, buttons, codes. */
+.board-caps {
+  font-family: var(--font-board);
+  font-stretch: 80%;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+/* Measurements, counts, money — the values inside a cell. */
+.readout {
+  font-family: var(--font-board);
+  font-stretch: 78%;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.font-board { font-family: var(--font-board); font-stretch: 80%; }
+.muted      { color: var(--color-muted); }
+.text-amber { color: var(--color-amber); }
+
+/* Prose stays in Archivo and stays readable. */
+.measure { max-width: 68ch; }
+
+/* A field label: the etched caption above a cell on the board. */
+.label-caps {
+  display: block;
+  font-family: var(--font-board);
+  font-stretch: 78%;
+  text-transform: uppercase;
+  font-size: 0.62rem;
+  letter-spacing: 0.13em;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+/* ── The seam ─────────────────────────────────────────────────────────────── */
+/* A flap is two halves that just met. Everything wearing this says so. */
+.flap-seam { position: relative; }
+.flap-seam::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 50%;
+  border-top: 1px solid var(--color-split);
+  box-shadow: 0 1px 0 var(--color-split-lip);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Steel ────────────────────────────────────────────────────────────────── */
+.steel {
+  background: var(--steel-face);
+  color: var(--color-on-steel);
+  box-shadow: var(--shadow-steel);
+}
+
+/* Two fixing screws, the way a board is actually hung. */
+.riveted { position: relative; }
+.riveted::before,
+.riveted::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 5px; height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--color-rivet), rgba(0,0,0,0.55));
+  box-shadow: 0 1px 0 rgba(255,255,255,0.10);
+  pointer-events: none;
+}
+.riveted::before { left: 11px; }
+.riveted::after  { right: 11px; }
+
+/* ── The board ────────────────────────────────────────────────────────────── */
+/* A readout of real flap cells. Structural at rest: each character sits in its
+   own recessed cell with a dividing gap and the seam across its middle. The
+   animation is the confirmation, not the reason it reads as a board. */
+
+.flapboard {
+  display: inline-flex;
+  vertical-align: baseline;
+}
+.flapboard-cells {
+  display: inline-flex;
+  gap: var(--flap-gap, 3px);
+}
+
+.flapcell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: var(--flap-w, 1.05em);
+  padding: var(--flap-pad, 0.12em) var(--flap-pad-x, 0.09em);
+  border-radius: var(--r-flap);
+  background: linear-gradient(
+    to bottom,
+    var(--flap-face) 0%,
+    var(--flap-face) 50%,
+    var(--flap-face-lo) 50%,
+    var(--flap-face-lo) 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.55),
+    0 1px 0 rgba(255, 255, 255, 0.42);
+  perspective: 240px;
+  overflow: hidden;
+}
+
+.flapcell-face {
+  display: block;
+  font-family: var(--font-board);
+  font-stretch: 88%;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  transform-origin: 50% 50%;
+  backface-visibility: hidden;
+  animation: flap-fall 190ms cubic-bezier(0.16, 0.9, 0.28, 1.06) both;
+}
+
+/* The seam sits above the glyph so the character is genuinely cut in two. */
+.flapcell-seam {
+  position: absolute;
+  left: 0; right: 0; top: 50%;
+  height: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.75);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.09);
+  pointer-events: none;
+}
+
+@keyframes flap-fall {
+  0%   { transform: rotateX(84deg);  filter: brightness(0.82); }
+  70%  { transform: rotateX(-7deg);  filter: brightness(1.03); }
+  100% { transform: rotateX(0deg);   filter: brightness(1); }
+}
+
+.flapboard-sm { --flap-gap: 2px; --flap-w: 1em;    --flap-pad: 0.14em; font-size: 0.8125rem; }
+.flapboard-md { --flap-gap: 3px; --flap-w: 1.1em;  --flap-pad: 0.2em;  font-size: 1.7rem; }
+.flapboard-lg { --flap-gap: 4px; --flap-w: 1.12em; --flap-pad: 0.24em; font-size: 2.6rem; }
+
+/* Lettering, in the board's own signal colours. */
+.flapboard-ink   .flapcell-face { color: var(--flap-letter); }
+.flapboard-amber .flapcell-face { color: var(--color-amber-fill); }
+.flapboard-green .flapcell-face { color: #6BC48D; }
+.flapboard-red   .flapcell-face { color: #F0736A; }
+
+
+/* ── Controls ─────────────────────────────────────────────────────────────── */
+
+input, textarea, select {
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  color: var(--color-ink);
+  background: var(--color-flap);
+  border: 1px solid var(--color-line);
+  border-radius: var(--r-flap);
+  padding: 10px 12px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--color-amber-deep);
+  box-shadow: inset 0 0 0 1px var(--color-amber-deep);
+}
+input::placeholder, textarea::placeholder { color: var(--color-muted); }
+textarea { resize: vertical; min-height: 88px; }
+
+/* Selects get the board's own chevron, cut square like everything else. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  font-family: var(--font-board);
+  font-stretch: 80%;
+  font-size: 0.8rem;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--color-muted) 50%),
+    linear-gradient(135deg, var(--color-muted) 50%, transparent 50%);
+  background-position: right 16px center, right 11px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+select:hover { border-color: var(--color-steel-light); }
+
+/* A checkbox is a flap: unlit, or lit and stamped. */
+input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  padding: 0;
+  border: 1px solid var(--color-steel-light);
+  border-radius: 1px;
+  background: var(--color-flap);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+input[type='checkbox']:hover { border-color: var(--color-steel); }
+input[type='checkbox']:checked {
+  background: var(--color-green-fill);
+  border-color: var(--color-green);
+}
+input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 4.5px; top: 1px;
+  width: 4px; height: 8px;
+  border: solid #08150D;
+  border-width: 0 2px 2px 0;
+  transform: rotate(42deg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-amber-deep);
+  outline-offset: 2px;
+}
+
+.label {
+  font-family: var(--font-board);
+  font-stretch: 80%;
+  text-transform: uppercase;
+  font-size: 0.64rem;
+  letter-spacing: 0.09em;
+  font-weight: 600;
+  color: var(--color-muted);
+  display: block;
+  margin-bottom: 7px;
+}
+
+button { font-family: inherit; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 14px;
+  min-height: 36px;
+  border-radius: var(--r-flap);
+  font-family: var(--font-board);
+  font-stretch: 78%;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  font-size: 0.66rem;
+  line-height: 1.1;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Amber is the lamp: it shows up only where something can actually be done. */
+.btn-primary {
+  background: var(--color-amber-fill);
+  color: #14181A;
+  border-color: var(--color-amber-deep);
+}
+.btn-primary:hover:not(:disabled) { background: var(--color-amber-deep); color: #FFF6E4; }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-ink);
+  border-color: var(--color-line);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--color-flap-shade);
+  border-color: var(--color-steel-light);
+}
+
+.btn-muted { background: var(--color-flap-shade); color: var(--color-ink); border-color: var(--color-line); }
+.btn-muted:hover:not(:disabled) { background: var(--color-flap); border-color: var(--color-steel-light); }
+
+/* Buttons riding on a steel band. */
+.steel .btn-ghost { color: var(--color-on-steel); border-color: rgba(237,241,238,0.28); }
+.steel .btn-ghost:hover:not(:disabled) {
+  background: rgba(237,241,238,0.12);
+  border-color: rgba(237,241,238,0.55);
+}
+
+/* Header controls read as the board's own control strip: no boxes, just lamps. */
+.site-header .btn-ghost {
+  position: relative;
+  color: var(--color-on-steel);
+  border-color: transparent;
+}
+.site-header .btn-ghost:hover:not(:disabled) {
+  background: rgba(237,241,238,0.13);
+  border-color: transparent;
+}
+.site-header .btn-ghost.is-current { background: rgba(237,241,238,0.10); }
+.site-header .btn-ghost.is-current::after {
+  content: '';
+  position: absolute;
+  left: 8px; right: 8px; bottom: 3px;
+  height: 2px;
+  background: var(--color-amber-fill);
+}
+
+/* ── Panels ───────────────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--color-flap);
+  border: 1px solid var(--color-line);
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+.card:hover { box-shadow: var(--shadow-card-hover); }
+
+.card-hover { cursor: pointer; }
+.card-hover:hover,
+.card-hover:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--color-steel-light);
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* A board: steel-framed, rows divided by cell rules. */
+.board {
+  border: 1px solid var(--color-steel-dark);
+  border-radius: var(--r-panel);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  background: var(--color-flap);
+}
+
+/* The steel rail heading a board or a section. The rail IS the heading. */
+.rail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  background: var(--steel-face);
+  color: var(--color-on-steel);
+  font-family: var(--font-board);
+  font-stretch: 80%;
+  text-transform: uppercase;
+  font-size: 0.66rem;
+  letter-spacing: 0.11em;
+  font-weight: 600;
+  box-shadow: var(--shadow-steel);
+}
+.rail-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rail-actions .btn {
+  min-height: 26px;
+  padding: 4px 10px;
+  font-size: 0.6rem;
+  background: rgb(255 255 255 / 0.1);
+  border-color: rgb(255 255 255 / 0.22);
+  color: var(--color-on-steel);
+}
+.rail-actions .btn:hover { background: rgb(255 255 255 / 0.18); border-color: rgb(255 255 255 / 0.4); }
+.rail-actions .btn-primary { background: var(--color-amber-fill); border-color: var(--color-amber-deep); color: #14181A; }
+.rail-actions .btn-primary:hover { background: var(--color-amber-deep); border-color: var(--color-amber-deep); color: #14181A; }
+
+.rail-count {
+  margin-left: auto;
+  color: var(--color-amber-fill);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Page head ────────────────────────────────────────────────────────────── */
+/* Every route announces itself the way a concourse sign does: the destination
+   in board caps, sitting on a steel rule with the flap's lip under it. */
+.page-head {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  margin-bottom: 30px;
+  border-bottom: 1px solid var(--color-steel-dark);
+}
+.page-head::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -3px;
+  border-top: 1px solid var(--color-line);
+}
+.page-head-main { flex: 1 1 260px; min-width: 0; }
+.page-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding-bottom: 2px;
+}
+.page-title {
+  margin: 0;
+  font-family: var(--font-board);
+  font-stretch: 82%;
+  text-transform: uppercase;
+  font-size: clamp(1.45rem, 3.2vw, 2rem);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.005em;
+  color: var(--color-ink);
+}
+.page-sub {
+  margin: 8px 0 0;
+  max-width: 62ch;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+/* The stamped plate at the foot of a page. Never italic, never a flourish. */
+.board-plate {
+  margin-top: 56px;
+  text-align: center;
+  font-family: var(--font-board);
+  font-stretch: 78%;
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  font-size: 0.58rem;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+
+/* A signal lamp: the colour swatch, cut square like every other flap. */
+.lamp {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 8px 6px 7px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--r-flap);
+  background: var(--color-flap);
+  cursor: pointer;
+  transition: border-color 0.14s, background 0.14s;
+}
+.lamp:hover { border-color: var(--color-steel-light); background: var(--color-flap-shade); }
+.lamp-glass {
+  width: 30px; height: 16px;
+  border-radius: 1px;
+  box-shadow: inset 0 -5px 6px -4px rgb(0 0 0 / 0.4), inset 0 1px 0 rgb(255 255 255 / 0.28);
+}
+.lamp-label {
+  font-family: var(--font-board);
+  font-stretch: 78%;
+  text-transform: uppercase;
+  font-size: 0.54rem;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+.lamp[aria-pressed='true'] {
+  border-color: var(--color-steel-dark);
+  background: var(--color-flap-shade);
+  box-shadow: inset 0 0 0 1px var(--color-steel-dark);
+}
+.lamp[aria-pressed='true'] .lamp-label { color: var(--color-ink); }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: var(--r-flap);
+  background: var(--color-flap-shade);
+  border: 1px solid var(--color-line);
+  color: var(--color-ink);
+  font-family: var(--font-board);
+  font-stretch: 78%;
+  font-size: 0.64rem;
+  letter-spacing: 0.02em;
+  font-weight: 500;
+}
+
+/* A status flap: rectangular, lettered like the board. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--r-flap);
+  font-family: var(--font-board);
+  font-stretch: 78%;
+  text-transform: uppercase;
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* Signal flaps. The fill is the signal. */
+.flag-idle  { background: var(--color-flap-shade); color: var(--color-muted); border-color: var(--color-line); }
+.flag-steel { background: var(--color-steel);      color: var(--color-on-steel); }
+.flag-amber { background: var(--color-amber-fill); color: #14181A; }
+.flag-green { background: var(--color-green-fill); color: #08150D; }
+.flag-red   { background: var(--color-red-fill);   color: #FFF1EF; }
+
+.section-title {
+  font-family: var(--font-board);
+  font-stretch: 80%;
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  color: var(--color-ink);
+}
+
+/* ── Readouts ─────────────────────────────────────────────────────────────── */
+
+.stat-label {
+  font-family: var(--font-board);
+  font-stretch: 80%;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.stat-value {
+  font-family: var(--font-board);
+  font-stretch: 78%;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+
+.empty-state {
+  padding: 44px 24px;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.inline-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--color-red);
+}
+
+/* ── Command palette (cmdk) ───────────────────────────────────────────────── */
 [cmdk-item][aria-selected="true"] {
-  background-color: var(--color-cream-2);
+  background-color: var(--color-flap-shade);
+  box-shadow: inset 3px 0 0 var(--color-amber-fill);
 }
 [cmdk-item] {
   outline: none;
   user-select: none;
   transition: background-color 0.1s;
 }
-[cmdk-group-heading] {
-  display: none; /* we render our own heading inside PaletteGroup */
-}
+[cmdk-group-heading] { display: none; }
 
-/* ── Dark theme ─────────────────────────────────────────────────────────────── */
-:root[data-theme="dark"] {
-  --color-cream:     #171009;
-  --color-cream-2:   #1F1510;
-  --color-paper:     #261A12;
-  --color-ink:       #EFE4D6;
-  --color-ink-soft:  #B07840;
-  --color-muted:     #8A7565;
-  --color-line:      #3A2A1E;
-  --color-rust:      #C87040;
-  --color-rust-dark: #A85C2A;
+/* ── Motion ───────────────────────────────────────────────────────────────── */
 
-  /* Deeper veil + shadows so light text/cards read over the photo backdrop. */
-  --color-page-veil: linear-gradient(180deg, rgba(23, 16, 9, 0.80) 0%, rgba(18, 12, 6, 0.90) 100%);
-  --shadow-card:       0 1px 2px rgba(0, 0, 0, 0.30), 0 8px 20px -10px rgba(0, 0, 0, 0.50);
-  --shadow-card-hover: 0 2px 8px rgba(0, 0, 0, 0.40), 0 20px 44px -16px rgba(0, 0, 0, 0.66);
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
-html, body, #root {
-  height: 100%;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes shimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+@keyframes board-sweep {
+  0%   { background-position: 220% 0; }
+  100% { background-position: -220% 0; }
 }
 
 .skeleton {
   background: linear-gradient(
     90deg,
-    var(--color-line) 25%,
-    var(--color-cream-2) 50%,
-    var(--color-line) 75%
+    var(--color-flap-shade) 20%,
+    var(--color-line) 50%,
+    var(--color-flap-shade) 80%
   );
-  background-size: 200% 100%;
-  animation: shimmer 1.4s infinite linear;
+  background-size: 220% 100%;
+  animation: board-sweep 1.5s infinite linear;
 }
 
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  background-color: var(--color-cream);
-  color: var(--color-ink);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+  .flapcell-face { animation: none; }
 }
 
-h1, h2, h3, h4 {
-  font-family: var(--font-serif);
-  letter-spacing: -0.01em;
-}
-
-button {
-  font-family: inherit;
-}
-
-input, textarea, select {
-  font-family: inherit;
-  font-size: 0.95rem;
-  color: var(--color-ink);
-  background: var(--color-paper);
-  border: 1px solid var(--color-line);
-  border-radius: 10px;
-  padding: 10px 12px;
-  outline: none;
-  width: 100%;
-  box-sizing: border-box;
-}
-input:focus, textarea:focus, select:focus {
-  border-color: var(--color-rust);
-  box-shadow: 0 0 0 3px rgba(160, 82, 45, 0.12);
-}
-textarea { resize: vertical; min-height: 88px; }
-
-.label {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--color-ink);
-  display: block;
-  margin-bottom: 6px;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: 999px;
-  font-weight: 600;
-  font-size: 0.88rem;
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: filter 0.15s, background-color 0.15s, color 0.15s;
-}
-.btn-primary { background: var(--color-ink-soft); color: var(--color-cream); }
-.btn-primary:hover { filter: brightness(1.1); }
-.btn-ghost { background: var(--color-paper); color: var(--color-ink); border-color: var(--color-line); }
-.btn-ghost:hover { background: var(--color-cream-2); }
-.btn-muted { background: var(--color-cream-2); color: var(--color-ink); }
-.btn-muted:hover { filter: brightness(0.97); }
-
-/* ── Site header ──────────────────────────────────────────────────────────── */
+/* ── Site header — the board's steel frame ────────────────────────────────── */
 .site-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 18px 40px;
-  border-bottom: 1px solid var(--color-line);
-  background-color: var(--color-cream);
   position: sticky;
   top: 0;
   z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 40px;
+  background: var(--steel-face);
+  color: var(--color-on-steel);
+  border-bottom: 1px solid var(--color-steel-dark);
+  box-shadow: var(--shadow-steel);
+}
+/* The amber lamp strip along the bottom edge of the frame. */
+.site-header::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg,
+    var(--color-amber-fill) 0%,
+    var(--color-amber-deep) 22%,
+    rgba(255, 180, 0, 0.20) 60%,
+    rgba(255, 180, 0, 0.12) 100%);
 }
 
-.header-logo-wrap {
-  flex-shrink: 0;
-}
+.header-logo-wrap { flex-shrink: 0; }
 
 .header-nav-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   margin-left: auto;
+}
+
+/* ── The shop board ───────────────────────────────────────────────────────── */
+/* Cells divided by real 1px rules — the grid shows through the gaps. */
+.dash-board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--color-line);
+}
+.dash-cell {
+  background: var(--color-flap);
+  padding: 16px 18px 15px;
+}
+.dash-cell-sub {
+  margin-top: 7px;
+  font-size: 0.7rem;
+  color: var(--color-muted);
+}
+
+/* ── Departure cards ──────────────────────────────────────────────────────── */
+.depart-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  background: var(--color-flap);
+}
+.depart-photo {
+  display: block;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: var(--color-flap-shade);
+  border-bottom: 1px solid var(--color-line);
+}
+.depart-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.depart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 16px 0;
+}
+.depart-title { font-size: 0.95rem; line-height: 1.3; }
+
+.depart-desc {
+  padding: 0 16px;
+  margin-top: -2px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--color-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* The three figures, in their own cells, divided like a board's data strip. */
+.depart-foot {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 1px;
+  margin-top: auto;
+  background: var(--color-line);
+  border-top: 1px solid var(--color-line);
+}
+.depart-foot > span {
+  display: block;
+  min-width: 54px;
+  padding: 9px 14px 10px;
+  background: var(--color-flap-shade);
+}
+.depart-foot .stat-label { margin-bottom: 3px; }
+.depart-foot .readout {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A row on a board: divided from the row above, fills on hover. */
+.board-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 16px;
+  border-top: 1px solid var(--color-line);
+  background: var(--color-flap);
+  color: var(--color-ink);
+  text-decoration: none;
+  transition: background-color 0.12s ease;
+}
+.board-row:hover { background: var(--color-flap-shade); }
+.board-row:first-of-type { border-top: none; }
+
+/* Filters as one strip of cells, the way a board carries its own controls. */
+.filter-strip {
+  display: flex;
+  border: 1px solid var(--color-line);
+  border-radius: var(--r-flap);
+  overflow: hidden;
+  background: var(--color-flap);
+}
+.filter-strip button {
+  border: none;
+  border-left: 1px solid var(--color-line);
+  border-radius: 0;
+  min-height: 34px;
+  padding: 8px 13px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-family: var(--font-board);
+  font-stretch: 78%;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  font-size: 0.62rem;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.filter-strip button:first-child { border-left: none; }
+.filter-strip button:hover { background: var(--color-flap-shade); color: var(--color-ink); }
+.filter-strip button[aria-pressed='true'] {
+  background: var(--steel-face);
+  color: var(--color-on-steel);
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.card {
-  background: var(--color-paper);
-  border: 1px solid var(--color-line);
-  border-radius: 16px;
-  box-shadow: var(--shadow-card);
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
-}
-.card:hover {
-  box-shadow: var(--shadow-card-hover);
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--color-cream-2);
-  color: var(--color-ink);
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
 }
 
-.section-title {
-  font-family: var(--font-serif);
+/* Initials sit in their own flap, cut square like every other cell. */
+.header-avatar {
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--r-flap);
+  background: var(--color-steel-dark);
+  box-shadow: inset 0 0 0 1px rgba(237,241,238,0.22);
+  color: var(--color-on-steel);
+  font-family: var(--font-board);
+  font-stretch: 78%;
+  font-size: 0.66rem;
   font-weight: 700;
-  font-size: 1.35rem;
-  color: var(--color-ink);
+  letter-spacing: 0.02em;
 }
 
-/* ── Utility classes ────────────────────────────────────────────────────────── */
+.header-icon-btn {
+  display: flex; align-items: center;
+  background: none; border: none; cursor: pointer;
+  padding: 6px;
+  border-radius: var(--r-flap);
+  color: rgba(237,241,238,0.72);
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+.header-icon-btn:hover { color: var(--color-on-steel); background: rgba(237,241,238,0.13); }
 
-.muted       { color: var(--color-muted); }
-.text-rust   { color: var(--color-rust); }
-.font-serif  { font-family: var(--font-serif); }
-
-/* Small uppercase letter-spaced label used as section eyebrows and form column
-   headers. Matches what a dozen inline blocks were spelling out by hand. */
-.eyebrow {
-  font-size: 0.72rem;
+/* The board's own service notice. */
+.demo-flag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--r-flap);
+  background: rgb(255 180 0 / 0.14);
+  border: 1px solid var(--color-amber-fill);
+  color: var(--color-amber-fill);
+  font-family: var(--font-board);
+  font-stretch: 78%;
+  font-size: 0.56rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
-  color: var(--color-muted);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+/* ── Layout ───────────────────────────────────────────────────────────────── */
+
+/* Every table on the board wears the same steel column head. */
+thead tr {
+  background: var(--steel-face);
+  box-shadow: var(--shadow-steel);
+}
+thead th {
+  font-family: var(--font-board);
+  font-stretch: 80%;
   text-transform: uppercase;
+  color: var(--color-on-steel) !important;
+  letter-spacing: 0.11em !important;
+  font-size: 0.64rem !important;
+  border-right-color: rgb(255 255 255 / 0.14) !important;
 }
+thead th:last-child { border-right: none !important; }
+tbody td { font-variant-numeric: tabular-nums; }
 
-/* Slightly tighter variant used for form-field labels (no uppercase transform
-   so existing hand-cased text still renders the same). */
-.label-caps {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--color-muted);
-}
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-/* Empty / loading state container */
-.empty-state {
-  padding: 48px;
-  text-align: center;
-  color: var(--color-muted);
-}
-
-/* Inline error message under a field or beside an action */
-.inline-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  font-size: 0.82rem;
-  color: var(--color-rust);
-}
-
-/* Stat block: small caps label above a serif numeric value */
-.stat-label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--color-muted);
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-.stat-value {
-  font-family: var(--font-serif);
-  font-weight: 700;
-  font-size: 1.4rem;
-}
-
-/* Card hover-elevation. Replaces ad-hoc onMouseEnter/onMouseLeave handlers,
-   which gave keyboard users no feedback. :focus-visible matches too. */
-.card-hover {
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  cursor: pointer;
-}
-.card-hover:hover,
-.card-hover:focus-visible {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 30px -12px rgba(60, 35, 15, 0.18);
-}
-
-/* ── Responsive layout helpers ──────────────────────────────────────────────── */
-
-/* Scroll wrapper for wide tables on small screens */
-.table-scroll {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-/* Page content containers */
 .page-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 48px 40px 80px;
+  padding: 40px 40px 80px;
 }
 
 .detail-container {
@@ -306,75 +1024,32 @@ textarea { resize: vertical; min-height: 88px; }
 }
 
 @media (max-width: 640px) {
-  .page-container {
-    padding: 28px 16px 60px;
-  }
+  .page-container   { padding: 24px 14px 60px; }
+  .detail-container { padding: 0 14px; }
 
-  .detail-container {
-    padding: 0 16px;
-  }
-
-  /* Header: two-row layout on mobile */
   .site-header {
-    padding: 12px 16px;
+    padding: 10px 14px;
     flex-wrap: wrap;
     row-gap: 8px;
     column-gap: 8px;
   }
+  .header-logo-wrap { flex: 1; min-width: 0; overflow: hidden; }
+  .header-nav-group { width: 100%; order: 3; margin-left: 0; gap: 6px; }
+  .header-actions   { order: 2; flex-shrink: 0; gap: 4px; }
+  .site-header .btn { padding: 8px 9px; }
+  .header-nav-label, .header-new-label { display: none; }
 
-  .header-logo-wrap {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-  }
+  .cut-plan-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .stat-grid   { grid-template-columns: repeat(2, 1fr) !important; }
+  .dash-board  { grid-template-columns: repeat(2, 1fr); }
+  .chip-groups { grid-template-columns: 1fr !important; }
+  .finish-form-grid { grid-template-columns: 1fr !important; }
 
-  .header-nav-group {
-    width: 100%;
-    order: 3;
-    margin-left: 0;
-    gap: 6px;
-  }
-
-  .header-actions {
-    order: 2;
-    flex-shrink: 0;
-    gap: 6px;
-  }
-
-  .site-header .btn {
-    padding: 8px 10px;
-  }
-
-  .header-nav-label,
-  .header-new-label {
-    display: none;
-  }
-
-  /* Cut plan optimizer: ensure table scrolls */
-  .cut-plan-table-wrap {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /* Meta card stats: 2-column on mobile */
-  .stat-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
-  }
-
-  /* Dashboard stats strip: 2-column on mobile */
-  .dash-stats {
-    grid-template-columns: repeat(2, 1fr) !important;
-  }
-
-  /* Chip groups: single column on mobile */
-  .chip-groups {
-    grid-template-columns: 1fr !important;
-  }
-
-  /* Dashboard hero text: smaller font on mobile (clamp handles this already) */
-
-  /* Finish log form: single column on mobile */
-  .finish-form-grid {
-    grid-template-columns: 1fr !important;
-  }
+  .board-row { flex-wrap: wrap; row-gap: 4px; align-items: flex-start; }
+  .board-row .board-caps { flex: 1 1 100%; min-width: 0 !important; }
+  .board-row > span:not(.board-caps),
+  .board-row > p { flex: 1 1 100%; min-width: 0; }
+  .board-row > svg:last-child { position: absolute; right: 16px; top: 15px; }
+  .board-row { position: relative; padding-right: 40px; }
+  .rail { padding: 9px 12px; font-size: 0.6rem; letter-spacing: 0.09em; }
 }

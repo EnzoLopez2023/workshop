@@ -9,7 +9,7 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, arrayMove, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowLeft, Save, Upload, Link as LinkIcon, Plus, Trash2, X, Sparkles, FileText, CheckCircle, AlertCircle, Loader, GripVertical } from 'lucide-react';
+import { ArrowLeft, Save, Upload, Link as LinkIcon, Plus, Trash2, X, ScanLine, FileText, CheckCircle, AlertCircle, Loader, GripVertical } from 'lucide-react';
 import {
   createProject, updateProject, getProject,
   uploadImage, addInspirationUrl, deleteImage,
@@ -340,7 +340,7 @@ export default function ProjectForm() {
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             style={{
               position: 'fixed', top: 65, left: 0, right: 0, zIndex: 15,
-              backgroundColor: 'var(--color-paper)',
+              backgroundColor: 'var(--color-flap)',
               borderBottom: '1px solid var(--color-line)',
               boxShadow: '0 4px 16px rgba(28,15,7,0.08)',
             }}
@@ -351,7 +351,7 @@ export default function ProjectForm() {
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
             }}>
               <span style={{
-                fontFamily: 'var(--font-serif)', fontWeight: 600,
+                fontFamily: 'var(--font-board)', fontWeight: 600,
                 fontSize: '1rem', color: 'var(--color-ink)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
@@ -377,17 +377,19 @@ export default function ProjectForm() {
           Back
         </button>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-          <button className="btn btn-muted" onClick={() => { setSaveError(null); handleSave(); }} disabled={saving}>
+          <button className="btn btn-primary" onClick={() => { setSaveError(null); handleSave(); }} disabled={saving}>
             <Save size={14} />
             {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Project'}
           </button>
-          {saveError && <div style={{ fontSize: '0.78rem', color: 'var(--color-rust)' }}>{saveError}</div>}
+          {saveError && <div style={{ fontSize: '0.78rem', color: 'var(--color-amber)' }}>{saveError}</div>}
         </div>
       </div>
 
-      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '2.2rem', fontWeight: 700, margin: '0 0 28px' }}>
-        {editing ? 'Edit project' : 'New project'}
-      </h1>
+      <div className="page-head">
+        <div className="page-head-main">
+          <h1 className="page-title">{editing ? 'Edit project' : 'New project'}</h1>
+        </div>
+      </div>
 
       <Field label="Title">
         <input
@@ -414,16 +416,16 @@ export default function ProjectForm() {
               disabled={analyzing || !form.source_url.trim()}
               style={{ whiteSpace: 'nowrap' }}
             >
-              <Sparkles size={14} />
-              {analyzing ? 'Analyzing…' : 'Analyze with AI'}
+              <ScanLine size={14} />
+              {analyzing ? 'Reading…' : 'Read the page'}
             </button>
           </Tooltip>
         </div>
         {analyzeError ? (
-          <div style={{ fontSize: '0.78rem', color: 'var(--color-rust)', marginTop: 6 }}>{analyzeError}</div>
+          <div style={{ fontSize: '0.78rem', color: 'var(--color-amber)', marginTop: 6 }}>{analyzeError}</div>
         ) : (
           <div className="muted" style={{ fontSize: '0.78rem', marginTop: 6 }}>
-            AI will pre-fill empty fields and append cut-list / materials rows. Review before saving.
+            Fills the empty fields and appends cut-list and materials rows. Check them before you save.
           </div>
         )}
       </Field>
@@ -628,12 +630,7 @@ export default function ProjectForm() {
         <Plus size={14} /> Add Material
       </button>
 
-      <div style={{
-        textAlign: 'center', marginTop: 56, color: 'var(--color-muted)',
-        fontSize: '0.85rem', letterSpacing: '0.06em', fontStyle: 'italic',
-      }}>
-        Measure twice · Cut once
-      </div>
+      <div className="board-plate">Measure twice &middot; Cut once</div>
 
       <UploadProgressPanel
         uploads={uploads}
@@ -658,15 +655,16 @@ function Divider() {
 
 function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14 }}>
-      <div>
-        <h2 className="section-title">{title}</h2>
-        {subtitle && (
-          <div className="muted" style={{ fontSize: '0.86rem', marginTop: 2 }}>{subtitle}</div>
-        )}
+    <>
+      <div className="rail">
+        <h2 style={{ margin: 0, font: 'inherit', letterSpacing: 'inherit' }}>{title}</h2>
+        {action && <div className="rail-actions">{action}</div>}
       </div>
-      {action}
-    </div>
+      {subtitle && (
+        <div className="muted" style={{ fontSize: '0.84rem', margin: '10px 0 12px' }}>{subtitle}</div>
+      )}
+      {!subtitle && <div style={{ height: 12 }} />}
+    </>
   );
 }
 
@@ -700,21 +698,21 @@ function ImageDropzone({
                     style={{
                       display: 'flex', flexDirection: 'column',
                       alignItems: 'center', justifyContent: 'center', gap: 8,
-                      width: '100%', aspectRatio: 1, borderRadius: 10,
-                      backgroundColor: 'var(--color-cream-2)',
+                      width: '100%', aspectRatio: 1, borderRadius: 3,
+                      backgroundColor: 'var(--color-flap-shade)',
                       border: '1px solid var(--color-line)',
                       color: 'var(--color-ink)', textDecoration: 'none',
                       padding: 8, textAlign: 'center', fontSize: '0.78rem',
                     }}
                   >
-                    <FileText size={28} style={{ color: 'var(--color-rust)' }} />
+                    <FileText size={28} style={{ color: 'var(--color-amber)' }} />
                     <span>PDF</span>
                   </a>
                 ) : (
                   <img
                     src={src}
                     alt=""
-                    style={{ width: '100%', aspectRatio: 1, objectFit: 'cover', borderRadius: 10 }}
+                    style={{ width: '100%', aspectRatio: 1, objectFit: 'cover', borderRadius: 3 }}
                   />
                 )}
                 <button
@@ -722,7 +720,7 @@ function ImageDropzone({
                   style={{
                     position: 'absolute', top: 6, right: 6,
                     backgroundColor: 'rgba(28,15,7,0.8)', color: 'white',
-                    border: 'none', borderRadius: '50%', width: 22, height: 22,
+                    border: 'none', borderRadius: 2, width: 22, height: 22,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer',
                   }}
@@ -739,8 +737,8 @@ function ImageDropzone({
         disabled={disabled}
         style={{
           width: '100%', padding: '36px 16px',
-          border: '1.5px dashed var(--color-line)', borderRadius: 14,
-          backgroundColor: 'var(--color-paper)',
+          border: '1.5px dashed var(--color-line)', borderRadius: 3,
+          backgroundColor: 'var(--color-flap)',
           color: disabled ? 'var(--color-muted)' : 'var(--color-ink)',
           cursor: disabled ? 'not-allowed' : 'pointer',
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
@@ -772,22 +770,22 @@ function UploadProgressPanel({
     }}>
       {uploads.map(u => (
         <div key={u.id} style={{
-          backgroundColor: 'var(--color-paper)',
+          backgroundColor: 'var(--color-flap)',
           border: '1px solid var(--color-line)',
-          borderRadius: 10,
+          borderRadius: 3,
           padding: '10px 12px',
           boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
           pointerEvents: 'all',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: u.status === 'uploading' ? 8 : 0 }}>
             {u.status === 'uploading' && (
-              <Loader size={14} style={{ color: 'var(--color-rust)', flexShrink: 0, animation: 'spin 1s linear infinite' }} />
+              <Loader size={14} style={{ color: 'var(--color-amber)', flexShrink: 0, animation: 'spin 1s linear infinite' }} />
             )}
             {u.status === 'done' && (
-              <CheckCircle size={14} style={{ color: '#4a9b6f', flexShrink: 0 }} />
+              <CheckCircle size={14} style={{ color: 'var(--color-green)', flexShrink: 0 }} />
             )}
             {u.status === 'error' && (
-              <AlertCircle size={14} style={{ color: '#c0392b', flexShrink: 0 }} />
+              <AlertCircle size={14} style={{ color: 'var(--color-red)', flexShrink: 0 }} />
             )}
             <span style={{
               fontSize: '0.82rem', fontWeight: 500,
@@ -808,22 +806,23 @@ function UploadProgressPanel({
           </div>
           {u.status === 'uploading' && (
             <div>
-              <div style={{ height: 5, backgroundColor: 'var(--color-line)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: 5, backgroundColor: 'var(--color-line)', borderRadius: 1, overflow: 'hidden' }}>
                 <div style={{
                   height: '100%',
-                  width: `${u.progress}%`,
-                  backgroundColor: 'var(--color-rust)',
-                  borderRadius: 3,
-                  transition: 'width 0.15s ease',
+                  width: '100%',
+                  transformOrigin: 'left center',
+                  transform: `scaleX(${u.progress / 100})`,
+                  backgroundColor: 'var(--color-amber-fill)',
+                  transition: 'transform 0.15s ease',
                 }} />
               </div>
-              <div style={{ fontSize: '0.74rem', color: 'var(--color-muted)', marginTop: 4 }}>
-                {u.progress}%
+              <div className="readout" style={{ fontSize: '0.7rem', color: 'var(--color-muted)', marginTop: 5 }}>
+                {String(u.progress).padStart(2, '0')}%
               </div>
             </div>
           )}
           {u.status === 'error' && (
-            <div style={{ fontSize: '0.78rem', color: '#c0392b', marginTop: 4 }}>
+            <div style={{ fontSize: '0.78rem', color: 'var(--color-red)', marginTop: 4 }}>
               {u.error ?? 'Upload failed'}
             </div>
           )}
@@ -856,7 +855,7 @@ function SortableCutRow({
     gap: 8, alignItems: 'center',
     padding: '8px 8px',
     borderTop: isFirst ? 'none' : '1px solid var(--color-line)',
-    background: 'var(--color-paper)',
+    background: 'var(--color-flap)',
   };
   return (
     <div ref={setNodeRef} style={style}>
@@ -900,7 +899,7 @@ function SortableMatRow({
     gap: 8, alignItems: 'center',
     padding: '8px 10px',
     borderTop: isFirst ? 'none' : '1px solid var(--color-line)',
-    background: 'var(--color-paper)',
+    background: 'var(--color-flap)',
   };
   return (
     <div ref={setNodeRef} style={style}>
@@ -915,7 +914,7 @@ function SortableMatRow({
       <input
         type="checkbox" checked={!!row.purchased}
         onChange={e => onChange({ purchased: e.target.checked })}
-        style={{ width: 16, height: 16, accentColor: 'var(--color-ink-soft)', cursor: 'pointer' }}
+        style={{ width: 16, height: 16, accentColor: 'var(--color-steel)', cursor: 'pointer' }}
       />
       <input placeholder="Name" value={row.name ?? ''} onChange={e => onChange({ name: e.target.value })} />
       <input placeholder="Qty (e.g. 4 pcs, 1 quart)" value={row.qty_label ?? ''} onChange={e => onChange({ qty_label: e.target.value })} />

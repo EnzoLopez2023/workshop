@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Cpu, Sparkles, Plus, Trash2, AlertCircle, Loader, ImagePlus } from 'lucide-react';
+import { ArrowLeft, Cpu, ScanLine, Plus, Trash2, AlertCircle, Loader, ImagePlus } from 'lucide-react';
 import type { ShaperMaterial } from '../types/project';
 import {
   analyzeShaperUrl, createShaperProject, getShaperProject, updateShaperProject,
@@ -211,26 +211,17 @@ export default function ShaperProjectForm() {
   return (
     <div className="page-container" style={{ maxWidth: 760 }}>
       {/* Back */}
-      <button onClick={goBack} className="btn btn-ghost" style={{ marginBottom: 32, gap: 6 }}>
+      <button onClick={goBack} className="btn btn-ghost" style={{ marginBottom: 24, gap: 6 }}>
         <ArrowLeft size={14} /> Back
       </button>
 
-      {/* Heading */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 36 }}>
-        <div style={{
-          width: 40, height: 40, borderRadius: 10,
-          backgroundColor: 'var(--color-ink-soft)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-        }}>
-          <Cpu size={20} color="var(--color-cream)" strokeWidth={2} />
-        </div>
-        <div>
-          <h1 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: '1.6rem', fontWeight: 700, lineHeight: 1.1 }}>
-            {isEdit ? 'Edit Shaper Hub Project' : 'New Shaper Hub Project'}
+      <div className="page-head">
+        <div className="page-head-main">
+          <h1 className="page-title">
+            <Cpu size={20} strokeWidth={2.2} style={{ color: 'var(--color-amber)', display: 'inline-block', verticalAlign: '-2px', marginRight: 10 }} />
+            {isEdit ? 'Edit Shaper Hub project' : 'New Shaper Hub project'}
           </h1>
-          <p style={{ margin: '4px 0 0', fontSize: '0.84rem', color: 'var(--color-muted)' }}>
-            Paste a Shaper Tools Hub share URL and let AI fill in the details.
-          </p>
+          <p className="page-sub">Paste a Shaper Tools Hub share URL — the parts, dimensions and bit list come across with it.</p>
         </div>
       </div>
 
@@ -254,7 +245,7 @@ export default function ShaperProjectForm() {
             >
               {analyzing
                 ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Analyzing…</>
-                : <><Sparkles size={14} /> Analyze with AI</>}
+                : <><ScanLine size={14} /> Read the page</>}
             </button>
           </div>
           {analyzeError && (
@@ -266,7 +257,7 @@ export default function ShaperProjectForm() {
 
         {/* Title */}
         <div>
-          <label className="label-caps">TITLE <span style={{ color: 'var(--color-rust)' }}>*</span></label>
+          <label className="label-caps">TITLE <span style={{ color: 'var(--color-amber)' }}>*</span></label>
           <input
             value={title}
             onChange={e => setTitle(e.target.value)}
@@ -330,7 +321,7 @@ export default function ShaperProjectForm() {
         </div>
 
         {photoUrl && !photoBroken && (
-          <div style={{ borderRadius: 12, overflow: 'hidden', maxHeight: 260, position: 'relative' }}>
+          <div style={{ borderRadius: 3, overflow: 'hidden', maxHeight: 260, position: 'relative' }}>
             <img
               src={photoUrl}
               alt="Project preview"
@@ -350,7 +341,7 @@ export default function ShaperProjectForm() {
             </label>
             <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
               {queuedImageUrls.map((url, i) => (
-                <div key={url} style={{ position: 'relative', width: 100, height: 100, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--color-line)' }}>
+                <div key={url} style={{ position: 'relative', width: 100, height: 100, borderRadius: 3, overflow: 'hidden', border: '1px solid var(--color-line)' }}>
                   <img
                     src={url}
                     alt={`Extra image ${i + 1}`}
@@ -362,7 +353,7 @@ export default function ShaperProjectForm() {
                     onClick={() => setQueuedImageUrls(prev => prev.filter(u => u !== url))}
                     style={{
                       position: 'absolute', top: 4, right: 4,
-                      background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%',
+                      background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: 2,
                       width: 22, height: 22, cursor: 'pointer',
                       color: '#fff', fontSize: 13, lineHeight: 1,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',

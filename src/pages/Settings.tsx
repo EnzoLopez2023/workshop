@@ -16,12 +16,12 @@ export default function Settings() {
         Back
       </button>
 
-      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '2.2rem', fontWeight: 700, margin: '0 0 8px' }}>
-        Settings
-      </h1>
-      <p style={{ color: 'var(--color-muted)', fontSize: '0.9rem', margin: '0 0 40px' }}>
-        Customize Workshop to feel like yours. All preferences are saved locally.
-      </p>
+      <div className="page-head">
+        <div className="page-head-main">
+          <h1 className="page-title">Settings</h1>
+          <p className="page-sub">How the board reads and behaves. Every preference is stored on this device.</p>
+        </div>
+      </div>
 
       {/* ── Appearance ─────────────────────────────────────────────────────────── */}
       <SettingsSection title="Appearance">
@@ -51,27 +51,22 @@ export default function Settings() {
         <SettingsDivider />
 
         <SettingsRow
-          label="Accent Color"
-          description="Changes buttons, links, and highlights throughout the app."
+          label="Signal Lamp"
+          description="The colour every button, link and live indicator burns."
         >
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {(Object.entries(ACCENT_PRESETS) as [AccentColor, typeof ACCENT_PRESETS[AccentColor]][]).map(([key, preset]) => (
               <button
                 key={key}
+                type="button"
+                className="lamp"
+                aria-pressed={settings.accentColor === key}
+                aria-label={preset.label}
                 onClick={() => setSetting('accentColor', key)}
-                title={preset.label}
-                style={{
-                  width: 32, height: 32, borderRadius: '50%',
-                  backgroundColor: preset.main,
-                  border: settings.accentColor === key
-                    ? `3px solid var(--color-ink)`
-                    : '3px solid transparent',
-                  outline: settings.accentColor === key ? `2px solid ${preset.main}` : 'none',
-                  outlineOffset: 2,
-                  cursor: 'pointer',
-                  transition: 'border 0.15s, outline 0.15s',
-                }}
-              />
+              >
+                <span className="lamp-glass" style={{ background: preset.fill }} />
+                <span className="lamp-label">{preset.label}</span>
+              </button>
             ))}
           </div>
         </SettingsRow>
@@ -108,9 +103,9 @@ export default function Settings() {
             onChange={e => setSetting('defaultProjectStatus', e.target.value as typeof settings.defaultProjectStatus)}
             style={{ maxWidth: 200 }}
           >
-            <option value="idea">💡 Idea</option>
-            <option value="planning">📐 Planning</option>
-            <option value="in_progress">🔨 In Progress</option>
+            <option value="idea">Idea</option>
+            <option value="planning">Planning</option>
+            <option value="in_progress">In Progress</option>
           </select>
         </SettingsRow>
 
@@ -142,7 +137,7 @@ export default function Settings() {
               type="checkbox"
               checked={settings.showCompletedByDefault}
               onChange={e => setSetting('showCompletedByDefault', e.target.checked)}
-              style={{ width: 18, height: 18, accentColor: 'var(--color-rust)', cursor: 'pointer' }}
+              style={{ width: 18, height: 18, accentColor: 'var(--color-amber)', cursor: 'pointer' }}
             />
             <span style={{ fontSize: '0.88rem', color: 'var(--color-ink)' }}>
               {settings.showCompletedByDefault ? 'Shown by default' : 'Hidden by default'}
@@ -167,12 +162,7 @@ export default function Settings() {
         </SettingsRow>
       </SettingsSection>
 
-      <div style={{
-        textAlign: 'center', marginTop: 56, color: 'var(--color-muted)',
-        fontSize: '0.85rem', letterSpacing: '0.06em', fontStyle: 'italic',
-      }}>
-        Measure twice · Cut once
-      </div>
+      <div className="board-plate">Measure twice &middot; Cut once</div>
     </div>
   );
 }
@@ -197,11 +187,9 @@ async function handleExportJson() {
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 40 }}>
-      <div className="label-caps" style={{ marginBottom: 16, color: 'var(--color-rust)' }}>
-        {title}
-      </div>
-      <div className="card" style={{ padding: '4px 0' }}>
-        {children}
+      <div className="board">
+        <div className="rail">{title}</div>
+        <div>{children}</div>
       </div>
     </div>
   );
@@ -218,7 +206,7 @@ function SettingsRow({ label, description, children }: {
       gap: 24, padding: '18px 24px', flexWrap: 'wrap',
     }}>
       <div style={{ flex: 1, minWidth: 180 }}>
-        <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: 3 }}>{label}</div>
+        <div className="board-caps" style={{ fontSize: '0.72rem', letterSpacing: '0.09em', marginBottom: 5 }}>{label}</div>
         <div style={{ fontSize: '0.8rem', color: 'var(--color-muted)', lineHeight: 1.4 }}>{description}</div>
       </div>
       <div style={{ flexShrink: 0 }}>{children}</div>

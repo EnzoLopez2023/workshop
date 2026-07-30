@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2025-07-30T00:00:00.000Z",
+  "title": "Design System: The Workshop",
+  "extensions": {
+    "colorMeta": {
+      "concourse": {
+        "role": "neutral",
+        "displayName": "Concourse",
+        "purpose": "Page ground — the hall the boards hang in.",
+        "darkValue": "#0C0F10",
+        "tonalRamp": ["#F7F9F6", "#E5EAE6", "#DDE3E0", "#C0CAC6", "#8B9794", "#59686A", "#2B3238", "#1A2025", "#14181A"]
+      },
+      "flap": {
+        "role": "surface",
+        "displayName": "Flap Face",
+        "purpose": "Card surface — the bone face of a flap.",
+        "darkValue": "#171B1D"
+      },
+      "flap-shade": {
+        "role": "surface",
+        "displayName": "Flap Shade",
+        "purpose": "The shaded lower half of a flap; recessed fills and hover.",
+        "darkValue": "#101415"
+      },
+      "ink": { "role": "text", "displayName": "Ink", "purpose": "Primary lettering.", "darkValue": "#EFF2ED" },
+      "muted": { "role": "text", "displayName": "Muted", "purpose": "Secondary lettering and labels.", "darkValue": "#8B9794" },
+      "line": { "role": "border", "displayName": "Cell Divider", "purpose": "Always 1px. The grid between cells.", "darkValue": "#2C3335" },
+      "steel": {
+        "role": "neutral",
+        "displayName": "Brushed Steel",
+        "purpose": "Rails, header bands, table heads, frames.",
+        "darkValue": "#39434A",
+        "tonalRamp": ["#47535B", "#2B3238", "#1A2025"]
+      },
+      "steel-dark": { "role": "border", "displayName": "Frame Edge", "purpose": "Board border and the underside of a steel band.", "darkValue": "#232B30" },
+      "steel-light": { "role": "neutral", "displayName": "Lit Steel", "purpose": "The top-lit edge of a steel band.", "darkValue": "#566269" },
+      "on-steel": { "role": "text", "displayName": "On Steel", "purpose": "Lettering that sits on steel. Identical in both renditions.", "darkValue": "#EDF1EE" },
+      "amber": {
+        "role": "primary",
+        "displayName": "Signal Amber",
+        "purpose": "The lamp, made legible as text on the current ground. Active / in progress / the one available action.",
+        "darkValue": "#FFC24D",
+        "tonalRamp": ["#FFD98A", "#FFB400", "#C77800", "#8A4F00", "#5A3300"]
+      },
+      "amber-fill": { "role": "primary", "displayName": "Amber Lamp", "purpose": "The lamp itself: primary buttons, current-route lamp, rail counts.", "darkValue": "#FFB400" },
+      "amber-deep": { "role": "primary", "displayName": "Amber Deep", "purpose": "Pressed and hover state of the amber lamp.", "darkValue": "#C77800" },
+      "green": { "role": "success", "displayName": "Platform Green", "purpose": "Complete, purchased, confirmed, money.", "darkValue": "#6BC48D" },
+      "green-fill": { "role": "success", "displayName": "Platform Lamp", "darkValue": "#46A46A" },
+      "red": { "role": "danger", "displayName": "Cancelled Red", "purpose": "Destructive, failed, cancelled.", "darkValue": "#F0736A" },
+      "red-fill": { "role": "danger", "displayName": "Cancelled Lamp", "darkValue": "#D3392F" },
+      "flap-face": { "role": "surface", "displayName": "Module Graphite", "purpose": "A real Solari module is graphite in any light. Identical in both renditions.", "darkValue": "#2E363B" },
+      "flap-face-lo": { "role": "surface", "displayName": "Module Graphite Low", "purpose": "The lower half of a module, below the seam.", "darkValue": "#232A2E" },
+      "flap-letter": { "role": "text", "displayName": "Module Lettering", "purpose": "Light lettering on a graphite module.", "darkValue": "#F2F4F1" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Page Title", "purpose": "Route titles and hero headings. Martian Mono, uppercase, font-stretch 82%." },
+      "board-caps": { "displayName": "Board Caps", "purpose": "Every label the board itself would set: buttons, chips, column heads, codes. font-stretch 80%." },
+      "rail": { "displayName": "Rail", "purpose": "The steel heading of a board. The rail IS the heading — never add a label above it." },
+      "readout": { "displayName": "Readout", "purpose": "Measurements, counts, money — the values inside a cell. Tabular figures, font-stretch 78%." },
+      "body": { "displayName": "Body", "purpose": "Prose only. Archivo, sentence case, capped at 68ch by .measure." },
+      "label": { "displayName": "Field Label", "purpose": "The etched caption above a form cell and the lettering inside a status flag." }
+    },
+    "shadows": [
+      { "name": "shadow-card", "value": "0 1px 0 rgba(20,24,26,0.06), 0 6px 14px -10px rgba(20,24,26,0.34)", "purpose": "A card sits on the board — a hard 1px offset plus a tightly clipped ambient. Never a soft float." },
+      { "name": "shadow-card-hover", "value": "0 2px 0 rgba(20,24,26,0.10), 0 16px 28px -16px rgba(20,24,26,0.46)", "purpose": "Lift on hover; the hard offset doubles rather than blurring." },
+      { "name": "shadow-steel", "value": "inset 0 1px 0 rgba(255,255,255,0.14), 0 1px 0 rgba(20,24,26,0.22)", "purpose": "A lit top edge and a hard bottom lip: steel catching light." },
+      { "name": "steel-face", "value": "repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 1px, rgba(0,0,0,0.055) 1px 2px, rgba(255,255,255,0) 2px 4px), linear-gradient(180deg, var(--color-steel-light) 0%, var(--color-steel) 42%, var(--color-steel-dark) 100%)", "purpose": "Brushed steel: 1px vertical grain over a top-lit band. Every rail and table head." },
+      { "name": "split-seam", "value": "border-top: 1px solid rgba(20,24,26,0.16); box-shadow: 0 1px 0 rgba(255,255,255,0.85)", "purpose": "The seam across a flap. The single most identifying mark in the system." }
+    ],
+    "motion": [
+      { "name": "flap-step", "value": "55ms", "purpose": "One rotation step of a split-flap column." },
+      { "name": "flap-stagger", "value": "45ms", "purpose": "Delay between adjacent flap columns, so the board reads left to right." },
+      { "name": "ease-state", "value": "120ms ease", "purpose": "Default transition for background, colour and border state changes." },
+      { "name": "ease-lift", "value": "160ms ease", "purpose": "Card hover lift and CTA arrow nudge." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "520px" },
+      { "name": "md", "value": "760px" },
+      { "name": "lg", "value": "900px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one available action in a view. Amber is scarce: never two solid amber buttons in the same band.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">New Project</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; min-height: 36px; border-radius: 2px; font-family: 'Martian Mono', ui-monospace, Menlo, monospace; font-stretch: 78%; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; font-size: 0.66rem; line-height: 1.1; cursor: pointer; border: 1px solid transparent; transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease; } .ds-btn-primary { background: var(--color-amber-fill, #FFB400); color: #14181A; border-color: var(--color-amber-deep, #C77800); } .ds-btn-primary:hover { background: var(--color-amber-deep, #C77800); color: #FFF6E4; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Every secondary action. A cut outline on the current ground.",
+      "html": "<button class=\"ds-btn ds-btn-ghost\">Save as Template</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; min-height: 36px; border-radius: 2px; font-family: 'Martian Mono', ui-monospace, Menlo, monospace; font-stretch: 78%; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; font-size: 0.66rem; line-height: 1.1; cursor: pointer; border: 1px solid transparent; transition: background-color 0.12s ease, border-color 0.12s ease; } .ds-btn-ghost { background: transparent; color: var(--color-ink, #14181A); border-color: var(--color-line, #C0CAC6); } .ds-btn-ghost:hover { background: var(--color-flap-shade, #E5EAE6); border-color: var(--color-steel-light, #47535B); }"
+    },
+    {
+      "name": "Board with Rail",
+      "kind": "card",
+      "refersTo": "rail",
+      "description": "The core container. The steel rail IS the heading — never stack a separate label above a board.",
+      "html": "<div class=\"ds-board\"><div class=\"ds-rail\">Projects<span class=\"ds-rail-count\">06</span></div><div class=\"ds-board-row\">Walnut Entry Bench</div><div class=\"ds-board-row\">Shaker Wall Cabinet</div></div>",
+      "css": ".ds-board { border: 1px solid var(--color-steel-dark, #1A2025); border-radius: 3px; overflow: hidden; background: var(--color-flap, #F7F9F6); box-shadow: 0 1px 0 rgba(20,24,26,0.06), 0 6px 14px -10px rgba(20,24,26,0.34); } .ds-rail { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 1px, rgba(0,0,0,0.055) 1px 2px, rgba(255,255,255,0) 2px 4px), linear-gradient(180deg, #47535B 0%, #2B3238 42%, #1A2025 100%); color: #EDF1EE; font-family: 'Martian Mono', ui-monospace, Menlo, monospace; font-stretch: 80%; text-transform: uppercase; font-size: 0.66rem; letter-spacing: 0.11em; font-weight: 600; box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 1px 0 rgba(20,24,26,0.22); } .ds-rail-count { margin-left: auto; color: #FFB400; font-variant-numeric: tabular-nums; } .ds-board-row { padding: 13px 16px; border-top: 1px solid var(--color-line, #C0CAC6); font-family: 'Martian Mono', ui-monospace, Menlo, monospace; font-stretch: 80%; text-transform: uppercase; font-size: 0.8rem; font-weight: 600; color: var(--color-ink, #14181A); } .ds-board-row:first-of-type { border-top: none; }"
+    },
+    {
+      "name": "Split-Flap Cell",
+      "kind": "custom",
+      "refersTo": "flapcell",
+      "description": "One module of the readout. Graphite with light lettering in BOTH renditions, split by the seam — a real Solari module is the same object in any light.",
+      "html": "<span class=\"ds-flapcell\"><span class=\"ds-flapcell-face\">7</span><span class=\"ds-flapcell-seam\"></span></span>",
+      "css": ".ds-flapcell { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 42px; border-radius: 2px; overflow: hidden; background: linear-gradient(180deg, #2E363B 0%, #2E363B 50%, #232A2E 50%, #232A2E 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 2px rgba(0,0,0,0.4); } .ds-flapcell-face { font-family: 'Martian Mono', ui-monospace, Menlo, monospace; font-stretch: 78%; font-size: 1.4rem; font-weight: 700; color: #F2F4F1; font-variant-numeric: tabular-nums; } .ds-flapcell-seam { position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid rgba(0,0,0,0.55); box-shadow: 0 1px 0 rgba(255,255,255,0.06); }"
+    },
+    {
+      "name": "Status Flag",
+      "kind": "chip",
+      "refersTo": "flag-amber",
+      "description": "Status is a signal flap, never a rounded badge. flag-amber = in progress, flag-green = complete, flag-red = cancelled, flag-idle = queued.",
+      "html": "<span class=\"ds-flag ds-flag-amber\">In Progress</span> <span class=\"ds-flag ds-flag-green\">Completed</span> <span class=\"ds-flag ds-flag-idle\">Idea</span>",
+      "css": ".ds-flag { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 2px; font-family: 'Martian Mono', ui-monospace, Menlo, monospace; font-stretch: 78%; text-transform: uppercase; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.07em; border: 1px solid transparent; } .ds-flag-amber { background: var(--color-amber-fill, #FFB400); color: #14181A; } .ds-flag-green { background: var(--color-green-fill, #46A46A); color: #08150D; } .ds-flag-idle { background: var(--color-flap-shade, #E5EAE6); color: var(--color-muted, #59686A); border-color: var(--color-line, #C0CAC6); }"
+    },
+    {
+      "name": "Signal Lamp Swatch",
+      "kind": "custom",
+      "refersTo": "flag-amber",
+      "description": "The Settings accent picker. Lamp glass with an inset bottom shade and a top highlight, labelled beneath. aria-pressed carries state.",
+      "html": "<button class=\"ds-lamp\" aria-pressed=\"true\"><span class=\"ds-lamp-glass\" style=\"background:#FFB400\"></span><span class=\"ds-lamp-label\">Amber</span></button>",
+      "css": ".ds-lamp { display: grid; gap: 6px; justify-items: center; padding: 8px 6px 7px; border: 1px solid var(--color-line, #C0CAC6); border-radius: 2px; background: var(--color-flap, #F7F9F6); cursor: pointer; transition: border-color 0.14s, background 0.14s; } .ds-lamp:hover { border-color: var(--color-steel-light, #47535B); background: var(--color-flap-shade, #E5EAE6); } .ds-lamp-glass { width: 30px; height: 16px; border-radius: 1px; box-shadow: inset 0 -5px 6px -4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.28); } .ds-lamp-label { font-family: 'Martian Mono', ui-monospace, Menlo, monospace; font-stretch: 78%; text-transform: uppercase; font-size: 0.54rem; letter-spacing: 0.1em; font-weight: 600; color: var(--color-muted, #59686A); } .ds-lamp[aria-pressed='true'] { border-color: var(--color-steel-dark, #1A2025); background: var(--color-flap-shade, #E5EAE6); box-shadow: inset 0 0 0 1px var(--color-steel-dark, #1A2025); } .ds-lamp[aria-pressed='true'] .ds-lamp-label { color: var(--color-ink, #14181A); }"
+    },
+    {
+      "name": "Board Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Text field, select and checkbox all cut square. The select chevron is drawn from two gradients; the checkbox is a flap that lights green.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search projects, wood types...\" /><select class=\"ds-input ds-select\"><option>Idea</option></select><label class=\"ds-check-row\"><input type=\"checkbox\" class=\"ds-check\" checked /> Purchased</label>",
+      "css": ".ds-input { font-family: 'Archivo', system-ui, sans-serif; font-size: 0.95rem; color: var(--color-ink, #14181A); background: var(--color-flap, #F7F9F6); border: 1px solid var(--color-line, #C0CAC6); border-radius: 2px; padding: 10px 12px; outline: none; box-sizing: border-box; transition: border-color 0.12s ease, box-shadow 0.12s ease; } .ds-input:focus { border-color: var(--color-amber-deep, #C77800); box-shadow: inset 0 0 0 1px var(--color-amber-deep, #C77800); } .ds-select { appearance: none; -webkit-appearance: none; padding-right: 34px; font-family: 'Martian Mono', ui-monospace, Menlo, monospace; font-stretch: 80%; font-size: 0.8rem; cursor: pointer; background-image: linear-gradient(45deg, transparent 50%, #59686A 50%), linear-gradient(135deg, #59686A 50%, transparent 50%); background-position: right 16px center, right 11px center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; } .ds-check-row { display: inline-flex; align-items: center; gap: 10px; font-family: 'Archivo', system-ui, sans-serif; font-size: 0.9rem; color: var(--color-ink, #14181A); } .ds-check { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; min-width: 16px; padding: 0; border: 1px solid var(--color-steel-light, #47535B); border-radius: 1px; background: var(--color-flap, #F7F9F6); cursor: pointer; position: relative; transition: background 0.12s ease, border-color 0.12s ease; } .ds-check:checked { background: var(--color-green-fill, #46A46A); border-color: var(--color-green, #2E7148); } .ds-check:checked::after { content: ''; position: absolute; left: 4.5px; top: 1px; width: 4px; height: 8px; border: solid #08150D; border-width: 0 2px 2px 0; transform: rotate(42deg); }"
+    },
+    {
+      "name": "Page Head",
+      "kind": "nav",
+      "refersTo": "rail",
+      "description": "Every route announces itself the way a concourse sign does: destination in board caps over a steel rule with a flap lip under it.",
+      "html": "<div class=\"ds-page-head\"><div class=\"ds-page-head-main\"><h1 class=\"ds-page-title\">Shopping List</h1><p class=\"ds-page-sub\">4 items outstanding &middot; est. $638.00</p></div></div>",
+      "css": ".ds-page-head { position: relative; display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; padding-bottom: 14px; margin-bottom: 30px; border-bottom: 1px solid var(--color-steel-dark, #1A2025); } .ds-page-head::after { content: ''; position: absolute; left: 0; right: 0; bottom: -3px; border-top: 1px solid var(--color-line, #C0CAC6); } .ds-page-head-main { flex: 1 1 260px; min-width: 0; } .ds-page-title { margin: 0; font-family: 'Martian Mono', ui-monospace, Menlo, monospace; font-stretch: 82%; text-transform: uppercase; font-size: clamp(1.45rem, 3.2vw, 2rem); font-weight: 700; line-height: 1.08; letter-spacing: -0.005em; color: var(--color-ink, #14181A); } .ds-page-sub { margin: 8px 0 0; max-width: 62ch; font-size: 0.85rem; line-height: 1.5; font-family: 'Archivo', system-ui, sans-serif; color: var(--color-muted, #59686A); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Concourse Board",
+    "overview": "The Workshop reads a shop the way a traveller reads a Solari departure board: what's moving, what's queued, what's done, all legible from across the room. Every project is a row that flips into its new state. The board's own anatomy — the split line across a flap, the cell divider, the brushed steel frame, the rivet — is the layout, not applied decoration.\n\nThe world ships in two renditions. Light is a lit terminal hall: cool grey-green concourse, bone flap faces, graphite frames. Dark is the board's native night form. The two are the same object under different lighting, not two themes. Flap modules stay graphite with light lettering in both, because a real Solari module does.\n\nOne rule anchors everything: the board must read as a board with animation disabled. Split lines, cell grid, steel frames and tracked caps are structural at rest. The split-flap roll is a single authored moment on the dashboard readout, and it respects prefers-reduced-motion.",
+    "keyCharacteristics": [
+      "The rail is the heading — steel bands carry section titles; eyebrows and kickers are banned outright",
+      "Cut, never rounded: nothing exceeds a 3px radius, and there are no pills or circles anywhere",
+      "The seam — a 1px split line with a light lip — is the system's signature mark",
+      "Two faces only: Martian Mono for all board lettering, Archivo for prose",
+      "Amber is a scarce signal, not a brand tint: one primary action, one route lamp, one active status",
+      "Zero photography — the backdrop is an authored CSS cell grid that shifts by route",
+      "Every count is zero-padded; every number is tabular"
+    ],
+    "rules": [
+      { "name": "The Rail Is the Heading", "body": "A board's title lives inside its steel rail. Never stack a separate heading, eyebrow, kicker or ornament above a board — the rail already does that job, and a second label reads as a bug.", "section": "typography" },
+      { "name": "The Board Cuts", "body": "Radius is 2px for flap-sized elements and 3px for boards. There are no pills, no 999px, no border-radius: 50%. A colour dot is a small square lamp; a close button is a cut square. A rounded corner in this system is always a mistake.", "section": "elevation" },
+      { "name": "Amber Is Scarce", "body": "The amber lamp marks the single primary action in a view, the current-route lamp in the header, and in-progress status. It is never a decorative tint, never a whole table column, never two solid buttons competing in one band. Everything else is steel, ink or muted.", "section": "colors" },
+      { "name": "Structural At Rest", "body": "The board must read as a board with animation disabled. Never let motion carry meaning that the static composition doesn't already carry. Every authored motion gets a prefers-reduced-motion escape.", "section": "elevation" },
+      { "name": "Stretch, Not Variation Settings", "body": "Archivo and Martian Mono declare font-stretch ranges in their @font-face rules. Set width with font-stretch: N%, never font-variation-settings: 'wdth' N — the latter silently does nothing.", "section": "typography" },
+      { "name": "The Module Is the Module", "body": "Flap cells are graphite with light lettering in both renditions. Do not invert them for light mode — a real Solari module is the same object whether the hall is lit or dark, and inverting it destroys the illusion.", "section": "colors" }
+    ],
+    "dos": [
+      "Do let the rail be the heading: add .rail to a .board.",
+      "Do zero-pad every count and quantity shown on a board (06, 12H, $1353).",
+      "Do keep amber to one primary action per view, the route lamp, and in-progress status.",
+      "Do use font-stretch: N% for type width.",
+      "Do reach for .board-caps, .readout, .rail, .label-caps and .board-plate before writing a new inline type style.",
+      "Do give every new motion a prefers-reduced-motion escape.",
+      "Do resolve every colour from a token — the signal lamp is user-swappable in Settings."
+    ],
+    "donts": [
+      "Don't add an eyebrow, kicker or ornament above a heading. Banned outright.",
+      "Don't round anything past 3px. No pills, no circles, no 50%.",
+      "Don't introduce a serif, an italic accent phrase, or a third typeface.",
+      "Don't reintroduce cream #F5F0EA, rust #A0522D, Playfair Display, sepia photo backdrops, emoji icons, or sparkle-icon 'AI' copy — that is the retired identity.",
+      "Don't tint a whole table column amber; amber is a signal, not a text colour.",
+      "Don't put a coloured border-left thicker than 1px on a card.",
+      "Don't build page structure out of a row of same-size icon + heading + text cards — use board rows.",
+      "Don't hardcode a hex in a component."
+    ]
+  }
+}

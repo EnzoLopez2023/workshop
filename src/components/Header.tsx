@@ -23,6 +23,7 @@ export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const isDashboard = location.pathname === '/';
+  const at = (prefix: string) => location.pathname.startsWith(prefix);
   const { resolvedTheme, setTheme } = useTheme();
 
   const account = accounts[0] ?? null;
@@ -57,18 +58,22 @@ export default function Header() {
           <img
             src="/favicon.svg"
             alt="The Workshop"
-            width={36}
-            height={36}
-            style={{ borderRadius: 9, flexShrink: 0, display: 'block' }}
+            width={34}
+            height={34}
+            style={{ borderRadius: 'var(--r-flap)', flexShrink: 0, display: 'block' }}
           />
-          <div style={{ lineHeight: 1.1, textAlign: 'left', minWidth: 0 }}>
+          <div style={{ lineHeight: 1.15, textAlign: 'left', minWidth: 0 }}>
             <div style={{
-              fontFamily: 'var(--font-serif)', fontWeight: 700, fontSize: '1.05rem',
-              color: 'var(--color-ink)', whiteSpace: 'nowrap',
+              fontFamily: 'var(--font-board)', fontStretch: '80%', fontWeight: 700,
+              fontSize: '0.9rem', letterSpacing: '0.06em', textTransform: 'uppercase',
+              color: 'var(--color-on-steel)', whiteSpace: 'nowrap',
             }}>
               The Workshop
             </div>
-            <div className="header-logo-subtitle" style={{ fontSize: '0.68rem', letterSpacing: '0.14em', color: 'var(--color-muted)', fontWeight: 600 }}>
+            <div className="header-logo-subtitle" style={{
+              fontFamily: 'var(--font-board)', fontStretch: '78%', fontSize: '0.56rem',
+              letterSpacing: '0.2em', color: 'var(--color-amber-fill)', fontWeight: 600,
+            }}>
               PROJECT COMPANION
             </div>
           </div>
@@ -77,11 +82,19 @@ export default function Header() {
 
       {/* Nav — moves below logo+actions on mobile */}
       <nav className="header-nav-group">
-        <button className="btn btn-ghost" onClick={() => navigate('/conversions')} style={{ gap: 6 }}>
+        <button
+          className={`btn btn-ghost${at('/conversions') ? ' is-current' : ''}`}
+          onClick={() => navigate('/conversions')}
+          style={{ gap: 6 }}
+        >
           <Ruler size={14} strokeWidth={2} />
           <span className="header-nav-label">Conversions</span>
         </button>
-        <button className="btn btn-ghost" onClick={() => navigate('/shopping-list')} style={{ gap: 6 }}>
+        <button
+          className={`btn btn-ghost${at('/shopping-list') ? ' is-current' : ''}`}
+          onClick={() => navigate('/shopping-list')}
+          style={{ gap: 6 }}
+        >
           <ShoppingCart size={14} strokeWidth={2} />
           <span className="header-nav-label">Shopping List</span>
         </button>
@@ -111,7 +124,11 @@ export default function Header() {
           </button>
         </Tooltip>
         <Tooltip content="Notebook">
-          <button className="btn btn-ghost" onClick={() => navigate('/notebook')} style={{ gap: 6 }}>
+          <button
+            className={`btn btn-ghost${at('/notebook') ? ' is-current' : ''}`}
+            onClick={() => navigate('/notebook')}
+            style={{ gap: 6 }}
+          >
             <BookOpen size={15} strokeWidth={2} />
           </button>
         </Tooltip>
@@ -128,7 +145,7 @@ export default function Header() {
         </Tooltip>
         <Tooltip content="Settings">
           <button
-            className="btn btn-ghost"
+            className={`btn btn-ghost${at('/settings') ? ' is-current' : ''}`}
             onClick={() => navigate('/settings')}
             style={{ gap: 6, padding: '8px 10px' }}
           >
@@ -138,16 +155,10 @@ export default function Header() {
         {demo ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span
+              className="demo-flag"
               title="You're exploring sample data — changes aren't saved"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '5px 10px', borderRadius: 999,
-                border: '1px solid var(--color-line)', background: 'var(--color-paper)',
-                color: 'var(--color-muted)', fontSize: '0.72rem', fontWeight: 700,
-                letterSpacing: '0.04em', whiteSpace: 'nowrap',
-              }}
             >
-              <PlayCircle size={13} strokeWidth={2.2} /> DEMO · READ-ONLY
+              <PlayCircle size={12} strokeWidth={2.2} /> DEMO · READ ONLY
             </span>
             <button className="btn btn-ghost" onClick={handleExitDemo} style={{ gap: 6 }}>
               <LogOut size={15} strokeWidth={2} />
@@ -155,28 +166,12 @@ export default function Header() {
             </button>
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div
-              title={displayName}
-              style={{
-                width: 32, height: 32, borderRadius: '50%',
-                backgroundColor: 'var(--color-ink-soft)',
-                color: 'var(--color-cream)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em',
-                flexShrink: 0,
-              }}
-            >
-              {initials}
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div className="header-avatar" title={displayName}>{initials}</div>
             <button
               onClick={handleSignOut}
               title="Sign out"
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                padding: 6, borderRadius: 7,
-                color: 'var(--color-muted)', display: 'flex', alignItems: 'center',
-              }}
+              className="header-icon-btn"
             >
               <LogOut size={16} strokeWidth={2} />
             </button>

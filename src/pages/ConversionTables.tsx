@@ -82,21 +82,13 @@ export default function ConversionTables() {
       </button>
 
       {/* Title */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32 }}>
-        <div style={{
-          width: 36, height: 36, borderRadius: 9,
-          backgroundColor: 'var(--color-ink-soft)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-        }}>
-          <Ruler size={18} color="var(--color-cream)" strokeWidth={2.2} />
-        </div>
-        <div>
-          <h1 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: '1.9rem', fontWeight: 700, color: 'var(--color-ink)' }}>
+      <div className="page-head">
+        <div className="page-head-main">
+          <h1 className="page-title">
+            <Ruler size={20} strokeWidth={2.2} style={{ color: 'var(--color-amber)', display: 'inline-block', verticalAlign: '-2px', marginRight: 10 }} />
             Unit Conversions
           </h1>
-          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--color-muted)', marginTop: 2 }}>
-            MM ↔ Inches reference tables and on-the-fly calculator
-          </p>
+          <p className="page-sub">Millimetre and inch reference tables, plus a calculator for whatever the plan didn't list.</p>
         </div>
       </div>
 
@@ -123,8 +115,8 @@ export default function ConversionTables() {
                 onClick={() => setUnit(u)}
                 className="btn"
                 style={{
-                  backgroundColor: unit === u ? 'var(--color-ink-soft)' : 'var(--color-cream-2)',
-                  color: unit === u ? 'var(--color-cream)' : 'var(--color-ink)',
+                  backgroundColor: unit === u ? 'var(--color-steel)' : 'var(--color-flap-shade)',
+                  color: unit === u ? 'var(--color-concourse)' : 'var(--color-ink)',
                   padding: '7px 14px', fontSize: '0.82rem',
                 }}
               >
@@ -153,8 +145,8 @@ export default function ConversionTables() {
               onClick={() => setTab(t.key)}
               className="btn"
               style={{
-                backgroundColor: active ? 'var(--color-ink-soft)' : 'var(--color-cream-2)',
-                color: active ? 'var(--color-cream)' : 'var(--color-ink)',
+                backgroundColor: active ? 'var(--color-steel)' : 'var(--color-flap-shade)',
+                color: active ? 'var(--color-concourse)' : 'var(--color-ink)',
                 padding: '8px 16px', fontSize: '0.82rem',
               }}
             >
@@ -171,7 +163,7 @@ export default function ConversionTables() {
           <div className="card" style={{ overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
               <thead>
-                <tr style={{ backgroundColor: 'var(--color-cream-2)' }}>
+                <tr>
                   <Th>MM</Th>
                   <Th>Decimal Inches</Th>
                   <Th>Nearest 1/32&quot;</Th>
@@ -181,7 +173,7 @@ export default function ConversionTables() {
                 {MM_TABLE.map(row => (
                   <tr
                     key={row.mm}
-                    style={{ borderBottom: '1px solid var(--color-line)', backgroundColor: row.mm % 2 === 0 ? 'var(--color-cream-2)' : undefined }}
+                    style={{ borderBottom: '1px solid var(--color-line)', backgroundColor: row.mm % 2 === 0 ? 'var(--color-flap-shade)' : undefined }}
                   >
                     <Td>{row.mm} mm</Td>
                     <Td muted>{row.dec.toFixed(5)}&quot;</Td>
@@ -203,7 +195,7 @@ export default function ConversionTables() {
               <div key={half} className="card" style={{ overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
                   <thead>
-                    <tr style={{ backgroundColor: 'var(--color-cream-2)' }}>
+                    <tr>
                       <Th>Inches</Th>
                       <Th>Millimeters</Th>
                     </tr>
@@ -212,7 +204,7 @@ export default function ConversionTables() {
                     {IN_TABLE.slice(half * 48, half * 48 + 48).map(row => (
                       <tr
                         key={row.inches}
-                        style={{ borderBottom: '1px solid var(--color-line)', backgroundColor: row.inches % 2 === 0 ? 'var(--color-cream-2)' : undefined }}
+                        style={{ borderBottom: '1px solid var(--color-line)', backgroundColor: row.inches % 2 === 0 ? 'var(--color-flap-shade)' : undefined }}
                       >
                         <Td>{row.inches}&quot;</Td>
                         <Td bold>{row.mm.toFixed(1)} mm</Td>
@@ -233,7 +225,7 @@ export default function ConversionTables() {
           <div className="card" style={{ overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
-                <tr style={{ backgroundColor: 'var(--color-cream-2)' }}>
+                <tr>
                   {[1, 2, 3, 4, 5, 6, 7, 8].map(n => (
                     <th key={n} style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: '0.72rem', letterSpacing: '0.08em', color: 'var(--color-muted)', borderRight: n < 8 ? '1px solid var(--color-line)' : undefined }}>
                       {n === 1 ? '1/8th' : n === 2 ? '2/8th (1/4)' : n === 3 ? '3/8th' : n === 4 ? '4/8th (1/2)' : n === 5 ? '5/8th' : n === 6 ? '6/8th (3/4)' : n === 7 ? '7/8th' : '8/8th (1)'}
@@ -245,7 +237,7 @@ export default function ConversionTables() {
                 {FRAC_GROUPS.map((group, wholeIdx) => (
                   <tr
                     key={wholeIdx}
-                    style={{ borderBottom: '1px solid var(--color-line)', backgroundColor: wholeIdx % 2 === 0 ? 'var(--color-cream-2)' : undefined }}
+                    style={{ borderBottom: '1px solid var(--color-line)', backgroundColor: wholeIdx % 2 === 0 ? 'var(--color-flap-shade)' : undefined }}
                   >
                     {group.map((cell, cellIdx) => (
                       <td
@@ -281,8 +273,8 @@ function ResultPill({ label, value, accent }: { label: string; value: string; ac
       </div>
       <div style={{
         fontSize: '1.35rem', fontWeight: 700,
-        color: accent ? 'var(--color-rust)' : 'var(--color-ink)',
-        fontFamily: accent ? 'var(--font-serif)' : undefined,
+        color: accent ? 'var(--color-amber)' : 'var(--color-ink)',
+        fontFamily: accent ? 'var(--font-board)' : undefined,
       }}>
         {value}
       </div>

@@ -33,24 +33,28 @@ export default function NotebookList() {
 
   return (
     <div className="page-container" style={{ maxWidth: 780 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32, gap: 12 }}>
-        <button onClick={() => navigate(-1)} className="btn btn-ghost" style={{ gap: 6 }}>
-          <ArrowLeft size={14} /> Back
-        </button>
-        <button onClick={() => navigate('/notebook/new')} className="btn btn-primary" style={{ gap: 6 }}>
-          <Plus size={14} /> New page
-        </button>
-      </div>
+      <button onClick={() => navigate(-1)} className="btn btn-ghost" style={{ gap: 6, marginBottom: 24 }}>
+        <ArrowLeft size={14} /> Back
+      </button>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
-        <BookOpen size={22} style={{ color: 'var(--color-rust)' }} />
-        <h1 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: '2rem', fontWeight: 700 }}>Notebook</h1>
+      <div className="page-head">
+        <div className="page-head-main">
+          <h1 className="page-title">
+            <BookOpen size={20} strokeWidth={2.2} style={{ color: 'var(--color-amber)', display: 'inline-block', verticalAlign: '-2px', marginRight: 10 }} />
+            Notebook
+          </h1>
+          <p className="page-sub">
+            {pages.length === 0 && !loading
+              ? 'Edit any page or start a new one — changes sync back to Tabloom.'
+              : `${pages.length} page${pages.length !== 1 ? 's' : ''} · synced with Tabloom`}
+          </p>
+        </div>
+        <div className="page-head-actions">
+          <button onClick={() => navigate('/notebook/new')} className="btn btn-primary" style={{ gap: 6 }}>
+            <Plus size={14} /> New page
+          </button>
+        </div>
       </div>
-      <p style={{ margin: '0 0 36px', color: 'var(--color-muted)', fontSize: '0.9rem' }}>
-        {pages.length === 0 && !loading
-          ? 'Edit any page or create a new one — changes sync back to Tabloom.'
-          : `${pages.length} page${pages.length !== 1 ? 's' : ''} · synced with Tabloom`}
-      </p>
 
       {loading ? (
         <div style={{ textAlign: 'center', color: 'var(--color-muted)', padding: 48 }}>Loading…</div>
@@ -59,7 +63,7 @@ export default function NotebookList() {
           No "Workshop" notebook found in Tabloom. Create one in Tabloom to populate this view.
         </div>
       ) : loadError ? (
-        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--color-rust)' }}>
+        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--color-amber)' }}>
           Could not load pages: {loadError}
         </div>
       ) : pages.length === 0 ? (
@@ -76,7 +80,7 @@ export default function NotebookList() {
               onClick={() => navigate(`/notebook/${page.id}`)}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: 'var(--font-serif)', fontWeight: 700, fontSize: '1.05rem', color: 'var(--color-ink)', marginBottom: 4 }}>
+                <div style={{ fontFamily: 'var(--font-board)', fontWeight: 700, fontSize: '1.05rem', color: 'var(--color-ink)', marginBottom: 4 }}>
                   {page.title || 'Untitled'}
                 </div>
                 {page.snippet && (

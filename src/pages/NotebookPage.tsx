@@ -137,7 +137,7 @@ export default function NotebookPage() {
         <button onClick={() => navigate('/notebook')} className="btn btn-ghost" style={{ gap: 6, marginBottom: 24 }}>
           <ArrowLeft size={14} /> Notebook
         </button>
-        <div className="card" style={{ padding: 32, color: 'var(--color-rust)' }}>
+        <div className="card" style={{ padding: 32, color: 'var(--color-amber)' }}>
           Could not load page: {loadError}
         </div>
       </div>
@@ -203,7 +203,7 @@ export default function NotebookPage() {
         placeholder="Untitled"
         style={{
           width: '100%',
-          fontFamily: 'var(--font-serif)',
+          fontFamily: 'var(--font-board)',
           fontSize: '1.8rem',
           fontWeight: 700,
           padding: '6px 4px',
@@ -221,15 +221,15 @@ export default function NotebookPage() {
           style={{
             padding: 16,
             marginBottom: 16,
-            backgroundColor: '#fff7ed',
-            borderColor: '#fdba74',
+            backgroundColor: 'var(--tint-amber)',
+            borderColor: 'var(--color-amber-deep)',
             display: 'flex',
             gap: 12,
             alignItems: 'flex-start',
           }}
         >
-          <AlertTriangle size={18} style={{ color: '#c2410c', flexShrink: 0, marginTop: 2 }} />
-          <div style={{ flex: 1, fontSize: '0.85rem', color: '#7c2d12' }}>
+          <AlertTriangle size={18} style={{ color: 'var(--color-amber)', flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1, fontSize: '0.85rem', color: 'var(--color-ink)' }}>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>This page changed in Tabloom while you were editing.</div>
             <div style={{ marginBottom: 10 }}>
               Edited {relativeTime(conflict.current.edited_at)}. Reload pulls Tabloom's latest in;
@@ -250,7 +250,7 @@ export default function NotebookPage() {
       {saveError && !conflict && (
         <div
           className="card"
-          style={{ padding: 12, marginBottom: 16, color: 'var(--color-rust)', borderColor: 'var(--color-rust)' }}
+          style={{ padding: 12, marginBottom: 16, color: 'var(--color-amber)', borderColor: 'var(--color-amber)' }}
         >
           Save failed: {saveError}
         </div>
@@ -274,9 +274,9 @@ export default function NotebookPage() {
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
             fontSize: '0.9rem',
             lineHeight: 1.6,
-            background: 'var(--color-paper)',
+            background: 'var(--color-flap)',
             border: '1px solid var(--color-line)',
-            borderRadius: 12,
+            borderRadius: 3,
             outline: 'none',
             color: 'var(--color-ink)',
             resize: 'vertical',
@@ -312,7 +312,7 @@ function TabButton({
         padding: '8px 14px',
         background: 'transparent',
         border: 'none',
-        borderBottom: `2px solid ${active ? 'var(--color-rust)' : 'transparent'}`,
+        borderBottom: `2px solid ${active ? 'var(--color-amber)' : 'transparent'}`,
         color: active ? 'var(--color-ink)' : 'var(--color-muted)',
         fontWeight: active ? 600 : 500,
         fontSize: '0.82rem',

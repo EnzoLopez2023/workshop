@@ -26,7 +26,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     return (
       <div style={{
         display: 'flex', flexDirection: 'column', minHeight: '100dvh',
-        backgroundColor: 'var(--color-cream)', alignItems: 'center',
+        backgroundColor: 'var(--color-concourse)', alignItems: 'center',
         justifyContent: 'center', padding: '0 24px',
       }}>
         <img
@@ -34,7 +34,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
           alt="The Workshop"
           width={72}
           height={72}
-          style={{ borderRadius: 18, display: 'block', marginBottom: 20 }}
+          style={{ borderRadius: 3, display: 'block', marginBottom: 20 }}
         />
         <h1 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 8 }}>Signing you in…</h1>
         <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>

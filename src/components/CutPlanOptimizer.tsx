@@ -93,8 +93,8 @@ function layoutToSvgBlock(
     const textBlock = !showText ? '' : `
       <defs><clipPath id="${clipId}"><rect x="${p.x + 0.5}" y="${p.y + 0.5}" width="${p.length - 1}" height="${p.width - 1}"/></clipPath></defs>
       <g clip-path="url(#${clipId})">
-        <text x="${cx}" y="${cy - vOff}" text-anchor="middle" dominant-baseline="middle" font-size="${partFontSz}" font-family="sans-serif" font-weight="600" fill="#1C0F07"${rotAttr}>${esc(label)}</text>
-        ${showDims ? `<text x="${cx}" y="${cy + vOff}" text-anchor="middle" dominant-baseline="middle" font-size="${dimFontSz}" font-family="sans-serif" fill="rgba(28,15,7,0.55)"${rotAttr}>${esc(dimLabel)}</text>` : ''}
+        <text x="${cx}" y="${cy - vOff}" text-anchor="middle" dominant-baseline="middle" font-size="${partFontSz}" font-family="'Martian Mono', ui-monospace, monospace" font-weight="600" letter-spacing="0.02em" fill="#14181A"${rotAttr}>${esc(label)}</text>
+        ${showDims ? `<text x="${cx}" y="${cy + vOff}" text-anchor="middle" dominant-baseline="middle" font-size="${dimFontSz}" font-family="'Martian Mono', ui-monospace, monospace" fill="rgba(20,24,26,0.55)"${rotAttr}>${esc(dimLabel)}</text>` : ''}
       </g>`;
 
     return `<g><rect x="${p.x}" y="${p.y}" width="${p.length}" height="${p.width}" fill="${fill}" stroke="rgba(0,0,0,0.22)" stroke-width="${sw}" rx="0.15"/>${textBlock}</g>`;
@@ -103,9 +103,9 @@ function layoutToSvgBlock(
   return `<div class="page">
   <p class="title">${esc(titleParts)}</p>
   <svg width="${svgW}" height="${svgH}" viewBox="0 0 ${sheetLength} ${sheetWidth}">
-    <rect x="0" y="0" width="${sheetLength}" height="${sheetWidth}" fill="#E8E2DC"/>
+    <rect x="0" y="0" width="${sheetLength}" height="${sheetWidth}" fill="#D5DBD8"/>
     ${piecesSvg}
-    <rect x="0" y="0" width="${sheetLength}" height="${sheetWidth}" fill="none" stroke="#1C0F07" stroke-width="${(2 / scale).toFixed(4)}"/>
+    <rect x="0" y="0" width="${sheetLength}" height="${sheetWidth}" fill="none" stroke="#14181A" stroke-width="${(2 / scale).toFixed(4)}"/>
   </svg>
 </div>`;
 }
@@ -129,7 +129,7 @@ function buildPrintHtml(
 <style>
   @page { size: landscape; margin: 0.45in; }
   * { box-sizing: border-box; }
-  body { font-family: sans-serif; font-size: 12px; color: #333; margin: 0; }
+  body { font-family: 'Martian Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.02em; color: #14181A; margin: 0; }
   .page { page-break-after: always; padding-bottom: 12px; }
   .page:last-of-type { page-break-after: avoid; }
   .title { margin: 0 0 7px; font-size: 12px; font-weight: 600; color: #555; }
@@ -262,7 +262,7 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
     <div className="card" style={{ padding: '24px 28px' }}>
       {/* Stock input */}
       <div style={{
-        backgroundColor: 'var(--color-cream-2)', borderRadius: 10,
+        backgroundColor: 'var(--color-flap-shade)', borderRadius: 3,
         padding: '16px 18px', marginBottom: 16,
       }}>
         <div className="label-caps" style={{ marginBottom: 12 }}>
@@ -352,8 +352,8 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
             </button>
           ))}
           {hasSavedConfig && (
-            <span style={{ fontSize: '0.72rem', color: 'var(--color-muted)', marginLeft: 'auto' }}>
-              ✓ config loaded from last session
+            <span className="board-caps" style={{ fontSize: '0.6rem', color: 'var(--color-muted)', marginLeft: 'auto', letterSpacing: '0.1em' }}>
+              Last config restored
             </span>
           )}
         </div>
@@ -390,7 +390,7 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
       </div>
 
       {inputError && (
-        <div style={{ marginTop: 12, fontSize: '0.82rem', color: 'var(--color-rust)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+        <div style={{ marginTop: 12, fontSize: '0.82rem', color: 'var(--color-amber)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
           <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
           {inputError}
         </div>
@@ -413,13 +413,13 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
 
           {/* Warning banners */}
           {skipped.length > 0 && (
-            <Banner color="#b07d2a" bg="#fdf6e8" icon={<AlertTriangle size={14} />}>
+            <Banner color="var(--color-amber)" bg="var(--tint-amber)" icon={<AlertTriangle size={14} />}>
               <strong>{skipped.length} piece{skipped.length > 1 ? 's' : ''} skipped</strong> (missing dimensions):{' '}
               {[...new Set(skipped)].join(', ')}
             </Banner>
           )}
           {result.unplacedPieces.length > 0 && (
-            <Banner color="var(--color-rust)" bg="#fdf0ec" icon={<AlertCircle size={14} />}>
+            <Banner color="var(--color-red)" bg="var(--tint-red)" icon={<AlertCircle size={14} />}>
               <strong>{result.unplacedPieces.length} piece{result.unplacedPieces.length > 1 ? 's' : ''} could not be placed</strong>{' '}
               (too large or no matching stock): {result.unplacedPieces.join(', ')}
             </Banner>
@@ -495,7 +495,7 @@ function Banner({ color, bg, icon, children }: { color: string; bg: string; icon
     <div style={{
       display: 'flex', gap: 8, alignItems: 'flex-start',
       backgroundColor: bg, border: `1px solid ${color}`,
-      borderRadius: 8, padding: '10px 14px', marginBottom: 14,
+      borderRadius: 3, padding: '10px 14px', marginBottom: 14,
       fontSize: '0.82rem', color,
     }}>
       <span style={{ flexShrink: 0, marginTop: 1 }}>{icon}</span>

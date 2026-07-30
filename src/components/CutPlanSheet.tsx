@@ -1,8 +1,9 @@
 import type { SheetLayout } from '../lib/cutPlan';
 
+/* Lamp colours, not wood tones — each part reads as a lit cell on the board. */
 export const PALETTE = [
-  '#C8A882', '#8FB4A8', '#B8916E', '#7A9BB5', '#C4A96B',
-  '#A68B9E', '#6FAF8A', '#C47A72', '#7FAFC4', '#B8A07A',
+  '#D69A2E', '#5590B5', '#5E9E72', '#C4776B', '#8A78B8',
+  '#B8792C', '#3C7695', '#3F8A64', '#A85348', '#6E5F9E',
 ];
 
 export function buildColorMap(layouts: SheetLayout[]): Map<string, string> {
@@ -75,9 +76,9 @@ export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMa
         width={svgW}
         height={svgH}
         viewBox={`0 0 ${sheetLength} ${sheetWidth}`}
-        style={{ display: 'block', borderRadius: 6, border: '1.5px solid var(--color-line)' }}
+        style={{ display: 'block', borderRadius: 3, border: '1.5px solid var(--color-line)' }}
       >
-        <rect x={0} y={0} width={sheetLength} height={sheetWidth} fill="#E8E2DC" />
+        <rect x={0} y={0} width={sheetLength} height={sheetWidth} fill="#D5DBD8" />
 
         {placed.map((p) => {
           const fill = colorMap.get(p.partName) ?? PALETTE[0];
@@ -129,9 +130,10 @@ export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMa
                     x={cx} y={cy - vOff}
                     textAnchor="middle" dominantBaseline="middle"
                     fontSize={partFontSz}
-                    fontFamily="Inter, system-ui, sans-serif"
+                    fontFamily="'Martian Mono', ui-monospace, monospace"
                     fontWeight="600"
-                    fill="#1C0F07"
+                    letterSpacing="0.02em"
+                    fill="#14181A"
                     transform={isPortrait ? rot : undefined}
                   >
                     {label}
@@ -141,8 +143,8 @@ export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMa
                       x={cx} y={cy + vOff}
                       textAnchor="middle" dominantBaseline="middle"
                       fontSize={dimFontSz}
-                      fontFamily="Inter, system-ui, sans-serif"
-                      fill="rgba(28,15,7,0.55)"
+                      fontFamily="'Martian Mono', ui-monospace, monospace"
+                      fill="rgba(20,24,26,0.58)"
                       transform={isPortrait ? rot : undefined}
                     >
                       {dimLabel}
@@ -158,7 +160,7 @@ export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMa
           x={0} y={0}
           width={sheetLength} height={sheetWidth}
           fill="none"
-          stroke="#1C0F07"
+          stroke="#14181A"
           strokeWidth={2 / scale}
         />
       </svg>
