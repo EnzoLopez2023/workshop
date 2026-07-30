@@ -5,9 +5,9 @@
        and no alpha, because iOS applies its own superellipse mask. -->
   <defs>
     <linearGradient id="wk-steel" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#4E5A62"/>
-      <stop offset="0.45" stop-color="#2B3238"/>
-      <stop offset="1" stop-color="#1A2025"/>
+      <stop offset="0" stop-color="#39434A"/>
+      <stop offset="0.45" stop-color="#1F262B"/>
+      <stop offset="1" stop-color="#12171A"/>
     </linearGradient>
     <linearGradient id="wk-flap" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#394248"/>

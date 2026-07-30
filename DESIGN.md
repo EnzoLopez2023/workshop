@@ -265,6 +265,27 @@ square.
 Dividers are always exactly 1px. Frames are 1px `steel-dark`. There is no such thing
 as a 3px coloured accent border on a card in this system.
 
+## The mark
+
+One board module in a steel frame: a `W` cut clean in two by the split line, with the
+amber lamp bar beneath. It is the whole system compressed to 180 units — steel, flap,
+seam, one amber. The `W` is not drawn over a seam; it is genuinely severed by it, the
+lower half a shade darker, so the mark states the thesis even at 16px.
+
+It ships in two treatments and the difference is not cosmetic:
+
+| File | Treatment | Why |
+|---|---|---|
+| `public/favicon.svg`, `favicon-32x32.png`, `apple-touch-icon.png` | `rx="10"`, 1.5px white border at 0.16 | Sits on arbitrary browser chrome and needs its own edge |
+| `app-store/AppIcon.svg` → `AppIcon-1024.png` | Full bleed, square, no alpha | iOS/macOS apply their own superellipse mask; rounding it twice leaves a light fringe, and an alpha channel is rejected at submission |
+
+`app-store/` is the source of truth for the application icon across platforms and also
+carries `AppIcon-dark.svg` and `AppIcon-tinted.svg`, the iOS 18 appearance variants.
+Dark pulls the steel gradient down without touching flap, `W` or lamp. Tinted maps
+everything to value alone and forces the lamp to pure white so it stays the brightest
+element under any user tint. The renders live in the iOS asset catalog, not here.
+Changing the mark means re-rendering all of them from these sources.
+
 ## Components
 
 **`SplitFlap`** (`src/components/SplitFlap.tsx`) — the signature. Rolls each column
