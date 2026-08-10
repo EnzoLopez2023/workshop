@@ -1,16 +1,23 @@
 import express from 'express';
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
-import { dirname, join, basename, extname } from 'path';
-import { mkdirSync, unlink, existsSync, renameSync, copyFileSync } from 'fs';
+import { dirname, join, basename, extname, resolve } from 'path';
+import { mkdirSync, unlink, unlinkSync, existsSync, renameSync, copyFileSync, readdirSync } from 'fs';
 import { unlink as unlinkAsync } from 'fs/promises';
 import { lookup as dnsLookup } from 'dns/promises';
 import { isIP } from 'net';
-import { randomUUID, createHash, createSecretKey } from 'crypto';
+import {
+  randomUUID,
+  randomBytes,
+  createHash,
+  createSecretKey,
+  createCipheriv,
+  createDecipheriv,
+} from 'crypto';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
-import { jwtVerify, createRemoteJWKSet, SignJWT } from 'jose';
+import { jwtVerify, createRemoteJWKSet, importPKCS8, SignJWT } from 'jose';
 import rateLimit from 'express-rate-limit';
 import { fileTypeFromFile } from 'file-type';
 
@@ -50,7 +57,7 @@ const APPLE_KEY_RE = /^apple_[0-9a-f]{64}$/;
 const USER_KEY_RE  = new RegExp(`^(?:${OID_RE.source.slice(1, -1)}|${APPLE_KEY_RE.source.slice(1, -1)})$`, 'i');
 const appleUserKey = (sub) => `apple_${createHash('sha256').update(String(sub)).digest('hex')}`;
 
-function initSchema(db) {
+function initSchema(db, { acceptLegacySessionTokens = true } = {}) {
   db.exec(`
   CREATE TABLE IF NOT EXISTS projects (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -253,7 +260,37 @@ db.exec(`
     email        TEXT,
     updated_at   TEXT DEFAULT (datetime('now'))
   );
+
+  -- Workshop's Apple access/refresh JWTs are stateless, so bind them to a
+  -- random generation stored inside the account DB. Deleting the DB revokes
+  -- every issued token; recreating the account produces a different generation.
+  CREATE TABLE IF NOT EXISTS auth_state (
+    id                    INTEGER PRIMARY KEY CHECK (id = 1),
+    session_generation    TEXT NOT NULL,
+    accept_legacy_tokens  INTEGER NOT NULL DEFAULT 0
+  );
+
+  -- Apple's long-lived refresh token is encrypted before storage and used only
+  -- to revoke the Sign in with Apple grant during account deletion.
+  CREATE TABLE IF NOT EXISTS apple_credentials (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id             TEXT NOT NULL,
+    refresh_token_enc     TEXT NOT NULL,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    revoked_at            TEXT
+  );
+
+  -- Durable cleanup queue makes filesystem deletion restartable. References
+  -- are nulled in the same transaction that enqueues each local filename.
+  CREATE TABLE IF NOT EXISTS account_deletion_files (
+    filename              TEXT PRIMARY KEY
+  );
 `);
+
+db.prepare(`
+  INSERT OR IGNORE INTO auth_state (id, session_generation, accept_legacy_tokens)
+  VALUES (1, ?, ?)
+`).run(randomUUID(), acceptLegacySessionTokens ? 1 : 0);
 }
 
 // ── Prepared statements ───────────────────────────────────────────────────────
@@ -427,6 +464,24 @@ function buildStmts(db) {
   deleteNotebookLink: db.prepare(`DELETE FROM notebook_links WHERE id = ?`),
   notebookLinkCount:  db.prepare(`SELECT COUNT(*) AS n FROM notebook_links WHERE page_id = ?`),
 
+  // ── Account auth state ────────────────────────────────────────────────────────
+  getAuthState:          db.prepare(`SELECT session_generation, accept_legacy_tokens FROM auth_state WHERE id = 1`),
+  disableLegacySessions: db.prepare(`UPDATE auth_state SET accept_legacy_tokens = 0 WHERE id = 1`),
+  countAppleCredentials: db.prepare(`SELECT COUNT(*) AS count FROM apple_credentials`),
+  listAppleCredentials:  db.prepare(`
+    SELECT id, client_id, refresh_token_enc
+    FROM apple_credentials
+    WHERE revoked_at IS NULL
+    ORDER BY id
+  `),
+  insertAppleCredential: db.prepare(`
+    INSERT INTO apple_credentials (client_id, refresh_token_enc)
+    VALUES (@client_id, @refresh_token_enc)
+  `),
+  markAppleCredentialRevoked: db.prepare(`
+    UPDATE apple_credentials SET revoked_at = datetime('now') WHERE id = ?
+  `),
+
   // Reject the reverse direction of a pair (B→A when A→B already exists) so the
   // UNION-based link listing doesn't double-count an unordered pair.
   reverseLinkExists:  db.prepare(`SELECT 1 FROM project_links WHERE project_id = ? AND linked_project_id = ?`),
@@ -435,14 +490,27 @@ function buildStmts(db) {
 
 // ── Per-user DB resolution + seeding ──────────────────────────────────────────
 
-const dbHandles = new Map();   // oid → { db, stmts }
+const dbHandles = new Map();   // user key → { db, stmts }
+const activeUserRequests = new Map();
+const deletingUserKeys = new Set();
+let accountDeletionLock = Promise.resolve();
+
+const userDbPath = (userKey) => join(USERS_DIR, `${userKey}.db`);
 
 function openDb(path) {
+  const existed = existsSync(path);
   const database = new Database(path);
   database.pragma('journal_mode = WAL');
   database.pragma('foreign_keys = ON');
-  initSchema(database);
+  initSchema(database, { acceptLegacySessionTokens: existed });
   return database;
+}
+
+function openUserDb(userKey) {
+  const db = openDb(userDbPath(userKey));
+  const entry = { db, stmts: buildStmts(db) };
+  dbHandles.set(userKey, entry);
+  return entry;
 }
 
 // Build the starter snapshot once, from the legacy single-user DB, BEFORE that
@@ -469,7 +537,7 @@ function getUserDb(oid) {
   if (cached) return cached;
   if (!USER_KEY_RE.test(oid)) throw new Error('invalid user key');
 
-  const target = join(USERS_DIR, `${oid}.db`);
+  const target = userDbPath(oid);
 
   if (!existsSync(target)) {
     if (PRIMARY_USER_OID && oid === PRIMARY_USER_OID && existsSync(DB_PATH)) {
@@ -487,10 +555,22 @@ function getUserDb(oid) {
     // snapshot still backs demo mode only (getDemoDb).
   }
 
-  const db = openDb(target);
-  const entry = { db, stmts: buildStmts(db) };
-  dbHandles.set(oid, entry);
-  return entry;
+  return openUserDb(oid);
+}
+
+function getExistingUserDb(userKey) {
+  if (!USER_KEY_RE.test(userKey)) throw new Error('invalid user key');
+  const target = userDbPath(userKey);
+  const cached = dbHandles.get(userKey);
+  if (!existsSync(target)) {
+    if (cached) {
+      if (cached.db.open) cached.db.close();
+      dbHandles.delete(userKey);
+    }
+    return null;
+  }
+  if (cached) return cached;
+  return openUserDb(userKey);
 }
 
 // Demo mode reads the shared starter snapshot; writes are blocked upstream.
@@ -507,10 +587,178 @@ function getDemoDb() {
 // fall back to the demo snapshot. Returns { db, stmts } or null.
 function resolveReadDb(req) {
   const oid = String(req.query.oid ?? '');
-  if (USER_KEY_RE.test(oid)) {
-    try { return getUserDb(oid); } catch { return getDemoDb(); }
+  if (USER_KEY_RE.test(oid) && !deletingUserKeys.has(oid)) {
+    try { return getExistingUserDb(oid) ?? getDemoDb(); }
+    catch { return getDemoDb(); }
   }
   return getDemoDb();
+}
+
+function collectAccountUploadReferences(db) {
+  const tables = new Set(
+    db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all().map(row => row.name)
+  );
+  const references = [];
+  const hasFilePathColumn = (table) =>
+    db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === 'file_path');
+  const addRows = (table, rows) => {
+    for (const row of rows) {
+      if (typeof row.file_path === 'string' && row.file_path) {
+        references.push({
+          table,
+          filePath: row.file_path,
+          filename: basename(row.file_path),
+        });
+      }
+    }
+  };
+
+  if (tables.has('project_images') && hasFilePathColumn('project_images')) {
+    addRows(
+      'project_images',
+      db.prepare(`SELECT file_path FROM project_images WHERE file_path IS NOT NULL ORDER BY id`).all()
+    );
+  }
+  if (tables.has('build_log_entries') && hasFilePathColumn('build_log_entries')) {
+    addRows(
+      'build_log_entries',
+      db.prepare(`SELECT file_path FROM build_log_entries WHERE file_path IS NOT NULL ORDER BY id`).all()
+    );
+  }
+  return references;
+}
+
+function collectReferencedUploadNames(db) {
+  return new Set(collectAccountUploadReferences(db).map(reference => reference.filename));
+}
+
+function otherDatabasePaths(targetPath) {
+  const candidates = [
+    ...readdirSync(USERS_DIR, { withFileTypes: true })
+      .filter(entry => entry.isFile() && entry.name.endsWith('.db'))
+      .map(entry => join(USERS_DIR, entry.name)),
+    DB_PATH,
+    SEED_DB_PATH,
+  ];
+  const target = resolve(targetPath);
+  return [...new Set(candidates.map(path => resolve(path)))]
+    .filter(path => path !== target && existsSync(path));
+}
+
+function collectUnsharedAccountFiles(db, targetPath) {
+  const references = collectAccountUploadReferences(db);
+  const owned = new Set(references.map(reference => reference.filename));
+  if (owned.size === 0) return { filenames: [], references: [] };
+
+  const referencedElsewhere = new Set();
+  for (const path of otherDatabasePaths(targetPath)) {
+    const other = new Database(path, { readonly: true, fileMustExist: true });
+    try {
+      for (const filename of collectReferencedUploadNames(other)) {
+        if (owned.has(filename)) referencedElsewhere.add(filename);
+      }
+    } finally {
+      other.close();
+    }
+  }
+  const filenames = [...owned].filter(filename => !referencedElsewhere.has(filename));
+  const removable = new Set(filenames);
+  return {
+    filenames,
+    references: references.filter(reference => removable.has(reference.filename)),
+  };
+}
+
+async function unlinkIfPresent(path) {
+  try {
+    await unlinkAsync(path);
+  } catch (err) {
+    if (err?.code !== 'ENOENT') throw err;
+  }
+}
+
+function unlinkSyncIfPresent(path) {
+  try {
+    unlinkSync(path);
+  } catch (err) {
+    if (err?.code !== 'ENOENT') throw err;
+  }
+}
+
+async function deleteAccountData(userKey) {
+  if (!USER_KEY_RE.test(userKey)) throw new Error('invalid user key');
+  const target = userDbPath(userKey);
+  const entry = getExistingUserDb(userKey);
+  if (!entry) return;
+
+  // Uploaded filenames are globally unique today, but older seeded workspaces
+  // can share references. Never unlink a file another DB or the demo seed uses.
+  const cleanup = collectUnsharedAccountFiles(entry.db, target);
+  entry.db.transaction(() => {
+    const enqueue = entry.db.prepare(`
+      INSERT OR IGNORE INTO account_deletion_files (filename) VALUES (?)
+    `);
+    const clearProjectImage = entry.db.prepare(`
+      UPDATE project_images SET file_path = NULL WHERE file_path = ?
+    `);
+    const clearBuildLogImage = entry.db.prepare(`
+      UPDATE build_log_entries SET file_path = NULL WHERE file_path = ?
+    `);
+
+    for (const filename of cleanup.filenames) enqueue.run(filename);
+    for (const reference of cleanup.references) {
+      const clear = reference.table === 'project_images'
+        ? clearProjectImage
+        : clearBuildLogImage;
+      clear.run(reference.filePath);
+    }
+  })();
+
+  const pendingFiles = entry.db.prepare(`
+    SELECT filename FROM account_deletion_files ORDER BY filename
+  `).all();
+  const markRemoved = entry.db.prepare(`
+    DELETE FROM account_deletion_files WHERE filename = ?
+  `);
+  for (const { filename } of pendingFiles) {
+    await unlinkIfPresent(join(UPLOADS_PATH, filename));
+    markRemoved.run(filename);
+  }
+
+  // Removing the whole isolated DB purges every current and future table in one
+  // operation, including BLOB images, profile data, and the token generation.
+  entry.db.pragma('wal_checkpoint(TRUNCATE)');
+  entry.db.close();
+  dbHandles.delete(userKey);
+
+  for (const suffix of ['-wal', '-shm', '-journal']) {
+    unlinkSyncIfPresent(target + suffix);
+  }
+  unlinkSyncIfPresent(target);
+}
+
+async function waitForActiveUserRequests(userKey, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while ((activeUserRequests.get(userKey) ?? 0) > 0 && Date.now() < deadline) {
+    await new Promise(done => setTimeout(done, 25));
+  }
+  if ((activeUserRequests.get(userKey) ?? 0) > 0) {
+    const error = new Error('account still has active requests');
+    error.status = 409;
+    throw error;
+  }
+}
+
+async function serializeAccountDeletion(operation) {
+  const previous = accountDeletionLock;
+  let release;
+  accountDeletionLock = new Promise(resolveLock => { release = resolveLock; });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -754,42 +1002,204 @@ const ACCEPTED_AUDIENCES = [`api://${API_AUDIENCE}`, API_AUDIENCE];
 // we then mint our own short-lived session JWT that clients send as the bearer
 // (Apple id_tokens can't be silently refreshed, so we own the session instead).
 //
-// IMPORTANT (deploy safety): the whole Apple path is *disabled* when SESSION_SECRET
-// is unset — the server still boots and the Microsoft/Entra path is unaffected.
-// This lets this code deploy to prod BEFORE the Apple/session config exists,
-// unlike the AZURE_*/API_AUDIENCE vars above which hard-fail. Set SESSION_SECRET
-// (+ APPLE_BUNDLE_ID) to turn Apple sign-in on.
+// IMPORTANT (deploy safety): Apple sign-in is disabled until every server-side
+// credential below is configured. The server still boots and Entra is unaffected.
 const APPLE_BUNDLE_ID       = process.env.APPLE_BUNDLE_ID       || '';  // native app audience
 const APPLE_WEB_SERVICES_ID = process.env.APPLE_WEB_SERVICES_ID || '';  // web Services ID audience (if web Apple sign-in comes later)
 const SESSION_SECRET        = process.env.SESSION_SECRET        || '';  // HMAC key for our session JWTs
-const APPLE_AUTH_ENABLED    = Boolean(SESSION_SECRET);
+const APPLE_TEAM_ID          = process.env.APPLE_TEAM_ID          || '';
+const APPLE_KEY_ID           = process.env.APPLE_KEY_ID           || '';
+const APPLE_PRIVATE_KEY      = (process.env.APPLE_PRIVATE_KEY     || '').replace(/\\n/g, '\n');
+const APPLE_TOKEN_ENCRYPTION_SECRET = process.env.APPLE_TOKEN_ENCRYPTION_KEY || '';
 
-const APPLE_JWKS   = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'));
 const APPLE_ISSUER = 'https://appleid.apple.com';
+const APPLE_OAUTH_ORIGIN = process.env.NODE_ENV === 'test' && process.env.APPLE_OAUTH_BASE_URL
+  ? process.env.APPLE_OAUTH_BASE_URL
+  : APPLE_ISSUER;
+const APPLE_JWKS_URL = process.env.NODE_ENV === 'test' && process.env.APPLE_JWKS_URL
+  ? process.env.APPLE_JWKS_URL
+  : `${APPLE_ISSUER}/auth/keys`;
+const APPLE_JWKS = createRemoteJWKSet(new URL(APPLE_JWKS_URL));
 const APPLE_AUDIENCES = [APPLE_BUNDLE_ID, APPLE_WEB_SERVICES_ID].filter(Boolean);
 
 const SESSION_ISSUER   = 'workshop-api';
 const SESSION_AUDIENCE = 'workshop-clients';
-const SESSION_KEY = APPLE_AUTH_ENABLED ? createSecretKey(Buffer.from(SESSION_SECRET, 'utf8')) : null;
+const SESSION_KEY = SESSION_SECRET ? createSecretKey(Buffer.from(SESSION_SECRET, 'utf8')) : null;
+const APPLE_TOKEN_KEY = APPLE_TOKEN_ENCRYPTION_SECRET.length >= 32
+  ? createHash('sha256').update(APPLE_TOKEN_ENCRYPTION_SECRET, 'utf8').digest()
+  : null;
+const APPLE_SERVER_CREDENTIALS_CONFIGURED = Boolean(
+  APPLE_BUNDLE_ID
+  && APPLE_TEAM_ID
+  && APPLE_KEY_ID
+  && APPLE_PRIVATE_KEY
+  && APPLE_TOKEN_KEY
+);
+const APPLE_AUTH_ENABLED = Boolean(SESSION_KEY && APPLE_SERVER_CREDENTIALS_CONFIGURED);
 const ACCESS_TTL  = '1h';
 const REFRESH_TTL = '60d';
 
-if (APPLE_AUTH_ENABLED && APPLE_AUDIENCES.length === 0) {
-  console.warn('[auth] SESSION_SECRET is set but neither APPLE_BUNDLE_ID nor APPLE_WEB_SERVICES_ID is — Apple tokens cannot be verified until an audience is configured.');
-} else if (!APPLE_AUTH_ENABLED) {
-  console.log('[auth] Apple sign-in disabled (SESSION_SECRET unset); Microsoft/Entra sign-in only.');
+if (!APPLE_AUTH_ENABLED) {
+  console.log('[auth] Apple sign-in disabled (server credentials incomplete); Microsoft/Entra sign-in only.');
+}
+
+class AppleOAuthError extends Error {
+  constructor(message, { status = 502, providerCode = null, cause } = {}) {
+    super(message, cause ? { cause } : undefined);
+    this.name = 'AppleOAuthError';
+    this.status = status;
+    this.providerCode = providerCode;
+  }
+}
+
+function encryptAppleRefreshToken(userKey, refreshToken) {
+  if (!APPLE_TOKEN_KEY) throw new Error('Apple token encryption is not configured');
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', APPLE_TOKEN_KEY, iv);
+  cipher.setAAD(Buffer.from(userKey, 'utf8'));
+  const ciphertext = Buffer.concat([
+    cipher.update(refreshToken, 'utf8'),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  return `v1:${iv.toString('base64url')}:${tag.toString('base64url')}:${ciphertext.toString('base64url')}`;
+}
+
+function decryptAppleRefreshToken(userKey, encrypted) {
+  if (!APPLE_TOKEN_KEY) throw new Error('Apple token encryption is not configured');
+  const [version, ivRaw, tagRaw, ciphertextRaw] = String(encrypted).split(':');
+  if (version !== 'v1' || !ivRaw || !tagRaw || !ciphertextRaw) {
+    throw new Error('Stored Apple refresh token is invalid');
+  }
+  const decipher = createDecipheriv(
+    'aes-256-gcm',
+    APPLE_TOKEN_KEY,
+    Buffer.from(ivRaw, 'base64url')
+  );
+  decipher.setAAD(Buffer.from(userKey, 'utf8'));
+  decipher.setAuthTag(Buffer.from(tagRaw, 'base64url'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextRaw, 'base64url')),
+    decipher.final(),
+  ]).toString('utf8');
+}
+
+let applePrivateKeyPromise = null;
+function getApplePrivateKey() {
+  if (!applePrivateKeyPromise) {
+    applePrivateKeyPromise = importPKCS8(APPLE_PRIVATE_KEY, 'ES256');
+  }
+  return applePrivateKeyPromise;
+}
+
+async function mintAppleClientSecret(clientId) {
+  return new SignJWT({})
+    .setProtectedHeader({ alg: 'ES256', kid: APPLE_KEY_ID })
+    .setIssuer(APPLE_TEAM_ID)
+    .setSubject(clientId)
+    .setAudience(APPLE_ISSUER)
+    .setIssuedAt()
+    .setExpirationTime('5m')
+    .sign(await getApplePrivateKey());
+}
+
+async function appleOAuthRequest(path, clientId, values) {
+  let clientSecret;
+  try {
+    clientSecret = await mintAppleClientSecret(clientId);
+  } catch (err) {
+    throw new AppleOAuthError('Apple client secret signing failed', {
+      status: 503,
+      cause: err,
+    });
+  }
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    ...values,
+  });
+
+  let response;
+  try {
+    response = await fetch(new URL(path, APPLE_OAUTH_ORIGIN), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    throw new AppleOAuthError('Apple OAuth request failed', { cause: err });
+  }
+
+  const raw = await response.text();
+  let payload = {};
+  if (raw) {
+    try {
+      payload = JSON.parse(raw);
+    } catch (err) {
+      throw new AppleOAuthError('Apple OAuth returned invalid JSON', { cause: err });
+    }
+  }
+  if (!response.ok) {
+    const providerCode = typeof payload.error === 'string' ? payload.error : null;
+    throw new AppleOAuthError('Apple OAuth rejected the request', {
+      status: providerCode === 'invalid_grant' ? 401 : 502,
+      providerCode,
+    });
+  }
+  return payload;
+}
+
+async function exchangeAppleAuthorizationCode(authorizationCode, expectedSub, clientId) {
+  const tokens = await appleOAuthRequest('/auth/token', clientId, {
+    code: authorizationCode,
+    grant_type: 'authorization_code',
+  });
+  if (typeof tokens.refresh_token !== 'string' || typeof tokens.id_token !== 'string') {
+    throw new AppleOAuthError('Apple token response is incomplete');
+  }
+
+  let exchangedPayload;
+  try {
+    ({ payload: exchangedPayload } = await jwtVerify(tokens.id_token, APPLE_JWKS, {
+      issuer: APPLE_ISSUER,
+      audience: clientId,
+    }));
+  } catch (err) {
+    throw new AppleOAuthError('Apple token response identity is invalid', { cause: err });
+  }
+  if (exchangedPayload.sub !== expectedSub) {
+    throw new AppleOAuthError('Apple authorization code belongs to another user', {
+      status: 401,
+      providerCode: 'subject_mismatch',
+    });
+  }
+  return tokens.refresh_token;
+}
+
+async function revokeAppleRefreshToken(clientId, refreshToken) {
+  await appleOAuthRequest('/auth/revoke', clientId, {
+    token: refreshToken,
+    token_type_hint: 'refresh_token',
+  });
 }
 
 // Mint a Workshop session pair (access + refresh) for a user key. HS256 over
 // SESSION_KEY. `typ` keeps an access token from being replayed as a refresh one.
 async function mintSession(userKey) {
+  if (deletingUserKeys.has(userKey)) throw new Error('account deletion in progress');
+  const { stmts } = getUserDb(userKey);
+  const authState = stmts.getAuthState.get();
+  if (!authState?.session_generation) throw new Error('account auth state unavailable');
+
   const sign = (typ, ttl, extra = {}) =>
-    new SignJWT({ uk: userKey, typ, ...extra })
+    new SignJWT({ uk: userKey, typ, sg: authState.session_generation, ...extra })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuer(SESSION_ISSUER).setAudience(SESSION_AUDIENCE)
       .setIssuedAt().setExpirationTime(ttl).sign(SESSION_KEY);
   const accessToken  = await sign('access',  ACCESS_TTL);
   const refreshToken = await sign('refresh', REFRESH_TTL, { jti: randomUUID() });
+  stmts.disableLegacySessions.run();
   return { accessToken, refreshToken };
 }
 
@@ -801,6 +1211,19 @@ async function verifySession(token, expectedTyp) {
   if (payload.typ !== expectedTyp) throw new Error('wrong token type');
   const uk = typeof payload.uk === 'string' ? payload.uk : '';
   if (!USER_KEY_RE.test(uk)) throw new Error('bad user key');
+  if (deletingUserKeys.has(uk)) throw new Error('account deletion in progress');
+
+  const entry = getExistingUserDb(uk);
+  if (!entry) throw new Error('account no longer exists');
+  const authState = entry.stmts.getAuthState.get();
+  const tokenGeneration = typeof payload.sg === 'string' ? payload.sg : '';
+  if (tokenGeneration) {
+    if (tokenGeneration !== authState?.session_generation) {
+      throw new Error('session revoked');
+    }
+  } else if (authState?.accept_legacy_tokens !== 1) {
+    throw new Error('legacy session revoked');
+  }
   return uk;
 }
 
@@ -841,6 +1264,45 @@ function readProfile(db) {
   catch { return {}; }
 }
 
+function accountDeletionError(status, apiCode, cause) {
+  const error = new Error(apiCode, cause ? { cause } : undefined);
+  error.status = status;
+  error.apiCode = apiCode;
+  return error;
+}
+
+async function revokeAppleAccountCredential(userKey) {
+  if (!APPLE_KEY_RE.test(userKey)) return;
+  if (!APPLE_SERVER_CREDENTIALS_CONFIGURED) {
+    throw accountDeletionError(503, 'apple_revocation_unavailable');
+  }
+
+  const entry = getExistingUserDb(userKey);
+  const credentialCount = entry?.stmts.countAppleCredentials.get().count ?? 0;
+  const credentials = entry?.stmts.listAppleCredentials.all() ?? [];
+  if (credentialCount === 0) {
+    // Accounts created before authorization-code exchange was introduced need
+    // one fresh Apple sign-in so the server can capture a revocable token.
+    throw accountDeletionError(409, 'apple_reauthentication_required');
+  }
+
+  for (const credential of credentials) {
+    let refreshToken;
+    try {
+      refreshToken = decryptAppleRefreshToken(userKey, credential.refresh_token_enc);
+    } catch (err) {
+      throw accountDeletionError(500, 'apple_refresh_token_unavailable', err);
+    }
+
+    try {
+      await revokeAppleRefreshToken(credential.client_id, refreshToken);
+      entry.stmts.markAppleCredentialRevoked.run(credential.id);
+    } catch (err) {
+      throw accountDeletionError(502, 'apple_token_revocation_failed', err);
+    }
+  }
+}
+
 // Verify a bearer (Entra access token OR our Apple session token) and attach the
 // resolved per-user key as req.user.oid — the DB key used downstream by
 // withUserDb/getUserDb. The name `oid` is kept for backward-compat with existing
@@ -858,10 +1320,37 @@ async function requireAuth(req, res, next) {
   }
 }
 
+function trackActiveUserRequest(userKey, res) {
+  if (deletingUserKeys.has(userKey)) {
+    return false;
+  }
+
+  activeUserRequests.set(userKey, (activeUserRequests.get(userKey) ?? 0) + 1);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    const remaining = (activeUserRequests.get(userKey) ?? 1) - 1;
+    if (remaining > 0) activeUserRequests.set(userKey, remaining);
+    else activeUserRequests.delete(userKey);
+  };
+  res.once('finish', release);
+  res.once('close', release);
+  return true;
+}
+
 // Attach the caller's own isolated database to the request.
 function withUserDb(req, res, next) {
+  const userKey = req.user.oid;
+  if (deletingUserKeys.has(userKey)) {
+    return res.status(409).json({ error: 'account deletion in progress' });
+  }
+
   try {
-    const { db, stmts } = getUserDb(req.user.oid);
+    const { db, stmts } = getUserDb(userKey);
+    if (!trackActiveUserRequest(userKey, res)) {
+      return res.status(409).json({ error: 'account deletion in progress' });
+    }
     req.db = db;
     req.stmts = stmts;
     next();
@@ -894,7 +1383,11 @@ const DEMO_READONLY_MSG = 'Demo mode is read-only — sign in with Microsoft to 
 app.post('/api/auth/apple', async (req, res) => {
   if (!APPLE_AUTH_ENABLED) return res.status(503).json({ error: 'Apple sign-in not configured' });
   const idToken = req.body?.id_token;
+  const authorizationCode = req.body?.authorization_code;
   if (typeof idToken !== 'string' || !idToken) return res.status(400).json({ error: 'Missing id_token' });
+  if (typeof authorizationCode !== 'string' || !authorizationCode) {
+    return res.status(400).json({ error: 'Missing authorization_code' });
+  }
   let payload;
   try {
     ({ payload } = await jwtVerify(idToken, APPLE_JWKS, { issuer: APPLE_ISSUER, audience: APPLE_AUDIENCES }));
@@ -903,23 +1396,64 @@ app.post('/api/auth/apple', async (req, res) => {
   }
   const sub = typeof payload.sub === 'string' ? payload.sub : '';
   if (!sub) return res.status(401).json({ error: 'Apple token missing sub' });
+  const tokenAudiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  const clientId = tokenAudiences.find(audience => APPLE_AUDIENCES.includes(audience));
+  if (!clientId) return res.status(401).json({ error: 'Invalid Apple token audience' });
+
   const userKey = appleUserKey(sub);
+  if (!trackActiveUserRequest(userKey, res)) {
+    return res.status(409).json({ error: 'account_deletion_in_progress' });
+  }
+
+  let appleRefreshToken;
+  try {
+    appleRefreshToken = await exchangeAppleAuthorizationCode(authorizationCode, sub, clientId);
+  } catch (err) {
+    console.error('[auth/apple] authorization-code exchange failed:', err.providerCode ?? err.message);
+    const status = err instanceof AppleOAuthError ? err.status : 500;
+    const message = status === 401
+      ? 'Invalid Apple authorization code'
+      : 'Apple sign-in unavailable';
+    return res.status(status).json({ error: message });
+  }
+
   // The display name only arrives (in the client body) on the FIRST Apple consent;
   // email comes from the verified token. Persist both so later sign-ins — including
   // on other devices — can show the real name instead of a placeholder.
   const name  = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 100) : '';
   const email = typeof payload.email === 'string' ? payload.email : '';
-  let profile = {};
-  try { profile = upsertProfile(getUserDb(userKey).db, name, email); }
-  catch (err) { console.error('getUserDb/profile(apple) error:', err); }
-  const tokens = await mintSession(userKey);
-  res.json({ ...tokens, userKey, expiresIn: 3600, displayName: profile.display_name ?? null, email: profile.email ?? null });
+  try {
+    const { db, stmts } = getUserDb(userKey);
+    const encryptedRefreshToken = encryptAppleRefreshToken(userKey, appleRefreshToken);
+    const profile = db.transaction(() => {
+      const currentProfile = upsertProfile(db, name, email);
+      stmts.insertAppleCredential.run({
+        client_id: clientId,
+        refresh_token_enc: encryptedRefreshToken,
+      });
+      return currentProfile;
+    })();
+    if (deletingUserKeys.has(userKey)) {
+      return res.status(409).json({ error: 'account_deletion_in_progress' });
+    }
+    const tokens = await mintSession(userKey);
+    return res.json({
+      ...tokens,
+      userKey,
+      expiresIn: 3600,
+      displayName: profile.display_name ?? null,
+      email: profile.email ?? null,
+    });
+  } catch (err) {
+    console.error('[auth/apple] failed to persist credentials:', err.message);
+    return res.status(500).json({ error: 'Apple sign-in failed' });
+  }
 });
 
 // Rotate a session: verify a refresh token, issue a fresh access + refresh pair.
 // Also returns the stored profile so clients self-heal the display name.
 app.post('/api/auth/refresh', async (req, res) => {
-  if (!APPLE_AUTH_ENABLED) return res.status(503).json({ error: 'Apple sign-in not configured' });
+  if (!SESSION_KEY) return res.status(503).json({ error: 'Apple sign-in not configured' });
   const rt = req.body?.refresh_token;
   if (typeof rt !== 'string' || !rt) return res.status(400).json({ error: 'Missing refresh_token' });
   let userKey;
@@ -928,6 +1462,34 @@ app.post('/api/auth/refresh', async (req, res) => {
   const profile = readProfile(getUserDb(userKey).db);
   const tokens = await mintSession(userKey);
   res.json({ ...tokens, userKey, expiresIn: 3600, displayName: profile.display_name ?? null, email: profile.email ?? null });
+});
+
+// Permanently delete the authenticated caller's isolated account. This route is
+// deliberately before the general /api DB middleware so an idempotent Entra
+// retry does not recreate an empty workspace just to delete it again.
+app.delete('/api/account', requireAuth, async (req, res) => {
+  const userKey = req.user.oid;
+  if (deletingUserKeys.has(userKey)) {
+    return res.status(409).json({ error: 'account deletion already in progress' });
+  }
+
+  deletingUserKeys.add(userKey);
+  try {
+    await serializeAccountDeletion(async () => {
+      await waitForActiveUserRequests(userKey);
+      await revokeAppleAccountCredential(userKey);
+      await deleteAccountData(userKey);
+    });
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('[delete-account]', err);
+    const status = Number.isInteger(err?.status) ? err.status : 500;
+    const apiCode = err?.apiCode
+      ?? (status === 409 ? 'account_has_active_requests' : 'account_deletion_failed');
+    return res.status(status).json({ error: apiCode });
+  } finally {
+    deletingUserKeys.delete(userKey);
+  }
 });
 
 app.use('/api', (req, res, next) => {
@@ -1758,6 +2320,19 @@ app.get('/{*path}', (_req, res) => {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-  console.log(`Workshop API listening on http://localhost:${PORT}`);
-});
+function closeAllDatabases() {
+  for (const { db } of dbHandles.values()) {
+    if (db.open) db.close();
+  }
+  dbHandles.clear();
+  if (demoEntry?.db.open) demoEntry.db.close();
+  demoEntry = null;
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`Workshop API listening on http://localhost:${PORT}`);
+  });
+}
+
+export { app, closeAllDatabases, getUserDb, mintSession };

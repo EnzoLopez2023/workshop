@@ -48,7 +48,7 @@ TypeScript is compiled with `tsc -b` then bundled by Vite. `noUnusedLocals`, `no
 | HTTP framework | Express 5 |
 | Database | SQLite via `better-sqlite3` (WAL mode, foreign keys ON) |
 | File uploads | Multer (disk storage, MIME validation via `file-type`) |
-| Auth | JWT validation with `jose` against Azure AD JWKS endpoint |
+| Auth | JWT validation with `jose` against Azure AD and Apple/Workshop sessions |
 | Rate limiting | `express-rate-limit` on AI-powered routes |
 | AI | `@anthropic-ai/sdk` — `claude-sonnet-4-6` for analysis, `claude-haiku-4-5` available for fast tasks |
 | Environment | `dotenv` |
@@ -213,6 +213,16 @@ export const msalConfig: Configuration = {
 
 If your Azure AD tenant has multiple users and you only want yourself to access the app, set `ALLOWED_OID` in `.env` to your user's Object ID. Decode an access token at [jwt.ms](https://jwt.ms) to find the `oid` claim.
 
+### Configure Sign in with Apple
+
+The native iOS client sends both `identityToken` and the one-time `authorizationCode` from `ASAuthorizationAppleIDCredential`:
+
+```json
+{ "id_token": "...", "authorization_code": "...", "name": "Optional first-login name" }
+```
+
+The server verifies the ID token, exchanges the code at Apple's `/auth/token` endpoint, encrypts the returned refresh token with AES-256-GCM, and stores it in that user's database. Configure `SESSION_SECRET`, `APPLE_BUNDLE_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`, and `APPLE_TOKEN_ENCRYPTION_KEY`; see [`.env.example`](.env.example). The private key, session secret, and token-encryption key are runtime secrets and must be supplied through Key Vault in production.
+
 ---
 
 ## Database
@@ -231,6 +241,10 @@ SQLite file at `DB_PATH` (default `./workshop.db`). No migration tool — the sc
 | `finish_log_entries` | Finish product records — type, color, coats, date |
 | `project_links` | Many-to-many project relationships (one direction stored, UNION query provides both) |
 | `shaper_projects` | Shaper Tools Hub projects — URL, description, photo, materials JSON, instructions |
+| `user_profile` | Single-row persisted name/email profile for Sign in with Apple |
+| `auth_state` | Per-account session generation used to revoke Workshop access and refresh tokens |
+| `apple_credentials` | Encrypted Apple refresh tokens, client IDs, and durable revocation progress |
+| `account_deletion_files` | Restartable queue of account-only upload files pending physical removal |
 
 Images and build log photos are stored as files under `UPLOADS_PATH` (`./uploads/` in dev, `/data/uploads/` in Docker). The DB stores only the filename; the Express route serves the file.
 
@@ -257,7 +271,24 @@ If `ANTHROPIC_API_KEY` is not set, both endpoints return a `503` with a clear me
 
 ## API reference
 
-All routes require a valid Azure AD Bearer token in the `Authorization` header.
+Except for the documented health/image exemptions and Apple sign-in exchange, routes require an `Authorization` Bearer token containing either a valid Entra access token or Workshop access token.
+
+### Authentication
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/auth/apple` | Verify `{ id_token, authorization_code, name? }`, exchange the one-time code with Apple, and return Workshop access/refresh tokens |
+| `POST` | `/api/auth/refresh` | Rotate a valid Workshop refresh token |
+
+### Account
+
+| Method | Path | Description |
+|---|---|---|
+| `DELETE` | `/api/account` | Permanently delete the authenticated caller's isolated database and unshared uploaded files |
+
+The account is derived only from the verified Bearer token; the endpoint accepts no user identifier. Success is `200` with `{ "success": true }`. For Apple-backed accounts, the server first revokes every stored Apple refresh token at `/auth/revoke`; provider failure returns `502 { "error": "apple_token_revocation_failed" }` and leaves local data intact for retry. Successful token revocations and local file cleanup are durably checkpointed, so a later retry resumes rather than repeating completed work. Pre-migration Apple accounts without a stored token return `409 { "error": "apple_reauthentication_required" }` and must complete one fresh Apple sign-in. Missing/invalid authentication returns `401`; all other failures also return a non-success `{ "error": "..." }` response.
+
+Successful deletion removes projects, templates, Shaper data, cut/material/shopping data, images/BLOBs, build/finish logs, legacy notebook rows, profile/auth/Apple credential state, and invalidates all Workshop access/refresh tokens issued for that account. Entra users' Workshop data is deleted, but their Microsoft account and Entra grant are not.
 
 ### Projects
 

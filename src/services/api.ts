@@ -61,6 +61,11 @@ const json = (method: string, body?: unknown) => ({
   body: body !== undefined ? JSON.stringify(body) : undefined,
 });
 
+// ── Account ───────────────────────────────────────────────────────────────────
+
+export const deleteAccount = () =>
+  request<{ success: true }>('/account', { method: 'DELETE' });
+
 // ── Projects ──────────────────────────────────────────────────────────────────
 
 export const listProjects = () => request<ProjectListItem[]>('/projects');
