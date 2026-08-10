@@ -410,17 +410,27 @@ test('Apple-backed DELETE /api/account', async (t) => {
     assert.equal(credential.refresh_token_enc.includes('refresh-token-for'), false);
   });
 
-  await t.test('requires the Apple authorization code during sign-in', async () => {
+  await t.test('keeps legacy Apple sign-in compatible without an authorization code', async () => {
+    const sub = 'missing-code-user';
     const response = await request('/api/auth/apple', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        id_token: await mintAppleIdentityToken('missing-code-user'),
+        id_token: await mintAppleIdentityToken(sub),
       }),
     });
 
-    assert.equal(response.status, 400);
-    assert.deepEqual(await response.json(), { error: 'Missing authorization_code' });
+    assert.equal(response.status, 200);
+    const tokens = await response.json();
+    const legacy = api.getUserDb(appleUserKey(sub));
+    assert.equal(legacy.stmts.countAppleCredentials.get().count, 0);
+
+    const deletion = await request('/api/account', {
+      method: 'DELETE',
+      token: tokens.accessToken,
+    });
+    assert.equal(deletion.status, 409);
+    assert.deepEqual(await deletion.json(), { error: 'apple_reauthentication_required' });
   });
 
   await t.test('requires authentication for deletion', async () => {

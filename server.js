@@ -1002,8 +1002,11 @@ const ACCEPTED_AUDIENCES = [`api://${API_AUDIENCE}`, API_AUDIENCE];
 // we then mint our own short-lived session JWT that clients send as the bearer
 // (Apple id_tokens can't be silently refreshed, so we own the session instead).
 //
-// IMPORTANT (deploy safety): Apple sign-in is disabled until every server-side
-// credential below is configured. The server still boots and Entra is unaffected.
+// Apple identity-token sign-in needs only the audience + Workshop session key.
+// Server credentials are additionally required to exchange authorization codes
+// and retain a revocable Apple refresh token. Keeping those gates separate is
+// deliberate: already-shipped iOS builds send only `id_token`, and must continue
+// to sign in while the new revocation credentials are being configured.
 const APPLE_BUNDLE_ID       = process.env.APPLE_BUNDLE_ID       || '';  // native app audience
 const APPLE_WEB_SERVICES_ID = process.env.APPLE_WEB_SERVICES_ID || '';  // web Services ID audience (if web Apple sign-in comes later)
 const SESSION_SECRET        = process.env.SESSION_SECRET        || '';  // HMAC key for our session JWTs
@@ -1035,12 +1038,14 @@ const APPLE_SERVER_CREDENTIALS_CONFIGURED = Boolean(
   && APPLE_PRIVATE_KEY
   && APPLE_TOKEN_KEY
 );
-const APPLE_AUTH_ENABLED = Boolean(SESSION_KEY && APPLE_SERVER_CREDENTIALS_CONFIGURED);
+const APPLE_SIGN_IN_ENABLED = Boolean(SESSION_KEY && APPLE_AUDIENCES.length > 0);
 const ACCESS_TTL  = '1h';
 const REFRESH_TTL = '60d';
 
-if (!APPLE_AUTH_ENABLED) {
-  console.log('[auth] Apple sign-in disabled (server credentials incomplete); Microsoft/Entra sign-in only.');
+if (!APPLE_SIGN_IN_ENABLED) {
+  console.log('[auth] Apple sign-in disabled (session secret or audience missing); Microsoft/Entra sign-in only.');
+} else if (!APPLE_SERVER_CREDENTIALS_CONFIGURED) {
+  console.log('[auth] Apple sign-in running in compatibility mode; account deletion needs server revocation credentials.');
 }
 
 class AppleOAuthError extends Error {
@@ -1378,16 +1383,16 @@ app.use(express.static(join(__dirname, 'dist')));
 const DEMO_READONLY_MSG = 'Demo mode is read-only — sign in with Microsoft to make changes.';
 
 // Sign in with Apple — exchange a verified Apple id_token for a Workshop session.
-// Public (declared BEFORE the /api auth gate below). Disabled with 503 until the
-// session config is present (see APPLE_AUTH_ENABLED).
+// New clients also send `authorization_code`, which is exchanged and retained
+// for later revocation. The code stays optional so already-shipped clients can
+// sign in; those legacy sessions receive `apple_reauthentication_required` if
+// they attempt account deletion before one fresh sign-in on a current client.
 app.post('/api/auth/apple', async (req, res) => {
-  if (!APPLE_AUTH_ENABLED) return res.status(503).json({ error: 'Apple sign-in not configured' });
+  if (!APPLE_SIGN_IN_ENABLED) return res.status(503).json({ error: 'Apple sign-in not configured' });
   const idToken = req.body?.id_token;
   const authorizationCode = req.body?.authorization_code;
   if (typeof idToken !== 'string' || !idToken) return res.status(400).json({ error: 'Missing id_token' });
-  if (typeof authorizationCode !== 'string' || !authorizationCode) {
-    return res.status(400).json({ error: 'Missing authorization_code' });
-  }
+  const hasAuthorizationCode = typeof authorizationCode === 'string' && authorizationCode.length > 0;
   let payload;
   try {
     ({ payload } = await jwtVerify(idToken, APPLE_JWKS, { issuer: APPLE_ISSUER, audience: APPLE_AUDIENCES }));
@@ -1405,16 +1410,20 @@ app.post('/api/auth/apple', async (req, res) => {
     return res.status(409).json({ error: 'account_deletion_in_progress' });
   }
 
-  let appleRefreshToken;
-  try {
-    appleRefreshToken = await exchangeAppleAuthorizationCode(authorizationCode, sub, clientId);
-  } catch (err) {
-    console.error('[auth/apple] authorization-code exchange failed:', err.providerCode ?? err.message);
-    const status = err instanceof AppleOAuthError ? err.status : 500;
-    const message = status === 401
-      ? 'Invalid Apple authorization code'
-      : 'Apple sign-in unavailable';
-    return res.status(status).json({ error: message });
+  let appleRefreshToken = null;
+  if (hasAuthorizationCode && APPLE_SERVER_CREDENTIALS_CONFIGURED) {
+    try {
+      appleRefreshToken = await exchangeAppleAuthorizationCode(authorizationCode, sub, clientId);
+    } catch (err) {
+      console.error('[auth/apple] authorization-code exchange failed:', err.providerCode ?? err.message);
+      const status = err instanceof AppleOAuthError ? err.status : 500;
+      const message = status === 401
+        ? 'Invalid Apple authorization code'
+        : 'Apple sign-in unavailable';
+      return res.status(status).json({ error: message });
+    }
+  } else if (hasAuthorizationCode) {
+    console.warn('[auth/apple] authorization code not retained because server revocation credentials are incomplete');
   }
 
   // The display name only arrives (in the client body) on the FIRST Apple consent;
@@ -1424,13 +1433,17 @@ app.post('/api/auth/apple', async (req, res) => {
   const email = typeof payload.email === 'string' ? payload.email : '';
   try {
     const { db, stmts } = getUserDb(userKey);
-    const encryptedRefreshToken = encryptAppleRefreshToken(userKey, appleRefreshToken);
+    const encryptedRefreshToken = appleRefreshToken
+      ? encryptAppleRefreshToken(userKey, appleRefreshToken)
+      : null;
     const profile = db.transaction(() => {
       const currentProfile = upsertProfile(db, name, email);
-      stmts.insertAppleCredential.run({
-        client_id: clientId,
-        refresh_token_enc: encryptedRefreshToken,
-      });
+      if (encryptedRefreshToken) {
+        stmts.insertAppleCredential.run({
+          client_id: clientId,
+          refresh_token_enc: encryptedRefreshToken,
+        });
+      }
       return currentProfile;
     })();
     if (deletingUserKeys.has(userKey)) {

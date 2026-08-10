@@ -221,7 +221,7 @@ The native iOS client sends both `identityToken` and the one-time `authorization
 { "id_token": "...", "authorization_code": "...", "name": "Optional first-login name" }
 ```
 
-The server verifies the ID token, exchanges the code at Apple's `/auth/token` endpoint, encrypts the returned refresh token with AES-256-GCM, and stores it in that user's database. Configure `SESSION_SECRET`, `APPLE_BUNDLE_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`, and `APPLE_TOKEN_ENCRYPTION_KEY`; see [`.env.example`](.env.example). The private key, session secret, and token-encryption key are runtime secrets and must be supplied through Key Vault in production.
+The server verifies the ID token, exchanges the code at Apple's `/auth/token` endpoint, encrypts the returned refresh token with AES-256-GCM, and stores it in that user's database. `authorization_code` is accepted as optional only so already-shipped clients can continue signing in; those legacy sessions must complete one fresh sign-in on a current client before deleting the account. Configure `SESSION_SECRET`, `APPLE_BUNDLE_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`, and `APPLE_TOKEN_ENCRYPTION_KEY`; see [`.env.example`](.env.example). The private key, session secret, and token-encryption key are runtime secrets and must be supplied through Key Vault in production.
 
 ---
 
@@ -277,7 +277,7 @@ Except for the documented health/image exemptions and Apple sign-in exchange, ro
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/auth/apple` | Verify `{ id_token, authorization_code, name? }`, exchange the one-time code with Apple, and return Workshop access/refresh tokens |
+| `POST` | `/api/auth/apple` | Verify `{ id_token, authorization_code?, name? }`, exchange a supplied one-time code with Apple, and return Workshop access/refresh tokens |
 | `POST` | `/api/auth/refresh` | Rotate a valid Workshop refresh token |
 
 ### Account
