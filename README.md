@@ -151,7 +151,7 @@ ANTHROPIC_API_KEY=                 # optional — AI features disabled if blank
 AZURE_HOME_TENANT_ID=<your-home-tenant-id>
 API_AUDIENCE=<your-app-client-id>
 
-VITE_AZURE_AUTHORITY_TENANT_ID=<your-home-tenant-id>
+VITE_AZURE_AUTHORITY_TENANT_ID=common
 VITE_AZURE_HOME_TENANT_ID=<your-home-tenant-id>
 VITE_AZURE_CLIENT_ID=<your-app-client-id>
 
@@ -202,7 +202,7 @@ Authentication is handled by Microsoft Entra ID. The frontend requests `api://<c
 
 ### Configure the frontend MSAL client
 
-Set `VITE_AZURE_AUTHORITY_TENANT_ID` to the home tenant while the registration is single-tenant. After changing the registration audience, set only that value to `common`; keep `VITE_AZURE_HOME_TENANT_ID` fixed so existing users retain their data paths.
+For an app registration that accepts any Entra tenant plus personal Microsoft accounts, set `VITE_AZURE_AUTHORITY_TENANT_ID=common`. Keep `VITE_AZURE_HOME_TENANT_ID` fixed so existing users retain their data paths.
 
 ```ts
 export const msalConfig: Configuration = {

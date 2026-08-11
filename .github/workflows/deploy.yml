@@ -37,8 +37,7 @@ env:
   # Vite build-time Entra IDs — baked into the frontend bundle.
   VITE_AZURE_CLIENT_ID:            0f303f8f-207f-4b7f-84a5-b5d0abcf49d1
   VITE_AZURE_HOME_TENANT_ID:       52188f12-db6b-46c6-88ff-08c802f0ed3b
-  # Activation after the app registration becomes multitenant: change only this to `common`.
-  VITE_AZURE_AUTHORITY_TENANT_ID:  52188f12-db6b-46c6-88ff-08c802f0ed3b
+  VITE_AZURE_AUTHORITY_TENANT_ID:  common
 
   # Tabloom integration (read-only notebook). Workshop's frontend acquires
   # a token for Tabloom's API scope and calls Tabloom directly.
