@@ -9,17 +9,26 @@ import type {
 } from '../types/project';
 
 const BASE = '/api';
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HOME_TENANT_ID = import.meta.env.VITE_AZURE_HOME_TENANT_ID
+  || import.meta.env.VITE_AZURE_TENANT_ID
+  || '';
 
 const DEMO_WRITE_MSG = "You're in demo mode — sign in with Microsoft to save changes.";
 
 let msal: IPublicClientApplication | null = null;
 export function setMsalInstance(instance: IPublicClientApplication) { msal = instance; }
 
-// The signed-in user's Azure AD OID (MSAL exposes it as localAccountId). Used to
-// scope auth-exempt `<img>` requests to the caller's own isolated database.
-function currentOid(): string | null {
+// Match the backend's home-preserving tenant namespace for auth-exempt images.
+function currentUserKey(): string | null {
   const account = msal?.getActiveAccount() ?? msal?.getAllAccounts()[0] ?? null;
-  return account?.localAccountId ?? null;
+  const oidClaim = account?.idTokenClaims?.oid;
+  const oid = typeof oidClaim === 'string' ? oidClaim : (account?.localAccountId ?? '');
+  const tid = account?.tenantId ?? '';
+  if (!GUID_RE.test(oid) || !GUID_RE.test(tid) || !GUID_RE.test(HOME_TENANT_ID)) return null;
+  return tid.toLowerCase() === HOME_TENANT_ID.toLowerCase()
+    ? oid.toLowerCase()
+    : `${tid.toLowerCase()}_${oid.toLowerCase()}`;
 }
 
 // Throw (and toast) if a write is attempted in demo mode — call before any
@@ -83,8 +92,10 @@ export const analyzeProjectUrl = (url: string) =>
 // ── Images ────────────────────────────────────────────────────────────────────
 
 export const imageUrl = (id: number) => {
-  const oid = currentOid();
-  return oid ? `${BASE}/images/${id}?oid=${oid}` : `${BASE}/images/${id}`;
+  const userKey = currentUserKey();
+  return userKey
+    ? `${BASE}/images/${id}?userKey=${encodeURIComponent(userKey)}`
+    : `${BASE}/images/${id}`;
 };
 
 export const uploadImage = async (
@@ -211,8 +222,10 @@ export const addShaperCutItem = (shaperProjectId: number, item: Partial<CutListI
 // ── Build log ─────────────────────────────────────────────────────────────────
 
 export const buildLogImageUrl = (entryId: number) => {
-  const oid = currentOid();
-  return oid ? `${BASE}/build-log/${entryId}/image?oid=${oid}` : `${BASE}/build-log/${entryId}/image`;
+  const userKey = currentUserKey();
+  return userKey
+    ? `${BASE}/build-log/${entryId}/image?userKey=${encodeURIComponent(userKey)}`
+    : `${BASE}/build-log/${entryId}/image`;
 };
 
 export const addBuildLogEntry = async (

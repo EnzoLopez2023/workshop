@@ -4,7 +4,9 @@ services:
       context: .
       args:
         VITE_AZURE_CLIENT_ID: ${VITE_AZURE_CLIENT_ID}
-        VITE_AZURE_TENANT_ID: ${VITE_AZURE_TENANT_ID}
+        VITE_AZURE_AUTHORITY_TENANT_ID: ${VITE_AZURE_AUTHORITY_TENANT_ID}
+        VITE_AZURE_HOME_TENANT_ID: ${VITE_AZURE_HOME_TENANT_ID}
+        VITE_AZURE_TENANT_ID: ${VITE_AZURE_TENANT_ID:-}
         VITE_SHOPKEEP_URL: ${VITE_SHOPKEEP_URL:-}
     container_name: workshop
     ports:
@@ -17,7 +19,7 @@ services:
       PORT: 3006
       DB_PATH: /data/workshop.db
       UPLOADS_PATH: /data/uploads
-      AZURE_TENANT_ID: ${AZURE_TENANT_ID}
+      AZURE_HOME_TENANT_ID: ${AZURE_HOME_TENANT_ID}
       API_AUDIENCE: ${API_AUDIENCE}
       ALLOWED_OID: ${ALLOWED_OID}
     restart: unless-stopped

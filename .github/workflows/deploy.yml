@@ -35,8 +35,10 @@ env:
   AZURE_SUBSCRIPTION_ID: 1cf02211-8d77-4658-bb6a-0f83ec831c3b
 
   # Vite build-time Entra IDs — baked into the frontend bundle.
-  VITE_AZURE_CLIENT_ID: 0f303f8f-207f-4b7f-84a5-b5d0abcf49d1
-  VITE_AZURE_TENANT_ID: 52188f12-db6b-46c6-88ff-08c802f0ed3b
+  VITE_AZURE_CLIENT_ID:            0f303f8f-207f-4b7f-84a5-b5d0abcf49d1
+  VITE_AZURE_HOME_TENANT_ID:       52188f12-db6b-46c6-88ff-08c802f0ed3b
+  # Activation after the app registration becomes multitenant: change only this to `common`.
+  VITE_AZURE_AUTHORITY_TENANT_ID:  52188f12-db6b-46c6-88ff-08c802f0ed3b
 
   # Tabloom integration (read-only notebook). Workshop's frontend acquires
   # a token for Tabloom's API scope and calls Tabloom directly.
@@ -66,7 +68,8 @@ jobs:
             --registry "$ACR" \
             --image "$IMAGE" \
             --build-arg "VITE_AZURE_CLIENT_ID=$VITE_AZURE_CLIENT_ID" \
-            --build-arg "VITE_AZURE_TENANT_ID=$VITE_AZURE_TENANT_ID" \
+            --build-arg "VITE_AZURE_AUTHORITY_TENANT_ID=$VITE_AZURE_AUTHORITY_TENANT_ID" \
+            --build-arg "VITE_AZURE_HOME_TENANT_ID=$VITE_AZURE_HOME_TENANT_ID" \
             --build-arg "VITE_TABLOOM_API_BASE_URL=$VITE_TABLOOM_API_BASE_URL" \
             --build-arg "VITE_TABLOOM_CLIENT_ID=$VITE_TABLOOM_CLIENT_ID" \
             .

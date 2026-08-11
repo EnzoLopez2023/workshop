@@ -17,8 +17,8 @@ import {
 import multer from 'multer';
 import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
-import { jwtVerify, createRemoteJWKSet, importPKCS8, SignJWT } from 'jose';
-import rateLimit from 'express-rate-limit';
+import { jwtVerify, createLocalJWKSet, createRemoteJWKSet, importPKCS8, SignJWT } from 'jose';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { fileTypeFromFile } from 'file-type';
 
 dotenv.config();
@@ -32,29 +32,30 @@ const UPLOADS_PATH = process.env.UPLOADS_PATH ?? join(__dirname, 'uploads');
 
 mkdirSync(UPLOADS_PATH, { recursive: true });
 
-// ── Database (per-user, isolated by MSAL OID) ─────────────────────────────────
+// ── Database (per-user, isolated by identity key) ──────────────────────────────
 //
-// Each Microsoft user gets their own SQLite file at USERS_DIR/<oid>.db, created
-// lazily on first request and seeded from a starter snapshot. There is no shared
-// global connection — every request resolves its own { db, stmts } via getUserDb
-// (see the auth middleware). initSchema/buildStmts are factories run per file.
+// Each user gets their own SQLite file at USERS_DIR/<userKey>.db, created lazily
+// on first request. There is no shared global connection — every request resolves
+// its own { db, stmts } via getUserDb (see the auth middleware).
 
 const DATA_DIR     = dirname(DB_PATH);
 const USERS_DIR    = process.env.USERS_DIR    ?? join(DATA_DIR, 'users');
 const SEED_DB_PATH = process.env.SEED_DB_PATH ?? join(DATA_DIR, 'workshop-seed.db');
-// The legacy single-user DB (DB_PATH) becomes the primary user's own workspace;
-// its pre-migration contents seed every other user and demo mode. ALLOWED_OID —
-// formerly the single-user gate — now only identifies that primary user.
-const PRIMARY_USER_OID = process.env.ALLOWED_OID || '';
+// The legacy single-user DB (DB_PATH) becomes the primary user's own workspace.
+// Its snapshot backs demo mode only. ALLOWED_OID — formerly the single-user gate
+// — now only identifies that primary user.
+const PRIMARY_USER_OID = (process.env.ALLOWED_OID || '').toLowerCase();
 const OID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Per-user DB filenames are keyed by identity. Microsoft users keep their raw
-// Entra `oid` (a GUID). Apple users are keyed `apple_<sha256(sub)>` — the raw
-// Apple subject is hashed so the filename is fixed-length/charset-safe and never
-// lands on disk. USER_KEY_RE accepts either form and is the sole filename
-// validator (also blocks path traversal); getUserDb/resolveReadDb gate on it.
+// Home-tenant Microsoft users keep their existing raw `oid` path. Every other
+// tenant is namespaced as `<tid>_<oid>` so equal object IDs in different tenants
+// cannot collide. Apple keys remain unchanged.
 const APPLE_KEY_RE = /^apple_[0-9a-f]{64}$/;
-const USER_KEY_RE  = new RegExp(`^(?:${OID_RE.source.slice(1, -1)}|${APPLE_KEY_RE.source.slice(1, -1)})$`, 'i');
+const ENTRA_KEY_RE = new RegExp(
+  `^(?:${OID_RE.source.slice(1, -1)}|${OID_RE.source.slice(1, -1)}_${OID_RE.source.slice(1, -1)})$`,
+  'i'
+);
+const USER_KEY_RE  = new RegExp(`^(?:${ENTRA_KEY_RE.source.slice(1, -1)}|${APPLE_KEY_RE.source.slice(1, -1)})$`, 'i');
 const appleUserKey = (sub) => `apple_${createHash('sha256').update(String(sub)).digest('hex')}`;
 
 function initSchema(db, { acceptLegacySessionTokens = true } = {}) {
@@ -532,15 +533,15 @@ function ensureSeedTemplate() {
 mkdirSync(USERS_DIR, { recursive: true });
 ensureSeedTemplate();
 
-function getUserDb(oid) {
-  const cached = dbHandles.get(oid);
+function getUserDb(userKey) {
+  const cached = dbHandles.get(userKey);
   if (cached) return cached;
-  if (!USER_KEY_RE.test(oid)) throw new Error('invalid user key');
+  if (!USER_KEY_RE.test(userKey)) throw new Error('invalid user key');
 
-  const target = userDbPath(oid);
+  const target = userDbPath(userKey);
 
   if (!existsSync(target)) {
-    if (PRIMARY_USER_OID && oid === PRIMARY_USER_OID && existsSync(DB_PATH)) {
+    if (PRIMARY_USER_OID && userKey === PRIMARY_USER_OID && existsSync(DB_PATH)) {
       // Primary user (Enzo) inherits the legacy DB as their own workspace.
       renameSync(DB_PATH, target);
       for (const ext of ['-wal', '-shm']) {
@@ -555,7 +556,7 @@ function getUserDb(oid) {
     // snapshot still backs demo mode only (getDemoDb).
   }
 
-  return openUserDb(oid);
+  return openUserDb(userKey);
 }
 
 function getExistingUserDb(userKey) {
@@ -583,12 +584,12 @@ function getDemoDb() {
   return demoEntry;
 }
 
-// Auth-exempt image routes have no token: pick the user DB named by ?oid=, else
-// fall back to the demo snapshot. Returns { db, stmts } or null.
+// Auth-exempt image routes have no token: pick the user DB named by ?userKey=
+// (`?oid=` remains a legacy alias), else fall back to the demo snapshot.
 function resolveReadDb(req) {
-  const oid = String(req.query.oid ?? '');
-  if (USER_KEY_RE.test(oid) && !deletingUserKeys.has(oid)) {
-    try { return getExistingUserDb(oid) ?? getDemoDb(); }
+  const userKey = String(req.query.userKey ?? req.query.oid ?? '');
+  if (USER_KEY_RE.test(userKey) && !deletingUserKeys.has(userKey)) {
+    try { return getExistingUserDb(userKey) ?? getDemoDb(); }
     catch { return getDemoDb(); }
   }
   return getDemoDb();
@@ -974,27 +975,56 @@ const htmlToPlainText = (html) => {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-const TENANT_ID    = process.env.AZURE_TENANT_ID;
+const HOME_TENANT_ID = process.env.AZURE_HOME_TENANT_ID || process.env.AZURE_TENANT_ID;
 const API_AUDIENCE = process.env.API_AUDIENCE;
 
-if (!TENANT_ID || !API_AUDIENCE) {
-  console.error('[auth] AZURE_TENANT_ID and API_AUDIENCE must be set. Refusing to start with auth disabled.');
+if (!HOME_TENANT_ID || !API_AUDIENCE || !OID_RE.test(HOME_TENANT_ID) || !OID_RE.test(API_AUDIENCE)) {
+  console.error('[auth] AZURE_HOME_TENANT_ID (or legacy AZURE_TENANT_ID) and API_AUDIENCE must be set. Refusing to start with auth disabled.');
   process.exit(1);
 }
 
-const JWKS = createRemoteJWKSet(
-  new URL(`https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys`)
-);
-// Accept both issuer versions (v1 sts.windows.net / v2 login.microsoftonline)
-// and both audience forms (api://<clientId> or the bare clientId), matching how
-// AAD mints the token depending on the app-registration manifest and client.
-// This is what lets a *native* MSAL access token validate — the web app happened
-// to send the v2/bare-audience shape the old single-value check assumed.
-const ACCEPTED_ISSUERS = [
-  `https://login.microsoftonline.com/${TENANT_ID}/v2.0`,
-  `https://sts.windows.net/${TENANT_ID}/`,
-];
+const ENTRA_TEST_JWKS = process.env.NODE_ENV === 'test' && process.env.ENTRA_TEST_JWKS
+  ? JSON.parse(process.env.ENTRA_TEST_JWKS)
+  : null;
+const ENTRA_JWKS = ENTRA_TEST_JWKS
+  ? createLocalJWKSet(ENTRA_TEST_JWKS)
+  : createRemoteJWKSet(
+      new URL('https://login.microsoftonline.com/common/discovery/v2.0/keys')
+    );
 const ACCEPTED_AUDIENCES = [`api://${API_AUDIENCE}`, API_AUDIENCE];
+const REQUIRED_API_SCOPE = 'access_as_user';
+const normalizedHomeTenantId = HOME_TENANT_ID.toLowerCase();
+
+function entraUserKey(tid, oid) {
+  if (!OID_RE.test(tid) || !OID_RE.test(oid)) {
+    throw new Error('Token missing valid tenant or object identifier');
+  }
+  const normalizedTid = tid.toLowerCase();
+  const normalizedOid = oid.toLowerCase();
+  return normalizedTid === normalizedHomeTenantId
+    ? normalizedOid
+    : `${normalizedTid}_${normalizedOid}`;
+}
+
+function validateEntraIssuer(payload) {
+  const tid = typeof payload.tid === 'string' ? payload.tid : '';
+  if (!OID_RE.test(tid)) throw new Error('Token missing valid tid claim');
+  const normalizedTid = tid.toLowerCase();
+  const acceptedIssuers = new Set([
+    `https://login.microsoftonline.com/${normalizedTid}/v2.0`,
+    `https://sts.windows.net/${normalizedTid}/`,
+  ]);
+  if (typeof payload.iss !== 'string' || !acceptedIssuers.has(payload.iss)) {
+    throw new Error('Token issuer does not match tid claim');
+  }
+}
+
+function validateEntraScope(payload) {
+  const scopes = typeof payload.scp === 'string' ? payload.scp.split(/\s+/) : [];
+  if (!scopes.includes(REQUIRED_API_SCOPE)) {
+    throw new Error(`Token missing ${REQUIRED_API_SCOPE} scope`);
+  }
+}
 
 // ── Auth (Sign in with Apple — additive second identity) ──────────────────
 // A second, independent sign-in path that never touches the Entra path above.
@@ -1240,12 +1270,16 @@ async function userKeyFromBearer(token) {
     try { return await verifySession(token, 'access'); }
     catch { /* not one of ours — try Entra below */ }
   }
-  const { payload } = await jwtVerify(token, JWKS, {
-    issuer: ACCEPTED_ISSUERS, audience: ACCEPTED_AUDIENCES,
+  const { payload } = await jwtVerify(token, ENTRA_JWKS, {
+    audience: ACCEPTED_AUDIENCES,
+    algorithms: ['RS256'],
   });
+  validateEntraIssuer(payload);
+  validateEntraScope(payload);
+  const tid = typeof payload.tid === 'string' ? payload.tid : '';
   const oid = typeof payload.oid === 'string' ? payload.oid : '';
   if (!OID_RE.test(oid)) throw new Error('Token missing valid oid claim');
-  return oid;
+  return entraUserKey(tid, oid);
 }
 
 // Read/populate the single-row profile. `name` (from the Apple client, first
@@ -1309,16 +1343,14 @@ async function revokeAppleAccountCredential(userKey) {
 }
 
 // Verify a bearer (Entra access token OR our Apple session token) and attach the
-// resolved per-user key as req.user.oid — the DB key used downstream by
-// withUserDb/getUserDb. The name `oid` is kept for backward-compat with existing
-// handlers even though the value may now be an `apple_<hash>` key.
+// resolved per-user storage key used downstream by withUserDb/getUserDb.
 async function requireAuth(req, res, next) {
   const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? '');
   if (!m) return res.status(401).json({ error: 'missing token' });
   try {
     const userKey = await userKeyFromBearer(m[1]);
     if (!USER_KEY_RE.test(userKey)) return res.status(401).json({ error: 'invalid token' });
-    req.user = { oid: userKey };
+    req.user = { userKey };
     next();
   } catch {
     return res.status(401).json({ error: 'invalid token' });
@@ -1346,7 +1378,7 @@ function trackActiveUserRequest(userKey, res) {
 
 // Attach the caller's own isolated database to the request.
 function withUserDb(req, res, next) {
-  const userKey = req.user.oid;
+  const userKey = req.user.userKey;
   if (deletingUserKeys.has(userKey)) {
     return res.status(409).json({ error: 'account deletion in progress' });
   }
@@ -1366,7 +1398,7 @@ function withUserDb(req, res, next) {
 }
 
 // `<img src>` and `<iframe src>` cannot send Authorization headers, so image
-// fetches stay open (they resolve their DB from ?oid= / the demo snapshot).
+// fetches stay open (they resolve their DB from ?userKey= / the demo snapshot).
 // Structured data and the AI endpoints are fully gated.
 // `/health` is open so monitors and CI probes can hit it without a token.
 function isExemptPath(path) {
@@ -1481,7 +1513,7 @@ app.post('/api/auth/refresh', async (req, res) => {
 // deliberately before the general /api DB middleware so an idempotent Entra
 // retry does not recreate an empty workspace just to delete it again.
 app.delete('/api/account', requireAuth, async (req, res) => {
-  const userKey = req.user.oid;
+  const userKey = req.user.userKey;
   if (deletingUserKeys.has(userKey)) {
     return res.status(409).json({ error: 'account deletion already in progress' });
   }
@@ -1522,13 +1554,13 @@ app.use('/api', (req, res, next) => {
   return requireAuth(req, res, () => withUserDb(req, res, next));
 });
 
-// Rate limit the paid AI endpoints — keyed per user (oid), not per IP.
+// Rate limit the paid AI endpoints per tenant-aware user key, not per IP.
 const aiLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,    // 1 hour
   limit: 30,                    // 30 analyze calls / user / hour
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.user?.oid ?? req.ip,
+  keyGenerator: (req) => req.user?.userKey ?? ipKeyGenerator(req.ip),
   message: { error: 'rate limit exceeded — try again later' },
 });
 app.use(['/api/projects/analyze-url', '/api/shaper-projects/analyze-url'], aiLimiter);
@@ -2348,4 +2380,4 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
-export { app, closeAllDatabases, getUserDb, mintSession };
+export { app, closeAllDatabases, entraUserKey, getUserDb, mintSession, userKeyFromBearer };

@@ -140,7 +140,7 @@ npm install
 cp .env.example .env
 ```
 
-Open `.env` and fill in the required values (all described in the file). At minimum you need `AZURE_TENANT_ID` and `API_AUDIENCE`:
+Open `.env` and fill in the required values (all described in the file). At minimum you need:
 
 ```env
 PORT=3006
@@ -148,10 +148,14 @@ DB_PATH=./workshop.db
 
 ANTHROPIC_API_KEY=                 # optional — AI features disabled if blank
 
-AZURE_TENANT_ID=<your-tenant-id>   # required
-API_AUDIENCE=<your-app-client-id>  # required
+AZURE_HOME_TENANT_ID=<your-home-tenant-id>
+API_AUDIENCE=<your-app-client-id>
 
-ALLOWED_OID=                       # optional — restrict to your user OID only
+VITE_AZURE_AUTHORITY_TENANT_ID=<your-home-tenant-id>
+VITE_AZURE_HOME_TENANT_ID=<your-home-tenant-id>
+VITE_AZURE_CLIENT_ID=<your-app-client-id>
+
+ALLOWED_OID=                       # optional legacy-DB owner oid
 ```
 
 **3. Start both servers**
@@ -182,36 +186,36 @@ Navigate to `http://localhost:5180`. The SQLite database (`workshop.db`) and upl
 
 ## Auth setup
 
-Authentication is handled by Azure Active Directory. The backend validates every API request against an Azure AD JWT; the frontend uses MSAL to sign in and attach the token.
+Authentication is handled by Microsoft Entra ID. The frontend requests `api://<client-id>/access_as_user` and sends that access token to the API. The backend validates RS256 signatures with Microsoft's common JWKS, accepts only the configured API audience, requires `access_as_user`, and binds the issuer to the token's GUID `tid`.
 
-### Register an app in Azure AD
+### Register an app in Microsoft Entra ID
 
-1. Go to **Azure Portal → Azure Active Directory → App registrations → New registration**
+1. Go to **Azure Portal → Microsoft Entra ID → App registrations → New registration**
 2. Name it (e.g. `Workshop Dev`)
-3. Set **Redirect URI**: `http://localhost:5180` (Single-page application type)
+3. Choose **Accounts in any organizational directory and personal Microsoft accounts** and set **Redirect URI** to `http://localhost:5180` (Single-page application type)
 4. After registration, note:
-   - **Application (client) ID** → this is `API_AUDIENCE` and is used in `msalConfig.ts`
-   - **Directory (tenant) ID** → this is `AZURE_TENANT_ID`
-5. Under **Authentication**, ensure **ID tokens** and **Access tokens** are checked for the SPA platform
+   - **Application (client) ID** → `API_AUDIENCE` and `VITE_AZURE_CLIENT_ID`
+   - The original **Directory (tenant) ID** → `AZURE_HOME_TENANT_ID` and `VITE_AZURE_HOME_TENANT_ID`
+5. Under **Expose an API**, set the Application ID URI to `api://<client-id>` and add delegated scope `access_as_user`; enable it and allow user consent.
+6. In the app registration manifest, set `api.requestedAccessTokenVersion` to `2`.
+7. Under **Authentication**, ensure **Access tokens** are enabled for the SPA platform.
 
 ### Configure the frontend MSAL client
 
-Open [`src/auth/msalConfig.ts`](src/auth/msalConfig.ts) and confirm the `clientId` and `authority` match your registration:
+Set `VITE_AZURE_AUTHORITY_TENANT_ID` to the home tenant while the registration is single-tenant. After changing the registration audience, set only that value to `common`; keep `VITE_AZURE_HOME_TENANT_ID` fixed so existing users retain their data paths.
 
 ```ts
 export const msalConfig: Configuration = {
   auth: {
-    clientId: '<your-application-client-id>',
-    authority: 'https://login.microsoftonline.com/<your-tenant-id>',
+    clientId: import.meta.env.VITE_AZURE_CLIENT_ID,
+    authority: `https://login.microsoftonline.com/${import.meta.env.VITE_AZURE_AUTHORITY_TENANT_ID}`,
     redirectUri: 'http://localhost:5180',
   },
   ...
 };
 ```
 
-### Restrict access to yourself only (optional)
-
-If your Azure AD tenant has multiple users and you only want yourself to access the app, set `ALLOWED_OID` in `.env` to your user's Object ID. Decode an access token at [jwt.ms](https://jwt.ms) to find the `oid` claim.
+Home-tenant users retain the existing `<oid>.db` path. Other Entra tenants and personal Microsoft accounts use `<tid>_<oid>.db`, preventing cross-tenant object-ID collisions. `ALLOWED_OID` is only the owner key for migrating a legacy single-user database; it is not an access gate.
 
 ### Configure Sign in with Apple
 
@@ -405,7 +409,7 @@ The SQLite database and uploaded files live in a named Docker volume (`workshop-
 
 ### Environment variables in Docker
 
-Pass secrets via the `.env` file (excluded from the image by `.dockerignore`). The compose file forwards `AZURE_TENANT_ID`, `API_AUDIENCE`, `ALLOWED_OID`, and `ANTHROPIC_API_KEY` explicitly.
+Pass secrets via the `.env` file (excluded from the image by `.dockerignore`). The compose file forwards `AZURE_HOME_TENANT_ID`, `API_AUDIENCE`, `ALLOWED_OID`, and `ANTHROPIC_API_KEY` explicitly.
 
 ---
 
