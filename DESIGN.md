@@ -1,351 +1,393 @@
 ---
-name: The Workshop
-description: A woodworking shop record read like a Solari departure board.
+name: Workshop
+description: A browser-native living plan table that keeps the active woodworking project and its next useful move in view.
 colors:
-  concourse: "#DDE3E0"
-  flap: "#F7F9F6"
-  flap-shade: "#E5EAE6"
-  ink: "#14181A"
-  muted: "#59686A"
-  line: "#C0CAC6"
-  steel: "#2B3238"
-  steel-dark: "#1A2025"
-  steel-light: "#47535B"
-  on-steel: "#EDF1EE"
-  amber: "#8A4F00"
-  amber-fill: "#FFB400"
-  amber-deep: "#C77800"
-  green: "#2E7148"
-  green-fill: "#46A46A"
-  red: "#B3271F"
-  red-fill: "#D3392F"
-  flap-face: "#2E363B"
-  flap-face-lo: "#232A2E"
-  flap-letter: "#F2F4F1"
+  canvas: "light-dark(#EEF4F2, #0C1513)"
+  recessed: "light-dark(#E0EBE7, #12201D)"
+  surface: "light-dark(#FAFCFB, #182823)"
+  glass: "light-dark(rgb(250 252 251 / 0.78), rgb(24 40 35 / 0.78))"
+  glass-strong: "light-dark(rgb(250 252 251 / 0.92), rgb(24 40 35 / 0.94))"
+  ink: "light-dark(#15332E, #F3F8F6)"
+  muted: "light-dark(#58716B, #9CB2AC)"
+  divider: "light-dark(#C9DAD5, #2A423C)"
+  divider-strong: "light-dark(#AFC7C0, #3C5A52)"
+  navigation: "light-dark(#E7F0ED, #172923)"
+  navigation-deep: "light-dark(#15332E, #09110F)"
+  on-navigation: "light-dark(#15332E, #F3F8F6)"
+  action: "light-dark(#125447, #68C7B0)"
+  action-hover: "light-dark(#0D4137, #8AD8C5)"
+  action-fill: "light-dark(#1E7666, #2A927E)"
+  on-action: "light-dark(#F7FCFA, #07120F)"
+  annotation: "light-dark(#356D85, #7AB9D3)"
+  annotation-strong: "light-dark(#29566A, #A0D0E2)"
+  annotation-fill: "light-dark(#477F97, #5B9DB8)"
+  next-action: "light-dark(#995D08, #F3C56E)"
+  next-action-fill: "light-dark(#D99724, #DFA54A)"
+  next-action-hover: "light-dark(#BF7B16, #EDBC62)"
+  on-next-action: "light-dark(#2A1B04, #231604)"
+  success: "light-dark(#2F7657, #76CFA5)"
+  success-fill: "light-dark(#3F936D, #4DAE81)"
+  warning: "light-dark(#995D08, #F3C56E)"
+  warning-fill: "light-dark(#D99724, #DFA54A)"
+  danger: "light-dark(#A64139, #F28A80)"
+  danger-fill: "light-dark(#C75A50, #D86C62)"
+  on-danger: "light-dark(#FFF8F7, #1D0705)"
+  spruce-annotation: "light-dark(#176B5B, #68C7B0)"
+  spruce-action: "light-dark(#125447, #8AD8C5)"
+  spruce-fill: "light-dark(#1E7666, #2A927E)"
+  clay-annotation: "light-dark(#96513E, #E9A08A)"
+  clay-action: "light-dark(#743D2F, #F0B6A5)"
+  clay-fill: "light-dark(#A95F49, #C97C65)"
+  moss-annotation: "light-dark(#557A43, #9BCB82)"
+  moss-action: "light-dark(#3F5E32, #B5DEA0)"
+  moss-fill: "light-dark(#668E50, #79A962)"
+  pencil-blue-annotation: "light-dark(#356D85, #7AB9D3)"
+  pencil-blue-action: "light-dark(#29566A, #A0D0E2)"
+  pencil-blue-fill: "light-dark(#477F97, #5B9DB8)"
+  iris-annotation: "light-dark(#66568E, #B5A4DE)"
+  iris-action: "light-dark(#4D416D, #CFC3EB)"
+  iris-fill: "light-dark(#7868A2, #9281BD)"
 typography:
   display:
-    fontFamily: "Martian Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
-    fontSize: "clamp(1.45rem, 3.2vw, 2rem)"
+    fontFamily: "ui-rounded, SF Pro Rounded, Arial Rounded MT Bold, -apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
+    fontSize: "clamp(1.7rem, 4vw, 2.25rem)"
     fontWeight: 700
-    lineHeight: 1.08
-    letterSpacing: "-0.005em"
-  board-caps:
-    fontFamily: "Martian Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
-    fontSize: "0.66rem"
-    fontWeight: 600
-    lineHeight: 1.1
-    letterSpacing: "0.06em"
-  rail:
-    fontFamily: "Martian Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
-    fontSize: "0.66rem"
-    fontWeight: 600
-    lineHeight: 1.2
-    letterSpacing: "0.11em"
-  readout:
-    fontFamily: "Martian Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
+    lineHeight: 1.16
+    letterSpacing: "-0.025em"
+  hero:
+    fontFamily: "ui-rounded, SF Pro Rounded, Arial Rounded MT Bold, -apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
+    fontSize: "clamp(1.55rem, 5vw, 2.35rem)"
+    fontWeight: 700
+    lineHeight: 1.16
+    letterSpacing: "-0.025em"
+  headline:
+    fontFamily: "ui-rounded, SF Pro Rounded, Arial Rounded MT Bold, -apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
+    fontSize: "1.22rem"
+    fontWeight: 700
+    lineHeight: 1.16
+    letterSpacing: "-0.025em"
+  title:
+    fontFamily: "ui-rounded, SF Pro Rounded, Arial Rounded MT Bold, -apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
     fontSize: "1rem"
-    fontWeight: 600
-    lineHeight: 1.2
-    letterSpacing: "-0.01em"
+    fontWeight: 720
+    lineHeight: 1.16
+    letterSpacing: "-0.015em"
   body:
-    fontFamily: "Archivo, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: "0.95rem"
+    fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
+    fontSize: "1rem"
     fontWeight: 400
-    lineHeight: 1.55
+    lineHeight: 1.5
+    letterSpacing: "normal"
+  supporting:
+    fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
+    fontSize: "0.88rem"
+    fontWeight: 400
+    lineHeight: 1.5
+    letterSpacing: "normal"
+  action:
+    fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
+    fontSize: "1rem"
+    fontWeight: 680
+    lineHeight: 1.1
     letterSpacing: "normal"
   label:
-    fontFamily: "Martian Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
-    fontSize: "0.62rem"
-    fontWeight: 600
-    lineHeight: 1.3
-    letterSpacing: "0.13em"
+    fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
+    fontSize: "0.76rem"
+    fontWeight: 650
+    lineHeight: 1.5
+    letterSpacing: "0.015em"
 rounded:
-  flap: "2px"
-  panel: "3px"
+  compact: "10px"
+  default: "14px"
+  hero: "24px"
+  capsule: "999px"
 spacing:
-  xs: "6px"
-  sm: "10px"
-  md: "16px"
-  lg: "26px"
-  xl: "40px"
+  space-1: "4px"
+  space-2: "8px"
+  space-3: "12px"
+  space-4: "16px"
+  space-5: "20px"
+  space-6: "28px"
+  space-7: "36px"
+  space-8: "48px"
 components:
   button-primary:
-    backgroundColor: "{colors.amber-fill}"
-    textColor: "{colors.ink}"
-    typography: "{typography.board-caps}"
-    rounded: "{rounded.flap}"
-    padding: "9px 14px"
-    height: "36px"
+    backgroundColor: "{colors.action}"
+    textColor: "{colors.on-action}"
+    typography: "{typography.action}"
+    rounded: "{rounded.default}"
+    padding: "10px 15px"
+    height: "44px"
   button-primary-hover:
-    backgroundColor: "{colors.amber-deep}"
-    textColor: "#FFF6E4"
+    backgroundColor: "{colors.action-hover}"
+    textColor: "{colors.on-action}"
+  button-next:
+    backgroundColor: "{colors.next-action-fill}"
+    textColor: "{colors.on-next-action}"
+    typography: "{typography.action}"
+    rounded: "{rounded.default}"
+    padding: "10px 15px"
+    height: "44px"
+  button-secondary:
+    backgroundColor: "{colors.recessed}"
+    textColor: "{colors.ink}"
+    typography: "{typography.action}"
+    rounded: "{rounded.default}"
+    padding: "10px 15px"
+    height: "44px"
   button-ghost:
     backgroundColor: "transparent"
-    textColor: "{colors.ink}"
-    typography: "{typography.board-caps}"
-    rounded: "{rounded.flap}"
-    padding: "9px 14px"
-    height: "36px"
-  button-ghost-hover:
-    backgroundColor: "{colors.flap-shade}"
-  rail:
-    backgroundColor: "{colors.steel}"
-    textColor: "{colors.on-steel}"
-    typography: "{typography.rail}"
-    padding: "9px 14px"
-  card:
-    backgroundColor: "{colors.flap}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.panel}"
-    padding: "20px"
-  flapcell:
-    backgroundColor: "{colors.flap-face}"
-    textColor: "{colors.flap-letter}"
-    typography: "{typography.readout}"
-    rounded: "{rounded.flap}"
-    padding: "0"
-  flag-amber:
-    backgroundColor: "{colors.amber-fill}"
-    textColor: "{colors.ink}"
-    typography: "{typography.label}"
-    rounded: "{rounded.flap}"
-    padding: "4px 8px"
-  flag-green:
-    backgroundColor: "{colors.green-fill}"
-    textColor: "#08150D"
-    typography: "{typography.label}"
-    rounded: "{rounded.flap}"
-    padding: "4px 8px"
-  flag-idle:
-    backgroundColor: "{colors.flap-shade}"
-    textColor: "{colors.muted}"
-    typography: "{typography.label}"
-    rounded: "{rounded.flap}"
-    padding: "4px 8px"
-  chip:
-    backgroundColor: "{colors.flap-shade}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.flap}"
-    padding: "5px 9px"
+    textColor: "{colors.action}"
+    typography: "{typography.action}"
+    rounded: "{rounded.default}"
+    padding: "10px 15px"
+    height: "44px"
+  button-danger:
+    backgroundColor: "{colors.danger}"
+    textColor: "{colors.on-danger}"
+    typography: "{typography.action}"
+    rounded: "{rounded.default}"
+    padding: "10px 15px"
+    height: "44px"
   input:
-    backgroundColor: "{colors.flap}"
+    backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
     typography: "{typography.body}"
-    rounded: "{rounded.flap}"
+    rounded: "{rounded.default}"
     padding: "10px 12px"
+    height: "44px"
+  card:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.default}"
+  status-capsule:
+    backgroundColor: "{colors.recessed}"
+    textColor: "{colors.muted}"
+    typography: "{typography.label}"
+    rounded: "{rounded.capsule}"
+    padding: "5px 10px"
+    height: "30px"
+  navigation-item:
+    backgroundColor: "transparent"
+    textColor: "{colors.muted}"
+    typography: "{typography.supporting}"
+    rounded: "{rounded.default}"
+    padding: "10px 12px"
+    height: "46px"
+  active-project:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.hero}"
 ---
 
-# The Workshop — Design System
+# Design System: Workshop
 
 ## Overview
 
-**Concourse Board.** The Workshop reads a shop the way a traveller reads a Solari
-departure board: what's moving, what's queued, what's done, all legible from across
-the room. Every project is a row that flips into its new state. The board's own
-anatomy — the split line across a flap, the cell divider, the brushed steel frame,
-the rivet — *is* the layout. It is not applied decoration.
+**Creative North Star: "The Living Plan Table"**
 
-The world ships in two renditions. **Light** is a lit terminal hall: cool grey-green
-concourse, bone flap faces, graphite frames. **Dark** is the board's native night
-form. The two are the same object under different lighting, not two themes.
+Workshop is a cool, adaptive drafting surface for a real woodworking record. The active project's plan or photograph establishes context; a translucent tracing layer places its next useful move on top; search, filters, and the remaining library follow. Cool vellum, spruce structure, pencil-blue drafting marks, restrained amber, and a functional 24px plan grid create the shared language.
 
-One rule anchors everything: **the board must read as a board with animation
-disabled.** Split lines, cell grid, steel frames and tracked caps are structural at
-rest. The split-flap roll is a single authored moment on the dashboard readout; it is
-sugar on top of a structure that already tells the story.
+This is an Operate system and the web is the interaction authority. Semantic landmarks, links, durable routes, browser history, native form behavior, keyboard focus, hover as enhancement, and responsive web navigation take precedence over simulating iOS chrome or gestures. The iOS artifact confirms the shared material language, but `src/index.css` and the shipped React components own web values and behavior. Direction lineage: seed `ef48c050`.
 
-This world is a deliberate replacement for a warm-paper / editorial-serif /
-terracotta arrangement. Cream grounds, rust accents, Playfair Display, italic accent
-phrases, emoji icons, sparkle "AI" affordances and 999px pills are **retired
-permanently** — see PRODUCT.md. Do not reintroduce them.
+The former **Concourse Board** is retired. Condensed board lettering, split-flap seams, steel rails, rivets, tiny radii, and aggregate metric walls have no authority even where compatibility aliases or stale comments retain old names.
+
+**Key Characteristics:**
+
+- Cool adaptive vellum surfaces with deep spruce structural ink.
+- A 24px drafting grid used as a functional plan surface, not generic page decoration.
+- System UI type for reading and controls; an SF Rounded-like system stack for focal titles and compact data.
+- A 14px default radius, 10px compact wells, 24px hero layers, and capsules only for compact state.
+- Functional glass for shell/navigation, sticky tools and selection, and the active tracing layer.
+- One active project and one amber next action lead before search and library content.
+- Light, dark, reduced-motion, reduced-transparency, forced-colors, touch, and print behavior are part of the system.
+
+**The Shipped Artifact Rule.** Compatibility aliases and old component vocabulary carry no visual authority. They must resolve to the current semantic system; in particular, the legacy `--color-steel` alias resolves to `--color-action` so preserved Layer 1 controls retain contrast. New work consumes semantic tokens directly.
 
 ## Colors
 
-| Token | Light | Dark | Role |
-|---|---|---|---|
-| `concourse` | `#DDE3E0` | `#0C0F10` | Page ground — the hall the boards hang in |
-| `flap` | `#F7F9F6` | `#171B1D` | Card surface — a flap face |
-| `flap-shade` | `#E5EAE6` | `#101415` | Recessed fill, hover state, the shaded lower half of a flap |
-| `ink` | `#14181A` | `#EFF2ED` | Primary lettering |
-| `muted` | `#59686A` | `#8B9794` | Secondary lettering, labels |
-| `line` | `#C0CAC6` | `#2C3335` | Cell divider — always 1px |
-| `steel` | `#2B3238` | `#39434A` | Rail, header band, frame |
-| `steel-dark` | `#1A2025` | `#232B30` | Frame edge, board border |
-| `steel-light` | `#47535B` | `#566269` | Top-lit edge of a steel band |
-| `on-steel` | `#EDF1EE` | `#EDF1EE` | Lettering that sits on steel — same in both renditions |
+The palette is semantic and adaptive: light and dark values are paired by role, while user settings may replace only the annotation axis.
 
-**Signals.** Each signal is a pair: a `-fill` (the lamp itself) and a plain token (that
-same signal made legible as text on the current ground).
+### Primary
 
-| Signal | Fill | Light ink | Dark ink | Means |
-|---|---|---|---|---|
-| Amber | `#FFB400` | `#8A4F00` | `#FFC24D` | Active, in progress, the one available action |
-| Green | `#46A46A` | `#2E7148` | `#6BC48D` | Complete, purchased, confirmed, money |
-| Red | `#D3392F` | `#B3271F` | `#F0736A` | Cancelled, destructive, failed |
+- **Deep Spruce Structure:** `action`, `action-hover`, `action-fill`, and their on-color carry primary navigation, ordinary primary actions, selected destinations, and structural emphasis.
+- **Adaptive Annotation:** `annotation`, `annotation-strong`, and `annotation-fill` carry links, focus, selected filters, counts, and progress. The stylesheet fallback is Pencil Blue; `SettingsContext` reapplies the saved preset after hydration and whenever `data-theme` changes.
 
-**Flap modules are graphite in both renditions.** `flap-face #2E363B`,
-`flap-face-lo #232A2E`, `flap-letter #F2F4F1`. A real Solari module is dark with light
-lettering whether the hall is lit or not. Signal lettering inside a module brightens
-to `#FFB400` / `#6BC48D` / `#F0736A`.
+### Secondary
 
-**Amber is scarce by design.** It marks the single primary action in a view, the
-current route lamp in the header, and in-progress status. It is never a decorative
-tint, never a whole table column, never two solid buttons competing in one band.
+- **Pencil Blue:** `pencil-blue-*` is the drafting-note family and the fixed browser selection color. It is also the pre-provider fallback for the annotation custom properties.
+- **Annotation Presets:** Spruce, Clay, Moss, Pencil Blue, and Iris each provide annotation, action, and fill values. The persisted default key remains the legacy string `amber`, but its shipped label and values are Spruce.
 
-**The signal lamp is user-selectable.** Settings → Signal Lamp swaps the accent
-across the app (Amber, Signal, Platform, Beacon, Violet). `SettingsContext` writes
-`--color-amber` / `--color-amber-deep` / `--color-amber-fill` inline on `:root` and
-re-applies on every `data-theme` change, because the ink differs between renditions.
+### Tertiary
+
+- **Restrained Amber:** `next-action`, `next-action-fill`, and `next-action-hover` belong to the active project's single next-action control. `warning` deliberately shares the same literal family but remains a separate semantic role.
+- **Success / Warning / Danger:** State always combines color with text, iconography, or control semantics. Success, warning, and danger do not inherit the user-selectable annotation preset.
+
+### Neutral
+
+- **Cool Vellum Canvas:** `canvas` is the page ground; `recessed` forms wells and quiet selected areas; `surface` is the opaque raised sheet.
+- **Functional Glass:** `glass` and `glass-strong` are translucent variants of the raised sheet, not general-purpose card fills.
+- **Ink and Dividers:** `ink` is primary content; `muted` is secondary explanation; `divider` and `divider-strong` provide adaptive 1px structure.
+- **Navigation Material:** `navigation`, `navigation-deep`, and `on-navigation` support persistent shell chrome and the hammer mark.
+
+`@theme` exposes the core roles to Tailwind, but the complete runtime source is the semantic custom-property set on `:root` and `:root[data-theme="dark"]`. The old `concourse`, `flap`, `steel`, and `amber` custom properties are migration aliases only. `--color-steel` deliberately resolves to `--color-action` so preserved Layer 1 checkboxes, selected controls, and Shaper identifiers remain contrast-safe until migration; this alias does not reinstate steel as a material or semantic role.
+
+### Named Rules
+
+**The Semantic Role Rule.** Components consume semantic custom properties; they do not embed a light-only hex or infer meaning from a compatibility token's old name.
+
+**The Amber Next Action Rule.** Amber marks the active project's next useful move and warning state. It is not the primary brand wash, navigation accent, or general annotation color.
+
+**The Adaptive Annotation Rule.** A preset may replace annotation, annotation-strong, and annotation-fill together; it may not recolor vellum, fixed spruce structure, amber next action, success, or danger.
 
 ## Typography
 
-Two faces, no third.
+**Display Font:** `ui-rounded`, SF Pro Rounded, Arial Rounded MT Bold, then the system UI stack
 
-- **Martian Mono** (`--font-board`) — every piece of board lettering: headings,
-  labels, rails, buttons, chips, status flags, and all numeric readouts. Always
-  uppercase in that role. Width is set with `font-stretch: 76–88%` (the `@font-face`
-  declares a stretch range; **never** use `font-variation-settings: 'wdth' N`).
-- **Archivo** (`--font-ui`) — body prose, descriptions, form help. Sentence case,
-  normal width, `max-width: 68ch` via `.measure`.
+**Body Font:** `-apple-system`, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif
 
-**Zero serif, zero italic.** No accent phrase is ever set in italic. The stamped plate
-at the foot of a page (`.board-plate`) is tracked caps, not a cursive flourish.
+**Label/Mono Font:** The same system stacks; numeric readouts use tabular figures rather than a separate mono face
 
-Numbers use `font-variant-numeric: tabular-nums` everywhere (`.readout`, `tbody td`).
-Counts on a rail are zero-padded to two digits (`06`, not `6`) — a board never shows
-a bare digit.
+**Character:** Rounded system type makes project names, section headings, values, and focal actions approachable without reviving a branded display face. Default system UI keeps prose, forms, navigation, and controls familiar and browser-native.
 
-Key classes: `.board-caps` (labels, chips, buttons), `.readout` (values), `.rail`
-(steel headings), `.label-caps` (form field labels), `.page-title`, `.measure`.
+### Hierarchy
+
+- **Display** (700, `clamp(1.7rem, 4vw, 2.25rem)`, 1.16): Route titles; the inherited heading tracking is `-0.025em`.
+- **Hero** (700, `clamp(1.55rem, 5vw, 2.35rem)`, 1.16): The active project title over media.
+- **Headline** (700, `1.22rem`, 1.16): The next useful action inside the tracing layer.
+- **Title / Rail** (720, `1rem`, compact leading): Section rails and card titles; rails tighten tracking to `-0.015em`.
+- **Body** (400, `1rem`, 1.5): Default reading and native controls. Long copy is constrained with 68–70ch measures.
+- **Supporting** (400, `0.84–0.92rem`, 1.5): Page descriptions, card summaries, command items, and active-layer explanation.
+- **Label** (650–700, `0.62–0.78rem`): Metadata, status, filters, table heads, mobile navigation, and stage names. The shared label class is `0.76rem` with `0.015em` tracking.
+- **Readout:** Rounded system type with `font-variant-numeric: tabular-nums`; shipped card values are `0.78rem`, active metadata is `0.9rem`, and larger statistics reach `1.25rem`.
+
+The root remains `1rem` (16px at browser default). The large-text setting raises the root to `106.25%`, allowing rem-based sizes to scale together.
+
+### Named Rules
+
+**The System Pairing Rule.** Use the rounded stack for focal names, rails, and compact data; use the default system stack for reading, forms, and browser controls.
+
+**The No Board Face Rule.** Do not restore Martian Mono, condensed widths, all-caps board lettering, split-flap readouts, or a third display family.
+
+**The Tabular Data Rule.** Measurements, quantities, hours, and money use tabular figures without changing the surrounding text to monospace.
 
 ## Layout
 
-- **Page column.** `.page-container` — routes narrow it further inline (680px for
-  Settings, 780px for lists, 820–900px for forms and details).
-- **The hall.** `PageBackground` paints an authored CSS cell grid — never photography.
-  Route changes shift the board horizontally; the chrome persists, the content inside
-  the frame changes. This is the committed staging: a *carried object*.
-- **Page head.** `.page-head` — title in board caps over a 2-tone rule (1px steel with
-  a 1px light lip 3px below, mimicking a flap seam). Actions sit right in
-  `.page-head-actions`. The dashboard has no page title at all: it opens straight onto
-  `SHOP BOARD`, which is the strongest possible statement of the world.
-- **Boards.** `.board` = 1px `steel-dark` frame + `.rail` header + rows divided by 1px
-  `line`. **The rail is the heading** — there are no eyebrows or kickers above
-  headings anywhere in this system.
-- **Breakpoints.** 900px (grid collapse), 760px (header wraps to two rows, board rows
-  stack, `.depart-foot` compresses), 520px (single column).
-- **Mobile.** The shop-in-hand case is real: cut lists get horizontal scroll
-  (`.table-scroll`), touch targets stay ≥36px, board rows reflow to stacked with the
-  trailing icon pinned.
+The app sits on a fixed, inaccessible plan field: a cool diagonal vellum gradient plus an orthogonal 24px grid that fades toward the bottom. The grid repeats inside the no-photo active-plan fallback. This detector-visible grid is intentional drafting infrastructure; do not suppress it as generic background decoration.
+
+The primary page column is `min(100%, 1200px)`, centered with 16px mobile insets and `28px 16px 72px` padding. At desktop it becomes `38px 32px 80px`; detail routes cap at 900px. The default spacing scale is 4, 8, 12, 16, 20, 28, 36, and 48px, with 16px library gaps and 28–46px separation between major groups.
+
+The active project is the first substantial layer after the page switcher. Below a 680px page container it stacks a minimum 270px photo/plan over the next-action sheet. At 680px and above it becomes a two-column layer with a minimum 430px hero; the action sheet occupies at least 300px / 38%, overlaps the media by 34px, and keeps a 24px inset. Library cards use an adaptive 280px minimum; templates use 240px.
+
+Mobile uses a fixed utility header (`60px` plus top safe area), five-destination bottom navigation (`66px` plus bottom safe area), 44px icon controls, and content clearance of 64px above and 72px below. At 768px the compact shell becomes a persistent 256px sidebar; at 1040px it widens to 272px. A 420px breakpoint reduces page insets to 12px. Container thresholds at 620px and 680px adapt tools and the active project without tying layout to device orientation.
+
+**The Active Layer Rule.** The active project and next useful move lead. Search, filters, aggregate counts, templates, and inspiration follow rather than competing above it.
+
+**The Browser Shell Rule.** Use semantic links, buttons, landmarks, routes, browser history, and safe-area-aware responsive navigation. Share visual language with iOS without copying native bars, gestures, or navigation behavior.
+
+**The Touch-First Control Rule.** Interactive targets remain at least 44×44px; horizontal filter and table overflow scrolls rather than shrinking controls below that floor.
 
 ## Elevation & Depth
 
-Depth comes from **material**, not from blur stacks.
+Depth is a restrained hybrid of tonal layering, 1px adaptive borders, soft vertical shadows, and blur only where a translucent layer has a functional reason to exist.
 
-- `--steel-face` is a two-layer background: a 1px repeating vertical grain over a
-  top-lit `steel-light → steel → steel-dark` gradient. Every rail, header band and
-  table head wears it.
-- `--shadow-steel` — `inset 0 1px 0 rgba(255,255,255,0.14), 0 1px 0 rgba(20,24,26,0.22)`.
-  A lit top edge and a hard bottom lip: steel catching light, not a soft glow.
-- `--shadow-card` / `--shadow-card-hover` — a 1px hard offset plus a tight, tightly
-  clipped ambient. Cards sit *on* the board, they do not float above it.
-- **The seam** (`.flap-seam::after`) — a 1px `--color-split` line across the vertical
-  centre with a `--color-split-lip` highlight below it. This is the single most
-  identifying mark in the system. Flap cells, status flags and readouts carry it.
-- **Rivets** (`--color-rivet`) — 2px dots inset at the corners of steel bands.
+### Shadow Vocabulary
+
+- **Library Sheet:** `0 7px 14px rgb(21 51 46 / 0.1)` in light and `0 7px 14px rgb(0 0 0 / 0.28)` in dark.
+- **Library Sheet Hover / Hero:** `0 10px 22px rgb(21 51 46 / 0.14)` in light and `0 10px 22px rgb(0 0 0 / 0.38)` in dark; hover also lifts by 2px only on hover-capable devices.
+- **Tracing Layer:** `0 8px 16px rgb(21 51 46 / 0.12)` in light and `0 8px 16px rgb(0 0 0 / 0.3)` in dark.
+- **Sidebar Rail:** `0 8px 18px rgb(21 51 46 / 0.12)` in light and `0 8px 18px rgb(0 0 0 / 0.34)` in dark.
+- **Command Dialog:** `0 24px 70px rgb(5 17 14 / 0.3)` marks the modal layer.
+- **Visible Focus:** A 3px annotation outline with 3px offset plus `0 0 0 3px rgb(71 127 151 / 0.34)`.
+
+When backdrop filters are supported, shell chrome and the active tracing layer use `blur(20px) saturate(1.08)`. The command backdrop alone uses 4px blur. Reduced Transparency replaces both glass roles with opaque `surface` and removes backdrop filters.
+
+### Named Rules
+
+**The Functional Glass Rule.** Blur belongs to persistent shell/navigation, sticky tool or selection chrome, the active tracing sheet, and modal separation. Ordinary cards remain opaque raised sheets.
+
+**The One Hero Rule.** Only the active project receives 24px clipping and hero depth. Ordinary project and template cards use the 14px default.
+
+**The Hover Is Additive Rule.** Lift and hover tint may reward a pointer, but visibility, state, and required actions remain complete without hover.
 
 ## Shapes
 
-**The board cuts, it does not round.** `--r-flap: 2px` for anything flap-sized
-(buttons, chips, flags, cells, inputs, checkboxes); `--r-panel: 3px` for boards and
-cards. Nothing in this system exceeds 3px. There are no circles, no pills, no
-`border-radius: 50%` — a colour dot is a small square lamp, a close button is a cut
-square.
+The system uses soft browser geometry: 10px for compact icon wells and inner selections, 14px for ordinary controls and cards, and 24px for the singular active-project layer and command dialog. Compact state is allowed to use a 999px capsule because the pill communicates status or selection; capsules are not a general container shape.
 
-Dividers are always exactly 1px. Frames are 1px `steel-dark`. There is no such thing
-as a 3px coloured accent border on a card in this system.
+Literal exceptions in the shipped CSS are functional and local: 3px active-navigation bars, 6px checkboxes and keyboard wells, a 7px command-key well, 9px lamp glass, and circles for the account avatar and stage nodes. These are not additional radius tokens.
 
-## The mark
+Borders are normally 1px adaptive dividers. Images clip to their card or hero bounds; project photos use a 16:9 well and `object-fit: cover`.
 
-One board module in a steel frame: a `W` cut clean in two by the split line, with the
-amber lamp bar beneath. It is the whole system compressed to 180 units — steel, flap,
-seam, one amber. The `W` is not drawn over a seam; it is genuinely severed by it, the
-lower half a shade darker, so the mark states the thesis even at 16px.
+**The Fourteen-Pixel Default Rule.** Begin an ordinary control, field, card, navigation destination, or grouped selection at 14px; depart only for a documented compact well, state capsule, circle, or singular hero.
 
-It ships in two treatments and the difference is not cosmetic:
-
-| File | Treatment | Why |
-|---|---|---|
-| `public/favicon.svg`, `favicon-32x32.png`, `apple-touch-icon.png` | `rx="10"`, 1.5px white border at 0.16 | Sits on arbitrary browser chrome and needs its own edge |
-| `app-store/AppIcon.svg` → `AppIcon-1024.png` | Full bleed, square, no alpha | iOS/macOS apply their own superellipse mask; rounding it twice leaves a light fringe, and an alpha channel is rejected at submission |
-
-`app-store/` is the source of truth for the application icon across platforms and also
-carries `AppIcon-dark.svg` and `AppIcon-tinted.svg`, the iOS 18 appearance variants.
-Dark pulls the steel gradient down without touching flap, `W` or lamp. Tinted maps
-everything to value alone and forces the lamp to pure white so it stays the brightest
-element under any user tint. The renders live in the iOS asset catalog, not here.
-Changing the mark means re-rendering all of them from these sources.
+**The State Capsule Rule.** A pill must carry compact state or selection. Do not use capsules as decorative wrappers for arbitrary copy or whole content regions.
 
 ## Components
 
-**`SplitFlap`** (`src/components/SplitFlap.tsx`) — the signature. Rolls each column
-through a drum of `A–Z 0–9 . , : $ - / +`, max 5 steps at 55ms, columns staggered
-45ms apart. State lives in a `displayRef` mirror so timeout scheduling stays out of
-the state updater (React StrictMode double-invokes updaters); a per-cell `ticks`
-counter is the remount key that restarts the CSS `flap-fall` animation. The accessible
-value lives in a `.sr-only` span and the cells are `aria-hidden`. `useReducedMotion`
-and `@media (prefers-reduced-motion: reduce)` both collapse it to an instant swap.
+### Buttons
 
-**`.rail`** — steel band, tracked caps, optional `.rail-count` (amber, zero-padded)
-or `.rail-actions` (translucent-white ghost buttons that read on steel).
+- **Shape:** 14px radius, minimum 44px height, `10px 15px` padding, 680 weight, and a 0.97 pressed scale with reduced opacity.
+- **Primary:** Fixed spruce `action` with `on-action` text for ordinary creation and confirmation.
+- **Next:** Amber fill spans the tracing layer and is reserved for the active project's next action.
+- **Secondary / Ghost:** Recessed secondary controls keep a divider border; ghost controls remain transparent with spruce text.
+- **Danger:** Semantic danger fill and paired on-danger text; never inherit the annotation preset.
+- **Hover / Focus:** Hover changes only on hover-capable devices. All variants retain the global 3px `:focus-visible` treatment.
 
-**`.card` / `.depart-*`** — a project renders as a departure card: status flag
-top-right, title in tracked caps, description, then a three-column data footer of
-`label / value` cells divided by 1px rules.
+### Chips
 
-**`.pill` + `.flag-*`** — status is a signal flap, never a rounded badge:
-`flag-amber` (in progress), `flag-green` (complete), `flag-red` (cancelled),
-`flag-steel`, `flag-idle`.
+- **Status capsules:** 30px minimum height, `5px 10px` padding, 999px radius, and a text label. Idea is muted, planning is annotation, in-progress is amber, completed is success, and destructive/cancelled states are danger.
+- **Selection controls:** Segmented and filter controls use a recessed 14px group with 10px inner selections and 44px buttons. `aria-pressed` carries state.
 
-**`.flapboard` / `.flapcell`** — the dashboard readout. Graphite modules with light
-lettering and a seam, in both renditions.
+### Cards / Containers
 
-**`.lamp`** — the Settings accent picker. A square of lamp glass with an inset
-bottom-shade and top highlight, labelled beneath, `aria-pressed` for state.
+- **Project card:** Opaque surface, 14px radius, 1px divider, image-forward 16:9 media, two-line description, and a divided metadata footer with tabular values.
+- **Active project:** 24px clipped media/plan layer with a functional tracing sheet, stage track, parts/shop-time metadata, and full-width amber next-action button.
+- **Board rows:** Open list rows remain at least 56px high with 1px dividers; the `rail` above them is an open rounded-system heading, not a steel band.
+- **State panel:** A 14px dashed container with centered explanation; danger adds a light semantic tint and explanatory text.
 
-**Form controls** — `select` gets a hand-drawn 5px chevron built from two gradients
-and board-caps type; `input[type=checkbox]` is a cut flap that fills green and stamps
-a CSS check when set. No native OS control styling survives.
+### Inputs / Fields
 
-**Tables** — `thead tr` always wears `--steel-face` with `on-steel` lettering; `tbody
-td` is tabular-nums. This is global, not per-table.
+- **Style:** Native input, textarea, and select behavior inside a 44px minimum, 14px surface field with `10px 12px` padding and a 1px divider.
+- **Search:** A 48px field with a real label, leading search icon, 42px left padding, and strong glass only where it functions as toolbar/search chrome.
+- **Focus:** Annotation border plus the shared focus ring. Textarea remains vertically resizable; checkbox keeps browser behavior and uses the action fill as `accent-color`.
+- **Error / Disabled:** Errors use danger plus explanatory text. Disabled buttons retain labels and reduce opacity to 0.48.
 
-**Print** — the cut list and shopping list print as monospace manifests: steel column
-heads, hairline rules, zebra rows, a `Measure twice · Cut once` plate. System mono
-(`ui-monospace`), because web fonts are unreliable in a print window.
+### Navigation
+
+- **Wide shell:** A 256–272px frosted sidebar with 46px destinations, 14px radius, icons plus labels, persistent create actions, search shortcut, theme control, and account actions.
+- **Compact shell:** A frosted top utility bar and safe-area bottom navigation. Five labeled destinations stay visible; current state uses spruce text, a faint fill, `aria-current`, and a 3px marker.
+- **Keyboard:** Skip link, command palette, native links, visible focus, and durable routes are mandatory browser behavior.
+
+### Shared Primitives
+
+`Button`, `IconButton`, `PageFrame`, `PageHeader`, `SectionRail`, `SegmentedControl`, and `StatePanel` in `src/components/ui.tsx` are the shared React primitives. `AppShell` owns the responsive shell; `ProjectCard` and `StatusBadge` own library and semantic-state patterns; the dashboard composes the active project without inventing a second navigation model.
+
+Theme and settings persistence are part of the visual contract. The pre-paint script and `ThemeContext` read `workshop-theme`, accept only `light`, `dark`, or `system`, fall invalid values back to `system`, follow OS changes while in system mode, and write the resolved rendition to `data-theme`. `SettingsContext` reads `workshop-settings`, shallow-merges current defaults, replaces retired or unknown accent names with the legacy `amber` key that now means Spruce, reapplies the three annotation custom properties after every rendition change, and scales the root to `106.25%` for large text.
+
+Motion uses 140ms for direct state change and 200ms for card/elevation change with `cubic-bezier(0.16, 1, 0.3, 1)`. Reduced Motion collapses animation and transition durations to `0.01ms` and replaces the moving skeleton with a static recessed fill.
+
+Forced Colors maps semantic roles to system colors, hides the drafting grid, and lets native controls adjust. Print forces a white/light palette, removes shell chrome, field background, switcher, actions, and buttons, expands content to full width, removes card shadows, and avoids breaking cards/boards across pages.
 
 ## Do's and Don'ts
 
-**Do**
+### Do:
 
-- Let the rail be the heading. Add `.rail` to a `.board`; never stack a label above it.
-- Zero-pad every count and quantity shown on a board (`06`, `12H`, `$1353`).
-- Keep amber to one primary action per view, the current-route lamp, and in-progress.
-- Use `font-stretch: N%` for width; the variable fonts declare stretch ranges.
-- Reach for `.board-caps`, `.readout`, `.rail`, `.label-caps`, `.board-plate` before
-  writing a new inline type style.
-- Give every new motion a `prefers-reduced-motion` escape.
+- **Do** use the semantic light/dark custom properties and keep the runtime annotation preset adaptive.
+- **Do** keep the active plan/photo and next-action tracing layer dominant before search and library content.
+- **Do** treat the 24px drafting grid as functional plan infrastructure and hide it from accessibility and forced-color output.
+- **Do** use the system rounded stack for focal names and compact data, and the default system stack for reading and controls.
+- **Do** preserve 10px compact, 14px default, 24px hero, 44px targets, and state-only capsules.
+- **Do** keep glass functional and provide the shipped reduced-transparency fallback.
+- **Do** preserve native fields, durable links/routes, visible focus, safe areas, and print behavior.
+- **Do** keep hover enhancements behind hover-capability queries and give every motion a reduced-motion outcome.
 
-**Don't**
+### Don't:
 
-- Don't add an eyebrow, kicker, or `◆`-style ornament above a heading. Banned outright.
-- Don't round anything past 3px. No pills, no circles, no `50%`.
-- Don't introduce a serif, an italic, or a third typeface.
-- Don't reintroduce cream `#F5F0EA`, rust `#A0522D`, Playfair Display, sepia photo
-  backdrops, emoji icons, or sparkle-icon "AI" copy — those are the retired identity.
-- Don't tint a whole table column amber; amber is a signal, not a text colour.
-- Don't put a coloured `border-left` thicker than 1px on a card.
-- Don't build page structure out of a row of same-size icon + heading + text cards.
-  Use board rows.
-- Don't hardcode a hex in a component. Every colour resolves from a token; the signal
-  lamp is user-swappable and hardcoding breaks it.
+- **Don't** revive the retired Concourse Board metaphor, Martian Mono, condensed board lettering, split-flap seams, steel bands, rivets, tiny radii, or summary-metric walls.
+- **Don't** use amber as the primary brand/action wash; it belongs to the next useful move and warning semantics.
+- **Don't** let a user annotation preset recolor vellum, fixed spruce structure, success, warning, or danger.
+- **Don't** place ornamental glass behind ordinary content or stack blur layers without a shell, tool, selection, tracing, or modal purpose.
+- **Don't** use hover to reveal a required action or state.
+- **Don't** hardcode a light-only color in a component when a semantic custom property exists.
+- **Don't** simulate iOS chrome, gestures, sheets, or navigation on the web.
+- **Don't** treat legacy `flap`, `steel`, `amber`, departure-card comments, or other migration names as permission to restore the old visual world.

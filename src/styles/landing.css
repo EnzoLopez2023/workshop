@@ -272,8 +272,8 @@
 .paste-analyze {
   padding: 7px 12px;
   border-radius: var(--r-flap);
-  background: var(--color-amber-fill);
-  color: #14181A;
+  background: var(--color-action);
+  color: var(--color-on-action);
   font-family: var(--font-board);
   font-stretch: 78%;
   text-transform: uppercase;
@@ -397,7 +397,7 @@
 .landing-close-sub {
   margin: 10px 0 22px;
   font-size: 0.92rem;
-  color: rgba(237, 241, 238, 0.72);
+  color: var(--color-muted);
 }
 .landing-close-note {
   margin: 16px 0 0;
@@ -406,7 +406,7 @@
   font-size: 0.6rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: rgba(237, 241, 238, 0.5);
+  color: var(--color-muted);
 }
 
 /* ── Responsive ───────────────────────────────────────────────────────────── */

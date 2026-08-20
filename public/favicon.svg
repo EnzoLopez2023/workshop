@@ -1,34 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
-  <!-- The Workshop: one flap in a steel frame, cut across the middle,
-       with the board's amber lamp burning under it. -->
-  <defs>
-    <linearGradient id="wk-steel" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#4E5A62"/>
-      <stop offset="0.45" stop-color="#2B3238"/>
-      <stop offset="1" stop-color="#1A2025"/>
-    </linearGradient>
-    <linearGradient id="wk-flap" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#394248"/>
-      <stop offset="0.4999" stop-color="#2E363B"/>
-      <stop offset="0.5" stop-color="#242B2F"/>
-      <stop offset="1" stop-color="#1D2327"/>
-    </linearGradient>
-  </defs>
-
-  <rect width="180" height="180" rx="10" fill="url(#wk-steel)"/>
-  <rect x="0.75" y="0.75" width="178.5" height="178.5" rx="9.5" fill="none" stroke="#ffffff" stroke-opacity="0.16" stroke-width="1.5"/>
-
-  <rect x="22" y="26" width="136" height="112" rx="3" fill="url(#wk-flap)"/>
-
-  <path d="M46 56 L68 108 L90 70 L112 108 L134 56"
-        fill="none" stroke="#F2F4F1" stroke-width="14"
-        stroke-linecap="round" stroke-linejoin="round"/>
-
-  <!-- the lower flap sits in its own shadow -->
-  <rect x="22" y="82" width="136" height="56" fill="#000000" fill-opacity="0.16"/>
-
-  <!-- the seam, drawn last so the glyph is genuinely cut in two -->  <path d="M22 82 H158" stroke="#000000" stroke-opacity="0.78" stroke-width="3"/>
-  <path d="M22 84.5 H158" stroke="#ffffff" stroke-opacity="0.10" stroke-width="2"/>
-
-  <rect x="22" y="146" width="136" height="9" rx="1.5" fill="#FFB400"/>
+  <rect width="180" height="180" rx="34" fill="#15332E"/>
+  <path d="M28 42.5H152M28 66.5H152M28 90.5H152M28 114.5H152M28 138.5H152M42.5 28V152M66.5 28V152M90.5 28V152M114.5 28V152M138.5 28V152"
+        fill="none" stroke="#C9DAD5" stroke-opacity=".18" stroke-width="1.5"/>
+  <path d="M63 54.5c11.5-11.5 31.5-11.5 43 0l9 9-13 13-9-9-34 34a12 12 0 0 1-17-17l34-34-4-4-9 9-13-13 13-13 20 20"
+        fill="#FAFCFB"/>
+  <path d="M104 50.5 124 30l27 27-20.5 20.5z" fill="#477F97"/>
+  <circle cx="131" cy="127" r="9" fill="#D99724"/>
 </svg>

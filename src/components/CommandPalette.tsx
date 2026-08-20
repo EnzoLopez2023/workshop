@@ -1,7 +1,13 @@
-import { useEffect, useState, useCallback } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { Command } from 'cmdk';
 import { useNavigate } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   Search, LayoutDashboard, Plus, ShoppingCart, Ruler,
   BookOpen, Settings, Hammer, Cpu,
@@ -12,12 +18,15 @@ import type { ProjectListItem } from '../types/project';
 interface Props {
   open: boolean;
   onClose: () => void;
+  returnFocusTo: HTMLElement | null;
 }
 
-export default function CommandPalette({ open, onClose }: Props) {
+export default function CommandPalette({ open, onClose, returnFocusTo }: Props) {
   const navigate = useNavigate();
+  const reduceMotion = useReducedMotion() ?? false;
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Fetch projects once when first opened
   useEffect(() => {
@@ -32,13 +41,56 @@ export default function CommandPalette({ open, onClose }: Props) {
     onClose();
   }, [navigate, onClose]);
 
-  // Close on Escape (cmdk handles this via Command, but also handle backdrop)
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    const backgroundElements = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-command-background]'),
+    );
+    const previousInert = backgroundElements.map(element => element.inert);
+    backgroundElements.forEach(element => { element.inert = true; });
+
+    return () => {
+      backgroundElements.forEach((element, index) => {
+        element.inert = previousInert[index] ?? false;
+      });
+      if (returnFocusTo?.isConnected) {
+        returnFocusTo.focus();
+      } else {
+        document.getElementById('main-content')?.focus();
+      }
+    };
+  }, [open, returnFocusTo]);
+
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusable = Array.from(panel.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).filter(element => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
+
+    if (focusable.length === 0) {
+      event.preventDefault();
+      panel.focus();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -50,80 +102,42 @@ export default function CommandPalette({ open, onClose }: Props) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
+            transition={{ duration: reduceMotion ? 0 : 0.15 }}
             onClick={onClose}
-            style={{
-              position: 'fixed', inset: 0, zIndex: 1000,
-              backgroundColor: 'rgba(10, 6, 3, 0.55)',
-              backdropFilter: 'blur(3px)',
-            }}
+            className="command-backdrop"
           />
 
-          {/* Panel */}
           <motion.div
+            ref={panelRef}
             key="panel"
-            initial={{ opacity: 0, scale: 0.96, y: -8 }}
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.98, y: -8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: -8 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            style={{
-              position: 'fixed', top: '18vh', left: '50%',
-              transform: 'translateX(-50%)',
-              width: '90vw', maxWidth: 580,
-              zIndex: 1001,
-              borderRadius: 3,
-              border: '1px solid var(--color-line)',
-              background: 'var(--color-flap)',
-              boxShadow: '0 32px 80px rgba(0,0,0,0.28)',
-              overflow: 'hidden',
-            }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.98, y: -8 }}
+            transition={{ duration: reduceMotion ? 0 : 0.18, ease: [0.22, 1, 0.36, 1] }}
+            className="command-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Search and navigate"
+            tabIndex={-1}
+            onKeyDown={handleDialogKeyDown}
           >
             <Command
-              style={{ display: 'flex', flexDirection: 'column', fontFamily: 'var(--font-ui)' }}
+              className="command-root"
               shouldFilter={true}
             >
-              {/* Search input row */}
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '14px 16px',
-                borderBottom: '1px solid var(--color-line)',
-              }}>
-                <Search size={17} style={{ color: 'var(--color-muted)', flexShrink: 0 }} />
+              <div className="command-search">
+                <Search size={18} aria-hidden="true" />
                 <Command.Input
                   autoFocus
+                  aria-label="Search projects and destinations"
                   placeholder="Search projects, navigate…"
-                  style={{
-                    flex: 1, border: 'none', outline: 'none',
-                    background: 'transparent',
-                    fontSize: '0.95rem', color: 'var(--color-ink)',
-                    fontFamily: 'var(--font-ui)',
-                    padding: 0,
-                  }}
+                  className="command-input"
                 />
-                <kbd style={{
-                  fontSize: '0.68rem', fontFamily: 'var(--font-ui)',
-                  color: 'var(--color-muted)',
-                  background: 'var(--color-flap-shade)',
-                  border: '1px solid var(--color-line)',
-                  borderRadius: 5, padding: '2px 6px',
-                  flexShrink: 0,
-                }}>
-                  ESC
-                </kbd>
+                <kbd className="command-key">Esc</kbd>
               </div>
 
-              {/* Results list */}
-              <Command.List style={{
-                maxHeight: '60vh',
-                overflowY: 'auto',
-                padding: '8px 0',
-              }}>
-                <Command.Empty style={{
-                  padding: '20px 16px',
-                  textAlign: 'center',
-                  color: 'var(--color-muted)',
-                  fontSize: '0.88rem',
-                }}>
+              <Command.List className="command-list">
+                <Command.Empty className="command-empty">
                   No results found.
                 </Command.Empty>
 
@@ -165,15 +179,9 @@ function PaletteGroup({ heading, children }: { heading: string; children: React.
   return (
     <Command.Group
       heading={heading}
-      style={{ padding: '0 8px' }}
+      className="command-group"
     >
-      <div style={{
-        fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.1em',
-        color: 'var(--color-muted)', textTransform: 'uppercase',
-        padding: '8px 8px 4px',
-      }}>
-        {heading}
-      </div>
+      <div className="command-group-label">{heading}</div>
       {children}
     </Command.Group>
   );
@@ -189,25 +197,11 @@ function PaletteItem({ icon, label, sub, onSelect }: {
     <Command.Item
       value={label}
       onSelect={onSelect}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '9px 10px', borderRadius: 3,
-        cursor: 'pointer', fontSize: '0.9rem',
-        color: 'var(--color-ink)',
-      }}
+      className="command-item"
     >
-      <span style={{ color: 'var(--color-muted)', flexShrink: 0 }}>{icon}</span>
-      <span style={{ flex: 1 }}>{label}</span>
-      {sub && (
-        <span style={{
-          fontSize: '0.72rem', color: 'var(--color-muted)',
-          background: 'var(--color-flap-shade)',
-          padding: '2px 8px', borderRadius: 2,
-          textTransform: 'capitalize',
-        }}>
-          {sub}
-        </span>
-      )}
+      <span className="command-item-icon" aria-hidden="true">{icon}</span>
+      <span className="command-item-label">{label}</span>
+      {sub && <span className="command-item-state">{sub}</span>}
     </Command.Item>
   );
 }

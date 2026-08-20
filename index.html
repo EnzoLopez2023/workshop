@@ -1,23 +1,28 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <!--
+      THESIS: Workshop is one living plan table, not a summary dashboard or a simulated native app.
+      OWN-WORLD: Cool vellum canvas, deep spruce structure, pencil annotation, restrained amber next actions, a 24px drafting grid, and rounded system geometry.
+      STORY: The active project and its next useful move lead; libraries, shopping, notes, and reference tools stay one browser-native route away.
+      FIRST VIEWPORT: Persistent frosted navigation frames a stable plan canvas on wide screens; compact screens use a top utility bar and safe-area bottom navigation.
+      FORM: Operate-mode responsive workbench shell, translated from the shipped Workshop-for-iOS Living Plan Table direction without changing URLs or web interaction. Seed: ef48c050.
+    -->
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="theme-color" content="#2B3238" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#232B30" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#EEF4F2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0C1513" media="(prefers-color-scheme: dark)" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>The Workshop · Project Companion</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap" rel="stylesheet" />
+    <title>Workshop · Project Companion</title>
   </head>
   <body>
     <script>
       (function() {
-        var t = localStorage.getItem('workshop-theme');
-        var dark = t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var stored = localStorage.getItem('workshop-theme');
+        var t = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+        var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.dataset.theme = dark ? 'dark' : 'light';
       })();
     </script>

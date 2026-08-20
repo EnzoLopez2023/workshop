@@ -19,7 +19,7 @@ export default function Settings() {
       <div className="page-head">
         <div className="page-head-main">
           <h1 className="page-title">Settings</h1>
-          <p className="page-sub">How the board reads and behaves. Every preference is stored on this device.</p>
+          <p className="page-sub">How your plan table reads and behaves. Every preference is stored on this device.</p>
         </div>
       </div>
 
@@ -51,8 +51,8 @@ export default function Settings() {
         <SettingsDivider />
 
         <SettingsRow
-          label="Signal Lamp"
-          description="The colour every button, link and live indicator burns."
+          label="Annotation Color"
+          description="Used for drawing notes, current stages, counts, and selected controls."
         >
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {(Object.entries(ACCENT_PRESETS) as [AccentColor, typeof ACCENT_PRESETS[AccentColor]][]).map(([key, preset]) => (

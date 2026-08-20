@@ -528,7 +528,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
             title="Materials & Hardware"
             right={
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <span style={{ fontSize: '0.62rem', letterSpacing: '0.09em', color: 'rgb(237 241 238 / 0.66)' }}>
+                <span style={{ fontSize: '0.62rem', letterSpacing: '0.09em', color: 'var(--color-muted)' }}>
                   Total <strong className="readout" style={{ color: 'var(--color-amber-fill)', fontSize: '0.7rem' }}>{formatMoney(project.total_cost)}</strong>
                 </span>
                 <button className="btn btn-ghost" onClick={() => exportMaterialsCsv(project)} style={{ fontSize: '0.8rem', padding: '7px 11px' }}>
