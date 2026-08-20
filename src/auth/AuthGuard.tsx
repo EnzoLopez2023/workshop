@@ -31,10 +31,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       }}>
         <img
           src="/favicon.svg"
-          alt="The Workshop"
+          alt="Workshop"
           width={72}
           height={72}
-          style={{ borderRadius: 3, display: 'block', marginBottom: 20 }}
+          style={{ borderRadius: 'var(--radius-default)', display: 'block', marginBottom: 20 }}
         />
         <h1 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 8 }}>Signing you in…</h1>
         <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>

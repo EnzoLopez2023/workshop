@@ -42,19 +42,9 @@ export function Tooltip({ content, children, placement = 'top' }: TooltipProps) 
         <FloatingPortal>
           <div
             ref={refs.setFloating}
+            className="tooltip"
             style={{
               ...floatingStyles,
-              zIndex: 9999,
-              background: 'var(--color-ink)',
-              color: 'var(--color-concourse)',
-              fontSize: '0.75rem',
-              fontWeight: 500,
-              padding: '5px 10px',
-              borderRadius: 3,
-              pointerEvents: 'none',
-              whiteSpace: 'nowrap',
-              letterSpacing: '0.01em',
-              boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
             }}
             {...getFloatingProps()}
           >

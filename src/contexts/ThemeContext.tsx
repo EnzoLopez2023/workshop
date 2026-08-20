@@ -1,11 +1,18 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import {
+  THEME_STORAGE_KEY,
+  readThemePreference,
+  resolveThemePreference,
+  type ResolvedTheme,
+  type ThemePreference,
+} from '../themePreferences';
 
-export type Theme = 'light' | 'dark' | 'system';
+export type Theme = ThemePreference;
 
 interface ThemeContextValue {
   theme: Theme;
   setTheme: (t: Theme) => void;
-  resolvedTheme: 'light' | 'dark';
+  resolvedTheme: ResolvedTheme;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
@@ -18,21 +25,21 @@ export function useTheme() {
   return useContext(ThemeContext);
 }
 
-function resolveTheme(t: Theme): 'light' | 'dark' {
-  if (t === 'system') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-  return t;
+function resolveTheme(theme: Theme): ResolvedTheme {
+  return resolveThemePreference(
+    theme,
+    window.matchMedia('(prefers-color-scheme: dark)').matches,
+  );
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    return (localStorage.getItem('workshop-theme') as Theme) ?? 'system';
-  });
+  const [theme, setThemeState] = useState<Theme>(() =>
+    readThemePreference(localStorage.getItem(THEME_STORAGE_KEY)),
+  );
 
-  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => resolveTheme(
-    (localStorage.getItem('workshop-theme') as Theme) ?? 'system'
-  ));
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
+    resolveTheme(readThemePreference(localStorage.getItem(THEME_STORAGE_KEY))),
+  );
 
   useEffect(() => {
     const resolved = resolveTheme(theme);
@@ -53,7 +60,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   const setTheme = (t: Theme) => {
-    localStorage.setItem('workshop-theme', t);
+    localStorage.setItem(THEME_STORAGE_KEY, t);
     setThemeState(t);
   };
 

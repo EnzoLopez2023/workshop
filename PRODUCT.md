@@ -77,12 +77,21 @@ parts list) into something they'd otherwise do by hand.
 
 ## Brand Commitments
 
-- **Name:** "The Workshop", subtitle "Project Companion". Confirmed, keep.
+- **Name:** Workshop. The hammer is the identifying mark; "Project Companion" may appear as
+  supporting product copy, not as a replacement name.
+- **Shared direction:** Web and iOS use the shipped **Living Plan Table** language: cool vellum
+  canvas, deep spruce structure, pencil-blue annotation, restrained amber next-action emphasis,
+  a subtle 24px drafting grid, layered project plans/photos, and functional glass only where
+  navigation, selection, or tracing requires it.
+- **Cross-platform character, platform-native behavior:** iOS uses native SwiftUI navigation and
+  material; web uses semantic landmarks, persistent URLs, links, browser history, native form
+  behavior, visible keyboard focus, and responsive sidebar/bottom navigation. The visual language
+  is shared, but web never simulates iOS chrome or gestures.
 - **Companion products:** Tabloom (notebook source) and Shopkeep (tool inventory, linked when
   `VITE_SHOPKEEP_URL` is set) are real sibling apps by the same owner.
-- **Binding visual constraint given by the user for this work:** the incumbent
-  cream/beige-plus-rust-plus-Playfair look is explicitly rejected as generic AI output. The
-  replacement must have a palette of its own. No other visual commitment exists.
+- **Retired directions:** warm-paper/editorial-serif/terracotta and the later Concourse Board
+  metaphor, condensed board lettering, split-flap decoration, steel bands, tiny radii, and
+  aggregate metric walls must not return.
 
 ## Evidence on Hand
 
@@ -107,6 +116,9 @@ parts list) into something they'd otherwise do by hand.
 
 ## Accessibility & Inclusion
 
-Phone use happens in a real workshop: bright/variable light, dusty or gloved hands. Touch
-targets and contrast must hold up in that scene. Dark mode is a genuine requirement, not a
-toggle for show. `prefers-reduced-motion` is already honored by `PageBackground`.
+Phone use happens in a real workshop: bright or variable light, dusty hands, and occasional
+gloves. Interactive targets are at least 44px, state never relies on color alone, and the compact
+shell keeps destinations reachable without hover. Dark mode is a genuine requirement, not a
+toggle for show. The web surface follows system appearance by default, retains the existing
+`workshop-theme` and `workshop-settings` storage contracts, and provides reduced-motion,
+reduced-transparency, forced-colors, and print adaptations.
