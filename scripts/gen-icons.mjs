@@ -1,39 +1,47 @@
-// Generate Workshop's PNG icons from public/favicon.svg.
+// Generate Workshop's browser icons from the canonical iOS app icon.
 //
-// Source of truth is the SVG — this script rasterizes it via sharp so the
-// 32x32 favicon fallback and the 180x180 apple-touch-icon look identical
-// to the SVG in browsers. Run when the SVG changes:
+// app-store/AppIcon-1024.png must remain a byte-for-byte copy of the shipped
+// iOS default icon. This script verifies that master before resizing it:
 //
-//   node scripts/gen-icons.mjs
+//   npm run icons
 //
 // Outputs:
-//   public/favicon-32x32.png     (rounded bg — browsers render as-is)
-//   public/apple-touch-icon.png  (square bg — iOS applies its own mask;
-//                                 a rounded bg here would leave a gap of
-//                                 transparency between our 18.75% radius
-//                                 and iOS's ~22% squircle mask)
+//   public/favicon-32x32.png
+//   public/apple-touch-icon.png  (full-bleed; iOS applies its own mask)
 import sharp from 'sharp';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const ROOT   = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = join(ROOT, 'public');
+const MASTER = join(ROOT, 'app-store', 'AppIcon-1024.png');
+const EXPECTED_MASTER_SHA256 = 'cdf1ceedf57c10f71d543cae9aa0688683fb17d01dd503a5f9ebd275f0b8cc3e';
 
-const svgRounded = await readFile(join(PUBLIC, 'favicon.svg'), 'utf8');
-// For the apple-touch render we strip the rounded corners from the bg
-// rect — iOS layers its own squircle mask on top, and a rounded SVG bg
-// underneath leaves visible transparent corners.
-const svgSquare = svgRounded.replace(/<rect([^>]*?)rx="\d+(?:\.\d+)?"/, '<rect$1');
+const source = await readFile(MASTER);
+const digest = createHash('sha256').update(source).digest('hex');
+if (digest !== EXPECTED_MASTER_SHA256) {
+  throw new Error(`Unexpected app icon master SHA-256: ${digest}`);
+}
 
-await sharp(Buffer.from(svgRounded))
-  .resize(32, 32)
-  .png({ compressionLevel: 9 })
-  .toFile(join(PUBLIC, 'favicon-32x32.png'));
-console.log('wrote public/favicon-32x32.png');
+const metadata = await sharp(source).metadata();
+if (
+  metadata.format !== 'png'
+  || metadata.width !== 1024
+  || metadata.height !== 1024
+  || metadata.hasAlpha
+) {
+  throw new Error('App icon master must be an opaque 1024x1024 PNG');
+}
 
-await sharp(Buffer.from(svgSquare))
-  .resize(180, 180)
-  .png({ compressionLevel: 9 })
-  .toFile(join(PUBLIC, 'apple-touch-icon.png'));
-console.log('wrote public/apple-touch-icon.png');
+for (const [filename, size] of [
+  ['favicon-32x32.png', 32],
+  ['apple-touch-icon.png', 180],
+]) {
+  await sharp(source)
+    .resize(size, size, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toFile(join(PUBLIC, filename));
+  console.log(`wrote public/${filename}`);
+}

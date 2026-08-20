@@ -82,7 +82,7 @@ export default function LandingPage() {
 
       <header className="landing-header">
         <a className="landing-brand" href="#landing-main" aria-label="Workshop home">
-          <span className="landing-brand-mark"><Hammer size={22} aria-hidden="true" /></span>
+          <img className="landing-brand-mark" src="/apple-touch-icon.png" alt="" width={44} height={44} />
           <span>
             <strong>Workshop</strong>
             <small>Project Companion</small>
@@ -172,7 +172,7 @@ export default function LandingPage() {
 
       <section className="landing-closing">
         <div>
-          <span className="landing-closing-mark"><Hammer size={25} aria-hidden="true" /></span>
+          <img className="landing-closing-mark" src="/apple-touch-icon.png" alt="" width={48} height={48} />
           <div>
             <h2>Open your workshop.</h2>
             <p>Continue a project or explore the seeded demo workspace.</p>

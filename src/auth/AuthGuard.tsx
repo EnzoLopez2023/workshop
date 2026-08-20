@@ -26,7 +26,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     return (
       <main className="auth-loading" aria-live="polite">
         <span className="auth-loading-mark" aria-hidden="true">
-          <img src="/favicon.svg" alt="" width={72} height={72} />
+          <img src="/apple-touch-icon.png" alt="" width={72} height={72} />
         </span>
         <h1>Signing you in…</h1>
         <p>

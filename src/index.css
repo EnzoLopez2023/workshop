@@ -406,6 +406,14 @@ p {
   text-decoration: none;
 }
 
+.app-mobile-brand-mark {
+  display: block;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  box-shadow: var(--shadow-card);
+}
+
 .app-mobile-actions {
   display: flex;
   gap: 2px;
@@ -3193,14 +3201,10 @@ tbody td {
   }
 
   .app-brand-mark {
-    display: grid;
+    display: block;
     width: 44px;
     height: 44px;
     flex: 0 0 44px;
-    place-items: center;
-    border-radius: var(--radius-default);
-    background: var(--color-nav-deep);
-    color: #FAFCFB;
     box-shadow: var(--shadow-card);
   }
 
@@ -3662,7 +3666,6 @@ tbody td {
 
 .auth-loading-mark img {
   display: block;
-  border-radius: var(--radius-default);
 }
 
 .auth-loading h1 {

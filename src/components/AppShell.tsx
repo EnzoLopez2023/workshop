@@ -71,7 +71,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       <aside className="app-sidebar" aria-label="Workshop navigation" data-command-background>
         <NavLink to="/" className="app-brand" aria-label="Workshop projects">
-          <span className="app-brand-mark" aria-hidden="true"><Hammer size={22} strokeWidth={2.4} /></span>
+          <img className="app-brand-mark" src="/apple-touch-icon.png" alt="" width={44} height={44} />
           <span>
             <strong>Workshop</strong>
             <small>Living plan table</small>
@@ -128,7 +128,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       <header className="app-mobile-header" data-command-background>
         <NavLink to="/" className="app-mobile-brand" aria-label="Workshop projects">
-          <Hammer size={20} aria-hidden="true" />
+          <img className="app-mobile-brand-mark" src="/apple-touch-icon.png" alt="" width={28} height={28} />
           <strong>Workshop</strong>
         </NavLink>
         <span className="app-mobile-actions">
