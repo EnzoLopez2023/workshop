@@ -25,8 +25,8 @@ test('every public route remains registered behind the existing application shel
     assert.match(app, new RegExp(`path="${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`));
   }
 
-  assert.ok(main.indexOf('<AuthGuard>') < main.indexOf('<BrowserRouter>'));
-  assert.ok(main.indexOf('<BrowserRouter>') < main.indexOf('<App />'));
+  assert.ok(main.indexOf('<AuthGuard>') < main.indexOf('<RouterProvider router={router} />'));
+  assert.match(main, /createBrowserRouter\(\[\{ path: '\*', element: <App \/> \}\]\)/);
   assert.match(app, /<ThemeProvider>/);
   assert.match(app, /<SettingsProvider>/);
   assert.match(app, /<AppShell>/);
@@ -85,7 +85,7 @@ test('shell CSS carries responsive, focus, touch, and accessibility contracts', 
   assert.match(css, /--color-steel:\s*var\(--color-action\);/);
   assert.match(
     landingCss,
-    /\.paste-analyze\s*\{[^}]*background:\s*var\(--color-action\);[^}]*color:\s*var\(--color-on-action\);/s,
+    /\.landing-next-action\s*\{[^}]*background:\s*var\(--color-next-fill\);[^}]*color:\s*var\(--color-on-next\);/s,
   );
 });
 

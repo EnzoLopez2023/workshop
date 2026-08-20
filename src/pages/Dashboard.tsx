@@ -49,8 +49,10 @@ import {
   PROJECT_NEXT_ACTION,
   PROJECT_STATUS_ORDER,
   selectFocusProject,
+  sortProjects,
   type ProjectStatusFilter,
 } from '../lib/coreWorkflows';
+import { useSettings } from '../contexts/SettingsContext';
 
 const DASHBOARD_PAGES = [
   { value: 'projects', label: 'Projects' },
@@ -74,6 +76,7 @@ const DIY_SITES = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { settings } = useSettings();
   const [page, setPageState] = useState<DashboardPage>(() =>
     readDashboardPage(localStorage.getItem(DASHBOARD_PAGE_STORAGE_KEY)),
   );
@@ -148,14 +151,30 @@ export default function Dashboard() {
   };
 
   const filteredProjects = useMemo(
-    () => filterProjects(projects, filter, projectSearch),
-    [projects, filter, projectSearch],
+    () => sortProjects(
+      filterProjects(projects, filter, projectSearch, settings.showCompletedByDefault),
+      settings.defaultDashboardSort,
+    ),
+    [
+      projects,
+      filter,
+      projectSearch,
+      settings.defaultDashboardSort,
+      settings.showCompletedByDefault,
+    ],
   );
   const filteredShaperProjects = useMemo(
     () => filterShaperProjects(shaperProjects, shaperSearch),
     [shaperProjects, shaperSearch],
   );
-  const focusProject = useMemo(() => selectFocusProject(projects), [projects]);
+  const focusProject = useMemo(
+    () => selectFocusProject(
+      settings.showCompletedByDefault
+        ? projects
+        : projects.filter(project => project.status !== 'completed'),
+    ),
+    [projects, settings.showCompletedByDefault],
+  );
 
   return (
     <PageFrame>
@@ -391,7 +410,13 @@ function ProjectTools({
 
 function ProjectGridSkeleton() {
   return (
-    <div className="project-library-grid" aria-label="Loading projects">
+    <div
+      className="project-library-grid"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      aria-label="Loading projects"
+    >
       {[0, 1, 2, 3].map(index => <ProjectCardSkeleton key={index} />)}
     </div>
   );

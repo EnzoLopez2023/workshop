@@ -9,6 +9,7 @@ import type {
 } from '../types/project';
 
 export type ProjectStatusFilter = 'all' | ProjectStatus;
+export type ProjectSort = 'updated' | 'created' | 'title';
 
 export interface ShoppingProjectGroup {
   id: number;
@@ -54,9 +55,11 @@ export function filterProjects(
   projects: ProjectListItem[],
   status: ProjectStatusFilter,
   query: string,
+  includeCompletedInAll = true,
 ): ProjectListItem[] {
   return projects.filter(project =>
     (status === 'all' || project.status === status)
+    && (status !== 'all' || includeCompletedInAll || project.status !== 'completed')
     && includesQuery([
       project.title,
       project.description,
@@ -65,6 +68,17 @@ export function filterProjects(
       project.material_names,
     ], query),
   );
+}
+
+export function sortProjects(
+  projects: ProjectListItem[],
+  sort: ProjectSort,
+): ProjectListItem[] {
+  return [...projects].sort((left, right) => {
+    if (sort === 'title') return left.title.localeCompare(right.title);
+    const field = sort === 'created' ? 'created_at' : 'updated_at';
+    return new Date(right[field]).getTime() - new Date(left[field]).getTime();
+  });
 }
 
 export function filterShaperProjects(projects: ShaperProject[], query: string): ShaperProject[] {

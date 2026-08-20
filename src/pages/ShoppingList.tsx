@@ -154,7 +154,13 @@ export default function ShoppingList() {
       )}
 
       {loading ? (
-        <div className="shopping-skeletons" aria-label="Loading shopping list">
+        <div
+          className="shopping-skeletons"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          aria-label="Loading shopping list"
+        >
           <ProjectCardSkeleton />
           <ProjectCardSkeleton />
         </div>

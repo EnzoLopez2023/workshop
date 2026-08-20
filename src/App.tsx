@@ -1,21 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import AppShell from './components/AppShell';
 import CommandPalette from './components/CommandPalette';
+import ErrorBoundary from './components/ErrorBoundary';
 import PageBackground from './components/PageBackground';
-import Dashboard from './pages/Dashboard';
-import ProjectDetail from './pages/ProjectDetail';
-import ProjectForm from './pages/ProjectForm';
-import ShaperProjectDetail from './pages/ShaperProjectDetail';
-import ShaperProjectForm from './pages/ShaperProjectForm';
-import ConversionTables from './pages/ConversionTables';
-import ShoppingList from './pages/ShoppingList';
-import NotebookList from './pages/NotebookList';
-import NotebookPage from './pages/NotebookPage';
-import Settings from './pages/Settings';
+import { routeTitleForPath } from './navigation';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const ProjectDetail = lazy(() => import('./pages/ProjectDetail'));
+const ProjectForm = lazy(() => import('./pages/ProjectForm'));
+const ShaperProjectDetail = lazy(() => import('./pages/ShaperProjectDetail'));
+const ShaperProjectForm = lazy(() => import('./pages/ShaperProjectForm'));
+const ConversionTables = lazy(() => import('./pages/ConversionTables'));
+const ShoppingList = lazy(() => import('./pages/ShoppingList'));
+const NotebookList = lazy(() => import('./pages/NotebookList'));
+const NotebookPage = lazy(() => import('./pages/NotebookPage'));
+const Settings = lazy(() => import('./pages/Settings'));
 
 function AppRoutes() {
   const location = useLocation();
@@ -48,24 +51,32 @@ function AppRoutes() {
     };
   }, []);
 
+  useEffect(() => {
+    document.title = routeTitleForPath(location.pathname);
+  }, [location.pathname]);
+
   return (
     <>
       <div key={location.pathname} className="app-route-view" data-command-background>
-        <Routes>
-          <Route path="/"                  element={<Dashboard />} />
-          <Route path="/projects/new"      element={<ProjectForm />} />
-          <Route path="/projects/:id"      element={<ProjectDetail />} />
-          <Route path="/projects/:id/edit" element={<ProjectForm />} />
-          <Route path="/shaper/new"        element={<ShaperProjectForm />} />
-          <Route path="/shaper/:id"        element={<ShaperProjectDetail />} />
-          <Route path="/shaper/:id/edit"   element={<ShaperProjectForm />} />
-          <Route path="/conversions"       element={<ConversionTables />} />
-          <Route path="/shopping-list"     element={<ShoppingList />} />
-          <Route path="/notebook"          element={<NotebookList />} />
-          <Route path="/notebook/:id"      element={<NotebookPage />} />
-          <Route path="/settings"          element={<Settings />} />
-          <Route path="*"                  element={<Navigate to="/" replace />} />
-        </Routes>
+        <ErrorBoundary key={location.pathname}>
+          <Suspense fallback={<RouteLoading />}>
+            <Routes>
+              <Route path="/"                  element={<Dashboard />} />
+              <Route path="/projects/new"      element={<ProjectForm />} />
+              <Route path="/projects/:id"      element={<ProjectDetail />} />
+              <Route path="/projects/:id/edit" element={<ProjectForm />} />
+              <Route path="/shaper/new"        element={<ShaperProjectForm />} />
+              <Route path="/shaper/:id"        element={<ShaperProjectDetail />} />
+              <Route path="/shaper/:id/edit"   element={<ShaperProjectForm />} />
+              <Route path="/conversions"       element={<ConversionTables />} />
+              <Route path="/shopping-list"     element={<ShoppingList />} />
+              <Route path="/notebook"          element={<NotebookList />} />
+              <Route path="/notebook/:id"      element={<NotebookPage />} />
+              <Route path="/settings"          element={<Settings />} />
+              <Route path="*"                  element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </ErrorBoundary>
       </div>
       <CommandPalette
         open={paletteOpen}
@@ -87,6 +98,8 @@ export default function App() {
         </AppShell>
         <Toaster
           position="bottom-right"
+          closeButton
+          visibleToasts={4}
           toastOptions={{
             style: {
               background: 'var(--color-surface)',
@@ -101,5 +114,15 @@ export default function App() {
       </div>
     </SettingsProvider>
     </ThemeProvider>
+  );
+}
+
+function RouteLoading() {
+  return (
+    <div className="route-loading" role="status" aria-live="polite">
+      <span className="skeleton" aria-hidden="true" />
+      <span className="skeleton" aria-hidden="true" />
+      <span>Opening workspace…</span>
+    </div>
   );
 }

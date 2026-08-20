@@ -1,6 +1,6 @@
 # The Workshop — Project Companion
 
-A personal woodworking project tracker built as a warm, single-user web app. Capture ideas, plan cut lists, track materials and costs, log build progress, record finishes, and import projects directly from Shaper Tools Hub — with optional AI-assisted parsing.
+A browser-native woodworking project companion built around a Living Plan Table. Capture ideas, plan cut lists, track materials and costs, log build progress, record finishes, and import projects directly from Shaper Tools Hub — with optional AI-assisted parsing, per-user storage, and a read-only demo.
 
 ---
 
@@ -19,8 +19,11 @@ A personal woodworking project tracker built as a warm, single-user web app. Cap
 | **Shopping list** | Cross-project view of all unpurchased materials, grouped by project |
 | **Shaper Hub import** | Paste a Shaper Tools Hub share URL — AI extracts title, description, materials, instructions, and all project photos |
 | **AI URL analysis** | Analyze any inspiration URL to pre-fill a new project's fields (title, description, difficulty, wood types, cut list, materials) |
-| **Unit conversions** | Quick-reference tables for lumber dimensions, sheet goods, and common woodworking measurements |
+| **Unit conversions** | Live millimeter/inch converter plus exact decimal, fractional, and millimeter reference tables |
 | **Image gallery** | Upload sketches and inspiration photos per project; PDF plans supported; hero image shown on project cards |
+| **Notebook** | Edit Tabloom pages as Markdown with preview, conflict handling, keyboard save, and unsaved-change safeguards |
+| **Settings** | Light/dark/system appearance, annotation color, text size, project defaults, backup, identity, sign-out, and account deletion |
+| **Read-only demo** | Browse seeded project, Shaper, shopping, conversion, template, and inspiration surfaces without an account |
 
 ---
 
@@ -35,7 +38,7 @@ A personal woodworking project tracker built as a warm, single-user web app. Cap
 | Build tool | Vite 8 + `@vitejs/plugin-react` |
 | Styling | Tailwind CSS v4 (via `@tailwindcss/vite` plugin) + global CSS variables |
 | Icons | Lucide React |
-| Fonts | Playfair Display (headings, serif), Inter (body, sans-serif) |
+| Fonts | Browser/system UI with an SF Rounded-like system stack for focal headings |
 | Auth client | `@azure/msal-react` + `@azure/msal-browser` (Azure AD) |
 
 TypeScript is compiled with `tsc -b` then bundled by Vite. `noUnusedLocals`, `noUnusedParameters`, and `strict` are all on.
@@ -60,7 +63,8 @@ The entire backend is a **single file** — `server.js`. The SQLite schema is de
 | Mode | How |
 |---|---|
 | Local dev | Two processes: `npm run server` + `npm run dev` (or `npm run start:all` in Git Bash) |
-| Docker | Three-stage `node:22-alpine` Dockerfile; `docker compose up` |
+| Local Docker | Three-stage `node:22-alpine` Dockerfile; `docker compose up` |
+| Production | GitHub Actions (`.github/workflows/deploy.yml`) builds and publishes the container to Azure App Service |
 
 ---
 
@@ -78,16 +82,16 @@ Workshop/
 │
 └── src/
     ├── main.tsx            # Entry point — MSAL provider wraps <AuthGuard>
-    ├── App.tsx             # Route table (React Router v7)
+    ├── App.tsx             # Lazy route table, route fallback, page titles, and global states
     ├── index.css           # Global styles, CSS custom properties, media queries
     │
     ├── auth/
-    │   ├── AuthGuard.tsx   # Redirects to login if unauthenticated; shows spinner during redirect
-    │   ├── LoginPage.tsx   # Branded login screen
+    │   ├── AuthGuard.tsx   # MSAL/demo bootstrap and authentication progress
+    │   ├── LandingPage.tsx # Microsoft sign-in and read-only demo entry
     │   └── msalConfig.ts   # MSAL PublicClientApplication config
     │
     ├── components/
-    │   ├── Header.tsx          # Sticky nav — logo, nav icons, New Project, avatar, sign-out
+    │   ├── AppShell.tsx        # Responsive sidebar/mobile shell and account controls
     │   ├── ProjectCard.tsx     # Dashboard card for a workshop project
     │   ├── ShaperProjectCard.tsx # Dashboard card for a Shaper Hub project
     │   ├── StatusBadge.tsx     # Colored pill for project status
@@ -101,11 +105,17 @@ Workshop/
     │   ├── ProjectForm.tsx         # Create/edit workshop project with AI analyze
     │   ├── ShaperProjectDetail.tsx # Read-only Shaper Hub project view
     │   ├── ShaperProjectForm.tsx   # Create/edit Shaper Hub project with AI analyze + cut list
-    │   ├── ConversionTables.tsx    # Static woodworking unit reference tables
+    │   ├── ConversionTables.tsx    # Live converter and woodworking reference tables
+    │   ├── NotebookList.tsx        # Tabloom-backed notebook index
+    │   ├── NotebookPage.tsx        # Markdown editor, preview, and conflict handling
+    │   ├── Settings.tsx            # Appearance, defaults, backup, and account actions
     │   └── ShoppingList.tsx        # Cross-project materials to buy
     │
     ├── lib/
-    │   └── cutPlan.ts      # Guillotine packing algorithm (BSSF scoring, kerf, rotation)
+    │   ├── cutPlan.ts          # Guillotine packing algorithm (BSSF scoring, kerf, rotation)
+    │   ├── conversions.ts      # Exact conversion/reference fixtures
+    │   ├── notebook.ts         # Notebook persistence and dirty-state helpers
+    │   └── coreWorkflows.ts    # Shared project, Shaper, and shopping transformations
     │
     ├── services/
     │   └── api.ts          # Typed fetch wrappers for every API endpoint
@@ -181,6 +191,16 @@ npm run start:all
 **4. Open the app**
 
 Navigate to `http://localhost:5180`. The SQLite database (`workshop.db`) and uploads directory are created automatically on first run.
+
+### Validation
+
+```bash
+npm test       # Node regression suite, including auth, data isolation, cut-plan parity, and web surfaces
+npx tsc -b     # Strict TypeScript check
+npm run build  # Production bundle and route chunks
+```
+
+No linter is configured.
 
 ---
 
@@ -389,23 +409,25 @@ Successful deletion removes projects, templates, Shaper data, cut/material/shopp
 
 ---
 
-## Docker deployment
+## Local Docker
 
 ```bash
 # Copy and fill in your env vars
 cp .env.example .env
 
-# Build and start
+# Build and start the local container
 .\deploy.ps1
 ```
 
-`deploy.ps1` runs `docker compose build`, brings up the container, waits, then hits `/api/health` and prints the result. Logs:
+`deploy.ps1` is a local-development convenience. It runs `docker compose build`, brings up the container, waits, then hits the local `/api/health` endpoint. Logs:
 
 ```bash
 docker compose logs -f workshop
 ```
 
 The SQLite database and uploaded files live in a named Docker volume (`workshop-data`) mounted at `/data` — they survive rebuilds.
+
+Production is deployed by `.github/workflows/deploy.yml` to Azure App Service. The workflow builds the frontend environment into the image, pushes `acrenzolopez01.azurecr.io/workshop:latest`, and restarts `app-workshop-prod-lwxhu7jxlrbtu`. Do not use `deploy.ps1` for production.
 
 ### Environment variables in Docker
 

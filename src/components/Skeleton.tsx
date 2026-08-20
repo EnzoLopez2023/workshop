@@ -11,6 +11,7 @@ export function Skeleton({ height = 16, width = '100%', borderRadius = 8, style 
   return (
     <div
       className="skeleton"
+      aria-hidden="true"
       style={{ height, width, borderRadius, flexShrink: 0, ...style }}
     />
   );

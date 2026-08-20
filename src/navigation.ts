@@ -63,6 +63,23 @@ export const APP_ROUTE_PATHS = [
   '/settings',
 ] as const;
 
+export function routeTitleForPath(pathname: string): string {
+  if (pathname === '/') return 'Projects · Workshop';
+  if (pathname === '/projects/new') return 'New Project · Workshop';
+  if (/^\/projects\/[^/]+\/edit$/.test(pathname)) return 'Edit Project · Workshop';
+  if (/^\/projects\/[^/]+$/.test(pathname)) return 'Project · Workshop';
+  if (pathname === '/shaper/new') return 'New Shaper Project · Workshop';
+  if (/^\/shaper\/[^/]+\/edit$/.test(pathname)) return 'Edit Shaper Project · Workshop';
+  if (/^\/shaper\/[^/]+$/.test(pathname)) return 'Shaper Project · Workshop';
+  if (pathname === '/conversions') return 'Conversion Tables · Workshop';
+  if (pathname === '/shopping-list') return 'Shopping List · Workshop';
+  if (pathname === '/notebook') return 'Notebook · Workshop';
+  if (pathname === '/notebook/new') return 'New Notebook Page · Workshop';
+  if (/^\/notebook\/[^/]+$/.test(pathname)) return 'Notebook Page · Workshop';
+  if (pathname === '/settings') return 'Settings · Workshop';
+  return 'Workshop · Project Companion';
+}
+
 export function isNavigationItemCurrent(item: NavigationItem, pathname: string): boolean {
   if (item.exact && pathname === item.href) return true;
   return item.matchPrefixes.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));

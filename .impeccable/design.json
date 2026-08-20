@@ -1,18 +1,18 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-19T23:32:06.843Z",
+  "generatedAt": "2026-08-20T01:22:16.589Z",
   "title": "Design System: Workshop",
   "extensions": {
     "lineage": {
       "seed": "ef48c050",
       "contractSource": "index.html",
-      "artifact": "Layer 1 web shell and dashboard"
+      "artifact": "Finished Layer 3 web redesign"
     },
     "colorMeta": {
       "canvas": {
         "role": "neutral",
         "displayName": "Cool Vellum Canvas",
-        "purpose": "The adaptive page ground beneath every authenticated route.",
+        "purpose": "The adaptive page ground beneath signed-out and authenticated routes.",
         "tonalRamp": ["#0C1513", "#12201D", "#182823", "#2A423C", "#58716B", "#9CB2AC", "#E0EBE7", "#FAFCFB"]
       },
       "recessed": {
@@ -126,6 +126,35 @@
         "purpose": "Optional saved annotation family."
       }
     },
+    "accentFamilies": [
+      {
+        "storageKey": "amber",
+        "displayName": "Spruce",
+        "tokens": ["spruce-annotation", "spruce-action", "spruce-fill"],
+        "default": true
+      },
+      {
+        "storageKey": "signal",
+        "displayName": "Clay",
+        "tokens": ["clay-annotation", "clay-action", "clay-fill"]
+      },
+      {
+        "storageKey": "platform",
+        "displayName": "Moss",
+        "tokens": ["moss-annotation", "moss-action", "moss-fill"]
+      },
+      {
+        "storageKey": "beacon",
+        "displayName": "Pencil Blue",
+        "tokens": ["pencil-blue-annotation", "pencil-blue-action", "pencil-blue-fill"],
+        "stylesheetFallback": true
+      },
+      {
+        "storageKey": "violet",
+        "displayName": "Iris",
+        "tokens": ["iris-annotation", "iris-action", "iris-fill"]
+      }
+    ],
     "typographyMeta": {
       "display": {
         "displayName": "Page Display",
@@ -149,7 +178,9 @@
       },
       "supporting": {
         "displayName": "Supporting Copy",
-        "purpose": "Descriptions, metadata explanation, and command rows."
+        "purpose": "Descriptions, metadata explanation, form status, and command rows.",
+        "observedSizeRange": "0.82rem–0.92rem",
+        "defaultSize": "0.88rem"
       },
       "action": {
         "displayName": "Control Label",
@@ -157,7 +188,9 @@
       },
       "label": {
         "displayName": "Compact Label",
-        "purpose": "Metadata, status, filters, stage names, and mobile destinations."
+        "purpose": "Metadata, status, filters, stage names, upload values, and mobile destinations.",
+        "observedSizeRange": "0.62rem–0.78rem",
+        "defaultSize": "0.76rem"
       }
     },
     "shadows": [
@@ -240,12 +273,12 @@
         "value": "420px"
       },
       {
-        "name": "wide-shell",
-        "value": "768px"
+        "name": "editor-narrow",
+        "value": "520px"
       },
       {
-        "name": "wide-sidebar",
-        "value": "1040px"
+        "name": "shopping-narrow",
+        "value": "560px"
       },
       {
         "name": "tool-row-container",
@@ -254,8 +287,47 @@
       {
         "name": "active-project-container",
         "value": "680px"
+      },
+      {
+        "name": "conversion-compact",
+        "value": "760px"
+      },
+      {
+        "name": "wide-shell",
+        "value": "768px"
+      },
+      {
+        "name": "landing-wide",
+        "value": "860px"
+      },
+      {
+        "name": "form-settings-wide",
+        "value": "900px"
+      },
+      {
+        "name": "wide-sidebar-detail-hero",
+        "value": "1040px"
+      },
+      {
+        "name": "conversion-reference-stack",
+        "value": "1100px"
       }
-    ]
+    ],
+    "layoutBehavior": {
+      "shell": "The viewport switches from fixed top/bottom navigation to a 256px sidebar at 768px and widens the sidebar to 272px at 1040px.",
+      "content": "Dashboard tools and the active project expand only when the page container reaches 620px and 680px.",
+      "tablet820": "At an 820px viewport the sidebar is present while the remaining page container is below both content thresholds, so dashboard tools and the active project remain stacked."
+    },
+    "globalBehavior": {
+      "routes": ["/", "/projects/new", "/projects/:id", "/projects/:id/edit", "/shaper/new", "/shaper/:id", "/shaper/:id/edit", "/conversions", "/shopping-list", "/notebook", "/notebook/:id", "/settings"],
+      "catchAll": "Unknown paths replace-history redirect to /. Templates and inspiration remain Dashboard sections; legal, help, about, and not-found screens do not exist.",
+      "auth": "Demo bypasses Microsoft authentication. MSAL redirect/token acquisition shows the dedicated signing-in state; unauthenticated sessions show LandingPage.",
+      "delivery": "Each authenticated page module is route-level lazy-loaded behind one shared Suspense fallback and a route-keyed ErrorBoundary.",
+      "feedback": "Persistent errors and conflicts remain inline; transient completion and blocked-demo feedback use the closeable four-toast Sonner stack. Grouped project, shopping, and Notebook skeletons are labelled role=status regions with polite live announcements and aria-busy=true; their placeholder shapes are hidden from assistive technology.",
+      "notebook": "Preview GFM passes through marked and then DOMPurify, preserving sanitizer-safe Tabloom data attributes and safe tabloom: URI semantics. Preview/Edit are labelled tabs and panels with ArrowLeft/ArrowRight/Home/End roving focus. Dirty state drives the createBrowserRouter blocker for in-app PUSH, REPLACE, and POP even during saving, while beforeunload guards document exits. Successful new-page saves establish a clean baseline before a replace-history redirect.",
+      "settings": "The JSON download is a project-list summary, not a full backup. Ordinary remote logout is separate from irreversible two-step account deletion; after deletion succeeds, a failed Microsoft logout redirect clears the active account and local MSAL cache before replacing the document to /.",
+      "media": "Reduced motion collapses durations, reduced transparency removes blur, forced colors use system roles, coarse pointers raise selected targets to 48px, and print removes interactive chrome."
+    }
   },
   "components": [
     {
@@ -341,7 +413,7 @@
   ],
   "narrative": {
     "northStar": "The Living Plan Table",
-    "overview": "Workshop is a cool, adaptive drafting surface for a real woodworking record. The active project's plan or photograph establishes context; a translucent tracing layer places its next useful move on top; search, filters, and the remaining library follow. Cool vellum, spruce structure, pencil-blue drafting marks, restrained amber, and a functional 24px plan grid create the shared language.\n\nThis is an Operate system and the web is the interaction authority. Semantic landmarks, links, durable routes, browser history, native form behavior, keyboard focus, hover as enhancement, and responsive web navigation take precedence over simulating iOS chrome or gestures. The iOS artifact confirms the shared material language, but `src/index.css` and the shipped React components own web values and behavior. Direction lineage: seed `ef48c050`.\n\nThe former **Concourse Board** is retired. Condensed board lettering, split-flap seams, steel rails, rivets, tiny radii, and aggregate metric walls have no authority even where compatibility aliases or stale comments retain old names.",
+    "overview": "Workshop is a cool, adaptive drafting surface for a real woodworking record. The active project's plan or photograph establishes context; a translucent tracing layer places its next useful move on top; search, filters, and the remaining library follow. Cool vellum, spruce structure, pencil-blue drafting marks, restrained amber, and a functional 24px plan grid create the shared language.\n\nThis is an Operate system and the web is the interaction authority. Semantic landmarks, links, durable routes, browser history, native form behavior, keyboard focus, hover as enhancement, and responsive web navigation take precedence over simulating iOS chrome or gestures. The iOS artifact confirms the shared material language, but `src/index.css` and the shipped React components own web values and behavior. Direction lineage: seed `ef48c050`.\n\nThe signed-out surface is the Persuade edge of the same world rather than a separate identity. Its sticky glass header, oversized rounded headline, plan drawing, tracing sheet, workflow rows, connected-tool list, and deep-spruce closing panel explain the product with the same vellum, grid, annotation, amber-next-action, and browser-native rules. Microsoft redirect failure is an inline danger message; the read-only demo is a first-class alternate entry rather than a signup route.\n\nThe former **Concourse Board** is retired. Condensed board lettering, split-flap seams, steel rails, rivets, tiny radii, and aggregate metric walls have no authority even where compatibility aliases or stale comments retain old names.",
     "keyCharacteristics": [
       "Cool adaptive vellum surfaces with deep spruce structural ink.",
       "A 24px drafting grid used as a functional plan surface, not generic page decoration.",
@@ -349,6 +421,7 @@
       "A 14px default radius, 10px compact wells, 24px hero layers, and capsules only for compact state.",
       "Functional glass for shell/navigation, sticky tools and selection, and the active tracing layer.",
       "One active project and one amber next action lead before search and library content.",
+      "Signed-out persuasion, authenticated operation, loading, empty, conflict, and fatal states share one token system.",
       "Light, dark, reduced-motion, reduced-transparency, forced-colors, touch, and print behavior are part of the system."
     ],
     "rules": [
@@ -403,6 +476,11 @@
         "section": "layout"
       },
       {
+        "name": "The Content-Width Rule",
+        "body": "Shell changes follow the viewport; dense content changes follow its available column. An 820px viewport is not permission to force a desktop content composition beside the sidebar.",
+        "section": "layout"
+      },
+      {
         "name": "The Functional Glass Rule",
         "body": "Blur belongs to persistent shell/navigation, sticky tool or selection chrome, the active tracing sheet, and modal separation. Ordinary cards remain opaque raised sheets.",
         "section": "elevation"
@@ -436,7 +514,10 @@
       "Do preserve 10px compact, 14px default, 24px hero, 44px targets, and state-only capsules.",
       "Do keep glass functional and provide the shipped reduced-transparency fallback.",
       "Do preserve native fields, durable links/routes, visible focus, safe areas, and print behavior.",
-      "Do keep hover enhancements behind hover-capability queries and give every motion a reduced-motion outcome."
+      "Do keep hover enhancements behind hover-capability queries and give every motion a reduced-motion outcome.",
+      "Do keep route chunks lazy, route titles specific, grouped loading skeletons exposed as polite busy status regions, and unexpected route failures recoverable without inventing a not-found surface.",
+      "Do preserve content-width container queries; verify the sidebar-plus-stacked-content composition at 820px.",
+      "Do keep Notebook saves manual, sanitize GFM after `marked`, preserve safe Tabloom semantics, guard dirty in-app and document exits, and make Tabloom conflicts explicit."
     ],
     "donts": [
       "Don't revive the retired Concourse Board metaphor, Martian Mono, condensed board lettering, split-flap seams, steel bands, rivets, tiny radii, or summary-metric walls.",
@@ -446,7 +527,9 @@
       "Don't use hover to reveal a required action or state.",
       "Don't hardcode a light-only color in a component when a semantic custom property exists.",
       "Don't simulate iOS chrome, gestures, sheets, or navigation on the web.",
-      "Don't treat legacy `flap`, `steel`, `amber`, departure-card comments, or other migration names as permission to restore the old visual world."
+      "Don't treat legacy `flap`, `steel`, `amber`, departure-card comments, or other migration names as permission to restore the old visual world.",
+      "Don't invent standalone templates, inspiration, legal, help, about, or not-found routes; the catch-all redirects to `/`.",
+      "Don't canonize the pre-React emergency startup panel's hardcoded monospace, uppercase, and red styling; it is last-resort failure output, not the house system."
     ]
   }
 }

@@ -1,7 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, Eye, Pencil, AlertTriangle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { AlertTriangle, ArrowLeft, Eye, Pencil, Save } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import { marked } from 'marked';
+import { useBlocker, useNavigate, useParams } from 'react-router-dom';
+import { Button, PageFrame, StatePanel } from '../components/ui';
+import { isDemoMode } from '../demo/demoMode';
+import {
+  buildNotebookUpdate,
+  canLeaveNotebook,
+  formatRelativeTime,
+  notebookHasUnsavedChanges,
+} from '../lib/notebook';
 import {
   createTabloomWorkshopPage,
   getTabloomWorkshopPage,
@@ -10,147 +19,188 @@ import {
 } from '../services/tabloomApi';
 import '../styles/tabloom-content.css';
 
-// CommonMark + GFM with raw HTML kept intact — the Tabloom-only callout /
-// figure wrappers travel as raw HTML and we want to round-trip them in the
-// preview just like Tabloom's html export does.
 marked.setOptions({ gfm: true, breaks: false });
+const TABLOOM_URI_PATTERN = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|tabloom):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
 
 type ConflictState = { current: TabloomPageDetail } | null;
 type Tab = 'edit' | 'preview';
 
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso + 'Z').getTime();
-  const min = Math.floor(diff / 60000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const days = Math.floor(hr / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso + 'Z').toLocaleDateString();
-}
-
 export default function NotebookPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const demo = isDemoMode();
   const isNew = id === 'new';
-
   const [page, setPage] = useState<TabloomPageDetail | null>(null);
   const [title, setTitle] = useState('');
   const [bodyMd, setBodyMd] = useState('');
-  // New pages open in Edit (nothing to preview yet); existing pages open
-  // in Preview so reading is the default action.
   const [tab, setTab] = useState<Tab>(isNew ? 'edit' : 'preview');
+  const [loading, setLoading] = useState(!isNew && !demo);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState('');
   const [conflict, setConflict] = useState<ConflictState>(null);
-
-  // Track the server's last-known state so we can dirty-check and send
-  // expected_edited_at on save.
   const [baseline, setBaseline] = useState<{ title: string; body_md: string } | null>(null);
+  const [savedRedirect, setSavedRedirect] = useState<string | null>(null);
 
   useEffect(() => {
+    setLoadError(null);
+    setSaveError(null);
+    setSaveStatus('');
+    setConflict(null);
+    setTab(isNew ? 'edit' : 'preview');
+
+    if (demo) {
+      setLoading(false);
+      return;
+    }
     if (isNew) {
       setPage(null);
       setBaseline({ title: '', body_md: '' });
       setTitle('');
       setBodyMd('');
+      setLoading(false);
       return;
     }
     if (!id) return;
-    let cancelled = false;
-    getTabloomWorkshopPage(id)
-      .then(p => {
-        if (cancelled) return;
-        setPage(p);
-        setTitle(p.title);
-        setBodyMd(p.body_md);
-        setBaseline({ title: p.title, body_md: p.body_md });
-      })
-      .catch(err => {
-        if (cancelled) return;
-        console.error(err);
-        setLoadError(err instanceof Error ? err.message : 'Failed to load');
-      });
-    return () => { cancelled = true };
-  }, [id, isNew]);
 
-  const dirty = useMemo(() => {
-    if (!baseline) return false;
-    return title !== baseline.title || bodyMd !== baseline.body_md;
-  }, [title, bodyMd, baseline]);
+    let cancelled = false;
+    setLoading(true);
+    getTabloomWorkshopPage(id)
+      .then(nextPage => {
+        if (cancelled) return;
+        setPage(nextPage);
+        setTitle(nextPage.title);
+        setBodyMd(nextPage.body_md);
+        setBaseline({ title: nextPage.title, body_md: nextPage.body_md });
+      })
+      .catch(error => {
+        if (cancelled) return;
+        console.error('Notebook page load failed', error);
+        setLoadError(error instanceof Error ? error.message : 'Failed to load');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, id, isNew]);
+
+  const dirty = useMemo(
+    () => notebookHasUnsavedChanges(baseline, title, bodyMd),
+    [baseline, bodyMd, title],
+  );
 
   const previewHtml = useMemo(() => {
-    try { return marked.parse(bodyMd) as string; }
-    catch { return ''; }
+    try {
+      return DOMPurify.sanitize(marked.parse(bodyMd) as string, {
+        ALLOWED_URI_REGEXP: TABLOOM_URI_PATTERN,
+      });
+    } catch (error) {
+      console.error('Notebook Markdown preview failed', error);
+      return '';
+    }
   }, [bodyMd]);
 
-  const handleSave = useCallback(async () => {
-    if (saving) return;
+  const blocker = useBlocker(dirty);
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return;
+    if (canLeaveNotebook(true, window.confirm)) blocker.proceed();
+    else blocker.reset();
+  }, [blocker]);
+
+  const persistPage = useCallback(async (overwriteBase?: TabloomPageDetail) => {
+    if (saving || demo) return;
     setSaveError(null);
+    setSaveStatus('');
     setConflict(null);
     setSaving(true);
     try {
       if (isNew) {
-        const created = await createTabloomWorkshopPage({ title: title.trim() || 'Untitled', body_md: bodyMd });
-        navigate(`/notebook/${created.id}`, { replace: true });
+        const created = await createTabloomWorkshopPage({
+          title: title.trim() || 'Untitled',
+          body_md: bodyMd,
+        });
+        setPage(created);
+        setTitle(created.title);
+        setBodyMd(created.body_md);
+        setBaseline({ title: created.title, body_md: created.body_md });
+        setSavedRedirect(`/notebook/${created.id}`);
         return;
       }
-      if (!page) return;
-      const result = await updateTabloomWorkshopPage(page.id, {
-        title: title.trim() || page.title,
-        body_md: bodyMd,
-        expected_edited_at: page.edited_at,
-      });
+
+      const basePage = overwriteBase ?? page;
+      if (!basePage) {
+        setSaveError('The page has not finished loading. Try again.');
+        return;
+      }
+      const result = await updateTabloomWorkshopPage(
+        basePage.id,
+        buildNotebookUpdate(basePage, title, bodyMd),
+      );
       if (result.ok) {
         setPage(result.page);
         setTitle(result.page.title);
         setBodyMd(result.page.body_md);
         setBaseline({ title: result.page.title, body_md: result.page.body_md });
+        setSaveStatus('Saved to Tabloom.');
       } else {
         setConflict({ current: result.current });
       }
-    } catch (err) {
-      console.error(err);
-      setSaveError(err instanceof Error ? err.message : 'Save failed');
+    } catch (error) {
+      console.error('Notebook save failed', error);
+      setSaveError(error instanceof Error ? error.message : 'Save failed');
     } finally {
       setSaving(false);
     }
-  }, [saving, isNew, page, title, bodyMd, navigate]);
+  }, [bodyMd, demo, isNew, page, saving, title]);
 
-  // Cmd/Ctrl-S to save.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        if (dirty) void handleSave();
+    if (!savedRedirect || dirty) return;
+    navigate(savedRedirect, { replace: true });
+    setSavedRedirect(null);
+  }, [dirty, navigate, savedRedirect]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        if (dirty && !saving) void persistPage();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dirty, handleSave]);
+  }, [dirty, persistPage, saving]);
 
-  if (loadError) {
-    return (
-      <div className="page-container" style={{ maxWidth: 780 }}>
-        <button onClick={() => navigate('/notebook')} className="btn btn-ghost" style={{ gap: 6, marginBottom: 24 }}>
-          <ArrowLeft size={14} /> Notebook
-        </button>
-        <div className="card" style={{ padding: 32, color: 'var(--color-amber)' }}>
-          Could not load page: {loadError}
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!dirty) return;
 
-  if (!isNew && !page) {
-    return (
-      <div className="page-container" style={{ maxWidth: 780 }}>
-        <div style={{ textAlign: 'center', color: 'var(--color-muted)', padding: 48 }}>Loading…</div>
-      </div>
-    );
-  }
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [dirty]);
+
+  const leaveNotebook = () => {
+    navigate('/notebook');
+  };
+
+  const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    let nextTab: Tab | null = null;
+    if (event.key === 'ArrowLeft' || event.key === 'Home') nextTab = 'preview';
+    if (event.key === 'ArrowRight' || event.key === 'End') nextTab = 'edit';
+    if (!nextTab) return;
+    event.preventDefault();
+    setTab(nextTab);
+    requestAnimationFrame(() => document.getElementById(`notebook-${nextTab}-tab`)?.focus());
+  };
 
   const acceptReload = () => {
     if (!conflict) return;
@@ -160,165 +210,212 @@ export default function NotebookPage() {
     setBodyMd(fresh.body_md);
     setBaseline({ title: fresh.title, body_md: fresh.body_md });
     setConflict(null);
+    setSaveStatus('Loaded the latest Tabloom version.');
   };
 
-  const forceOverwrite = async () => {
-    if (!conflict) return;
-    const fresh = conflict.current;
-    // Pretend our base is the latest server state, but keep the in-memory
-    // edits as the new save payload. Next save call will succeed because
-    // expected_edited_at now matches.
-    setPage(fresh);
-    setBaseline({ title: fresh.title, body_md: fresh.body_md });
-    setConflict(null);
-    // Defer so React commits the state before the next save round-trip.
-    setTimeout(() => { void handleSave(); }, 0);
-  };
+  if (demo) {
+    return (
+      <PageFrame maxWidth={920}>
+        <Button variant="ghost" onClick={() => navigate('/notebook')} className="workflow-back">
+          <ArrowLeft size={16} aria-hidden="true" />
+          Notebook
+        </Button>
+        <StatePanel
+          title="Notebook is unavailable in the demo"
+          description="Sign in with Microsoft to connect Workshop to your Tabloom notebook."
+        />
+      </PageFrame>
+    );
+  }
+
+  if (loading) {
+    return (
+      <PageFrame maxWidth={1040} className="notebook-editor-page">
+        <div
+          className="notebook-editor-loading"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          aria-label="Loading notebook page"
+        >
+          <span className="skeleton" aria-hidden="true" />
+          <span className="skeleton" aria-hidden="true" />
+          <span className="skeleton" aria-hidden="true" />
+        </div>
+      </PageFrame>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <PageFrame maxWidth={920}>
+        <Button variant="ghost" onClick={() => navigate('/notebook')} className="workflow-back">
+          <ArrowLeft size={16} aria-hidden="true" />
+          Notebook
+        </Button>
+        <StatePanel
+          title="Notebook page unavailable"
+          description={`Workshop could not load this Tabloom page: ${loadError}`}
+          tone="danger"
+          action={<Button onClick={() => window.location.reload()}>Try again</Button>}
+        />
+      </PageFrame>
+    );
+  }
 
   return (
-    <div className="page-container" style={{ maxWidth: 780 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
-        <button onClick={() => navigate('/notebook')} className="btn btn-ghost" style={{ gap: 6, flexShrink: 0 }}>
-          <ArrowLeft size={14} /> Notebook
-        </button>
-        <div style={{ flex: 1, minWidth: 120, fontSize: '0.72rem', color: 'var(--color-muted)', letterSpacing: '0.04em' }}>
-          {isNew
-            ? 'New page · syncs to Tabloom on save'
-            : page ? `Edited ${relativeTime(page.edited_at)} · syncs to Tabloom` : ''}
+    <PageFrame maxWidth={1040} className="notebook-editor-page">
+      <header className="notebook-editor-toolbar">
+        <Button variant="ghost" onClick={leaveNotebook} className="workflow-back">
+          <ArrowLeft size={16} aria-hidden="true" />
+          Notebook
+        </Button>
+        <div className="notebook-sync-state" aria-live="polite">
+          {saving
+            ? 'Saving to Tabloom…'
+            : saveStatus
+              ? saveStatus
+              : dirty
+                ? 'Unsaved changes'
+                : isNew
+                  ? 'New page'
+                  : page
+                    ? `Edited ${formatRelativeTime(page.edited_at)}`
+                    : ''}
         </div>
-        <button
-          onClick={handleSave}
+        <Button
+          variant="primary"
+          onClick={() => void persistPage()}
           disabled={saving || (!isNew && !dirty)}
-          className="btn btn-primary"
-          style={{ gap: 6, opacity: saving || (!isNew && !dirty) ? 0.55 : 1 }}
         >
-          <Save size={14} /> {saving ? 'Saving…' : 'Save'}
-        </button>
-      </div>
+          <Save size={16} aria-hidden="true" />
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
+      </header>
 
-      <input
-        type="text"
-        value={title}
-        onChange={e => setTitle(e.target.value)}
-        placeholder="Untitled"
-        style={{
-          width: '100%',
-          fontFamily: 'var(--font-board)',
-          fontSize: '1.8rem',
-          fontWeight: 700,
-          padding: '6px 4px',
-          border: 'none',
-          background: 'transparent',
-          outline: 'none',
-          marginBottom: 12,
-          color: 'var(--color-ink)',
-        }}
-      />
+      <label className="notebook-title-field">
+        <span className="sr-only">Page title</span>
+        <input
+          type="text"
+          value={title}
+          readOnly={saving}
+          onChange={event => {
+            setTitle(event.target.value);
+            setSaveStatus('');
+          }}
+          placeholder="Untitled"
+          autoComplete="off"
+        />
+      </label>
 
       {conflict && (
-        <div
-          className="card"
-          style={{
-            padding: 16,
-            marginBottom: 16,
-            backgroundColor: 'var(--tint-amber)',
-            borderColor: 'var(--color-amber-deep)',
-            display: 'flex',
-            gap: 12,
-            alignItems: 'flex-start',
-          }}
-        >
-          <AlertTriangle size={18} style={{ color: 'var(--color-amber)', flexShrink: 0, marginTop: 2 }} />
-          <div style={{ flex: 1, fontSize: '0.85rem', color: 'var(--color-ink)' }}>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>This page changed in Tabloom while you were editing.</div>
-            <div style={{ marginBottom: 10 }}>
-              Edited {relativeTime(conflict.current.edited_at)}. Reload pulls Tabloom's latest in;
-              Overwrite saves yours anyway.
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={acceptReload} className="btn btn-ghost" style={{ padding: '6px 12px' }}>
-                Reload
-              </button>
-              <button onClick={forceOverwrite} className="btn btn-muted" style={{ padding: '6px 12px' }}>
-                Overwrite
-              </button>
+        <section className="notebook-conflict" role="alert" aria-labelledby="notebook-conflict-title">
+          <AlertTriangle size={20} aria-hidden="true" />
+          <div>
+            <h2 id="notebook-conflict-title">This page changed in Tabloom</h2>
+            <p>
+              Tabloom was edited {formatRelativeTime(conflict.current.edited_at)}.
+              Reload its latest version, or overwrite it with the work currently here.
+            </p>
+            <div>
+              <Button variant="ghost" onClick={acceptReload}>Reload latest</Button>
+              <Button onClick={() => void persistPage(conflict.current)}>Overwrite with mine</Button>
             </div>
           </div>
-        </div>
+        </section>
       )}
 
       {saveError && !conflict && (
-        <div
-          className="card"
-          style={{ padding: 12, marginBottom: 16, color: 'var(--color-amber)', borderColor: 'var(--color-amber)' }}
-        >
-          Save failed: {saveError}
+        <div className="notebook-save-error" role="alert">
+          <strong>Save failed.</strong> {saveError}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 12, borderBottom: '1px solid var(--color-line)' }}>
-        <TabButton active={tab === 'preview'} onClick={() => setTab('preview')} icon={<Eye size={13} />}>Preview</TabButton>
-        <TabButton active={tab === 'edit'}    onClick={() => setTab('edit')}    icon={<Pencil size={13} />}>Edit</TabButton>
+      <div className="notebook-tabs" role="tablist" aria-label="Notebook page view">
+        <NotebookTab
+          id="notebook-preview-tab"
+          active={tab === 'preview'}
+          controls="notebook-preview-panel"
+          onClick={() => setTab('preview')}
+          onKeyDown={handleTabKeyDown}
+          icon={<Eye size={16} aria-hidden="true" />}
+        >
+          Preview
+        </NotebookTab>
+        <NotebookTab
+          id="notebook-edit-tab"
+          active={tab === 'edit'}
+          controls="notebook-edit-panel"
+          onClick={() => setTab('edit')}
+          onKeyDown={handleTabKeyDown}
+          icon={<Pencil size={16} aria-hidden="true" />}
+        >
+          Edit
+        </NotebookTab>
       </div>
 
       {tab === 'edit' ? (
-        <textarea
-          value={bodyMd}
-          onChange={e => setBodyMd(e.target.value)}
-          placeholder="# Start writing in Markdown…"
-          spellCheck
-          style={{
-            width: '100%',
-            minHeight: 480,
-            padding: '20px 24px',
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-            fontSize: '0.9rem',
-            lineHeight: 1.6,
-            background: 'var(--color-flap)',
-            border: '1px solid var(--color-line)',
-            borderRadius: 3,
-            outline: 'none',
-            color: 'var(--color-ink)',
-            resize: 'vertical',
-            whiteSpace: 'pre-wrap',
-          }}
-        />
+        <section
+          id="notebook-edit-panel"
+          role="tabpanel"
+          aria-labelledby="notebook-edit-tab"
+          className="notebook-edit-panel"
+        >
+          <label htmlFor="notebook-body">Markdown source</label>
+          <textarea
+            id="notebook-body"
+            value={bodyMd}
+            readOnly={saving}
+            onChange={event => {
+              setBodyMd(event.target.value);
+              setSaveStatus('');
+            }}
+            placeholder="# Start writing in Markdown…"
+            spellCheck
+          />
+          <p>Press ⌘S or Ctrl-S to save. Tabloom-only blocks remain visible in source and round-trip unchanged.</p>
+        </section>
       ) : (
-        <div
-          className="tabloom-content card"
-          style={{ padding: '24px 28px' }}
+        <section
+          id="notebook-preview-panel"
+          role="tabpanel"
+          aria-labelledby="notebook-preview-tab"
+          tabIndex={0}
+          className="tabloom-content notebook-preview-panel"
           dangerouslySetInnerHTML={{ __html: previewHtml }}
         />
       )}
-    </div>
+    </PageFrame>
   );
 }
 
-function TabButton({
-  active, onClick, icon, children,
+function NotebookTab({
+  id,
+  active,
+  controls,
+  onClick,
+  onKeyDown,
+  icon,
+  children,
 }: {
-  active: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  children: React.ReactNode
+  id: string;
+  active: boolean;
+  controls: string;
+  onClick: () => void;
+  onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
 }) {
   return (
     <button
+      type="button"
+      id={id}
+      role="tab"
+      aria-selected={active}
+      aria-controls={controls}
+      tabIndex={active ? 0 : -1}
       onClick={onClick}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '8px 14px',
-        background: 'transparent',
-        border: 'none',
-        borderBottom: `2px solid ${active ? 'var(--color-amber)' : 'transparent'}`,
-        color: active ? 'var(--color-ink)' : 'var(--color-muted)',
-        fontWeight: active ? 600 : 500,
-        fontSize: '0.82rem',
-        cursor: 'pointer',
-        marginBottom: -1,
-      }}
+      onKeyDown={onKeyDown}
     >
       {icon}
       {children}

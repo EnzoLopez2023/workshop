@@ -1,219 +1,349 @@
-import { ArrowLeft } from 'lucide-react';
+import { useState } from 'react';
+import { useMsal } from '@azure/msal-react';
+import {
+  ArrowLeft,
+  Check,
+  Download,
+  LogIn,
+  LogOut,
+  Monitor,
+  Paintbrush,
+  Settings2,
+  Trash2,
+  UserRound,
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
 import { useTheme, type Theme } from '../contexts/ThemeContext';
-import { useSettings, ACCENT_PRESETS, type AccentColor } from '../contexts/SettingsContext';
-import { listProjects } from '../services/api';
+import { ACCENT_PRESETS, useSettings, type AccentColor } from '../contexts/SettingsContext';
+import { exitDemoMode, isDemoMode } from '../demo/demoMode';
+import { deleteAccount, listProjects } from '../services/api';
+
+const THEME_OPTIONS = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
+] as const;
+
+const TEXT_SIZE_OPTIONS = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'large', label: 'Large' },
+] as const;
 
 export default function Settings() {
   const navigate = useNavigate();
+  const { instance, accounts } = useMsal();
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { settings, setSetting } = useSettings();
+  const demo = isDemoMode();
+  const account = instance.getActiveAccount() ?? accounts[0] ?? null;
+  const [exporting, setExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  const handleExportJson = async () => {
+    if (exporting) return;
+    setExporting(true);
+    setExportStatus('');
+    try {
+      const projects = await listProjects();
+      const blob = new Blob([JSON.stringify(projects, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `workshop-project-summary-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setExportStatus(`Downloaded ${projects.length} project${projects.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      console.error('Export failed', error);
+      setExportStatus('Workshop could not prepare the project summary. Check the connection and try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const signOut = () => {
+    if (demo) {
+      exitDemoMode();
+      window.location.assign('/');
+      return;
+    }
+    void instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleting || demo) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await deleteAccount();
+    } catch (error) {
+      console.error('Account deletion failed', error);
+      setDeleteError(
+        error instanceof Error
+          ? error.message
+          : 'Workshop could not confirm account deletion. Your data remains intact.',
+      );
+      setDeleting(false);
+      return;
+    }
+
+    try {
+      await instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+    } catch (error) {
+      console.error('Remote sign-out failed after account deletion', error);
+      instance.setActiveAccount(null);
+      try {
+        await instance.clearCache(account ? { account } : undefined);
+      } catch (clearError) {
+        console.error('Local account cache cleanup failed after account deletion', clearError);
+      }
+      window.location.replace('/');
+    }
+  };
 
   return (
-    <div className="page-container" style={{ maxWidth: 680 }}>
-      <button className="btn btn-ghost" onClick={() => navigate(-1)} style={{ marginBottom: 28 }}>
-        <ArrowLeft size={15} />
+    <PageFrame maxWidth={860} className="settings-page">
+      <Button variant="ghost" onClick={() => navigate(-1)} className="workflow-back">
+        <ArrowLeft size={16} aria-hidden="true" />
         Back
-      </button>
+      </Button>
 
-      <div className="page-head">
-        <div className="page-head-main">
-          <h1 className="page-title">Settings</h1>
-          <p className="page-sub">How your plan table reads and behaves. Every preference is stored on this device.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Settings"
+        description="Appearance, project defaults, local preferences, and account controls for this browser."
+      />
 
-      {/* ── Appearance ─────────────────────────────────────────────────────────── */}
-      <SettingsSection title="Appearance">
-        <SettingsRow
-          label="Theme"
-          description="Choose light, dark, or follow your system setting."
-        >
-          <div style={{ display: 'flex', gap: 8 }}>
-            {(['light', 'dark', 'system'] as Theme[]).map(t => (
-              <button
-                key={t}
-                onClick={() => setTheme(t)}
-                className={theme === t ? 'btn btn-primary' : 'btn btn-ghost'}
-                style={{ fontSize: '0.85rem', padding: '8px 16px' }}
-              >
-                {t === 'light' ? 'Light' : t === 'dark' ? 'Dark' : 'System'}
-                {t === 'system' && theme === 'system' && (
-                  <span style={{ opacity: 0.65, fontSize: '0.75rem', marginLeft: 4 }}>
-                    ({resolvedTheme})
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+      <SettingsGroup
+        icon={<Paintbrush size={18} aria-hidden="true" />}
+        title="Appearance"
+        description="Choose how the living plan table reads on this device."
+      >
+        <SettingsRow label="Theme" description={`Current rendition: ${resolvedTheme}.`}>
+          <SegmentedControl
+            label="Theme"
+            value={theme}
+            options={THEME_OPTIONS}
+            onChange={(value: Theme) => setTheme(value)}
+          />
         </SettingsRow>
 
-        <SettingsDivider />
-
         <SettingsRow
-          label="Annotation Color"
-          description="Used for drawing notes, current stages, counts, and selected controls."
+          label="Annotation color"
+          description="Marks selected controls, links, counts, and drafting notes."
         >
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {(Object.entries(ACCENT_PRESETS) as [AccentColor, typeof ACCENT_PRESETS[AccentColor]][]).map(([key, preset]) => (
+          <div className="settings-swatches" role="group" aria-label="Annotation color">
+            {(Object.entries(ACCENT_PRESETS) as [
+              AccentColor,
+              typeof ACCENT_PRESETS[AccentColor],
+            ][]).map(([key, preset]) => (
               <button
                 key={key}
                 type="button"
-                className="lamp"
+                className="settings-swatch"
                 aria-pressed={settings.accentColor === key}
                 aria-label={preset.label}
                 onClick={() => setSetting('accentColor', key)}
               >
-                <span className="lamp-glass" style={{ background: preset.fill }} />
-                <span className="lamp-label">{preset.label}</span>
+                <span style={{ background: preset.fill }} aria-hidden="true">
+                  {settings.accentColor === key && <Check size={15} />}
+                </span>
+                <small>{preset.label}</small>
               </button>
             ))}
           </div>
         </SettingsRow>
 
-        <SettingsDivider />
-
         <SettingsRow
-          label="Text Size"
-          description="Slightly increases base font size for better readability."
+          label="Text size"
+          description="Large raises the app's base size while preserving browser zoom."
         >
-          <div style={{ display: 'flex', gap: 8 }}>
-            {(['normal', 'large'] as const).map(size => (
-              <button
-                key={size}
-                onClick={() => setSetting('fontSize', size)}
-                className={settings.fontSize === size ? 'btn btn-primary' : 'btn btn-ghost'}
-                style={{ fontSize: '0.85rem', padding: '8px 16px' }}
-              >
-                {size === 'normal' ? 'Normal' : 'Large'}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            label="Text size"
+            value={settings.fontSize}
+            options={TEXT_SIZE_OPTIONS}
+            onChange={value => setSetting('fontSize', value)}
+          />
         </SettingsRow>
-      </SettingsSection>
+      </SettingsGroup>
 
-      {/* ── Projects ───────────────────────────────────────────────────────────── */}
-      <SettingsSection title="Projects">
-        <SettingsRow
-          label="Default Status"
-          description="Status pre-selected when creating a new project."
-        >
+      <SettingsGroup
+        icon={<Settings2 size={18} aria-hidden="true" />}
+        title="Project defaults"
+        description="These values preselect common choices without changing existing projects."
+      >
+        <SettingsRow label="Default status" description="Preselected when a new project opens.">
           <select
+            aria-label="Default project status"
             value={settings.defaultProjectStatus}
-            onChange={e => setSetting('defaultProjectStatus', e.target.value as typeof settings.defaultProjectStatus)}
-            style={{ maxWidth: 200 }}
+            onChange={event => setSetting(
+              'defaultProjectStatus',
+              event.target.value as typeof settings.defaultProjectStatus,
+            )}
           >
             <option value="idea">Idea</option>
             <option value="planning">Planning</option>
-            <option value="in_progress">In Progress</option>
+            <option value="in_progress">In progress</option>
           </select>
         </SettingsRow>
 
-        <SettingsDivider />
-
-        <SettingsRow
-          label="Dashboard Sort"
-          description="How projects are ordered on the dashboard."
-        >
+        <SettingsRow label="Dashboard sort" description="The default order of the project library.">
           <select
+            aria-label="Default dashboard sort"
             value={settings.defaultDashboardSort}
-            onChange={e => setSetting('defaultDashboardSort', e.target.value as typeof settings.defaultDashboardSort)}
-            style={{ maxWidth: 200 }}
+            onChange={event => setSetting(
+              'defaultDashboardSort',
+              event.target.value as typeof settings.defaultDashboardSort,
+            )}
           >
-            <option value="updated">Last Updated</option>
-            <option value="created">Date Created</option>
+            <option value="updated">Last updated</option>
+            <option value="created">Date created</option>
             <option value="title">Title (A–Z)</option>
           </select>
         </SettingsRow>
 
-        <SettingsDivider />
-
         <SettingsRow
-          label="Show Completed"
-          description="Include completed projects in the default dashboard view."
+          label="Completed projects"
+          description="Include completed work when the dashboard first opens."
         >
-          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+          <label className="settings-check">
             <input
               type="checkbox"
               checked={settings.showCompletedByDefault}
-              onChange={e => setSetting('showCompletedByDefault', e.target.checked)}
-              style={{ width: 18, height: 18, accentColor: 'var(--color-amber)', cursor: 'pointer' }}
+              onChange={event => setSetting('showCompletedByDefault', event.target.checked)}
             />
-            <span style={{ fontSize: '0.88rem', color: 'var(--color-ink)' }}>
-              {settings.showCompletedByDefault ? 'Shown by default' : 'Hidden by default'}
-            </span>
+            <span>{settings.showCompletedByDefault ? 'Shown by default' : 'Hidden by default'}</span>
           </label>
         </SettingsRow>
-      </SettingsSection>
+      </SettingsGroup>
 
-      {/* ── Data ───────────────────────────────────────────────────────────────── */}
-      <SettingsSection title="Data">
+      <SettingsGroup
+        icon={<Download size={18} aria-hidden="true" />}
+        title="Data"
+        description="Keep a portable reference copy of project metadata."
+      >
         <SettingsRow
-          label="Export JSON Backup"
-          description="Download all your projects and their metadata as a JSON file."
+          label="JSON project summary"
+          description={demo
+            ? 'Downloads list metadata from the read-only demo workspace.'
+            : 'Downloads the project list and its current summary metadata.'}
         >
-          <button
-            className="btn btn-ghost"
-            onClick={handleExportJson}
-            style={{ fontSize: '0.85rem' }}
-          >
-            Download backup
-          </button>
+          <Button onClick={() => void handleExportJson()} disabled={exporting}>
+            <Download size={16} aria-hidden="true" />
+            {exporting ? 'Preparing…' : 'Download summary'}
+          </Button>
         </SettingsRow>
-      </SettingsSection>
+        {exportStatus && <p className="settings-status" role="status">{exportStatus}</p>}
+      </SettingsGroup>
 
-      <div className="board-plate">Measure twice &middot; Cut once</div>
-    </div>
+      <SettingsGroup
+        icon={demo
+          ? <Monitor size={18} aria-hidden="true" />
+          : <UserRound size={18} aria-hidden="true" />}
+        title="Account"
+        description={demo
+          ? 'The demo is session-scoped and cannot save changes.'
+          : 'Identity remains managed by Microsoft Entra.'}
+      >
+        <div className="settings-account">
+          <div>
+            <span>{demo ? 'Mode' : 'Signed in as'}</span>
+            <strong>{demo ? 'Demo workspace · Read only' : account?.name ?? account?.username ?? 'Workshop account'}</strong>
+            {!demo && account?.name && account.username && <small>{account.username}</small>}
+          </div>
+          <Button variant="ghost" onClick={signOut}>
+            {demo
+              ? <LogIn size={16} aria-hidden="true" />
+              : <LogOut size={16} aria-hidden="true" />}
+            {demo ? 'Sign in' : 'Sign out'}
+          </Button>
+        </div>
+
+        {!demo && (
+          <div className="settings-danger-zone">
+            <div>
+              <strong>Delete account</strong>
+              <p>
+                Permanently removes Workshop projects, photos, lists, Shaper projects,
+                templates, and account data. This cannot be undone.
+              </p>
+            </div>
+            {confirmDelete ? (
+              <div className="settings-delete-confirm" role="alert">
+                <span>Delete this Workshop account permanently?</span>
+                <Button variant="ghost" onClick={() => setConfirmDelete(false)} disabled={deleting}>
+                  Cancel
+                </Button>
+                <Button variant="danger" onClick={() => void handleDeleteAccount()} disabled={deleting}>
+                  <Trash2 size={16} aria-hidden="true" />
+                  {deleting ? 'Deleting…' : 'Delete account'}
+                </Button>
+              </div>
+            ) : (
+              <Button variant="danger" onClick={() => setConfirmDelete(true)}>
+                <Trash2 size={16} aria-hidden="true" />
+                Delete account
+              </Button>
+            )}
+            {deleteError && <p className="settings-delete-error" role="alert">{deleteError}</p>}
+          </div>
+        )}
+      </SettingsGroup>
+
+      <footer className="settings-version">
+        <span>Workshop</span>
+        <span>{__WORKSHOP_VERSION__}</span>
+      </footer>
+    </PageFrame>
   );
 }
 
-async function handleExportJson() {
-  try {
-    const projects = await listProjects();
-    const blob = new Blob([JSON.stringify(projects, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `workshop-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch (err) {
-    console.error('Export failed', err);
-  }
-}
-
-function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
+function SettingsGroup({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div style={{ marginBottom: 40 }}>
-      <div className="board">
-        <div className="rail">{title}</div>
-        <div>{children}</div>
-      </div>
-    </div>
+    <section className="settings-group" aria-labelledby={`settings-${title.toLowerCase().replace(/\s+/g, '-')}`}>
+      <header>
+        <span aria-hidden="true">{icon}</span>
+        <div>
+          <h2 id={`settings-${title.toLowerCase().replace(/\s+/g, '-')}`}>{title}</h2>
+          <p>{description}</p>
+        </div>
+      </header>
+      <div>{children}</div>
+    </section>
   );
 }
 
-function SettingsRow({ label, description, children }: {
+function SettingsRow({
+  label,
+  description,
+  children,
+}: {
   label: string;
   description: string;
   children: React.ReactNode;
 }) {
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      gap: 24, padding: '18px 24px', flexWrap: 'wrap',
-    }}>
-      <div style={{ flex: 1, minWidth: 180 }}>
-        <div className="board-caps" style={{ fontSize: '0.72rem', letterSpacing: '0.09em', marginBottom: 5 }}>{label}</div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--color-muted)', lineHeight: 1.4 }}>{description}</div>
+    <div className="settings-row">
+      <div>
+        <strong>{label}</strong>
+        <p>{description}</p>
       </div>
-      <div style={{ flexShrink: 0 }}>{children}</div>
+      <div className="settings-row-control">{children}</div>
     </div>
   );
-}
-
-function SettingsDivider() {
-  return <div style={{ borderTop: '1px solid var(--color-line)', margin: '0 24px' }} />;
 }
