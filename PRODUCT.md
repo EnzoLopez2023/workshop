@@ -70,8 +70,13 @@ parts list) into something they'd otherwise do by hand.
   `index.html`.
 - Deployed as a Linux container on Azure App Service. Frontend env vars are baked at build
   time, so anything visual must be static-buildable.
-- **No tests and no linter exist.** `npx tsc -b` / `npm run build` are the only automated
-  gates. TypeScript runs `strict` + `noUnusedLocals` + `noUnusedParameters`.
+- The Node test suite covers auth/data isolation, account deletion, cut-plan parity, core
+  workflows, route/shell contracts, and the remaining web surfaces. `npx tsc -b` and
+  `npm run build` are additional automated gates; no linter is configured. TypeScript runs
+  `strict` + `noUnusedLocals` + `noUnusedParameters`.
+- Route components load lazily behind a shared Suspense/error boundary. The initial production
+  application chunk remains below 250 kB before gzip; page-heavy code such as Notebook Markdown
+  rendering loads only when its route opens.
 - Existing dependencies available for UI work: `framer-motion`, `lucide-react`, `sonner`,
   `cmdk`, `@dnd-kit/*`, `@floating-ui/react`, `marked`.
 

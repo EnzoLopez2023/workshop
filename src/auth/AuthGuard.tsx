@@ -24,23 +24,16 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     inProgress === InteractionStatus.AcquireToken
   ) {
     return (
-      <div style={{
-        display: 'flex', flexDirection: 'column', minHeight: '100dvh',
-        backgroundColor: 'var(--color-concourse)', alignItems: 'center',
-        justifyContent: 'center', padding: '0 24px',
-      }}>
-        <img
-          src="/favicon.svg"
-          alt="Workshop"
-          width={72}
-          height={72}
-          style={{ borderRadius: 'var(--radius-default)', display: 'block', marginBottom: 20 }}
-        />
-        <h1 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 8 }}>Signing you in…</h1>
-        <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>
+      <main className="auth-loading" aria-live="polite">
+        <span className="auth-loading-mark" aria-hidden="true">
+          <img src="/favicon.svg" alt="" width={72} height={72} />
+        </span>
+        <h1>Signing you in…</h1>
+        <p>
           Please wait while we complete authentication.
         </p>
-      </div>
+        <span className="auth-loading-line skeleton" aria-hidden="true" />
+      </main>
     )
   }
 

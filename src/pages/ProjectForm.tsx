@@ -25,6 +25,7 @@ import { STATUS_LABELS } from '../types/project';
 import { Button, PageFrame, StatePanel } from '../components/ui';
 import { Field, FormSection } from '../components/workflows';
 import { buildProjectPayload } from '../lib/coreWorkflows';
+import { useSettings } from '../contexts/SettingsContext';
 
 const STATUSES: ProjectStatus[] = ['idea', 'planning', 'in_progress', 'completed'];
 const DIFFICULTIES: Difficulty[] = ['Beginner', 'Intermediate', 'Advanced'];
@@ -41,6 +42,7 @@ type UploadEntry = {
 
 export default function ProjectForm() {
   const navigate = useNavigate();
+  const { settings } = useSettings();
   const { id } = useParams<{ id: string }>();
   const projectId = id ? Number(id) : undefined;
   const editing = projectId !== undefined;
@@ -51,7 +53,7 @@ export default function ProjectForm() {
     description: '',
     source_url: '',
     cut_plan_url: '',
-    status: 'idea',
+    status: settings.defaultProjectStatus,
     difficulty: 'Intermediate',
     estimated_hours: 0,
     wood_types: [],

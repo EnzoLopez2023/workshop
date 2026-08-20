@@ -190,6 +190,8 @@ Workshop is a cool, adaptive drafting surface for a real woodworking record. The
 
 This is an Operate system and the web is the interaction authority. Semantic landmarks, links, durable routes, browser history, native form behavior, keyboard focus, hover as enhancement, and responsive web navigation take precedence over simulating iOS chrome or gestures. The iOS artifact confirms the shared material language, but `src/index.css` and the shipped React components own web values and behavior. Direction lineage: seed `ef48c050`.
 
+The signed-out surface is the Persuade edge of the same world rather than a separate identity. Its sticky glass header, oversized rounded headline, plan drawing, tracing sheet, workflow rows, connected-tool list, and deep-spruce closing panel explain the product with the same vellum, grid, annotation, amber-next-action, and browser-native rules. Microsoft redirect failure is an inline danger message; the read-only demo is a first-class alternate entry rather than a signup route.
+
 The former **Concourse Board** is retired. Condensed board lettering, split-flap seams, steel rails, rivets, tiny radii, and aggregate metric walls have no authority even where compatibility aliases or stale comments retain old names.
 
 **Key Characteristics:**
@@ -200,6 +202,7 @@ The former **Concourse Board** is retired. Condensed board lettering, split-flap
 - A 14px default radius, 10px compact wells, 24px hero layers, and capsules only for compact state.
 - Functional glass for shell/navigation, sticky tools and selection, and the active tracing layer.
 - One active project and one amber next action lead before search and library content.
+- Signed-out persuasion, authenticated operation, loading, empty, conflict, and fatal states share one token system.
 - Light, dark, reduced-motion, reduced-transparency, forced-colors, touch, and print behavior are part of the system.
 
 **The Shipped Artifact Rule.** Compatibility aliases and old component vocabulary carry no visual authority. They must resolve to the current semantic system; in particular, the legacy `--color-steel` alias resolves to `--color-action` so preserved Layer 1 controls retain contrast. New work consumes semantic tokens directly.
@@ -257,9 +260,11 @@ The palette is semantic and adaptive: light and dark values are paired by role, 
 - **Headline** (700, `1.22rem`, 1.16): The next useful action inside the tracing layer.
 - **Title / Rail** (720, `1rem`, compact leading): Section rails and card titles; rails tighten tracking to `-0.015em`.
 - **Body** (400, `1rem`, 1.5): Default reading and native controls. Long copy is constrained with 68–70ch measures.
-- **Supporting** (400, `0.84–0.92rem`, 1.5): Page descriptions, card summaries, command items, and active-layer explanation.
-- **Label** (650–700, `0.62–0.78rem`): Metadata, status, filters, table heads, mobile navigation, and stage names. The shared label class is `0.76rem` with `0.015em` tracking.
+- **Supporting** (400–650, `0.82–0.92rem`, usually 1.5): Page descriptions, status copy, card summaries, command items, form hints, and active-layer explanation. Notebook snippets use `0.84rem`; general supporting copy uses `0.88rem`; route subtitles reach `0.92rem`.
+- **Label** (650–700, `0.62–0.78rem`): Metadata, status, filters, table heads, mobile navigation, stage names, and upload percentages. The shared label class is `0.76rem` with `0.015em` tracking; `0.68–0.72rem` is reserved for dense swatches, statuses, and navigation.
 - **Readout:** Rounded system type with `font-variant-numeric: tabular-nums`; shipped card values are `0.78rem`, active metadata is `0.9rem`, and larger statistics reach `1.25rem`.
+- **Signed-out Hero** (700, `clamp(2.35rem, 7vw, 4.8rem)`, 0.98): The landing proposition only; below 620px it uses `clamp(2.3rem, 13vw, 3.35rem)`.
+- **Editor Source** (400, `0.9rem`, 1.65): The sole monospace exception for Markdown and code, using the native `ui-monospace` stack.
 
 The root remains `1rem` (16px at browser default). The large-text setting raises the root to `106.25%`, allowing rem-based sizes to scale together.
 
@@ -281,11 +286,17 @@ The active project is the first substantial layer after the page switcher. Below
 
 Mobile uses a fixed utility header (`60px` plus top safe area), five-destination bottom navigation (`66px` plus bottom safe area), 44px icon controls, and content clearance of 64px above and 72px below. At 768px the compact shell becomes a persistent 256px sidebar; at 1040px it widens to 272px. A 420px breakpoint reduces page insets to 12px. Container thresholds at 620px and 680px adapt tools and the active project without tying layout to device orientation.
 
+The 768px shell breakpoint and the page container thresholds solve different problems. At an 820px viewport the sidebar is correctly present, but the remaining content column is only about 564px before page insets; dashboard tools therefore stay stacked and the active-project layer stays single-column. They expand only when the named page container itself reaches 620px and 680px. Do not replace these container queries with viewport queries.
+
+Remaining route-specific thresholds are evidence-based: the landing hero becomes two columns at 860px; conversion inputs, paired inch tables, and Settings rows become two columns at 900px; conversion results stack and reference tabs scroll below 760px; narrow editor/actions collapse at 520px; shopping summaries and rows reorganize below 560px; project and Shaper detail heroes become two columns at 1040px; conversion reference controls stack below 1100px. Fractional conversion tables keep a 960px intrinsic width inside a focusable horizontal scroller.
+
 **The Active Layer Rule.** The active project and next useful move lead. Search, filters, aggregate counts, templates, and inspiration follow rather than competing above it.
 
 **The Browser Shell Rule.** Use semantic links, buttons, landmarks, routes, browser history, and safe-area-aware responsive navigation. Share visual language with iOS without copying native bars, gestures, or navigation behavior.
 
 **The Touch-First Control Rule.** Interactive targets remain at least 44×44px; horizontal filter and table overflow scrolls rather than shrinking controls below that floor.
+
+**The Content-Width Rule.** Shell changes follow the viewport; dense content changes follow its available column. An 820px viewport is not permission to force a desktop content composition beside the sidebar.
 
 ## Elevation & Depth
 
@@ -354,11 +365,33 @@ Borders are normally 1px adaptive dividers. Images clip to their card or hero bo
 
 ### Core Workflows
 
-- **Dashboard contexts:** Projects and Shaper Hub share the root route and persistent segmented switcher, but keep independent search, counts, libraries, and state panels. Project status filters never appear in Shaper Hub.
-- **Project detail:** The plan/photo and tracing layer lead, followed by open rails, native tables, galleries, logs, shopping evidence, and optimizer output. Avoid a stack of unrelated cards.
-- **Forms:** Plan or Shaper import comes first, essentials precede advanced lists, and native fieldsets group photos, measured parts, materials, instructions, and save actions.
-- **Shopping:** Acquisition rows stay grouped by project provenance, expose quantity and remaining cost, and use the entire 64px row as the completion target.
+- **Dashboard contexts:** Projects and Shaper Hub share `/` and a persisted segmented switcher, but keep independent search, counts, libraries, and state panels. Project status filters never appear in Shaper Hub. The Projects context places the focus project first, then the searchable/sortable library, live template clone/delete controls, external build-inspiration links, and the optional Shopkeep companion link. Templates and inspiration do not have standalone routes.
+- **Project detail:** The plan/photo and tracing layer lead, followed by open rails, native tables, galleries, build and finish logs, project links, shopping evidence, template creation, and optimizer output. Inline deletion confirmation stays attached to its trigger; image and PDF previews use modal lightboxes with Escape, trapped focus, and focus restoration.
+- **Forms:** Plan or Shaper import comes first, essentials precede advanced lists, and native fieldsets group photos, measured parts, materials, instructions, and save actions. Project editing gains a sticky save bar after the top actions scroll away. Existing project uploads expose per-file progress, completion, failure, and dismissal; new Shaper uploads queue until the project exists and report partial failures instead of implying an atomic save.
+- **Shopping:** Acquisition rows stay grouped by project provenance, expose quantity and remaining cost, and use the whole label row as the completion target. Search, purchased visibility, optimistic individual and bulk completion, rollback errors, grouped project links, and the dedicated printable list are shipped behavior.
 - **Cut plan:** Stock input, kerf, exact optimizer evidence, sheet figures, and exports use the same semantic palette. Part colors distinguish placement only; they never alter optimizer ordering or geometry.
+
+### Conversion Tables
+
+The quick calculator accepts one positive millimeter or inch value and presents millimeters to three decimals, decimal inches to five, and a nearest-1/32-inch fraction. Copy and reset are explicit, live status remains textual, and invalid/non-positive input shows the neutral placeholder. Three segmented reference modes are real views: 1–100mm, 1–96 whole inches in two 48-row tables, and eighth-inch increments through 48 inches. Tables retain native table semantics, tabular figures, alternating tonal rows, focusable horizontal overflow, and print-safe surfaces.
+
+### Notebook
+
+The list is a live signed-in view of the Tabloom notebook named “Workshop,” with loading skeletons, page snippets, relative edit times, missing-notebook guidance, retryable failures, and creation. Demo mode exposes a deliberate unavailable state and never requests a Tabloom token.
+
+The editor is manual-save only. It defaults new pages to Edit and existing pages to Preview, exposes a title field plus Markdown source, renders GFM by passing Markdown through `marked` and then DOMPurify, supports ⌘S/Ctrl-S, and reports new, dirty, saving, saved, and relative-edited state in the sticky toolbar. The sanitizer preserves DOMPurify-safe Tabloom `data-*` attributes and safe `tabloom:` URI semantics through its explicit URI pattern while removing executable markup. The client edits and sends `body_md`; the Tabloom response also contains `html`, but the shipped Workshop preview is regenerated from Markdown rather than mounting that field. Tabloom-only source blocks therefore remain visible and round-trip unchanged. Preview/Edit are labelled tabs with labelled panels; only the selected tab is in the tab order, and ArrowLeft/ArrowRight/Home/End move selection and focus. Updates send the previous `edited_at` as `expected_edited_at`; a 409 offers “Reload latest” or “Overwrite with mine.” Dirty pages use the `createBrowserRouter` data-router blocker for in-app PUSH, REPLACE, and POP navigation even while a save is in flight, plus `beforeunload` for document exits. A successful new-page save updates the baseline so the editor is clean before its replace-history redirect to the created page.
+
+### Settings
+
+Settings are open grouped rows, not a card dashboard: Appearance (light/dark/system, five adaptive annotation presets, normal/large text), Project defaults (new-project status, dashboard sort, completed visibility), Data (a JSON project-list summary, explicitly not a full backup), Account (identity or demo mode, sign out/exit), a two-step signed-in delete-account danger zone, and the build version. Browser-local appearance/defaults are persisted independently of existing projects. Export status, deletion progress, and deletion failure remain inline and textual. Irreversible server-side account deletion is separate from ordinary remote logout: after deletion succeeds Workshop attempts the Microsoft logout redirect; if that redirect fails, it clears the active account and local MSAL cache before replacing the document to `/`.
+
+### Global Route and Feedback Behavior
+
+Before the application shell, `AuthGuard` admits the session-scoped demo, shows the signed-out landing page when no Microsoft account is authenticated, and shows a dedicated “Signing you in…” icon-and-skeleton state while MSAL handles a redirect or acquires a token. Startup and outer-render failures use the root boundary; authenticated route failures use the recoverable in-shell boundary.
+
+Every implemented application route is lazy-loaded behind one shared `Suspense` workspace skeleton and a route-keyed `ErrorBoundary`; route changes set a specific document title. Grouped loading skeletons for project, shopping, and Notebook content are polite busy status regions with an accessible loading label while their visual placeholder shapes remain hidden from assistive technology. A `createBrowserRouter` wildcard root preserves the route table in `App.tsx` while enabling dirty-state blocking. The only routes are `/`, project new/detail/edit, Shaper new/detail/edit, `/conversions`, `/shopping-list`, `/notebook`, `/notebook/:id` (including `new`), and `/settings`. Unknown paths replace-history redirect to `/`. There are no standalone templates, inspiration, legal, help, about, or not-found screens.
+
+The command palette and media previews are modal dialogs: background content becomes inert where applicable, Tab is contained, Escape closes, and focus returns. Sonner toasts are capped at four, closeable, token-colored, and bottom-right; use them for transient completion or blocked-demo feedback while persistent load/save/conflict failures remain inline. Demo mode is session-scoped, shows a global read-only banner, permits reads against seeded data, blocks writes before the network, throttles blocked-action toasts, and replaces Notebook with signed-in guidance.
 
 ### Navigation
 
@@ -370,7 +403,7 @@ Borders are normally 1px adaptive dividers. Images clip to their card or hero bo
 
 `Button`, `IconButton`, `PageFrame`, `PageHeader`, `SectionRail`, `SegmentedControl`, and `StatePanel` in `src/components/ui.tsx` are the shared React primitives. `CreateProjectMenu`, `WorkflowSection`, `FormSection`, and `Field` in `src/components/workflows.tsx` carry the shared Layer 2 interaction patterns. `AppShell` owns the responsive shell; `ProjectCard`, `ShaperProjectCard`, and `StatusBadge` own library and semantic-state patterns; the dashboard composes the active project without inventing a second navigation model.
 
-Theme and settings persistence are part of the visual contract. The pre-paint script and `ThemeContext` read `workshop-theme`, accept only `light`, `dark`, or `system`, fall invalid values back to `system`, follow OS changes while in system mode, and write the resolved rendition to `data-theme`. `SettingsContext` reads `workshop-settings`, shallow-merges current defaults, replaces retired or unknown accent names with the legacy `amber` key that now means Spruce, reapplies the three annotation custom properties after every rendition change, and scales the root to `106.25%` for large text.
+Theme and settings persistence are part of the visual contract. The pre-paint script and `ThemeContext` read `workshop-theme`, accept only `light`, `dark`, or `system`, fall invalid values back to `system`, follow OS changes while in system mode, and write the resolved rendition to `data-theme`. `SettingsContext` reads `workshop-settings`, shallow-merges current defaults, replaces retired or unknown accent names with the legacy `amber` key that now means Spruce, reapplies the three annotation custom properties after every rendition change, and scales the root to `106.25%` for large text. The preset labels are Spruce, Clay, Moss, Pencil Blue, and Iris; each swaps annotation ink, strong ink, and fill as a light/dark family.
 
 Motion uses 140ms for direct state change and 200ms for card/elevation change with `cubic-bezier(0.16, 1, 0.3, 1)`. Reduced Motion collapses animation and transition durations to `0.01ms` and replaces the moving skeleton with a static recessed fill.
 
@@ -388,6 +421,9 @@ Forced Colors maps semantic roles to system colors, hides the drafting grid, and
 - **Do** keep glass functional and provide the shipped reduced-transparency fallback.
 - **Do** preserve native fields, durable links/routes, visible focus, safe areas, and print behavior.
 - **Do** keep hover enhancements behind hover-capability queries and give every motion a reduced-motion outcome.
+- **Do** keep route chunks lazy, route titles specific, grouped loading skeletons exposed as polite busy status regions, and unexpected route failures recoverable without inventing a not-found surface.
+- **Do** preserve content-width container queries; verify the sidebar-plus-stacked-content composition at 820px.
+- **Do** keep Notebook saves manual, sanitize GFM after `marked`, preserve safe Tabloom semantics, guard dirty in-app and document exits, and make Tabloom conflicts explicit.
 
 ### Don't:
 
@@ -399,3 +435,5 @@ Forced Colors maps semantic roles to system colors, hides the drafting grid, and
 - **Don't** hardcode a light-only color in a component when a semantic custom property exists.
 - **Don't** simulate iOS chrome, gestures, sheets, or navigation on the web.
 - **Don't** treat legacy `flap`, `steel`, `amber`, departure-card comments, or other migration names as permission to restore the old visual world.
+- **Don't** invent standalone templates, inspiration, legal, help, about, or not-found routes; the catch-all redirects to `/`.
+- **Don't** canonize the pre-React emergency startup panel's hardcoded monospace, uppercase, and red styling; it is last-resort failure output, not the house system.

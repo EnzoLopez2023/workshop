@@ -1,25 +1,19 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import {
+  DEFAULT_SETTINGS,
+  readSettingsValue,
+  type AccentColor,
+  type Settings,
+} from '../lib/settingsPreferences';
 
-export type AccentColor = 'amber' | 'signal' | 'platform' | 'beacon' | 'violet';
-export type FontSize = 'normal' | 'large';
-export type DefaultProjectStatus = 'idea' | 'planning' | 'in_progress';
-export type DashboardSort = 'updated' | 'created' | 'title';
-
-export interface Settings {
-  accentColor: AccentColor;
-  fontSize: FontSize;
-  defaultProjectStatus: DefaultProjectStatus;
-  defaultDashboardSort: DashboardSort;
-  showCompletedByDefault: boolean;
-}
-
-const DEFAULT_SETTINGS: Settings = {
-  accentColor: 'amber',
-  fontSize: 'normal',
-  defaultProjectStatus: 'idea',
-  defaultDashboardSort: 'updated',
-  showCompletedByDefault: false,
-};
+export { DEFAULT_SETTINGS, readSettingsValue };
+export type {
+  AccentColor,
+  DashboardSort,
+  DefaultProjectStatus,
+  FontSize,
+  Settings,
+} from '../lib/settingsPreferences';
 
 export const ACCENT_PRESETS: Record<
   AccentColor,
@@ -95,16 +89,7 @@ export function useSettings() {
 }
 
 function readSettings(): Settings {
-  try {
-    const raw = localStorage.getItem('workshop-settings');
-    if (!raw) return DEFAULT_SETTINGS;
-    const next: Settings = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-    // Older builds stored retired accent names.
-    if (!ACCENT_PRESETS[next.accentColor]) next.accentColor = DEFAULT_SETTINGS.accentColor;
-    return next;
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
+  return readSettingsValue(localStorage.getItem('workshop-settings'));
 }
 
 function applySettings(s: Settings) {

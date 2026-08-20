@@ -7,8 +7,8 @@ related_targets: ["src/components/AppShell.tsx","src/pages/Dashboard.tsx"]
 
 ## Scope and mode
 
-- **Scope:** The authenticated React application shell in `src/App.tsx`, its responsive navigation,
-  the root Projects/Shaper Hub surface, and the shared primitives later feature layers inherit.
+- **Scope:** The complete React application shell in `src/App.tsx`, signed-out landing and auth
+  states, responsive navigation, every registered route, and the global states shared by them.
 - **Mode:** Operate.
 
 ## Audience, job, and task
@@ -29,6 +29,10 @@ related_targets: ["src/components/AppShell.tsx","src/pages/Dashboard.tsx"]
 - Translate iOS material and geometry into semantic HTML, links, native form controls, visible
   focus, 44px targets, and reduced-motion/transparency/forced-colors/print media behavior.
 - Keep backend, schema, authentication contracts, and cut-plan logic untouched.
+- Registered feature routes are Projects/Shaper CRUD, Shopping List, Conversion Tables, Notebook
+  list/detail/new, Settings, and the root Projects/Shaper dashboard. The catch-all redirects to `/`;
+  no standalone legal, help, template, inspiration, admin, insight, unauthorized, or not-found
+  surface exists.
 
 ## Chosen direction and memorable moment
 
@@ -40,5 +44,5 @@ related_targets: ["src/components/AppShell.tsx","src/pages/Dashboard.tsx"]
 
 ## Unresolved decisions
 
-- Feature-page composition beyond compatibility styling belongs to later redesign layers.
-- The signed-out marketing surface keeps its current information architecture until its own layer.
+- None for the shipped web system. Future routes must extend the same browser-native shell and
+  Living Plan Table primitives rather than introducing a parallel visual dialect.

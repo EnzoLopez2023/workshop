@@ -2,7 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { PublicClientApplication } from '@azure/msal-browser';
 import { MsalProvider } from '@azure/msal-react';
-import { BrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { msalConfig } from './auth/msalConfig';
 import AuthGuard from './auth/AuthGuard';
 import App from './App';
@@ -12,6 +12,7 @@ import { setMsalInstance as setTabloomMsalInstance } from './services/tabloomApi
 import './index.css';
 
 const rootEl = document.getElementById('root')!;
+const router = createBrowserRouter([{ path: '*', element: <App /> }]);
 
 function renderFatal(err: unknown) {
   const wrap = document.createElement('div');
@@ -41,9 +42,7 @@ try {
           <ErrorBoundary>
             <MsalProvider instance={msalInstance}>
               <AuthGuard>
-                <BrowserRouter>
-                  <App />
-                </BrowserRouter>
+                <RouterProvider router={router} />
               </AuthGuard>
             </MsalProvider>
           </ErrorBoundary>

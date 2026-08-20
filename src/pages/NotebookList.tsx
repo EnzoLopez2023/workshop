@@ -1,101 +1,130 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, BookOpen, Plus } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ArrowLeft, ArrowUpRight, BookOpen, Plus } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Button, PageFrame, PageHeader, StatePanel } from '../components/ui';
+import { isDemoMode } from '../demo/demoMode';
+import { formatRelativeTime } from '../lib/notebook';
 import { listTabloomWorkshopPages, type TabloomPageSummary } from '../services/tabloomApi';
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso + 'Z').getTime();
-  const min = Math.floor(diff / 60000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const days = Math.floor(hr / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso + 'Z').toLocaleDateString();
-}
 
 export default function NotebookList() {
   const navigate = useNavigate();
+  const demo = isDemoMode();
   const [pages, setPages] = useState<TabloomPageSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!demo);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const loadPages = useCallback(async () => {
+    if (demo) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setPages(await listTabloomWorkshopPages());
+    } catch (error) {
+      console.error('Notebook load failed', error);
+      setLoadError(error instanceof Error ? error.message : 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, [demo]);
+
   useEffect(() => {
-    listTabloomWorkshopPages()
-      .then(setPages)
-      .catch(err => {
-        console.error(err);
-        setLoadError(err instanceof Error ? err.message : 'Failed to load');
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    void loadPages();
+  }, [loadPages]);
+
+  const description = demo
+    ? 'Notebook connects to Tabloom for signed-in workspaces.'
+    : loading
+      ? 'Loading the Workshop notebook from Tabloom.'
+      : `${pages.length} page${pages.length === 1 ? '' : 's'} synced with Tabloom.`;
 
   return (
-    <div className="page-container" style={{ maxWidth: 780 }}>
-      <button onClick={() => navigate(-1)} className="btn btn-ghost" style={{ gap: 6, marginBottom: 24 }}>
-        <ArrowLeft size={14} /> Back
-      </button>
+    <PageFrame maxWidth={920} className="notebook-list-page">
+      <Button variant="ghost" onClick={() => navigate(-1)} className="workflow-back">
+        <ArrowLeft size={16} aria-hidden="true" />
+        Back
+      </Button>
 
-      <div className="page-head">
-        <div className="page-head-main">
-          <h1 className="page-title">
-            <BookOpen size={20} strokeWidth={2.2} style={{ color: 'var(--color-amber)', display: 'inline-block', verticalAlign: '-2px', marginRight: 10 }} />
-            Notebook
-          </h1>
-          <p className="page-sub">
-            {pages.length === 0 && !loading
-              ? 'Edit any page or start a new one — changes sync back to Tabloom.'
-              : `${pages.length} page${pages.length !== 1 ? 's' : ''} · synced with Tabloom`}
-          </p>
-        </div>
-        <div className="page-head-actions">
-          <button onClick={() => navigate('/notebook/new')} className="btn btn-primary" style={{ gap: 6 }}>
-            <Plus size={14} /> New page
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Notebook"
+        description={description}
+        actions={!demo && (
+          <Button variant="primary" onClick={() => navigate('/notebook/new')}>
+            <Plus size={17} aria-hidden="true" />
+            New page
+          </Button>
+        )}
+      />
 
-      {loading ? (
-        <div style={{ textAlign: 'center', color: 'var(--color-muted)', padding: 48 }}>Loading…</div>
+      {demo ? (
+        <StatePanel
+          title="Notebook needs a signed-in workspace"
+          description="The demo remains read only and does not connect to a personal Tabloom notebook."
+        />
+      ) : loading ? (
+        <NotebookListSkeleton />
       ) : loadError === 'workshop_notebook_missing' ? (
-        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--color-muted)' }}>
-          No "Workshop" notebook found in Tabloom. Create one in Tabloom to populate this view.
-        </div>
+        <StatePanel
+          title="Workshop notebook not found"
+          description='Create a notebook named "Workshop" in Tabloom, then return here to open it.'
+          action={<Button onClick={() => void loadPages()}>Check again</Button>}
+        />
       ) : loadError ? (
-        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--color-amber)' }}>
-          Could not load pages: {loadError}
-        </div>
+        <StatePanel
+          title="Notebook unavailable"
+          description={`Workshop could not load pages from Tabloom: ${loadError}`}
+          tone="danger"
+          action={<Button onClick={() => void loadPages()}>Try again</Button>}
+        />
       ) : pages.length === 0 ? (
-        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--color-muted)' }}>
-          No pages yet. Tap “New page” to start one.
-        </div>
+        <StatePanel
+          title="Start the first notebook page"
+          description="Create a Markdown page here and it will be stored in the Workshop notebook in Tabloom."
+          action={
+            <Button variant="primary" onClick={() => navigate('/notebook/new')}>
+              <Plus size={17} aria-hidden="true" />
+              New page
+            </Button>
+          }
+        />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {pages.map(page => (
-            <div
-              key={page.id}
-              className="card"
-              style={{ padding: '18px 20px', display: 'flex', alignItems: 'flex-start', gap: 14, cursor: 'pointer' }}
-              onClick={() => navigate(`/notebook/${page.id}`)}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: 'var(--font-board)', fontWeight: 700, fontSize: '1.05rem', color: 'var(--color-ink)', marginBottom: 4 }}>
-                  {page.title || 'Untitled'}
-                </div>
-                {page.snippet && (
-                  <div style={{ fontSize: '0.82rem', color: 'var(--color-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 6 }}>
-                    {page.snippet}
-                  </div>
-                )}
-                <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', letterSpacing: '0.04em' }}>
-                  {relativeTime(page.edited_at)}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <section aria-labelledby="notebook-pages-title">
+          <div className="rail notebook-list-rail">
+            <span id="notebook-pages-title"><BookOpen size={17} aria-hidden="true" /> Pages</span>
+            <span className="rail-count">{pages.length}</span>
+          </div>
+          <div className="notebook-page-list">
+            {pages.map(page => (
+              <Link className="notebook-page-row" to={`/notebook/${page.id}`} key={page.id}>
+                <span className="notebook-page-copy">
+                  <strong>{page.title || 'Untitled'}</strong>
+                  {page.snippet && <span>{page.snippet}</span>}
+                  <time dateTime={page.edited_at}>Edited {formatRelativeTime(page.edited_at)}</time>
+                </span>
+                <ArrowUpRight size={18} aria-hidden="true" />
+              </Link>
+            ))}
+          </div>
+        </section>
       )}
+    </PageFrame>
+  );
+}
+
+function NotebookListSkeleton() {
+  return (
+    <div
+      className="notebook-page-list"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      aria-label="Loading notebook pages"
+    >
+      {[0, 1, 2].map(index => (
+        <div className="notebook-page-row is-skeleton" aria-hidden="true" key={index}>
+          <span className="notebook-skeleton-title skeleton" />
+          <span className="notebook-skeleton-copy skeleton" />
+        </div>
+      ))}
     </div>
   );
 }
