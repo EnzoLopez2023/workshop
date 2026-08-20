@@ -7,6 +7,7 @@ import { parseInches, buildCutPieces, optimizeCuts } from '../lib/cutPlan';
 import type { StockSheet, CutPlanResult, SheetLayout } from '../lib/cutPlan';
 import CutPlanSheet, { buildColorMap, fmtDim, PALETTE } from './CutPlanSheet';
 import { getCutPlanConfig, saveCutPlanConfig } from '../services/api';
+import { Button } from './ui';
 
 interface StockRow {
   id: string;
@@ -93,19 +94,19 @@ function layoutToSvgBlock(
     const textBlock = !showText ? '' : `
       <defs><clipPath id="${clipId}"><rect x="${p.x + 0.5}" y="${p.y + 0.5}" width="${p.length - 1}" height="${p.width - 1}"/></clipPath></defs>
       <g clip-path="url(#${clipId})">
-        <text x="${cx}" y="${cy - vOff}" text-anchor="middle" dominant-baseline="middle" font-size="${partFontSz}" font-family="'Martian Mono', ui-monospace, monospace" font-weight="600" letter-spacing="0.02em" fill="#14181A"${rotAttr}>${esc(label)}</text>
-        ${showDims ? `<text x="${cx}" y="${cy + vOff}" text-anchor="middle" dominant-baseline="middle" font-size="${dimFontSz}" font-family="'Martian Mono', ui-monospace, monospace" fill="rgba(20,24,26,0.55)"${rotAttr}>${esc(dimLabel)}</text>` : ''}
+        <text x="${cx}" y="${cy - vOff}" text-anchor="middle" dominant-baseline="middle" font-size="${partFontSz}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" font-weight="600" letter-spacing="0.02em" fill="#15332E"${rotAttr}>${esc(label)}</text>
+        ${showDims ? `<text x="${cx}" y="${cy + vOff}" text-anchor="middle" dominant-baseline="middle" font-size="${dimFontSz}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#58716B"${rotAttr}>${esc(dimLabel)}</text>` : ''}
       </g>`;
 
-    return `<g><rect x="${p.x}" y="${p.y}" width="${p.length}" height="${p.width}" fill="${fill}" stroke="rgba(0,0,0,0.22)" stroke-width="${sw}" rx="0.15"/>${textBlock}</g>`;
+    return `<g><rect x="${p.x}" y="${p.y}" width="${p.length}" height="${p.width}" fill="${fill}" stroke="#15332E" stroke-opacity="0.22" stroke-width="${sw}" rx="0.15"/>${textBlock}</g>`;
   }).join('');
 
   return `<div class="page">
   <p class="title">${esc(titleParts)}</p>
   <svg width="${svgW}" height="${svgH}" viewBox="0 0 ${sheetLength} ${sheetWidth}">
-    <rect x="0" y="0" width="${sheetLength}" height="${sheetWidth}" fill="#D5DBD8"/>
+    <rect x="0" y="0" width="${sheetLength}" height="${sheetWidth}" fill="#E0EBE7"/>
     ${piecesSvg}
-    <rect x="0" y="0" width="${sheetLength}" height="${sheetWidth}" fill="none" stroke="#14181A" stroke-width="${(2 / scale).toFixed(4)}"/>
+    <rect x="0" y="0" width="${sheetLength}" height="${sheetWidth}" fill="none" stroke="#15332E" stroke-width="${(2 / scale).toFixed(4)}"/>
   </svg>
 </div>`;
 }
@@ -129,15 +130,15 @@ function buildPrintHtml(
 <style>
   @page { size: landscape; margin: 0.45in; }
   * { box-sizing: border-box; }
-  body { font-family: 'Martian Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.02em; color: #14181A; margin: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; font-size: 1rem; color: #15332E; margin: 0; }
   .page { page-break-after: always; padding-bottom: 12px; }
   .page:last-of-type { page-break-after: avoid; }
-  .title { margin: 0 0 7px; font-size: 12px; font-weight: 600; color: #555; }
-  svg { display: block; border: 1.5px solid #bbb; border-radius: 3px; }
+  .title { margin: 0 0 7px; font-size: 1rem; font-weight: 700; color: #58716B; }
+  svg { display: block; border: 1px solid #C9DAD5; border-radius: 10px; }
   .legend { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 6px 14px; }
-  .leg-label { width: 100%; font-size: 9px; font-weight: 700; letter-spacing: .1em; color: #999; margin-bottom: 4px; }
-  .leg-item { display: flex; align-items: center; gap: 5px; font-size: 10px; }
-  .swatch { width: 11px; height: 11px; border-radius: 2px; border: 1px solid rgba(0,0,0,0.15); flex-shrink: 0; }
+  .leg-label { width: 100%; font-size: 0.76rem; font-weight: 700; letter-spacing: 0.015em; color: #58716B; margin-bottom: 4px; }
+  .leg-item { display: flex; align-items: center; gap: 5px; font-size: 0.88rem; }
+  .swatch { width: 11px; height: 11px; border-radius: 10px; border: 1px solid #C9DAD5; flex-shrink: 0; }
   @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 </style>
 </head><body>
@@ -174,7 +175,10 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
         }
         if (typeof ks === 'string') setKerfStr(ks);
       })
-      .catch(() => { /* no config saved yet */ });
+      .catch(error => {
+        console.error('Cut plan config load failed', error);
+        toast.error('Could not restore the saved cut plan setup');
+      });
   }, [projectId]);
 
   const updateRow = (id: string, patch: Partial<StockRow>) =>
@@ -235,7 +239,10 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
     if (projectId != null) {
       saveCutPlanConfig(projectId, { stockRows, kerfStr })
         .then(() => setHasSavedConfig(true))
-        .catch(() => { /* ignore */ });
+        .catch(error => {
+          console.error('Cut plan config auto-save failed', error);
+          toast.error('Cut plan generated, but its setup could not be saved');
+        });
     }
   };
 
@@ -259,24 +266,14 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
     stockRows.find(r => r.id === stockId);
 
   return (
-    <div className="card" style={{ padding: '24px 28px' }}>
+    <div className="cut-plan-workbench">
       {/* Stock input */}
-      <div style={{
-        backgroundColor: 'var(--color-flap-shade)', borderRadius: 3,
-        padding: '16px 18px', marginBottom: 16,
-      }}>
-        <div className="label-caps" style={{ marginBottom: 12 }}>
-          AVAILABLE STOCK PANELS
-        </div>
+      <section className="cut-plan-inputs" aria-labelledby="available-stock-title">
+        <h3 id="available-stock-title">Available stock panels</h3>
+        <p>Enter the real sheet sizes and quantities on hand. Fractions are preserved exactly.</p>
 
         <div className="cut-plan-table-wrap">
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 14px 1fr 14px 1fr 72px 1fr auto',
-          gap: 6, alignItems: 'center',
-          fontSize: '0.72rem', color: 'var(--color-muted)', fontWeight: 600,
-          letterSpacing: '0.06em', marginBottom: 6, paddingRight: 32,
-          minWidth: 560,
-        }}>
+        <div className="cut-plan-stock-head" aria-hidden="true">
           <span>LENGTH (in)</span>
           <span />
           <span>WIDTH (in)</span>
@@ -287,158 +284,147 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
           <span />
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="cut-plan-stock-rows">
           {stockRows.map(row => (
-            <div key={row.id} style={{
-              display: 'grid', gridTemplateColumns: '1fr 14px 1fr 14px 1fr 72px 1fr auto',
-              gap: 6, alignItems: 'center', minWidth: 560,
-            }}>
+            <div key={row.id} className="cut-plan-stock-row">
               <input
                 value={row.lengthStr}
                 onChange={e => updateRow(row.id, { lengthStr: e.target.value })}
                 placeholder="96"
+                aria-label="Stock length in inches"
               />
               <span style={{ textAlign: 'center', color: 'var(--color-muted)', fontWeight: 500 }}>×</span>
               <input
                 value={row.widthStr}
                 onChange={e => updateRow(row.id, { widthStr: e.target.value })}
                 placeholder="48"
+                aria-label="Stock width in inches"
               />
               <span style={{ textAlign: 'center', color: 'var(--color-muted)', fontWeight: 500 }}>×</span>
               <input
                 value={row.thicknessStr}
                 onChange={e => updateRow(row.id, { thicknessStr: e.target.value })}
                 placeholder="3/4"
+                aria-label="Stock thickness"
               />
               <input
                 type="number" min={1}
                 value={row.qtyStr}
                 onChange={e => updateRow(row.id, { qtyStr: e.target.value })}
                 placeholder="1"
+                aria-label="Stock quantity"
               />
               <input
                 value={row.label}
                 onChange={e => updateRow(row.id, { label: e.target.value })}
                 placeholder="e.g. Plywood"
+                aria-label="Optional stock label"
               />
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => removeRow(row.id)}
                 disabled={stockRows.length === 1}
-                style={{
-                  background: 'none', border: 'none', cursor: stockRows.length === 1 ? 'default' : 'pointer',
-                  color: stockRows.length === 1 ? 'var(--color-line)' : 'var(--color-muted)',
-                  padding: 4,
-                }}
+                aria-label="Remove stock row"
               >
-                <Trash2 size={14} />
-              </button>
+                <Trash2 size={16} aria-hidden="true" />
+              </Button>
             </div>
           ))}
         </div>
         </div>{/* cut-plan-table-wrap */}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <button className="btn btn-ghost" onClick={() => setStockRows(prev => [...prev, makeRow()])} style={{ fontSize: '0.8rem' }}>
-            <Plus size={13} /> Add Row
-          </button>
+        <div className="cut-plan-presets">
+          <Button variant="ghost" onClick={() => setStockRows(prev => [...prev, makeRow()])}>
+            <Plus size={16} aria-hidden="true" /> Add stock
+          </Button>
           {PRESETS.map(p => (
-            <button
+            <Button
               key={p.label}
-              className="chip"
+              variant="secondary"
               onClick={() => addPreset(p.length, p.width)}
-              style={{ cursor: 'pointer', border: '1px dashed var(--color-line)', fontSize: '0.78rem' }}
             >
               {p.label}
-            </button>
+            </Button>
           ))}
           {hasSavedConfig && (
-            <span className="board-caps" style={{ fontSize: '0.6rem', color: 'var(--color-muted)', marginLeft: 'auto', letterSpacing: '0.1em' }}>
-              Last config restored
-            </span>
+            <span className="cut-plan-saved">Saved setup restored</span>
           )}
         </div>
-      </div>
+      </section>
 
       {/* Kerf + Generate */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className="cut-plan-actions">
+        <div className="cut-plan-kerf">
           <Tooltip content="Blade width lost per cut — typically 1/8&quot; for a table saw" placement="top">
-            <label style={{ fontSize: '0.82rem', color: 'var(--color-muted)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'help' }}>
-              Saw Kerf
+            <label>
+              Saw kerf
+              <input
+                type="number" min={0} max={0.5} step={0.0625}
+                value={kerfStr}
+                onChange={e => setKerfStr(e.target.value)}
+              />
+              <span>inches</span>
             </label>
           </Tooltip>
-          <input
-            type="number" min={0} max={0.5} step={0.0625}
-            value={kerfStr}
-            onChange={e => setKerfStr(e.target.value)}
-            style={{ width: 76 }}
-          />
-          <span style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>inches</span>
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="cut-plan-action-buttons">
           {projectId != null && (
-            <button className="btn btn-ghost" onClick={saveConfig} style={{ fontSize: '0.8rem' }}>
-              <Save size={13} />
-              Save Config
-            </button>
+            <Button variant="ghost" onClick={saveConfig}>
+              <Save size={16} aria-hidden="true" /> Save setup
+            </Button>
           )}
-          <button className="btn btn-muted" onClick={handleGenerate}>
-            <Scissors size={14} />
-            Generate Cut Plan
-          </button>
+          <Button variant="primary" onClick={handleGenerate}>
+            <Scissors size={16} aria-hidden="true" /> Generate cut plan
+          </Button>
         </div>
       </div>
 
       {inputError && (
-        <div style={{ marginTop: 12, fontSize: '0.82rem', color: 'var(--color-amber)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-          <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+        <div className="inline-error cut-plan-error" role="alert">
+          <AlertCircle size={16} aria-hidden="true" />
           {inputError}
         </div>
       )}
 
       {/* Results */}
       {result && (
-        <div style={{ marginTop: 28 }}>
+        <section className="cut-plan-results" aria-labelledby="cut-plan-results-title">
+          <h3 id="cut-plan-results-title">Optimized layout</h3>
           {/* Stats row */}
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 16, marginBottom: 20, paddingBottom: 20,
-            borderBottom: '1px solid var(--color-line)',
-          }}>
+          <dl className="cut-plan-summary">
             <PlanStat label="Sheets Used"   value={String(result.totalSheets)} />
             <PlanStat label="Overall Yield" value={`${result.overallYieldPercent.toFixed(1)}%`} />
             <PlanStat label="Pieces Placed" value={String(result.layouts.reduce((s, l) => s + l.placed.length, 0))} />
             <PlanStat label="Total Cuts"    value={String(result.totalCuts)} />
-          </div>
+          </dl>
 
           {/* Warning banners */}
           {skipped.length > 0 && (
-            <Banner color="var(--color-amber)" bg="var(--tint-amber)" icon={<AlertTriangle size={14} />}>
+            <Banner tone="warning" icon={<AlertTriangle size={16} />}>
               <strong>{skipped.length} piece{skipped.length > 1 ? 's' : ''} skipped</strong> (missing dimensions):{' '}
               {[...new Set(skipped)].join(', ')}
             </Banner>
           )}
           {result.unplacedPieces.length > 0 && (
-            <Banner color="var(--color-red)" bg="var(--tint-red)" icon={<AlertCircle size={14} />}>
+            <Banner tone="danger" icon={<AlertCircle size={16} />}>
               <strong>{result.unplacedPieces.length} piece{result.unplacedPieces.length > 1 ? 's' : ''} could not be placed</strong>{' '}
               (too large or no matching stock): {result.unplacedPieces.join(', ')}
             </Banner>
           )}
 
           {/* Action buttons */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-            <button className="btn btn-ghost" onClick={handleDownloadPdf} style={{ fontSize: '0.82rem' }}>
-              <Download size={14} />
-              Download PDF
-            </button>
+          <div className="cut-plan-export">
+            <Button variant="ghost" onClick={handleDownloadPdf}>
+              <Download size={16} aria-hidden="true" /> Print or save PDF
+            </Button>
           </div>
 
           {/* Sheet diagrams */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div className="cut-plan-sheets">
             {visibleLayouts.map((layout) => {
               const stockRow = stockForLayout(layout.stockId);
               return (
-                <div key={layout.sheetIndex} className="card" style={{ padding: '16px 20px' }}>
+                <div key={layout.sheetIndex} className="cut-plan-sheet-card">
                   <CutPlanSheet
                     layout={layout}
                     sheetNumber={layout.sheetIndex + 1}
@@ -452,30 +438,29 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
           </div>
 
           {result.layouts.length > 6 && (
-            <button
-              className="btn btn-ghost"
+            <Button
+              variant="ghost"
               onClick={() => setShowAll(v => !v)}
-              style={{ marginTop: 12, fontSize: '0.82rem' }}
             >
               {showAll ? 'Show fewer sheets' : `Show all ${result.layouts.length} sheets`}
-            </button>
+            </Button>
           )}
 
           {/* Color legend */}
           {colorMap.size > 0 && (
-            <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--color-line)' }}>
-              <div className="label-caps" style={{ marginBottom: 10 }}>LEGEND</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
+            <div className="cut-plan-legend">
+              <h4>Part legend</h4>
+              <div>
                 {[...colorMap.entries()].map(([name, color]) => (
-                  <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: color, flexShrink: 0, border: '1px solid rgba(0,0,0,0.1)' }} />
-                    <span style={{ fontSize: '0.8rem', color: 'var(--color-ink)' }}>{name}</span>
+                  <div key={name}>
+                    <span className="cut-plan-swatch" style={{ backgroundColor: color }} />
+                    <span>{name}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
-        </div>
+        </section>
       )}
     </div>
   );
@@ -484,21 +469,16 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
 function PlanStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
     </div>
   );
 }
 
-function Banner({ color, bg, icon, children }: { color: string; bg: string; icon: React.ReactNode; children: React.ReactNode }) {
+function Banner({ tone, icon, children }: { tone: 'warning' | 'danger'; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div style={{
-      display: 'flex', gap: 8, alignItems: 'flex-start',
-      backgroundColor: bg, border: `1px solid ${color}`,
-      borderRadius: 3, padding: '10px 14px', marginBottom: 14,
-      fontSize: '0.82rem', color,
-    }}>
-      <span style={{ flexShrink: 0, marginTop: 1 }}>{icon}</span>
+    <div className={`cut-plan-banner cut-plan-banner-${tone}`} role="status">
+      <span>{icon}</span>
       <span>{children}</span>
     </div>
   );

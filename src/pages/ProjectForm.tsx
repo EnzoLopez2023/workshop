@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Tooltip } from '../components/Tooltip';
 import {
@@ -23,6 +22,9 @@ import type {
   CutListItem, Material, ProjectImage,
 } from '../types/project';
 import { STATUS_LABELS } from '../types/project';
+import { Button, PageFrame, StatePanel } from '../components/ui';
+import { Field, FormSection } from '../components/workflows';
+import { buildProjectPayload } from '../lib/coreWorkflows';
 
 const STATUSES: ProjectStatus[] = ['idea', 'planning', 'in_progress', 'completed'];
 const DIFFICULTIES: Difficulty[] = ['Beginner', 'Intermediate', 'Advanced'];
@@ -63,6 +65,7 @@ export default function ProjectForm() {
   const [cutList, setCutList] = useState<CutDraft[]>([]);
   const [materials, setMaterials] = useState<MatDraft[]>([]);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(editing);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
@@ -89,25 +92,32 @@ export default function ProjectForm() {
   // Load existing project when editing
   useEffect(() => {
     if (!editing || projectId === undefined) return;
-    getProject(projectId).then((p: ProjectDetail) => {
-      setForm({
-        title: p.title,
-        description: p.description ?? '',
-        source_url: p.source_url ?? '',
-        cut_plan_url: p.cut_plan_url ?? '',
-        status: p.status,
-        difficulty: p.difficulty,
-        estimated_hours: p.estimated_hours,
-        wood_types: p.wood_types,
-        tools_needed: p.tools_needed,
-      });
-      setWoodInput(p.wood_types.join(', '));
-      setToolsInput(p.tools_needed.join(', '));
-      setSketches(p.images.filter(i => i.kind === 'sketch'));
-      setInspiration(p.images.filter(i => i.kind === 'inspiration'));
-      setCutList(p.cut_list);
-      setMaterials(p.materials);
-    });
+    setLoading(true);
+    getProject(projectId)
+      .then((p: ProjectDetail) => {
+        setForm({
+          title: p.title,
+          description: p.description ?? '',
+          source_url: p.source_url ?? '',
+          cut_plan_url: p.cut_plan_url ?? '',
+          status: p.status,
+          difficulty: p.difficulty,
+          estimated_hours: p.estimated_hours,
+          wood_types: p.wood_types,
+          tools_needed: p.tools_needed,
+        });
+        setWoodInput(p.wood_types.join(', '));
+        setToolsInput(p.tools_needed.join(', '));
+        setSketches(p.images.filter(i => i.kind === 'sketch'));
+        setInspiration(p.images.filter(i => i.kind === 'inspiration'));
+        setCutList(p.cut_list);
+        setMaterials(p.materials);
+      })
+      .catch(error => {
+        console.error('Project form load failed', error);
+        setSaveError('Workshop could not load this project for editing.');
+      })
+      .finally(() => setLoading(false));
   }, [editing, projectId]);
 
   const patch = <K extends keyof ProjectFormPayload>(k: K, v: ProjectFormPayload[K]) =>
@@ -284,13 +294,14 @@ export default function ProjectForm() {
   // ── Save ────────────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
+    if (!form.title.trim()) {
+      setSaveError('Add a project title before saving.');
+      return;
+    }
     setSaving(true);
+    setSaveError(null);
     try {
-      const payload: ProjectFormPayload = {
-        ...form,
-        wood_types: csvToArr(woodInput),
-        tools_needed: csvToArr(toolsInput),
-      };
+      const payload = buildProjectPayload(form, woodInput, toolsInput);
       const saved = editing && projectId !== undefined
         ? await updateProject(projectId, payload)
         : await createProject(payload);
@@ -328,114 +339,101 @@ export default function ProjectForm() {
     }
   };
 
+  if (loading) {
+    return (
+      <PageFrame maxWidth={860}>
+        <StatePanel title="Loading project" description="Preparing the current plan, images, parts, and materials." />
+      </PageFrame>
+    );
+  }
+
   return (
-    <div className="page-container" style={{ maxWidth: 820 }}>
+    <PageFrame maxWidth={860} className="project-form-page">
       {/* Sticky save bar — appears when top actions scroll out of view (edit mode only) */}
-      <AnimatePresence>
-        {editing && showStickyBar && (
-          <motion.div
-            initial={{ y: -56, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -56, opacity: 0 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            style={{
-              position: 'fixed', top: 65, left: 0, right: 0, zIndex: 15,
-              backgroundColor: 'var(--color-flap)',
-              borderBottom: '1px solid var(--color-line)',
-              boxShadow: '0 4px 16px rgba(28,15,7,0.08)',
-            }}
-          >
-            <div style={{
-              maxWidth: 820, margin: '0 auto',
-              padding: '10px 40px',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
-            }}>
-              <span style={{
-                fontFamily: 'var(--font-board)', fontWeight: 600,
-                fontSize: '1rem', color: 'var(--color-ink)',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
+      {editing && showStickyBar && (
+        <div className="form-save-bar">
+          <div>
+              <span>
                 {form.title || 'Untitled project'}
               </span>
-              <button
-                className="btn btn-muted"
-                onClick={() => { setSaveError(null); handleSave(); }}
+              <Button
+                onClick={() => void handleSave()}
                 disabled={saving}
-                style={{ flexShrink: 0 }}
               >
-                <Save size={14} />
+                <Save size={16} aria-hidden="true" />
                 {saving ? 'Saving…' : 'Save Changes'}
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </Button>
+          </div>
+        </div>
+      )}
 
-      <div ref={topActionsRef} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
-        <button className="btn btn-ghost" onClick={goBack} style={{ background: 'transparent', border: 'none' }}>
-          <ArrowLeft size={15} />
+      <div ref={topActionsRef} className="form-toolbar">
+        <Button variant="ghost" onClick={goBack} className="workflow-back">
+          <ArrowLeft size={16} aria-hidden="true" />
           Back
-        </button>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-          <button className="btn btn-primary" onClick={() => { setSaveError(null); handleSave(); }} disabled={saving}>
-            <Save size={14} />
+        </Button>
+        <div className="form-toolbar-save">
+          <Button variant="primary" onClick={() => void handleSave()} disabled={saving}>
+            <Save size={16} aria-hidden="true" />
             {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Project'}
-          </button>
-          {saveError && <div style={{ fontSize: '0.78rem', color: 'var(--color-amber)' }}>{saveError}</div>}
+          </Button>
         </div>
       </div>
 
       <div className="page-head">
         <div className="page-head-main">
           <h1 className="page-title">{editing ? 'Edit project' : 'New project'}</h1>
+          <p className="page-sub">Start with the plan source, then confirm the essentials before adding parts and materials.</p>
         </div>
       </div>
 
-      <Field label="Title">
-        <input
-          value={form.title}
-          onChange={e => patch('title', e.target.value)}
-          placeholder="e.g. Walnut Dining Table"
-        />
-      </Field>
+      {saveError && (
+        <StatePanel title="Project could not be saved" description={saveError} tone="danger" />
+      )}
 
-      <Field label="Plans URL">
-        <div style={{ display: 'flex', gap: 8 }}>
+      <FormSection
+        title="Start with the plan"
+        description="Paste a plan URL to pre-fill empty fields, or begin with your own project details."
+      >
+      <Field label="Plans URL" hint="AI fills empty fields and appends suggested cut-list and material rows. Review everything before saving.">
+        <div className="input-action-row">
           <input
             type="url"
             value={form.source_url}
             onChange={e => patch('source_url', e.target.value)}
             placeholder="https://learn.kregtool.com/plans/…"
-            style={{ flex: 1 }}
           />
-          <Tooltip content="AI fills in title, description, cut list & materials from this URL">
-            <button
-              type="button"
-              className="btn btn-muted"
-              onClick={handleAnalyze}
+          <Tooltip content="Read the page and pre-fill this project">
+            <Button
+              onClick={() => void handleAnalyze()}
               disabled={analyzing || !form.source_url.trim()}
-              style={{ whiteSpace: 'nowrap' }}
             >
-              <ScanLine size={14} />
+              <ScanLine size={16} aria-hidden="true" />
               {analyzing ? 'Reading…' : 'Read the page'}
-            </button>
+            </Button>
           </Tooltip>
         </div>
-        {analyzeError ? (
-          <div style={{ fontSize: '0.78rem', color: 'var(--color-amber)', marginTop: 6 }}>{analyzeError}</div>
-        ) : (
-          <div className="muted" style={{ fontSize: '0.78rem', marginTop: 6 }}>
-            Fills the empty fields and appends cut-list and materials rows. Check them before you save.
-          </div>
-        )}
+        {analyzeError && <span className="inline-error">{analyzeError}</span>}
       </Field>
 
-      <Field label="OptiCutter Cut Plan">
+      <Field label="OptiCutter cut plan">
         <input
           type="url"
           value={form.cut_plan_url}
           onChange={e => patch('cut_plan_url', e.target.value)}
           placeholder="https://www.opticutter.com/plan2d-detail/…"
+        />
+      </Field>
+      </FormSection>
+
+      <FormSection title="Project essentials" description="These details define the plan and its current place in the build.">
+      <Field label="Title" required>
+        <input
+          value={form.title}
+          onChange={e => patch('title', e.target.value)}
+          placeholder="e.g. Walnut Dining Table"
+          required
+          aria-invalid={Boolean(saveError && !form.title.trim())}
         />
       </Field>
 
@@ -447,7 +445,7 @@ export default function ProjectForm() {
         />
       </Field>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+      <div className="form-grid form-grid-three">
         <Field label="Status">
           <select value={form.status} onChange={e => patch('status', e.target.value as ProjectStatus)}>
             {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
@@ -482,9 +480,14 @@ export default function ProjectForm() {
           placeholder="Table saw, router, chisel… (comma-separated)"
         />
       </Field>
+      </FormSection>
 
-      <Divider />
-
+      <FormSection
+        title="Project files"
+        description={editing
+          ? 'Keep measured drawings and visual references with the plan.'
+          : 'Create the project first, then add images and PDF plans from the edit screen.'}
+      >
       <SectionHeader
         title="Sketches & Plans"
         action={
@@ -503,7 +506,7 @@ export default function ProjectForm() {
         type="file"
         accept="image/*,application/pdf"
         multiple
-        style={{ display: 'none' }}
+        className="sr-only"
         onChange={e => handleFiles(e.target.files, 'sketch')}
       />
       <ImageDropzone
@@ -517,7 +520,7 @@ export default function ProjectForm() {
       <SectionHeader
         title="Inspiration"
         action={
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="workflow-section-actions">
             <button
               className="btn btn-ghost"
               onClick={() => setShowInspirationUrlInput(v => !v)}
@@ -538,7 +541,7 @@ export default function ProjectForm() {
         }
       />
       {showInspirationUrlInput && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        <div className="input-action-row inspiration-url-editor">
           <input
             value={inspirationUrlInput}
             onChange={e => setInspirationUrlInput(e.target.value)}
@@ -546,7 +549,7 @@ export default function ProjectForm() {
             placeholder="https://…"
             autoFocus
           />
-          <button className="btn btn-muted" onClick={handleAddInspirationUrl} disabled={!inspirationUrlInput.trim()} style={{ whiteSpace: 'nowrap' }}>
+          <button className="btn btn-muted" onClick={handleAddInspirationUrl} disabled={!inspirationUrlInput.trim()}>
             Add
           </button>
         </div>
@@ -556,7 +559,7 @@ export default function ProjectForm() {
         type="file"
         accept="image/*"
         multiple
-        style={{ display: 'none' }}
+        className="sr-only"
         onChange={e => handleFiles(e.target.files, 'inspiration')}
       />
       <ImageDropzone
@@ -565,13 +568,12 @@ export default function ProjectForm() {
         onClick={() => inspirationFileRef.current?.click()}
         onRemove={id => removeImage(id, 'inspiration')}
       />
+      </FormSection>
 
-      <Divider />
-
-      <SectionHeader title="Cut List" subtitle="Every piece you'll need to mill." />
-      <div className="card" style={{ padding: 4 }}>
+      <FormSection title="Cut list" description="Every measured piece you will need to mill. Drag existing rows to preserve shop order.">
+      <div className="card editable-table">
         {cutList.length === 0 ? (
-          <div className="empty-state" style={{ padding: 24, fontSize: '0.88rem' }}>
+          <div className="empty-state editable-table-empty">
             No parts yet. Add your first cut.
           </div>
         ) : (
@@ -594,16 +596,15 @@ export default function ProjectForm() {
           </DndContext>
         )}
       </div>
-      <button className="btn btn-ghost" onClick={addCutRow} style={{ marginTop: 10 }}>
+      <button className="btn btn-ghost section-add-action" onClick={addCutRow}>
         <Plus size={14} /> Add Part
       </button>
+      </FormSection>
 
-      <Divider />
-
-      <SectionHeader title="Materials & Hardware" subtitle="Screws, glue, finish, and everything else." />
-      <div className="card" style={{ padding: 4 }}>
+      <FormSection title="Materials & hardware" description="Stock, fasteners, glue, finish, and every acquisition that belongs with this build.">
+      <div className="card editable-table">
         {materials.length === 0 ? (
-          <div className="empty-state" style={{ padding: 24, fontSize: '0.88rem' }}>
+          <div className="empty-state editable-table-empty">
             No materials yet.
           </div>
         ) : (
@@ -626,9 +627,10 @@ export default function ProjectForm() {
           </DndContext>
         )}
       </div>
-      <button className="btn btn-ghost" onClick={addMatRow} style={{ marginTop: 10 }}>
+      <button className="btn btn-ghost section-add-action" onClick={addMatRow}>
         <Plus size={14} /> Add Material
       </button>
+      </FormSection>
 
       <div className="board-plate">Measure twice &middot; Cut once</div>
 
@@ -636,34 +638,20 @@ export default function ProjectForm() {
         uploads={uploads}
         onDismiss={id => setUploads(prev => prev.filter(u => u.id !== id))}
       />
-    </div>
+    </PageFrame>
   );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <label className="label">{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function Divider() {
-  return <div style={{ borderTop: '1px solid var(--color-line)', margin: '32px 0 24px' }} />;
 }
 
 function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
   return (
     <>
       <div className="rail">
-        <h2 style={{ margin: 0, font: 'inherit', letterSpacing: 'inherit' }}>{title}</h2>
+        <h2>{title}</h2>
         {action && <div className="rail-actions">{action}</div>}
       </div>
       {subtitle && (
-        <div className="muted" style={{ fontSize: '0.84rem', margin: '10px 0 12px' }}>{subtitle}</div>
+        <p className="section-description">{subtitle}</p>
       )}
-      {!subtitle && <div style={{ height: 12 }} />}
     </>
   );
 }
@@ -678,52 +666,35 @@ function ImageDropzone({
   onRemove: (id: number) => void;
 }) {
   return (
-    <div style={{ marginBottom: 24 }}>
+    <div className="image-dropzone">
       {images.length > 0 && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-          gap: 10, marginBottom: 10,
-        }}>
+        <div className="image-dropzone-grid">
           {images.map(img => {
             const src = img.image_url ?? imageUrl(img.id);
             const isPdf = img.image_type === 'application/pdf';
             return (
-              <div key={img.id} style={{ position: 'relative' }}>
+              <div key={img.id} className="image-dropzone-item">
                 {isPdf ? (
                   <a
                     href={src}
                     target="_blank"
                     rel="noreferrer"
-                    style={{
-                      display: 'flex', flexDirection: 'column',
-                      alignItems: 'center', justifyContent: 'center', gap: 8,
-                      width: '100%', aspectRatio: 1, borderRadius: 3,
-                      backgroundColor: 'var(--color-flap-shade)',
-                      border: '1px solid var(--color-line)',
-                      color: 'var(--color-ink)', textDecoration: 'none',
-                      padding: 8, textAlign: 'center', fontSize: '0.78rem',
-                    }}
+                    className="image-dropzone-pdf"
                   >
-                    <FileText size={28} style={{ color: 'var(--color-amber)' }} />
+                    <FileText size={28} />
                     <span>PDF</span>
                   </a>
                 ) : (
                   <img
                     src={src}
                     alt=""
-                    style={{ width: '100%', aspectRatio: 1, objectFit: 'cover', borderRadius: 3 }}
+                    className="image-dropzone-image"
                   />
                 )}
                 <button
                   onClick={() => onRemove(img.id)}
-                  style={{
-                    position: 'absolute', top: 6, right: 6,
-                    backgroundColor: 'rgba(28,15,7,0.8)', color: 'white',
-                    border: 'none', borderRadius: 2, width: 22, height: 22,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    cursor: 'pointer',
-                  }}
+                  className="image-dropzone-remove"
+                  aria-label="Remove file"
                 >
                   <X size={12} />
                 </button>
@@ -735,17 +706,9 @@ function ImageDropzone({
       <button
         onClick={onClick}
         disabled={disabled}
-        style={{
-          width: '100%', padding: '36px 16px',
-          border: '1.5px dashed var(--color-line)', borderRadius: 3,
-          backgroundColor: 'var(--color-flap)',
-          color: disabled ? 'var(--color-muted)' : 'var(--color-ink)',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-          fontSize: '0.88rem',
-        }}
+        className="image-dropzone-target"
       >
-        <Upload size={18} style={{ color: 'var(--color-muted)' }} />
+        <Upload size={18} />
         {disabled
           ? `Save the project first to add ${acceptPdf ? 'files' : 'images'}`
           : `Click to upload ${acceptPdf ? 'images or PDFs' : 'images'}`}
@@ -762,67 +725,46 @@ function UploadProgressPanel({
 }) {
   if (uploads.length === 0) return null;
   return (
-    <div style={{
-      position: 'fixed', bottom: 24, right: 24,
-      width: 300, zIndex: 1000,
-      display: 'flex', flexDirection: 'column', gap: 8,
-      pointerEvents: 'none',
-    }}>
+    <div className="upload-progress-panel" aria-live="polite">
       {uploads.map(u => (
-        <div key={u.id} style={{
-          backgroundColor: 'var(--color-flap)',
-          border: '1px solid var(--color-line)',
-          borderRadius: 3,
-          padding: '10px 12px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-          pointerEvents: 'all',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: u.status === 'uploading' ? 8 : 0 }}>
+        <div key={u.id} className={`upload-progress-entry is-${u.status}`}>
+          <div className="upload-progress-heading">
             {u.status === 'uploading' && (
-              <Loader size={14} style={{ color: 'var(--color-amber)', flexShrink: 0, animation: 'spin 1s linear infinite' }} />
+              <Loader size={14} className="spinner" />
             )}
             {u.status === 'done' && (
-              <CheckCircle size={14} style={{ color: 'var(--color-green)', flexShrink: 0 }} />
+              <CheckCircle size={14} />
             )}
             {u.status === 'error' && (
-              <AlertCircle size={14} style={{ color: 'var(--color-red)', flexShrink: 0 }} />
+              <AlertCircle size={14} />
             )}
-            <span style={{
-              fontSize: '0.82rem', fontWeight: 500,
-              color: 'var(--color-ink)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              flex: 1,
-            }}>
-              {u.name}
-            </span>
+            <span>{u.name}</span>
             {u.status !== 'uploading' && (
               <button
                 onClick={() => onDismiss(u.id)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', padding: 0, lineHeight: 1, flexShrink: 0 }}
+                className="icon-button"
+                aria-label={`Dismiss ${u.name} upload`}
               >
                 <X size={12} />
               </button>
             )}
           </div>
           {u.status === 'uploading' && (
-            <div>
-              <div style={{ height: 5, backgroundColor: 'var(--color-line)', borderRadius: 1, overflow: 'hidden' }}>
+            <div className="upload-progress-body">
+              <div className="upload-progress-track">
                 <div style={{
-                  height: '100%',
                   width: '100%',
                   transformOrigin: 'left center',
                   transform: `scaleX(${u.progress / 100})`,
-                  backgroundColor: 'var(--color-amber-fill)',
-                  transition: 'transform 0.15s ease',
                 }} />
               </div>
-              <div className="readout" style={{ fontSize: '0.7rem', color: 'var(--color-muted)', marginTop: 5 }}>
+              <div className="readout upload-progress-value">
                 {String(u.progress).padStart(2, '0')}%
               </div>
             </div>
           )}
           {u.status === 'error' && (
-            <div style={{ fontSize: '0.78rem', color: 'var(--color-red)', marginTop: 4 }}>
+            <div className="upload-progress-error">
               {u.error ?? 'Upload failed'}
             </div>
           )}
@@ -830,10 +772,6 @@ function UploadProgressPanel({
       ))}
     </div>
   );
-}
-
-function csvToArr(s: string): string[] {
-  return s.split(',').map(x => x.trim()).filter(Boolean);
 }
 
 function SortableCutRow({
@@ -850,18 +788,12 @@ function SortableCutRow({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    display: 'grid',
-    gridTemplateColumns: 'auto 2fr 0.7fr 1fr 1fr 1fr 1.4fr auto',
-    gap: 8, alignItems: 'center',
-    padding: '8px 8px',
-    borderTop: isFirst ? 'none' : '1px solid var(--color-line)',
-    background: 'var(--color-flap)',
   };
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} className={`sortable-cut-row ${isFirst ? '' : 'has-divider'}`}>
       <button
         {...attributes} {...listeners}
-        style={{ background: 'none', border: 'none', cursor: 'grab', color: 'var(--color-muted)', padding: '4px 2px', touchAction: 'none' }}
+        className="drag-handle"
         tabIndex={-1}
         aria-label="Drag to reorder"
       >
@@ -873,7 +805,7 @@ function SortableCutRow({
       <input placeholder="Width" value={row.width ?? ''} onChange={e => onChange({ width: e.target.value })} />
       <input placeholder="Thickness" value={row.thickness ?? ''} onChange={e => onChange({ thickness: e.target.value })} />
       <input placeholder="Material" value={row.material ?? ''} onChange={e => onChange({ material: e.target.value })} />
-      <button onClick={onRemove} style={{ background: 'transparent', border: 'none', color: 'var(--color-muted)', cursor: 'pointer', padding: 8 }}>
+      <button onClick={onRemove} className="icon-button" aria-label={`Remove ${row.part_name || 'cut-list row'}`}>
         <Trash2 size={14} />
       </button>
     </div>
@@ -894,18 +826,12 @@ function SortableMatRow({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    display: 'grid',
-    gridTemplateColumns: 'auto auto 2.2fr 1.2fr 1fr auto',
-    gap: 8, alignItems: 'center',
-    padding: '8px 10px',
-    borderTop: isFirst ? 'none' : '1px solid var(--color-line)',
-    background: 'var(--color-flap)',
   };
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} className={`sortable-material-row ${isFirst ? '' : 'has-divider'}`}>
       <button
         {...attributes} {...listeners}
-        style={{ background: 'none', border: 'none', cursor: 'grab', color: 'var(--color-muted)', padding: '4px 2px', touchAction: 'none' }}
+        className="drag-handle"
         tabIndex={-1}
         aria-label="Drag to reorder"
       >
@@ -914,12 +840,12 @@ function SortableMatRow({
       <input
         type="checkbox" checked={!!row.purchased}
         onChange={e => onChange({ purchased: e.target.checked })}
-        style={{ width: 16, height: 16, accentColor: 'var(--color-steel)', cursor: 'pointer' }}
+        className="row-checkbox"
       />
       <input placeholder="Name" value={row.name ?? ''} onChange={e => onChange({ name: e.target.value })} />
       <input placeholder="Qty (e.g. 4 pcs, 1 quart)" value={row.qty_label ?? ''} onChange={e => onChange({ qty_label: e.target.value })} />
       <input type="number" min={0} step="0.01" placeholder="Cost" value={row.cost ?? 0} onChange={e => onChange({ cost: Number(e.target.value) || 0 })} />
-      <button onClick={onRemove} style={{ background: 'transparent', border: 'none', color: 'var(--color-muted)', cursor: 'pointer', padding: 8 }}>
+      <button onClick={onRemove} className="icon-button" aria-label={`Remove ${row.name || 'material row'}`}>
         <Trash2 size={14} />
       </button>
     </div>

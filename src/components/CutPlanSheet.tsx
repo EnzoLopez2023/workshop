@@ -1,9 +1,9 @@
 import type { SheetLayout } from '../lib/cutPlan';
 
-/* Lamp colours, not wood tones — each part reads as a lit cell on the board. */
+/* Distinct design-system fills keep repeated parts legible across sheets. */
 export const PALETTE = [
-  '#D69A2E', '#5590B5', '#5E9E72', '#C4776B', '#8A78B8',
-  '#B8792C', '#3C7695', '#3F8A64', '#A85348', '#6E5F9E',
+  '#D99724', '#477F97', '#668E50', '#A95F49', '#7868A2',
+  '#1E7666', '#C75A50', '#3F936D', '#5B9DB8', '#9281BD',
 ];
 
 export function buildColorMap(layouts: SheetLayout[]): Map<string, string> {
@@ -57,28 +57,25 @@ export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMa
   if (stockLabel) headerParts.push(stockLabel);
 
   return (
-    <div>
-      <div style={{
-        display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center',
-        marginBottom: 10, fontSize: '0.82rem', color: 'var(--color-muted)',
-      }}>
+    <figure className="cut-plan-sheet">
+      <figcaption>
         {headerParts.map((part, i) => (
-          <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {i > 0 && <span style={{ opacity: 0.4 }}>·</span>}
-            <span style={{ color: i === 0 ? 'var(--color-ink)' : undefined, fontWeight: i === 0 ? 600 : undefined }}>
-              {part}
-            </span>
+          <span key={i}>
+            {i > 0 && <span aria-hidden="true">·</span>}
+            <span>{part}</span>
           </span>
         ))}
-      </div>
+      </figcaption>
 
-      <svg
-        width={svgW}
-        height={svgH}
-        viewBox={`0 0 ${sheetLength} ${sheetWidth}`}
-        style={{ display: 'block', borderRadius: 3, border: '1.5px solid var(--color-line)' }}
-      >
-        <rect x={0} y={0} width={sheetLength} height={sheetWidth} fill="#D5DBD8" />
+      <div className="cut-plan-sheet-scroll">
+        <svg
+          width={svgW}
+          height={svgH}
+          viewBox={`0 0 ${sheetLength} ${sheetWidth}`}
+          role="img"
+          aria-label={`Optimized layout for sheet ${sheetNumber} of ${totalSheets}`}
+        >
+        <rect x={0} y={0} width={sheetLength} height={sheetWidth} fill="#E0EBE7" />
 
         {placed.map((p) => {
           const fill = colorMap.get(p.partName) ?? PALETTE[0];
@@ -120,7 +117,8 @@ export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMa
                 x={p.x} y={p.y}
                 width={p.length} height={p.width}
                 fill={fill}
-                stroke="rgba(0,0,0,0.22)"
+                stroke="#15332E"
+                strokeOpacity={0.22}
                 strokeWidth={1 / scale}
                 rx={0.15}
               />
@@ -130,10 +128,10 @@ export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMa
                     x={cx} y={cy - vOff}
                     textAnchor="middle" dominantBaseline="middle"
                     fontSize={partFontSz}
-                    fontFamily="'Martian Mono', ui-monospace, monospace"
+                    fontFamily="-apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
                     fontWeight="600"
                     letterSpacing="0.02em"
-                    fill="#14181A"
+                    fill="#15332E"
                     transform={isPortrait ? rot : undefined}
                   >
                     {label}
@@ -143,8 +141,8 @@ export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMa
                       x={cx} y={cy + vOff}
                       textAnchor="middle" dominantBaseline="middle"
                       fontSize={dimFontSz}
-                      fontFamily="'Martian Mono', ui-monospace, monospace"
-                      fill="rgba(20,24,26,0.58)"
+                      fontFamily="-apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
+                      fill="#58716B"
                       transform={isPortrait ? rot : undefined}
                     >
                       {dimLabel}
@@ -160,10 +158,11 @@ export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMa
           x={0} y={0}
           width={sheetLength} height={sheetWidth}
           fill="none"
-          stroke="#14181A"
+          stroke="#15332E"
           strokeWidth={2 / scale}
         />
-      </svg>
-    </div>
+        </svg>
+      </div>
+    </figure>
   );
 }

@@ -1,10 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { motion, useScroll, useTransform } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, Clock, Layers, DollarSign, Gauge, Trash2, ExternalLink, FileText, X, Scissors,
-  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate, Printer, Download, Check,
+  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate, Printer, Download, Check, Hammer,
 } from 'lucide-react';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import {
@@ -20,6 +19,8 @@ import type {
 } from '../types/project';
 import StatusBadge from '../components/StatusBadge';
 import { ProjectDetailSkeleton } from '../components/Skeleton';
+import { Button, PageFrame, StatePanel } from '../components/ui';
+import { PROJECT_NEXT_ACTION, PROJECT_STATUS_ORDER } from '../lib/coreWorkflows';
 
 export default function ProjectDetail() {
   const navigate = useNavigate();
@@ -27,6 +28,7 @@ export default function ProjectDetail() {
   const projectId = Number(id);
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ src: string; pdf: boolean } | null>(null);
   const [showCutPlan, setShowCutPlan] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -61,15 +63,21 @@ export default function ProjectDetail() {
     return () => window.removeEventListener('keydown', onKey);
   }, [lightbox, closeLightbox]);
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
+    setLoadError(null);
     getProject(projectId)
       .then(setProject)
-      .catch(err => console.error(err))
+      .catch(error => {
+        console.error('Project load failed', error);
+        setLoadError('Workshop could not load this project. Check the connection and try again.');
+      })
       .finally(() => setLoading(false));
-  };
+  }, [projectId]);
 
-  useEffect(load, [projectId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const togglePurchased = async (matId: number, purchased: boolean) => {
     if (!project) return;
@@ -185,22 +193,39 @@ export default function ProjectDetail() {
   };
 
   if (loading) return <ProjectDetailSkeleton />;
-  if (!project) return <div className="empty-state">Project not found</div>;
+  if (loadError) {
+    return (
+      <PageFrame maxWidth={900}>
+        <StatePanel
+          title="Project unavailable"
+          description={loadError}
+          tone="danger"
+          action={<Button onClick={() => void load()}>Try again</Button>}
+        />
+      </PageFrame>
+    );
+  }
+  if (!project) {
+    return (
+      <PageFrame maxWidth={900}>
+        <StatePanel title="Project not found" description="This project may have been deleted or the link is no longer valid." />
+      </PageFrame>
+    );
+  }
 
   const sketches = project.images.filter(i => i.kind === 'sketch');
   const inspiration = project.images.filter(i => i.kind === 'inspiration');
   const heroImage = sketches.find(i => i.image_type !== 'application/pdf');
 
-  return <ProjectDetailView project={project} heroImage={heroImage ?? null} sketches={sketches} inspiration={inspiration} onNavigate={navigate} onLoad={load} setLightbox={setLightbox} lightbox={lightbox} confirmDelete={confirmDelete} setConfirmDelete={setConfirmDelete} deleting={deleting} savedAsTemplate={savedAsTemplate} showCutPlan={showCutPlan} setShowCutPlan={setShowCutPlan} showBuildForm={showBuildForm} setShowBuildForm={setShowBuildForm} buildNote={buildNote} setBuildNote={setBuildNote} buildFile={buildFile} setBuildFile={setBuildFile} buildAdding={buildAdding} buildFileRef={buildFileRef} showFinishForm={showFinishForm} setShowFinishForm={setShowFinishForm} finishForm={finishForm} setFinishForm={setFinishForm} finishAdding={finishAdding} showLinkForm={showLinkForm} setShowLinkForm={setShowLinkForm} allProjects={allProjects} linkProjectId={linkProjectId} setLinkProjectId={setLinkProjectId} linkRelationship={linkRelationship} setLinkRelationship={setLinkRelationship} linkAdding={linkAdding} projectId={projectId} handleAddBuildLog={handleAddBuildLog} handleDeleteBuildLog={handleDeleteBuildLog} handleAddFinishLog={handleAddFinishLog} handleDeleteFinishLog={handleDeleteFinishLog} handleOpenLinkForm={handleOpenLinkForm} handleAddLink={handleAddLink} handleRemoveLink={handleRemoveLink} handleSaveAsTemplate={handleSaveAsTemplate} handleDelete={handleDelete} togglePurchased={togglePurchased} />;
+  return <ProjectDetailView project={project} heroImage={heroImage ?? null} sketches={sketches} inspiration={inspiration} onNavigate={navigate} setLightbox={setLightbox} lightbox={lightbox} confirmDelete={confirmDelete} setConfirmDelete={setConfirmDelete} deleting={deleting} savedAsTemplate={savedAsTemplate} showCutPlan={showCutPlan} setShowCutPlan={setShowCutPlan} showBuildForm={showBuildForm} setShowBuildForm={setShowBuildForm} buildNote={buildNote} setBuildNote={setBuildNote} buildFile={buildFile} setBuildFile={setBuildFile} buildAdding={buildAdding} buildFileRef={buildFileRef} showFinishForm={showFinishForm} setShowFinishForm={setShowFinishForm} finishForm={finishForm} setFinishForm={setFinishForm} finishAdding={finishAdding} showLinkForm={showLinkForm} setShowLinkForm={setShowLinkForm} allProjects={allProjects} linkProjectId={linkProjectId} setLinkProjectId={setLinkProjectId} linkRelationship={linkRelationship} setLinkRelationship={setLinkRelationship} linkAdding={linkAdding} projectId={projectId} handleAddBuildLog={handleAddBuildLog} handleDeleteBuildLog={handleDeleteBuildLog} handleAddFinishLog={handleAddFinishLog} handleDeleteFinishLog={handleDeleteFinishLog} handleOpenLinkForm={handleOpenLinkForm} handleAddLink={handleAddLink} handleRemoveLink={handleRemoveLink} handleSaveAsTemplate={handleSaveAsTemplate} handleDelete={handleDelete} togglePurchased={togglePurchased} />;
 }
 
-function ProjectDetailView({ project, heroImage, sketches, inspiration, onNavigate, onLoad: _onLoad, setLightbox, lightbox, confirmDelete, setConfirmDelete, deleting, savedAsTemplate, showCutPlan, setShowCutPlan, showBuildForm, setShowBuildForm, buildNote, setBuildNote, buildFile, setBuildFile, buildAdding, buildFileRef, showFinishForm, setShowFinishForm, finishForm, setFinishForm, finishAdding, showLinkForm, setShowLinkForm, allProjects, linkProjectId, setLinkProjectId, linkRelationship, setLinkRelationship, linkAdding, projectId, handleAddBuildLog, handleDeleteBuildLog, handleAddFinishLog, handleDeleteFinishLog, handleOpenLinkForm, handleAddLink, handleRemoveLink, handleSaveAsTemplate, handleDelete, togglePurchased }: {
+function ProjectDetailView({ project, heroImage, sketches, inspiration, onNavigate, setLightbox, lightbox, confirmDelete, setConfirmDelete, deleting, savedAsTemplate, showCutPlan, setShowCutPlan, showBuildForm, setShowBuildForm, buildNote, setBuildNote, buildFile, setBuildFile, buildAdding, buildFileRef, showFinishForm, setShowFinishForm, finishForm, setFinishForm, finishAdding, showLinkForm, setShowLinkForm, allProjects, linkProjectId, setLinkProjectId, linkRelationship, setLinkRelationship, linkAdding, projectId, handleAddBuildLog, handleDeleteBuildLog, handleAddFinishLog, handleDeleteFinishLog, handleOpenLinkForm, handleAddLink, handleRemoveLink, handleSaveAsTemplate, handleDelete, togglePurchased }: {
   project: import('../types/project').ProjectDetail;
   heroImage: import('../types/project').ProjectImage | null;
   sketches: import('../types/project').ProjectImage[];
   inspiration: import('../types/project').ProjectImage[];
   onNavigate: ReturnType<typeof useNavigate>;
-  onLoad: () => void;
   setLightbox: (v: { src: string; pdf: boolean } | null) => void;
   lightbox: { src: string; pdf: boolean } | null;
   confirmDelete: boolean; setConfirmDelete: (v: boolean) => void;
@@ -232,173 +257,108 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
   handleDelete: () => Promise<void>;
   togglePurchased: (matId: number, purchased: boolean) => Promise<void>;
 }) {
-  const heroRef = useRef<HTMLDivElement>(null);
-  const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] });
-  const heroImgY = useTransform(scrollYProgress, [0, 1], ['0%', '22%']);
-  const heroOverlayOpacity = useTransform(scrollYProgress, [0, 0.7], [1, 0]);
   const navigate = onNavigate;
+  const nextAction = PROJECT_NEXT_ACTION[project.status];
+  const currentStage = PROJECT_STATUS_ORDER.indexOf(project.status);
 
   return (
-    <div style={{ position: 'relative', paddingBottom: 80 }}>
-      {/* Hero banner */}
-      <div
-        ref={heroRef}
-        style={{
-          position: 'relative', width: '100%',
-          height: heroImage ? 380 : 66,
-          backgroundColor: heroImage ? 'var(--color-flap-shade)' : 'transparent',
-          borderBottom: heroImage ? '1px solid var(--color-steel-dark)' : 'none',
-          overflow: heroImage ? 'hidden' : 'visible',
-        }}
-      >
-        {heroImage && (
-          <motion.img
-            src={imageUrl(heroImage.id)}
-            alt={project.title}
-            style={{ width: '100%', height: '115%', objectFit: 'cover', y: heroImgY }}
-          />
-        )}
-        <motion.div
-          style={{
-            position: 'absolute', inset: 0,
-            background: heroImage
-              ? 'linear-gradient(180deg, rgb(0 0 0 / 0.05) 0%, var(--color-concourse) 100%)'
-              : 'transparent',
-            opacity: heroOverlayOpacity,
-          }}
-        />
-
-        <button
-          onClick={() => navigate('/')}
-          className="btn btn-ghost"
-          style={heroImage
-            ? { position: 'absolute', top: 20, left: 40, zIndex: 2, background: 'var(--color-flap)' }
-            : { position: 'absolute', top: 22, left: 40, zIndex: 3 }}
-        >
-          <ArrowLeft size={15} />
-          All Projects
-        </button>
-      </div>
-
-      <div className="detail-container">
-        {/* Floating meta card */}
-        <div
-          className="card"
-          style={{
-            marginTop: heroImage ? -120 : 20,
-            padding: '28px 32px',
-            position: 'relative', zIndex: 2,
-            boxShadow: 'var(--shadow-card-hover)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <StatusBadge status={project.status} />
-              <h1 style={{
-                margin: '12px 0 0', fontFamily: 'var(--font-board)',
-                fontSize: '2.4rem', fontWeight: 700, letterSpacing: '-0.02em',
-              }}>
-                {project.title}
-              </h1>
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => navigate(`/projects/${projectId}/edit`)}>
-                <Pencil size={14} />
-                Edit
-              </button>
-              <button className="btn btn-ghost" onClick={handleSaveAsTemplate} title="Save a copy as a reusable template" style={{ fontSize: '0.82rem' }}>
-                <LayoutTemplate size={13} />
-                {savedAsTemplate ? 'Saved as template' : 'Save as Template'}
-              </button>
-              {confirmDelete ? (
-                <>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--color-amber)', whiteSpace: 'nowrap' }}>
-                    Delete this project?
-                  </span>
-                  <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>
-                    Cancel
-                  </button>
-                  <button
-                    className="btn btn-ghost"
-                    onClick={handleDelete}
-                    disabled={deleting}
-                    style={{ gap: 6, color: 'var(--color-amber)' }}
-                  >
-                    <Trash2 size={13} />
-                    {deleting ? 'Deleting…' : 'Yes, Delete'}
-                  </button>
-                </>
-              ) : (
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => setConfirmDelete(true)}
-                  style={{ color: 'var(--color-amber)' }}
-                >
-                  <Trash2 size={14} />
-                  Delete
-                </button>
-              )}
-            </div>
-          </div>
-
-          {project.description && (
-            <p style={{
-              margin: '12px 0 0', color: 'var(--color-muted)',
-              lineHeight: 1.6, whiteSpace: 'pre-wrap',
-            }}>
-              {project.description}
-            </p>
-          )}
-
-          {(project.source_url || project.cut_plan_url) && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginTop: 12 }}>
-              {project.source_url && (
-                <a
-                  href={project.source_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-amber"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', textDecoration: 'none' }}
-                >
-                  <ExternalLink size={13} />
-                  View original plans
-                </a>
-              )}
-              {project.cut_plan_url && (
-                <a
-                  href={project.cut_plan_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-amber"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', textDecoration: 'none' }}
-                >
-                  <Scissors size={13} />
-                  OptiCutter cut plan
-                </a>
-              )}
-            </div>
-          )}
-
-          <div className="stat-grid" style={{
-            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 20, marginTop: 24, paddingTop: 22,
-            borderTop: '1px solid var(--color-line)',
-          }}>
-            <Stat icon={<Gauge size={14} />} label="Difficulty" value={project.difficulty.replace('_', ' ').toUpperCase()} />
-            <Stat icon={<Clock size={14} />} label="Est. Hours" value={`${project.estimated_hours}h`} />
-            <Stat icon={<Layers size={14} />} label="Parts" value={String(project.parts_count)} />
-            <Stat icon={<DollarSign size={14} />} label="Est. Cost" value={formatMoney(project.total_cost)} />
+    <>
+      <PageFrame maxWidth={1000} className="project-detail-page">
+        <div className="project-detail-toolbar">
+          <Button variant="ghost" onClick={() => navigate('/')} className="workflow-back">
+            <ArrowLeft size={16} aria-hidden="true" /> All projects
+          </Button>
+          <div className="project-detail-actions">
+            <Button variant="ghost" onClick={() => navigate(`/projects/${projectId}/edit`)}>
+              <Pencil size={16} aria-hidden="true" /> Edit
+            </Button>
+            <Button variant="ghost" onClick={() => void handleSaveAsTemplate()} title="Save a reusable copy">
+              <LayoutTemplate size={16} aria-hidden="true" />
+              {savedAsTemplate ? 'Template saved' : 'Save as template'}
+            </Button>
+            {confirmDelete ? (
+              <span className="inline-confirm" role="group" aria-label="Confirm project deletion">
+                <span>Delete this project?</span>
+                <Button variant="ghost" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+                <Button variant="danger" onClick={() => void handleDelete()} disabled={deleting}>
+                  <Trash2 size={16} aria-hidden="true" />
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </Button>
+              </span>
+            ) : (
+              <Button variant="ghost" className="danger-text" onClick={() => setConfirmDelete(true)}>
+                <Trash2 size={16} aria-hidden="true" /> Delete
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Wood + Tools chips */}
+        <section className="project-detail-hero" aria-labelledby="project-title">
+          <div className="project-detail-hero-media">
+            {heroImage ? (
+              <img src={imageUrl(heroImage.id)} alt="" />
+            ) : (
+              <div className="project-plan-fallback" aria-hidden="true">
+                <Hammer size={64} strokeWidth={1.3} />
+              </div>
+            )}
+          </div>
+          <div className="project-detail-tracing">
+            <StatusBadge status={project.status} />
+            <h1 id="project-title">{project.title}</h1>
+            {project.description && <p className="project-detail-description">{project.description}</p>}
+
+            {(project.source_url || project.cut_plan_url) && (
+              <div className="project-reference-links">
+                {project.source_url && (
+                  <a href={project.source_url} target="_blank" rel="noreferrer">
+                    <ExternalLink size={15} aria-hidden="true" /> Original plans
+                  </a>
+                )}
+                {project.cut_plan_url && (
+                  <a href={project.cut_plan_url} target="_blank" rel="noreferrer">
+                    <Scissors size={15} aria-hidden="true" /> OptiCutter plan
+                  </a>
+                )}
+              </div>
+            )}
+
+            <dl className="project-detail-meta">
+              <Stat icon={<Gauge size={15} />} label="Difficulty" value={project.difficulty} />
+              <Stat icon={<Clock size={15} />} label="Shop time" value={`${project.estimated_hours} h`} />
+              <Stat icon={<Layers size={15} />} label="Parts" value={String(project.parts_count)} />
+              <Stat icon={<DollarSign size={15} />} label="Estimate" value={formatMoney(project.total_cost)} />
+            </dl>
+
+            <div className="stage-track" role="img" aria-label={`Project stage: ${project.status.replace('_', ' ')}`}>
+              {PROJECT_STATUS_ORDER.map((status, index) => (
+                <span
+                  key={status}
+                  className={index < currentStage ? 'is-complete' : index === currentStage ? 'is-current' : ''}
+                >
+                  <i aria-hidden="true" />
+                  <b>{status === 'in_progress' ? 'Build' : status === 'completed' ? 'Done' : status}</b>
+                </span>
+              ))}
+            </div>
+
+            <div className="project-next-action">
+              <span>
+                <strong>{nextAction.title}</strong>
+                <small>{nextAction.description}</small>
+              </span>
+              <Button variant="next" onClick={() => navigate(`/projects/${projectId}/edit`)}>
+                {project.status === 'completed' ? 'Update project record' : 'Take the next step'}
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <div className="project-detail-content">
         {(project.wood_types.length > 0 || project.tools_needed.length > 0) && (
-          <div className="chip-groups board" style={{
-            display: 'grid', gridTemplateColumns: '1fr 1fr',
-            gap: 0, marginTop: 26, marginBottom: 34,
-          }}>
-            <ChipGroup label="WOOD" items={project.wood_types} />
-            <ChipGroup label="TOOLS" items={project.tools_needed} />
+          <div className="chip-groups board">
+            <ChipGroup label="Wood" items={project.wood_types} />
+            <ChipGroup label="Tools" items={project.tools_needed} />
           </div>
         )}
 
@@ -415,30 +375,23 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                       key={img.id}
                       type="button"
                       onClick={() => setLightbox({ src, pdf: true })}
-                      style={{
-                        display: 'flex', flexDirection: 'column',
-                        alignItems: 'center', justifyContent: 'center', gap: 10,
-                        width: '100%', aspectRatio: '1', borderRadius: 3,
-                        backgroundColor: 'var(--color-flap-shade)',
-                        border: '1px solid var(--color-line)',
-                        color: 'var(--color-ink)',
-                        padding: 12, textAlign: 'center', cursor: 'zoom-in',
-                        font: 'inherit',
-                      }}
+                      className="document-tile"
                     >
-                      <FileText size={36} style={{ color: 'var(--color-amber)' }} />
-                      <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Open PDF</span>
+                      <FileText size={36} />
+                      <span>Open PDF</span>
                     </button>
                   );
                 }
                 return (
-                  <img
+                  <button
                     key={img.id}
-                    src={src}
-                    alt="Sketch"
                     onClick={() => setLightbox({ src, pdf: false })}
-                    style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 3, cursor: 'zoom-in' }}
-                  />
+                    type="button"
+                    className="media-gallery-item"
+                    aria-label="Open sketch preview"
+                  >
+                    <img src={src} alt="Sketch" />
+                  </button>
                 );
               })}
             </ImageGrid>
@@ -452,13 +405,15 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
               {inspiration.map(img => {
                 const src = img.image_url ?? imageUrl(img.id);
                 return (
-                  <img
+                  <button
                     key={img.id}
-                    src={src}
-                    alt="Inspiration"
                     onClick={() => setLightbox({ src, pdf: false })}
-                    style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 3, cursor: 'zoom-in' }}
-                  />
+                    type="button"
+                    className="media-gallery-item"
+                    aria-label="Open inspiration preview"
+                  >
+                    <img src={src} alt="Inspiration" />
+                  </button>
                 );
               })}
             </ImageGrid>
@@ -468,19 +423,19 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
         {/* Cut List */}
         {project.cut_list.length > 0 && (
           <Section title="Cut List" right={
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button className="btn btn-ghost" onClick={() => printCutList(project)} style={{ fontSize: '0.8rem', padding: '7px 11px' }}>
+            <div className="workflow-section-actions">
+              <button className="btn btn-ghost" onClick={() => printCutList(project)}>
                 <Printer size={13} />
                 <span className="header-nav-label">Print</span>
               </button>
-              <button className="btn btn-ghost" onClick={() => exportCutListCsv(project)} style={{ fontSize: '0.8rem', padding: '7px 11px' }}>
+              <button className="btn btn-ghost" onClick={() => exportCutListCsv(project)}>
                 <Download size={13} />
                 <span className="header-nav-label">CSV</span>
               </button>
             </div>
           }>
-            <div className="card table-scroll" style={{ overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+            <div className="card table-scroll workflow-table-wrap">
+              <table className="workflow-table">
                 <thead>
                   <tr>
                     <Th>PART</Th>
@@ -491,13 +446,13 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                 </thead>
                 <tbody>
                   {project.cut_list.map(c => (
-                    <tr key={c.id} style={{ borderTop: '1px solid var(--color-line)' }}>
+                    <tr key={c.id}>
                       <Td>{c.part_name}</Td>
                       <Td>{c.qty}</Td>
-                      <Td style={{ color: 'var(--color-muted)' }}>
+                      <Td muted>
                         {formatDims(c.length, c.width, c.thickness)}
                       </Td>
-                      <Td style={{ color: 'var(--color-ink)' }}>{c.material ?? '—'}</Td>
+                      <Td>{c.material ?? '—'}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -508,10 +463,10 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
 
         {/* Cut Plan Optimizer */}
         {project.cut_list.length > 0 && (
-          <section style={{ marginBottom: 34 }}>
-            <div className="rail" style={{ marginBottom: showCutPlan ? 14 : 0 }}>
+          <section className="workflow-section">
+            <div className={`rail ${showCutPlan ? 'rail-with-content' : ''}`}>
               <Scissors size={13} />
-              <h2 style={{ margin: 0, font: 'inherit', letterSpacing: 'inherit' }}>Cut Plan Optimizer</h2>
+              <h2>Cut Plan Optimizer</h2>
               <div className="rail-actions">
                 <button className="btn btn-ghost" onClick={() => setShowCutPlan(v => !v)}>
                   {showCutPlan ? 'Hide' : 'Plan Cuts'}
@@ -527,56 +482,36 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
           <Section
             title="Materials & Hardware"
             right={
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <span style={{ fontSize: '0.62rem', letterSpacing: '0.09em', color: 'var(--color-muted)' }}>
-                  Total <strong className="readout" style={{ color: 'var(--color-amber-fill)', fontSize: '0.7rem' }}>{formatMoney(project.total_cost)}</strong>
+              <div className="material-section-summary">
+                <span>
+                  Total <strong>{formatMoney(project.total_cost)}</strong>
                 </span>
-                <button className="btn btn-ghost" onClick={() => exportMaterialsCsv(project)} style={{ fontSize: '0.8rem', padding: '7px 11px' }}>
+                <button className="btn btn-ghost" onClick={() => exportMaterialsCsv(project)}>
                   <Download size={13} />
                   <span className="header-nav-label">CSV</span>
                 </button>
               </div>
             }
           >
-            <div className="card">
-              {project.materials.map((m, i) => (
+            <div className="card material-list">
+              {project.materials.map(m => (
                 <label
                   key={m.id}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 14,
-                    padding: '14px 18px',
-                    borderTop: i === 0 ? 'none' : '1px solid var(--color-line)',
-                    cursor: 'pointer',
-                  }}
+                  className={`material-row ${m.purchased ? 'is-purchased' : ''}`}
                 >
                   <input
                     type="checkbox"
                     checked={m.purchased}
                     onChange={e => togglePurchased(m.id, e.target.checked)}
-                    style={{ width: 16, height: 16, accentColor: 'var(--color-steel)', cursor: 'pointer' }}
                   />
-                  <div style={{ flex: 1 }}>
-                    <div style={{
-                      fontWeight: 500,
-                      textDecoration: m.purchased ? 'line-through' : 'none',
-                      color: m.purchased ? 'var(--color-muted)' : 'var(--color-ink)',
-                    }}>
-                      {m.name}
-                    </div>
+                  <div className="material-row-copy">
+                    <strong>{m.name}</strong>
                     {m.qty_label && (
-                      <div style={{ fontSize: '0.78rem', color: 'var(--color-muted)', marginTop: 2 }}>
-                        {m.qty_label}
-                      </div>
+                      <small>{m.qty_label}</small>
                     )}
                   </div>
-                  <div style={{
-                    fontVariantNumeric: 'tabular-nums',
-                    color: m.purchased ? 'var(--color-muted)' : 'var(--color-ink)',
-                    textDecoration: m.purchased ? 'line-through' : 'none',
-                  }}>
-                    {formatMoney(m.cost)}
-                  </div>
-                  {m.purchased && <Check size={13} strokeWidth={3} style={{ color: 'var(--color-green)', flexShrink: 0 }} />}
+                  <span className="material-row-cost">{formatMoney(m.cost)}</span>
+                  {m.purchased && <Check size={16} strokeWidth={3} className="material-row-check" />}
                 </label>
               ))}
             </div>
@@ -594,7 +529,6 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                 if (showFinishForm) setFinishForm({ product_name: '', finish_type: '', color: '', coats: '', notes: '', applied_at: new Date().toISOString().slice(0, 10) });
                 setShowFinishForm(v => !v);
               }}
-              style={{ fontSize: '0.82rem' }}
             >
               {showFinishForm ? <ChevronUp size={14} /> : <Plus size={14} />}
               {showFinishForm ? 'Cancel' : 'Add Entry'}
@@ -602,43 +536,43 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
           }
         >
           {showFinishForm && (
-            <div className="card" style={{ padding: '20px 22px', marginBottom: 16 }}>
-              <div className="finish-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
+            <div className="card inline-editor">
+              <div className="finish-form-grid form-grid">
+                <FieldGroup>
                   <label className="label">Product Name *</label>
                   <input value={finishForm.product_name} onChange={e => setFinishForm(f => ({ ...f, product_name: e.target.value }))} placeholder="e.g. Minwax Early American" />
-                </div>
-                <div>
+                </FieldGroup>
+                <FieldGroup>
                   <label className="label">Type</label>
                   <select value={finishForm.finish_type} onChange={e => setFinishForm(f => ({ ...f, finish_type: e.target.value }))}>
                     <option value="">— select —</option>
                     {['Stain', 'Oil', 'Wax', 'Varnish', 'Lacquer', 'Sealant', 'Primer', 'Paint', 'Other'].map(t => <option key={t} value={t.toLowerCase()}>{t}</option>)}
                   </select>
-                </div>
-                <div>
+                </FieldGroup>
+                <FieldGroup>
                   <label className="label">Color</label>
                   <input value={finishForm.color} onChange={e => setFinishForm(f => ({ ...f, color: e.target.value }))} placeholder="e.g. Early American" />
-                </div>
-                <div>
+                </FieldGroup>
+                <FieldGroup>
                   <label className="label">Coats</label>
                   <input type="number" min={1} value={finishForm.coats} onChange={e => setFinishForm(f => ({ ...f, coats: e.target.value }))} placeholder="2" />
-                </div>
-                <div>
+                </FieldGroup>
+                <FieldGroup>
                   <label className="label">Date Applied</label>
                   <input type="date" value={finishForm.applied_at} onChange={e => setFinishForm(f => ({ ...f, applied_at: e.target.value }))} />
-                </div>
-                <div>
+                </FieldGroup>
+                <FieldGroup>
                   <label className="label">Notes</label>
                   <input value={finishForm.notes} onChange={e => setFinishForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional notes" />
-                </div>
+                </FieldGroup>
               </div>
-              <button className="btn btn-primary" onClick={handleAddFinishLog} disabled={finishAdding || !finishForm.product_name.trim()} style={{ marginTop: 14 }}>
+              <button className="btn btn-primary inline-editor-submit" onClick={handleAddFinishLog} disabled={finishAdding || !finishForm.product_name.trim()}>
                 {finishAdding ? 'Saving…' : 'Save Entry'}
               </button>
             </div>
           )}
           {project.finish_log.length === 0 && !showFinishForm ? (
-            <p style={{ color: 'var(--color-muted)', fontSize: '0.88rem', margin: 0 }}>No finish entries yet.</p>
+            <p className="section-placeholder">No finish entries yet.</p>
           ) : (
             <div className="card">
               {project.finish_log.map((entry, i) => (
@@ -659,7 +593,6 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                 if (showBuildForm) { setBuildNote(''); setBuildFile(null); if (buildFileRef.current) buildFileRef.current.value = ''; }
                 setShowBuildForm(v => !v);
               }}
-              style={{ fontSize: '0.82rem' }}
             >
               {showBuildForm ? <ChevronUp size={14} /> : <Plus size={14} />}
               {showBuildForm ? 'Cancel' : 'Add Note'}
@@ -667,51 +600,52 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
           }
         >
           {showBuildForm && (
-            <div className="card" style={{ padding: '20px 22px', marginBottom: 16 }}>
+            <div className="card inline-editor">
               <label className="label">Note</label>
               <textarea
                 value={buildNote}
                 onChange={e => setBuildNote(e.target.value)}
                 placeholder="Cut all the legs to length… First coat looks great…"
-                style={{ marginBottom: 12 }}
+                className="inline-editor-textarea"
               />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', color: 'var(--color-muted)', cursor: 'pointer' }}>
+              <div className="attachment-control">
+                <label className="attachment-picker">
                   <Camera size={14} />
                   {buildFile ? buildFile.name : 'Attach photo'}
-                  <input ref={buildFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => setBuildFile(e.target.files?.[0] ?? null)} />
+                  <input ref={buildFileRef} type="file" accept="image/*" className="sr-only" onChange={e => setBuildFile(e.target.files?.[0] ?? null)} />
                 </label>
-                {buildFile && <button onClick={() => { setBuildFile(null); if (buildFileRef.current) buildFileRef.current.value = ''; }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} strokeWidth={2.5} /> Remove</button>}
+                {buildFile && <button className="text-action" onClick={() => { setBuildFile(null); if (buildFileRef.current) buildFileRef.current.value = ''; }}><X size={12} strokeWidth={2.5} /> Remove</button>}
               </div>
-              <button className="btn btn-primary" onClick={handleAddBuildLog} disabled={buildAdding || (!buildNote.trim() && !buildFile)} style={{ marginTop: 14 }}>
+              <button className="btn btn-primary inline-editor-submit" onClick={handleAddBuildLog} disabled={buildAdding || (!buildNote.trim() && !buildFile)}>
                 {buildAdding ? 'Saving…' : 'Save Note'}
               </button>
             </div>
           )}
           {project.build_log.length === 0 && !showBuildForm ? (
-            <p style={{ color: 'var(--color-muted)', fontSize: '0.88rem', margin: 0 }}>No build notes yet. Document your progress here.</p>
+            <p className="section-placeholder">No build notes yet. Document your progress here.</p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="build-log-list">
               {project.build_log.map(entry => (
-                <div key={entry.id} className="card" style={{ padding: '16px 20px', display: 'flex', gap: 16 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="board-caps" style={{ fontSize: '0.6rem', letterSpacing: '0.12em', color: 'var(--color-muted)', marginBottom: 7 }}>
+                <article key={entry.id} className="card build-log-entry">
+                  <div className="build-log-entry-copy">
+                    <time className="build-log-date" dateTime={entry.created_at}>
                       {new Date(entry.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </div>
-                    {entry.note && <p style={{ margin: '0 0 10px', fontSize: '0.93rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{entry.note}</p>}
+                    </time>
+                    {entry.note && <p>{entry.note}</p>}
                     {entry.file_path && (
-                      <img
-                        src={buildLogImageUrl(entry.id)}
-                        alt="Build photo"
+                      <button
                         onClick={() => setLightbox({ src: buildLogImageUrl(entry.id), pdf: false })}
-                        style={{ maxWidth: 280, maxHeight: 200, objectFit: 'cover', borderRadius: 3, cursor: 'zoom-in', display: 'block' }}
-                      />
+                        className="build-log-image"
+                        aria-label="Open build photo"
+                      >
+                        <img src={buildLogImageUrl(entry.id)} alt="Build progress" />
+                      </button>
                     )}
                   </div>
-                  <button onClick={() => handleDeleteBuildLog(entry.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', flexShrink: 0, alignSelf: 'flex-start', padding: 4 }}>
+                  <button className="icon-button" aria-label="Delete build note" onClick={() => handleDeleteBuildLog(entry.id)}>
                     <Trash2 size={13} />
                   </button>
-                </div>
+                </article>
               ))}
             </div>
           )}
@@ -722,15 +656,15 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
           title="Linked Projects"
           icon={<Link2 size={16} />}
           right={
-            <button className="btn btn-ghost" onClick={showLinkForm ? () => setShowLinkForm(false) : handleOpenLinkForm} style={{ fontSize: '0.82rem' }}>
+            <button className="btn btn-ghost" onClick={showLinkForm ? () => setShowLinkForm(false) : handleOpenLinkForm}>
               {showLinkForm ? <ChevronUp size={14} /> : <Plus size={14} />}
               {showLinkForm ? 'Cancel' : 'Link Project'}
             </button>
           }
         >
           {showLinkForm && (
-            <div className="card" style={{ padding: '18px 22px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div style={{ flex: 2, minWidth: 160 }}>
+            <div className="card inline-editor link-editor">
+              <FieldGroup className="link-editor-project">
                 <label className="label">Project</label>
                 <select value={linkProjectId} onChange={e => setLinkProjectId(e.target.value)}>
                   <option value="">— select a project —</option>
@@ -738,31 +672,31 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
                     <option key={p.id} value={p.id}>{p.title}</option>
                   ))}
                 </select>
-              </div>
-              <div style={{ flex: 1, minWidth: 120 }}>
+              </FieldGroup>
+              <FieldGroup>
                 <label className="label">Relationship</label>
                 <select value={linkRelationship} onChange={e => setLinkRelationship(e.target.value)}>
                   {['related', 'parent', 'child', 'sequel', 'variant'].map(r => (
                     <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
                   ))}
                 </select>
-              </div>
-              <button className="btn btn-primary" onClick={handleAddLink} disabled={linkAdding || !linkProjectId} style={{ flexShrink: 0 }}>
+              </FieldGroup>
+              <button className="btn btn-primary" onClick={handleAddLink} disabled={linkAdding || !linkProjectId}>
                 {linkAdding ? 'Linking…' : 'Link'}
               </button>
             </div>
           )}
           {project.links.length === 0 && !showLinkForm ? (
-            <p style={{ color: 'var(--color-muted)', fontSize: '0.88rem', margin: 0 }}>No linked projects.</p>
+            <p className="section-placeholder">No linked projects.</p>
           ) : (
-            <div className="card">
-              {project.links.map((link, i) => (
-                <div key={link.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderTop: i > 0 ? '1px solid var(--color-line)' : 'none' }}>
-                  <Link2 size={13} style={{ color: 'var(--color-muted)', flexShrink: 0 }} />
-                  <span style={{ flex: 1, fontWeight: 500, fontSize: '0.9rem' }}>{link.linked_title}</span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)', background: 'var(--color-flap-shade)', padding: '2px 8px', borderRadius: 2 }}>{link.relationship}</span>
+            <div className="card linked-project-list">
+              {project.links.map(link => (
+                <div key={link.id} className="linked-project-row">
+                  <Link2 size={13} />
+                  <span className="linked-project-title">{link.linked_title}</span>
+                  <span className="linked-project-relationship">{link.relationship}</span>
                   <StatusBadge status={link.linked_status} />
-                  <button onClick={() => handleRemoveLink(link.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', padding: 4 }}>
+                  <button className="icon-button" aria-label={`Unlink ${link.linked_title}`} onClick={() => handleRemoveLink(link.id)}>
                     <X size={13} />
                   </button>
                 </div>
@@ -773,23 +707,21 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
 
         {/* Footer tag */}
         <div className="board-plate">Measure twice &middot; Cut once</div>
-      </div>
-
+        </div>
+      </PageFrame>
       {lightbox && <Lightbox src={lightbox.src} pdf={lightbox.pdf} onClose={() => setLightbox(null)} />}
-    </div>
+    </>
   );
 }
 
 function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div>
-      <div className="stat-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <dt className="stat-label">
         {icon}
         {label}
-      </div>
-      <div className="stat-value" style={{ fontSize: '1.25rem' }}>
-        {value}
-      </div>
+      </dt>
+      <dd className="stat-value">{value}</dd>
     </div>
   );
 }
@@ -797,9 +729,9 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
 function ChipGroup({ label, items }: { label: string; items: string[] }) {
   if (items.length === 0) return <div />;
   return (
-    <div style={{ borderLeft: '1px solid var(--color-line)', marginLeft: -1 }}>
+    <div className="chip-group">
       <div className="rail">{label}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, padding: '14px 16px' }}>
+      <div className="chip-group-items">
         {items.map((x, i) => <span key={i} className="chip">{x}</span>)}
       </div>
     </div>
@@ -807,11 +739,12 @@ function ChipGroup({ label, items }: { label: string; items: string[] }) {
 }
 
 function Section({ title, icon, right, children }: { title: string; icon?: React.ReactNode; right?: React.ReactNode; children: React.ReactNode }) {
+  const id = `section-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
-    <section style={{ marginBottom: 34 }}>
-      <div className="rail" style={{ marginBottom: 14 }}>
+    <section className="workflow-section" aria-labelledby={id}>
+      <div className="rail">
         {icon}
-        <h2 style={{ margin: 0, font: 'inherit', letterSpacing: 'inherit' }}>{title}</h2>
+        <h2 id={id}>{title}</h2>
         {right && <div className="rail-actions">{right}</div>}
       </div>
       {children}
@@ -828,23 +761,23 @@ const FINISH_TYPE_COLORS: Record<string, string> = {
 
 function FinishLogRow({ entry, borderTop, onDelete }: { entry: FinishLogEntry; borderTop: boolean; onDelete: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderTop: borderTop ? '1px solid var(--color-line)' : 'none' }}>
+    <div className={`finish-log-row ${borderTop ? 'has-divider' : ''}`}>
       {entry.finish_type && (
-        <div style={{ width: 10, height: 10, borderRadius: 2, flexShrink: 0, backgroundColor: FINISH_TYPE_COLORS[entry.finish_type] ?? 'var(--color-muted)' }} />
+        <span className="finish-log-color" style={{ backgroundColor: FINISH_TYPE_COLORS[entry.finish_type] ?? 'var(--color-muted)' }} />
       )}
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{entry.product_name}</div>
-        <div style={{ fontSize: '0.78rem', color: 'var(--color-muted)', display: 'flex', gap: 10, marginTop: 3, flexWrap: 'wrap' }}>
-          {entry.finish_type && <span style={{ textTransform: 'capitalize' }}>{entry.finish_type}</span>}
+      <div className="finish-log-copy">
+        <strong>{entry.product_name}</strong>
+        <div>
+          {entry.finish_type && <span className="text-capitalize">{entry.finish_type}</span>}
           {entry.color && <span>· {entry.color}</span>}
           {entry.coats != null && <span>· {entry.coats} coat{entry.coats !== 1 ? 's' : ''}</span>}
           {entry.notes && <span>· {entry.notes}</span>}
         </div>
       </div>
-      <div style={{ fontSize: '0.78rem', color: 'var(--color-muted)', flexShrink: 0 }}>
+      <time dateTime={entry.applied_at}>
         {new Date(entry.applied_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-      </div>
-      <button onClick={onDelete} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', padding: 4 }}>
+      </time>
+      <button className="icon-button" aria-label={`Delete ${entry.product_name} finish entry`} onClick={onDelete}>
         <Trash2 size={13} />
       </button>
     </div>
@@ -852,35 +785,19 @@ function FinishLogRow({ entry, borderTop, onDelete }: { entry: FinishLogEntry; b
 }
 
 function ImageGrid({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-      gap: 12,
-    }}>
-      {children}
-    </div>
-  );
+  return <div className="media-gallery">{children}</div>;
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return (
-    <th style={{
-      textAlign: 'left', padding: '14px 20px',
-      fontSize: '0.72rem', fontWeight: 700,
-      letterSpacing: '0.08em', color: 'var(--color-muted)',
-    }}>
-      {children}
-    </th>
-  );
+  return <th>{children}</th>;
 }
 
-function Td({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return (
-    <td style={{ padding: '14px 20px', ...style }}>
-      {children}
-    </td>
-  );
+function Td({ children, muted = false }: { children: React.ReactNode; muted?: boolean }) {
+  return <td className={muted ? 'is-muted' : undefined}>{children}</td>;
+}
+
+function FieldGroup({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return <div className={`form-field ${className}`.trim()}>{children}</div>;
 }
 
 function formatMoney(n: number) {
@@ -940,22 +857,22 @@ function printCutList(project: import('../types/project').ProjectDetail) {
 <style>
   @page { size: letter portrait; margin: 0.7in; }
   * { box-sizing: border-box; }
-  body { font-family: ui-monospace, 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace;
-         font-size: 10.5px; color: #14181A; margin: 0; }
-  .brand { border-bottom: 2px solid #232A2F; padding-bottom: 10px; margin-bottom: 4px; }
-  .brand::after { content: ''; display: block; height: 1px; background: #C0CAC6; margin-top: 3px; }
-  h1 { font-size: 19px; font-weight: 700; margin: 0 0 5px; letter-spacing: 0.01em; text-transform: uppercase; }
-  .meta { font-size: 9px; color: #59686A; letter-spacing: 0.1em; text-transform: uppercase; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+         font-size: 1rem; color: #15332E; margin: 0; }
+  .brand { border-bottom: 2px solid #125447; padding-bottom: 10px; margin-bottom: 4px; }
+  .brand::after { content: ''; display: block; height: 1px; background: #C9DAD5; margin-top: 3px; }
+  h1 { font-size: 1.22rem; font-weight: 700; margin: 0 0 5px; letter-spacing: -0.025em; }
+  .meta { font-size: 0.76rem; color: #58716B; letter-spacing: 0.015em; text-transform: uppercase; }
   table { width: 100%; border-collapse: collapse; margin-top: 22px; }
-  th { text-align: left; padding: 7px 10px; font-size: 8.5px; font-weight: 700; letter-spacing: 0.14em;
-       color: #EDF1EE; background: #2B3238; text-transform: uppercase; }
-  td { padding: 9px 10px; border-bottom: 1px solid #DCE2DE; font-variant-numeric: tabular-nums; }
-  tr:nth-child(even) td { background: #F1F4F1; }
-  .dim { color: #59686A; }
-  .mat { color: #8A4F00; }
-  tfoot td { font-weight: 700; border-top: 2px solid #232A2F; border-bottom: none; background: none;
-             text-transform: uppercase; letter-spacing: 0.08em; }
-  .plate { margin-top: 26px; font-size: 8px; letter-spacing: 0.24em; color: #59686A; text-transform: uppercase; }
+  th { text-align: left; padding: 7px 10px; font-size: 0.76rem; font-weight: 700; letter-spacing: 0.015em;
+       color: #F7FCFA; background: #125447; text-transform: uppercase; }
+  td { padding: 9px 10px; border-bottom: 1px solid #C9DAD5; font-variant-numeric: tabular-nums; }
+  tr:nth-child(even) td { background: #EEF4F2; }
+  .dim { color: #58716B; }
+  .mat { color: #995D08; }
+  tfoot td { font-weight: 700; border-top: 2px solid #125447; border-bottom: none; background: none;
+             text-transform: uppercase; letter-spacing: 0.015em; }
+  .plate { margin-top: 26px; font-size: 0.76rem; letter-spacing: 0.015em; color: #58716B; text-transform: uppercase; }
   @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 </style></head><body>
 <div class="brand"><h1>${escHtml(project.title)}</h1><div class="meta">Cut List &middot; ${escHtml(date)} &middot; ${project.cut_list.length} parts</div></div>
@@ -1001,25 +918,13 @@ function Lightbox({ src, pdf, onClose }: { src: string; pdf?: boolean; onClose: 
       aria-label={pdf ? 'PDF preview' : 'Image preview'}
       onClick={onClose}
       onKeyDown={onKeyDown}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 2000,
-        backgroundColor: 'rgba(10, 6, 3, 0.88)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 24,
-        backdropFilter: 'blur(4px)',
-      }}
+      className="media-lightbox"
     >
       <button
         ref={closeRef}
         onClick={onClose}
         aria-label="Close preview"
-        style={{
-          position: 'absolute', top: 20, right: 20,
-          background: 'rgba(255,255,255,0.12)', border: 'none',
-          borderRadius: 2, width: 40, height: 40,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', color: 'white', zIndex: 1,
-        }}
+        className="icon-button media-lightbox-close"
       >
         <X size={18} />
       </button>
@@ -1028,23 +933,13 @@ function Lightbox({ src, pdf, onClose }: { src: string; pdf?: boolean; onClose: 
           src={src}
           title="PDF preview"
           onClick={e => e.stopPropagation()}
-          style={{
-            width: '90vw', height: '90vh',
-            border: 'none', borderRadius: 3,
-            backgroundColor: 'white',
-            boxShadow: '0 32px 80px rgba(0,0,0,0.6)',
-          }}
+          className="media-lightbox-document"
         />
       ) : (
         <img
           src={src}
           alt=""
           onClick={e => e.stopPropagation()}
-          style={{
-            maxWidth: '90vw', maxHeight: '90vh',
-            objectFit: 'contain', borderRadius: 3,
-            boxShadow: '0 32px 80px rgba(0,0,0,0.6)',
-          }}
         />
       )}
     </div>

@@ -2,22 +2,25 @@ import { useState } from 'react';
 import { Cpu } from 'lucide-react';
 import type { ShaperProject } from '../types/project';
 import { imageUrl } from '../services/api';
+import { Link } from 'react-router-dom';
 
 interface Props {
   project: ShaperProject;
-  onClick: () => void;
+  to: string;
+  onOpen?: () => void;
 }
 
-export default function ShaperProjectCard({ project, onClick }: Props) {
+export default function ShaperProjectCard({ project, to, onOpen }: Props) {
   const [imgBroken, setImgBroken] = useState(false);
   const heroSrc = project.hero_image_id
     ? imageUrl(project.hero_image_id)
     : project.photo_url;
   const showImage = heroSrc && !imgBroken;
   return (
-    <button
+    <Link
+      to={to}
       className="card card-hover depart-card"
-      onClick={onClick}
+      onClick={onOpen}
     >
       {/* Photo */}
       {showImage ? (
@@ -47,6 +50,6 @@ export default function ShaperProjectCard({ project, onClick }: Props) {
           </span>
         </span>
       </span>
-    </button>
+    </Link>
   );
 }

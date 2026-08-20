@@ -1,19 +1,21 @@
 import type { ProjectListItem } from '../types/project';
 import { imageUrl } from '../services/api';
 import StatusBadge from './StatusBadge';
+import { Link } from 'react-router-dom';
 
 interface Props {
   project: ProjectListItem;
-  onClick: () => void;
+  to: string;
+  onOpen?: () => void;
 }
 
 // A departure card: status flap top-right, destination in tracked caps, and the
 // three figures that decide whether you can start it today.
-export default function ProjectCard({ project, onClick }: Props) {
+export default function ProjectCard({ project, to, onOpen }: Props) {
   const img = project.hero_image_id ? imageUrl(project.hero_image_id) : null;
 
   return (
-    <button onClick={onClick} className="card card-hover depart-card">
+    <Link to={to} onClick={onOpen} className="card card-hover depart-card">
       {img && (
         <span className="depart-photo">
           <img src={img} alt="" />
@@ -43,6 +45,6 @@ export default function ProjectCard({ project, onClick }: Props) {
           <span className="readout">{project.estimated_hours ?? '—'}</span>
         </span>
       </span>
-    </button>
+    </Link>
   );
 }

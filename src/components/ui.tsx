@@ -4,6 +4,7 @@ import type {
   HTMLAttributes,
   ReactNode,
 } from 'react';
+import { forwardRef } from 'react';
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'next' | 'danger';
 
@@ -11,15 +12,15 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
 }
 
-export function Button({
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({
   variant = 'secondary',
   className = '',
   type = 'button',
   ...props
-}: ButtonProps) {
+}, ref) {
   const variantClass = variant === 'secondary' ? 'btn-muted' : `btn-${variant}`;
-  return <button type={type} className={`btn ${variantClass} ${className}`.trim()} {...props} />;
-}
+  return <button ref={ref} type={type} className={`btn ${variantClass} ${className}`.trim()} {...props} />;
+});
 
 interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   label: string;
