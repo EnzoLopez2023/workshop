@@ -352,6 +352,14 @@ Borders are normally 1px adaptive dividers. Images clip to their card or hero bo
 - **Focus:** Annotation border plus the shared focus ring. Textarea remains vertically resizable; checkbox keeps browser behavior and uses the action fill as `accent-color`.
 - **Error / Disabled:** Errors use danger plus explanatory text. Disabled buttons retain labels and reduce opacity to 0.48.
 
+### Core Workflows
+
+- **Dashboard contexts:** Projects and Shaper Hub share the root route and persistent segmented switcher, but keep independent search, counts, libraries, and state panels. Project status filters never appear in Shaper Hub.
+- **Project detail:** The plan/photo and tracing layer lead, followed by open rails, native tables, galleries, logs, shopping evidence, and optimizer output. Avoid a stack of unrelated cards.
+- **Forms:** Plan or Shaper import comes first, essentials precede advanced lists, and native fieldsets group photos, measured parts, materials, instructions, and save actions.
+- **Shopping:** Acquisition rows stay grouped by project provenance, expose quantity and remaining cost, and use the entire 64px row as the completion target.
+- **Cut plan:** Stock input, kerf, exact optimizer evidence, sheet figures, and exports use the same semantic palette. Part colors distinguish placement only; they never alter optimizer ordering or geometry.
+
 ### Navigation
 
 - **Wide shell:** A 256–272px frosted sidebar with 46px destinations, 14px radius, icons plus labels, persistent create actions, search shortcut, theme control, and account actions.
@@ -360,7 +368,7 @@ Borders are normally 1px adaptive dividers. Images clip to their card or hero bo
 
 ### Shared Primitives
 
-`Button`, `IconButton`, `PageFrame`, `PageHeader`, `SectionRail`, `SegmentedControl`, and `StatePanel` in `src/components/ui.tsx` are the shared React primitives. `AppShell` owns the responsive shell; `ProjectCard` and `StatusBadge` own library and semantic-state patterns; the dashboard composes the active project without inventing a second navigation model.
+`Button`, `IconButton`, `PageFrame`, `PageHeader`, `SectionRail`, `SegmentedControl`, and `StatePanel` in `src/components/ui.tsx` are the shared React primitives. `CreateProjectMenu`, `WorkflowSection`, `FormSection`, and `Field` in `src/components/workflows.tsx` carry the shared Layer 2 interaction patterns. `AppShell` owns the responsive shell; `ProjectCard`, `ShaperProjectCard`, and `StatusBadge` own library and semantic-state patterns; the dashboard composes the active project without inventing a second navigation model.
 
 Theme and settings persistence are part of the visual contract. The pre-paint script and `ThemeContext` read `workshop-theme`, accept only `light`, `dark`, or `system`, fall invalid values back to `system`, follow OS changes while in system mode, and write the resolved rendition to `data-theme`. `SettingsContext` reads `workshop-settings`, shallow-merges current defaults, replaces retired or unknown accent names with the legacy `amber` key that now means Spruce, reapplies the three annotation custom properties after every rendition change, and scales the root to `106.25%` for large text.
 

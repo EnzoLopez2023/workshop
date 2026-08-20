@@ -3,7 +3,6 @@ import {
   Hammer,
   LogOut,
   Moon,
-  Plus,
   Ruler,
   Search,
   Settings,
@@ -12,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useEffect, type ComponentType, type ReactNode } from 'react';
 import { useMsal } from '@azure/msal-react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 import { exitDemoMode, isDemoMode } from '../demo/demoMode';
 import {
@@ -23,6 +22,7 @@ import {
   type NavigationId,
 } from '../navigation';
 import { IconButton } from './ui';
+import { CreateProjectMenu } from './workflows';
 
 const NAV_ICONS: Record<NavigationId, ComponentType<{ size?: number; strokeWidth?: number }>> = {
   projects: Hammer,
@@ -35,7 +35,6 @@ const NAV_ICONS: Record<NavigationId, ComponentType<{ size?: number; strokeWidth
 export default function AppShell({ children }: { children: ReactNode }) {
   const { instance, accounts } = useMsal();
   const { pathname } = useLocation();
-  const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
   const demo = isDemoMode();
 
@@ -98,13 +97,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="app-sidebar-actions" aria-label="Create">
-          <button className="btn btn-primary" onClick={() => navigate('/projects/new')}>
-            <Plus size={17} strokeWidth={2.3} aria-hidden="true" />
-            New project
-          </button>
-          <button className="btn btn-ghost" onClick={() => navigate('/shaper/new')}>
-            New Shaper project
-          </button>
+          <CreateProjectMenu />
         </div>
 
         <div className="app-sidebar-tools" aria-label="Workspace tools">
@@ -142,9 +135,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <IconButton label="Search and navigate" onClick={openPalette}>
             <Search size={19} aria-hidden="true" />
           </IconButton>
-          <IconButton label="New project" onClick={() => navigate('/projects/new')}>
-            <Plus size={21} aria-hidden="true" />
-          </IconButton>
+          <CreateProjectMenu align="end" compact />
           {!demo && (
             <IconButton label="Sign out" onClick={signOut}>
               <LogOut size={19} aria-hidden="true" />

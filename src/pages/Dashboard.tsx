@@ -22,7 +22,6 @@ import {
 } from '../services/api';
 import type {
   ProjectListItem,
-  ProjectStatus,
   ShaperProject,
   TemplateListItem,
 } from '../types/project';
@@ -43,15 +42,22 @@ import {
   SegmentedControl,
   StatePanel,
 } from '../components/ui';
-
-type StatusFilter = 'all' | ProjectStatus;
+import { CreateProjectMenu } from '../components/workflows';
+import {
+  filterProjects,
+  filterShaperProjects,
+  PROJECT_NEXT_ACTION,
+  PROJECT_STATUS_ORDER,
+  selectFocusProject,
+  type ProjectStatusFilter,
+} from '../lib/coreWorkflows';
 
 const DASHBOARD_PAGES = [
   { value: 'projects', label: 'Projects' },
   { value: 'shaper', label: 'Shaper Hub' },
 ] as const;
 
-const FILTERS: { key: StatusFilter; label: string }[] = [
+const FILTERS: { key: ProjectStatusFilter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'idea', label: 'Ideas' },
   { key: 'planning', label: 'Planning' },
@@ -66,27 +72,6 @@ const DIY_SITES = [
   { name: 'Houseful of Handmade', tagline: 'Modern DIY furniture and home decor', url: 'https://housefulofhandmade.com/' },
 ];
 
-const STATUS_ORDER: readonly ProjectStatus[] = ['idea', 'planning', 'in_progress', 'completed'];
-
-const NEXT_ACTION: Record<ProjectStatus, { title: string; description: string }> = {
-  idea: {
-    title: 'Shape the idea',
-    description: 'Add the dimensions, materials, and reference details that turn this into a buildable plan.',
-  },
-  planning: {
-    title: 'Finish the plan',
-    description: 'Review the cut list and materials so the project is ready for the shop.',
-  },
-  in_progress: {
-    title: 'Continue the build',
-    description: 'Open the project to check the plan, record progress, or log the next shop step.',
-  },
-  completed: {
-    title: 'Review the finished build',
-    description: 'Keep the final notes, finish schedule, and lessons ready for the next version.',
-  },
-};
-
 export default function Dashboard() {
   const navigate = useNavigate();
   const [page, setPageState] = useState<DashboardPage>(() =>
@@ -97,7 +82,7 @@ export default function Dashboard() {
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<StatusFilter>('all');
+  const [filter, setFilter] = useState<ProjectStatusFilter>('all');
   const [projectSearch, setProjectSearch] = useState('');
   const [shaperSearch, setShaperSearch] = useState('');
   const [cloningId, setCloningId] = useState<number | null>(null);
@@ -137,11 +122,6 @@ export default function Dashboard() {
     navigate(`/projects/${id}`);
   };
 
-  const openShaperProject = (id: number) => {
-    setPage('shaper');
-    navigate(`/shaper/${id}`);
-  };
-
   const handleUseTemplate = async (id: number) => {
     setCloningId(id);
     setLoadError(null);
@@ -167,47 +147,24 @@ export default function Dashboard() {
     }
   };
 
-  const filteredProjects = useMemo(() => {
-    const query = projectSearch.trim().toLowerCase();
-    return projects.filter(project => {
-      if (filter !== 'all' && project.status !== filter) return false;
-      if (!query) return true;
-      const haystack = [
-        project.title,
-        project.description ?? '',
-        project.wood_types.join(' '),
-        project.cut_list_names ?? '',
-        project.material_names ?? '',
-      ].join(' ').toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [projects, filter, projectSearch]);
-
-  const filteredShaperProjects = useMemo(() => {
-    const query = shaperSearch.trim().toLowerCase();
-    if (!query) return shaperProjects;
-    return shaperProjects.filter(project => {
-      const haystack = [
-        project.title ?? '',
-        project.description ?? '',
-        ...(project.materials ?? []).map(material => material.name),
-      ].join(' ').toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [shaperProjects, shaperSearch]);
-
-  const focusProject = useMemo(() => {
-    const priority: ProjectStatus[] = ['in_progress', 'planning', 'idea'];
-    return priority
-      .map(status => projects.find(project => project.status === status))
-      .find((project): project is ProjectListItem => Boolean(project));
-  }, [projects]);
+  const filteredProjects = useMemo(
+    () => filterProjects(projects, filter, projectSearch),
+    [projects, filter, projectSearch],
+  );
+  const filteredShaperProjects = useMemo(
+    () => filterShaperProjects(shaperProjects, shaperSearch),
+    [shaperProjects, shaperSearch],
+  );
+  const focusProject = useMemo(() => selectFocusProject(projects), [projects]);
 
   return (
     <PageFrame>
       <PageHeader
-        title="Projects"
-        description="Move one idea from plan to materials, cuts, shopping, and build log."
+        title={page === 'projects' ? 'Projects' : 'Shaper Hub'}
+        description={page === 'projects'
+          ? 'Move one idea from plan to materials, cuts, shopping, and build log.'
+          : 'Keep CNC references, stock, parts, and instructions together without mixing project types.'}
+        actions={<CreateProjectMenu align="end" />}
       />
 
       <div className="dashboard-switcher">
@@ -264,7 +221,8 @@ export default function Dashboard() {
                   <ProjectCard
                     key={project.id}
                     project={project}
-                    onClick={() => openProject(project.id)}
+                    to={`/projects/${project.id}`}
+                    onOpen={() => setPage('projects')}
                   />
                 ))}
               </div>
@@ -319,7 +277,8 @@ export default function Dashboard() {
                 <ShaperProjectCard
                   key={project.id}
                   project={project}
-                  onClick={() => openShaperProject(project.id)}
+                  to={`/shaper/${project.id}`}
+                  onOpen={() => setPage('shaper')}
                 />
               ))}
             </div>
@@ -332,8 +291,8 @@ export default function Dashboard() {
 
 function ActiveProject({ project, onOpen }: { project: ProjectListItem; onOpen: () => void }) {
   const image = project.hero_image_id ? imageUrl(project.hero_image_id) : null;
-  const next = NEXT_ACTION[project.status];
-  const currentStage = STATUS_ORDER.indexOf(project.status);
+  const next = PROJECT_NEXT_ACTION[project.status];
+  const currentStage = PROJECT_STATUS_ORDER.indexOf(project.status);
 
   return (
     <section className="active-project-layer" aria-labelledby="active-project-title">
@@ -375,7 +334,7 @@ function ActiveProject({ project, onOpen }: { project: ProjectListItem; onOpen: 
           role="img"
           aria-label={`Project stage: ${project.status.replace('_', ' ')}`}
         >
-          {STATUS_ORDER.map((status, index) => (
+          {PROJECT_STATUS_ORDER.map((status, index) => (
             <span
               key={status}
               className={index < currentStage ? 'is-complete' : index === currentStage ? 'is-current' : ''}
@@ -400,8 +359,8 @@ function ProjectTools({
 }: {
   search: string;
   onSearchChange: (value: string) => void;
-  filter: StatusFilter;
-  onFilterChange: (filter: StatusFilter) => void;
+  filter: ProjectStatusFilter;
+  onFilterChange: (filter: ProjectStatusFilter) => void;
 }) {
   return (
     <div className="dashboard-tools">
