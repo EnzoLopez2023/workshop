@@ -793,8 +793,16 @@ async function waitForStorageQuiescence(timeoutMs) {
   }
 }
 
-function runRecoveryBackup() {
+function requestOffhostExportAfterBackup() {
+  return offhostExportSchedule?.runAfterBackup()
+    ?? Promise.resolve({ status: 'unavailable', trigger: 'backup' });
+}
+
+function runRecoveryBackup({ onVerified = requestOffhostExportAfterBackup } = {}) {
   if (recoveryBackupPromise) return recoveryBackupPromise;
+  if (typeof onVerified !== 'function') {
+    throw new TypeError('onVerified must be a function');
+  }
 
   const run = (async () => {
     recoveryCaptureActive = true;
@@ -817,6 +825,7 @@ function runRecoveryBackup() {
   void run.finally(() => {
     if (recoveryBackupPromise === run) recoveryBackupPromise = null;
   }).catch(() => {});
+  void run.then(result => onVerified(result)).catch(() => {});
   return run;
 }
 

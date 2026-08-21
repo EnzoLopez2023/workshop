@@ -1608,6 +1608,7 @@ export function startOffhostExportSchedule({
       startup,
       stop() {},
       runNow: async () => ({ status: 'disabled', trigger: 'manual' }),
+      runAfterBackup: async () => ({ status: 'disabled', trigger: 'backup' }),
     };
   }
 
@@ -1615,6 +1616,7 @@ export function startOffhostExportSchedule({
   let productionPromise = null;
   let activeRun = null;
   let activeTrigger = null;
+  let pendingBackupRun = null;
   let interval = null;
 
   const getProduction = async () => {
@@ -1670,6 +1672,34 @@ export function startOffhostExportSchedule({
     return run;
   };
 
+  const runAfterBackup = () => {
+    if (stopped) return Promise.resolve({ status: 'stopped', trigger: 'backup' });
+    if (!activeRun) return runForTrigger('backup');
+    if (pendingBackupRun) {
+      logEvent(logger, 'info', 'backup_scan_joined', {
+        code: 'OFFHOST_BACKUP_SCAN_PENDING',
+      });
+      return pendingBackupRun;
+    }
+
+    logEvent(logger, 'info', 'backup_scan_queued', {
+      code: 'OFFHOST_SCAN_RUNNING',
+      activeTrigger,
+    });
+    const activeAtRequest = activeRun;
+    const pending = activeAtRequest
+      .catch(() => null)
+      .then(() => {
+        if (pendingBackupRun === pending) pendingBackupRun = null;
+        return runForTrigger('backup');
+      });
+    pendingBackupRun = pending;
+    void pending.finally(() => {
+      if (pendingBackupRun === pending) pendingBackupRun = null;
+    }).catch(() => {});
+    return pending;
+  };
+
   const startup = runForTrigger('startup');
   void startup.catch(() => {});
   interval = setIntervalFn(
@@ -1681,6 +1711,7 @@ export function startOffhostExportSchedule({
   return {
     startup,
     runNow: () => runForTrigger('manual'),
+    runAfterBackup,
     stop() {
       stopped = true;
       if (interval) clearIntervalFn(interval);

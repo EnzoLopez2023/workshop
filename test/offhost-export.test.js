@@ -854,6 +854,131 @@ test('enabled schedule runs an immediate capability-gated scan and joins hourly 
   schedule.stop();
   assert.deepEqual(cleared, [timers[0]]);
   assert.deepEqual(await schedule.runNow(), { status: 'stopped', trigger: 'manual' });
+  assert.deepEqual(
+    await schedule.runAfterBackup(),
+    { status: 'stopped', trigger: 'backup' },
+  );
+});
+
+test('a finalized backup queues one retry behind an active empty startup scan', async () => {
+  const scanResolvers = [];
+  let activeScans = 0;
+  let maxActiveScans = 0;
+  let scanCalls = 0;
+  const events = [];
+  const schedule = startOffhostExportSchedule({
+    env: {
+      NODE_ENV: 'production',
+      OFFHOST_BACKUP_ENABLED: 'true',
+      OFFHOST_BACKUP_ACCOUNT: 'recoveryaccount',
+      OFFHOST_BACKUP_CONTAINER: 'workshop',
+    },
+    backupRoot: '/home/data/backups',
+    appDir: join(import.meta.dirname, '..'),
+    logger: {
+      info(line) { events.push(JSON.parse(line)); },
+      warn(line) { events.push(JSON.parse(line)); },
+      error(line) { events.push(JSON.parse(line)); },
+    },
+    productionFactory: async () => ({
+      exporter: {
+        scan() {
+          scanCalls += 1;
+          activeScans += 1;
+          maxActiveScans = Math.max(maxActiveScans, activeScans);
+          return new Promise(resolve => {
+            scanResolvers.push(result => {
+              activeScans -= 1;
+              resolve(result);
+            });
+          });
+        },
+      },
+    }),
+    setIntervalFn: () => ({ unref() {} }),
+    clearIntervalFn() {},
+  });
+
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(scanCalls, 1);
+  const backupRetry = schedule.runAfterBackup();
+  const joinedBackupRetry = schedule.runAfterBackup();
+  assert.strictEqual(joinedBackupRetry, backupRetry);
+  assert.equal(scanCalls, 1);
+
+  scanResolvers.shift()({
+    status: 'completed',
+    localBundleCount: 0,
+    dailyCreated: 0,
+  });
+  assert.deepEqual(await schedule.startup, {
+    status: 'completed',
+    localBundleCount: 0,
+    dailyCreated: 0,
+    trigger: 'startup',
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(scanCalls, 2);
+  assert.equal(maxActiveScans, 1);
+
+  const nextBackupRetry = schedule.runAfterBackup();
+  const joinedNextBackupRetry = schedule.runAfterBackup();
+  assert.strictEqual(joinedNextBackupRetry, nextBackupRetry);
+  assert.notStrictEqual(nextBackupRetry, backupRetry);
+  assert.equal(scanCalls, 2);
+
+  scanResolvers.shift()({
+    status: 'completed',
+    localBundleCount: 1,
+    dailyCreated: 1,
+  });
+  const retryResult = await backupRetry;
+  assert.deepEqual(retryResult, {
+    status: 'completed',
+    localBundleCount: 1,
+    dailyCreated: 1,
+    trigger: 'backup',
+  });
+  assert.strictEqual(await joinedBackupRetry, retryResult);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(scanCalls, 3);
+  assert.equal(maxActiveScans, 1);
+
+  scanResolvers.shift()({
+    status: 'completed',
+    localBundleCount: 1,
+    dailyCreated: 1,
+  });
+  const nextRetryResult = await nextBackupRetry;
+  assert.deepEqual(nextRetryResult, {
+    status: 'completed',
+    localBundleCount: 1,
+    dailyCreated: 1,
+    trigger: 'backup',
+  });
+  assert.strictEqual(await joinedNextBackupRetry, nextRetryResult);
+  assert.equal(maxActiveScans, 1);
+  assert.equal(
+    events.filter(event => event.event === 'backup_scan_queued').length,
+    2,
+  );
+  assert.equal(
+    events.filter(event => event.event === 'backup_scan_joined').length,
+    2,
+  );
+  schedule.stop();
+});
+
+test('disabled schedule ignores finalized backup notifications', async () => {
+  const schedule = startOffhostExportSchedule({
+    env: { OFFHOST_BACKUP_ENABLED: 'false' },
+    backupRoot: '/home/data/backups',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  assert.deepEqual(
+    await schedule.runAfterBackup(),
+    { status: 'disabled', trigger: 'backup' },
+  );
 });
 
 test('startup capability failure prevents the immediate scan and reports structured failure', async () => {

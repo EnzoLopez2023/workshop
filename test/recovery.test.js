@@ -293,7 +293,33 @@ test('Express recovery capture uses the configured per-user DB and upload roots'
     `).run(projectId, 'server-photo.jpg');
     writeFileSync(join(storage.uploadsPath, 'server-photo.jpg'), 'server upload');
 
-    const result = await api.runRecoveryBackup();
+    let releaseExport;
+    const exportGate = new Promise(resolve => {
+      releaseExport = resolve;
+    });
+    let exportStarted;
+    const exportStartedPromise = new Promise(resolve => {
+      exportStarted = resolve;
+    });
+    let exportTriggerCount = 0;
+    const backup = api.runRecoveryBackup({
+      onVerified: async created => {
+        exportTriggerCount += 1;
+        assert.equal(existsSync(created.bundlePath), true);
+        await verifyBackupBundle(created.bundlePath);
+        exportStarted();
+        await exportGate;
+      },
+    });
+    const joined = api.runRecoveryBackup({
+      onVerified: () => {
+        throw new Error('joined backups must not trigger a duplicate export');
+      },
+    });
+    assert.strictEqual(joined, backup);
+    const result = await backup;
+    await exportStartedPromise;
+    assert.equal(exportTriggerCount, 1);
     const verified = await verifyBackupBundle(result.bundlePath);
     assert.equal(verified.databaseCount, 1);
     assert.equal(verified.uploadCount, 1);
@@ -301,6 +327,7 @@ test('Express recovery capture uses the configured per-user DB and upload roots'
       existsSync(join(result.bundlePath, 'databases', 'users', `${userKey}.db`)),
       true,
     );
+    releaseExport();
   } finally {
     api.closeAllDatabases();
     rmSync(storage.root, { recursive: true, force: true });
