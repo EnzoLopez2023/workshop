@@ -51,6 +51,7 @@ ENV UPLOADS_PATH=/home/data/uploads
 
 EXPOSE 3006
 
-VOLUME ["/home/data"]
+# App Service mounts persistent storage at /home. A nested image VOLUME here
+# would shadow that platform mount; local Docker uses docker-compose.yml instead.
 
 CMD ["node", "server.js"]

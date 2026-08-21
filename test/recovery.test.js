@@ -268,6 +268,13 @@ test('production storage defaults use the durable App Service root and allow ove
   assert.equal(overridden.backupIntervalHours, 12);
 });
 
+test('container image does not shadow the App Service persistent home mount', () => {
+  const dockerfile = readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8');
+  const compose = readFileSync(new URL('../docker-compose.yml', import.meta.url), 'utf8');
+  assert.doesNotMatch(dockerfile, /^\s*VOLUME\s+.*\/home\/data/im);
+  assert.match(compose, /workshop-data:\/home\/data/);
+});
+
 test('Express recovery capture uses the configured per-user DB and upload roots', async () => {
   const storage = makeStorageRoot('workshop-recovery-server-');
   const userKey = '11111111-1111-4111-8111-111111111111';
