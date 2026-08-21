@@ -12,13 +12,14 @@ services:
     ports:
       - "3006:3006"
     volumes:
-      - workshop-data:/data
+      - workshop-data:/home/data
     env_file:
       - .env
     environment:
       PORT: 3006
-      DB_PATH: /data/workshop.db
-      UPLOADS_PATH: /data/uploads
+      DATA_ROOT: /home/data
+      DB_PATH: /home/data/workshop.db
+      UPLOADS_PATH: /home/data/uploads
       AZURE_HOME_TENANT_ID: ${AZURE_HOME_TENANT_ID}
       API_AUDIENCE: ${API_AUDIENCE}
       ALLOWED_OID: ${ALLOWED_OID}

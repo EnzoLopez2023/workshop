@@ -9,6 +9,7 @@
     "test": "node --test test/*.test.js",
     "preview": "vite preview",
     "server": "node server.js",
+    "recovery": "node scripts/recovery.mjs",
     "start:all": "npm run server & npm run dev",
     "icons": "node scripts/gen-icons.mjs",
     "prepare": "node scripts/setup-hooks.mjs || exit 0",

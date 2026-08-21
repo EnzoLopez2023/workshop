@@ -1,5 +1,5 @@
 # Built and pushed to Azure Container Registry by GitHub Actions on every
-# push to main. See .github/workflows/deploy.yml and AZURE_ARCHITECTURE.md.
+# push to main. Persistent data and recovery bundles live under /home/data.
 FROM node:22-alpine AS deps
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
@@ -38,15 +38,18 @@ WORKDIR /app
 COPY --from=deps    /app/node_modules ./node_modules
 COPY --from=builder /app/dist         ./dist
 COPY server.js      ./
+COPY recovery.js    ./
+COPY scripts/recovery.mjs ./scripts/recovery.mjs
 COPY package.json   ./
 
 ENV NODE_ENV=production
 ENV PORT=3006
-ENV DB_PATH=/data/workshop.db
-ENV UPLOADS_PATH=/data/uploads
+ENV DATA_ROOT=/home/data
+ENV DB_PATH=/home/data/workshop.db
+ENV UPLOADS_PATH=/home/data/uploads
 
 EXPOSE 3006
 
-VOLUME ["/data"]
+VOLUME ["/home/data"]
 
 CMD ["node", "server.js"]

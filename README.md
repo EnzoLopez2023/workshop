@@ -22,7 +22,7 @@ A browser-native woodworking project companion built around a Living Plan Table.
 | **Unit conversions** | Live millimeter/inch converter plus exact decimal, fractional, and millimeter reference tables |
 | **Image gallery** | Upload sketches and inspiration photos per project; PDF plans supported; hero image shown on project cards |
 | **Notebook** | Edit Tabloom pages as Markdown with preview, conflict handling, keyboard save, and unsaved-change safeguards |
-| **Settings** | Light/dark/system appearance, annotation color, text size, project defaults, backup, identity, sign-out, and account deletion |
+| **Settings** | Light/dark/system appearance, annotation color, text size, project defaults, project-summary export, identity, sign-out, and account deletion |
 | **Read-only demo** | Browse seeded project, Shaper, shopping, conversion, template, and inspiration surfaces without an account |
 
 ---
@@ -56,7 +56,7 @@ TypeScript is compiled with `tsc -b` then bundled by Vite. `noUnusedLocals`, `no
 | AI | `@anthropic-ai/sdk` — `claude-sonnet-4-6` for analysis, `claude-haiku-4-5` available for fast tasks |
 | Environment | `dotenv` |
 
-The entire backend is a **single file** — `server.js`. The SQLite schema is declared inline with `CREATE TABLE IF NOT EXISTS`. There is no migration framework; additive changes use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` guards at startup.
+The HTTP backend is centered in `server.js`; reusable backup/restore logic lives in `recovery.js`. The SQLite schema is declared inline with `CREATE TABLE IF NOT EXISTS`. There is no migration framework; additive changes use guarded `ALTER TABLE` statements at startup.
 
 ### Deployment
 
@@ -73,9 +73,11 @@ The entire backend is a **single file** — `server.js`. The SQLite schema is de
 ```
 Workshop/
 ├── server.js               # Entire Express API — schema, auth, routes
+├── recovery.js             # Atomic DB + upload backup/restore bundles
+├── RECOVERY.md             # Production recovery and DR runbook
 ├── vite.config.ts          # Vite config; proxies /api → :3006
 ├── tsconfig.app.json       # TypeScript config for src/
-├── docker-compose.yml      # Single-service compose; named volume for /data
+├── docker-compose.yml      # Single-service compose; named volume for /home/data
 ├── Dockerfile              # deps → builder → runner (three-stage)
 ├── deploy.ps1              # PowerShell deploy script (build → up → health check)
 ├── .env.example            # All supported env vars with comments
@@ -108,7 +110,7 @@ Workshop/
     │   ├── ConversionTables.tsx    # Live converter and woodworking reference tables
     │   ├── NotebookList.tsx        # Tabloom-backed notebook index
     │   ├── NotebookPage.tsx        # Markdown editor, preview, and conflict handling
-    │   ├── Settings.tsx            # Appearance, defaults, backup, and account actions
+    │   ├── Settings.tsx            # Appearance, defaults, summary export, and account actions
     │   └── ShoppingList.tsx        # Cross-project materials to buy
     │
     ├── lib/
@@ -251,7 +253,7 @@ The server verifies the ID token, exchanges the code at Apple's `/auth/token` en
 
 ## Database
 
-SQLite file at `DB_PATH` (default `./workshop.db`). No migration tool — the schema is declared with `CREATE TABLE IF NOT EXISTS` at startup. Additive migrations (`ALTER TABLE ... ADD COLUMN`) run automatically on startup for existing databases.
+SQLite files live at `DB_PATH` and `USERS_DIR` (local defaults are repository-relative; the production root is `/home/data`). No migration tool — the schema is declared with `CREATE TABLE IF NOT EXISTS` at startup. Additive migrations (`ALTER TABLE ... ADD COLUMN`) run automatically on startup for existing databases.
 
 ### Tables
 
@@ -270,7 +272,16 @@ SQLite file at `DB_PATH` (default `./workshop.db`). No migration tool — the sc
 | `apple_credentials` | Encrypted Apple refresh tokens, client IDs, and durable revocation progress |
 | `account_deletion_files` | Restartable queue of account-only upload files pending physical removal |
 
-Images and build log photos are stored as files under `UPLOADS_PATH` (`./uploads/` in dev, `/data/uploads/` in Docker). The DB stores only the filename; the Express route serves the file.
+Images and build log photos are stored as files under `UPLOADS_PATH` (`./uploads/` in dev, `/home/data/uploads/` in Docker). The DB stores only the filename; the Express route serves the file.
+
+### Backup and recovery
+
+Production creates atomic, checksummed bundles containing every isolated SQLite
+database and every upload. Capture pauses API traffic, uses SQLite's online
+backup API for WAL safety, validates DB/file references, and retains complete
+bundles only. See [the recovery runbook](RECOVERY.md) for configuration,
+verification, restore drills, account-deletion implications, and the mandatory
+encrypted off-host export.
 
 ---
 
@@ -425,7 +436,7 @@ cp .env.example .env
 docker compose logs -f workshop
 ```
 
-The SQLite database and uploaded files live in a named Docker volume (`workshop-data`) mounted at `/data` — they survive rebuilds.
+The SQLite databases, uploaded files, and local recovery bundles live in a named Docker volume (`workshop-data`) mounted at `/home/data` — they survive rebuilds. Same-volume bundles are not disaster recovery; see [`RECOVERY.md`](RECOVERY.md).
 
 Production is deployed by `.github/workflows/deploy.yml` to Azure App Service. The workflow builds the frontend environment into the image, pushes `acrenzolopez01.azurecr.io/workshop:latest`, and restarts `app-workshop-prod-lwxhu7jxlrbtu`. Do not use `deploy.ps1` for production.
 
@@ -451,7 +462,7 @@ Material matching is label-token-based — a stock sheet labeled `"3/4 Baltic Bi
 
 ## Notes for developers
 
-- **No test suite** — this is a personal single-user app; correctness is verified by using it
+- **Regression suite** — `npm test` covers auth, isolation, deletion, core workflows, and recovery bundles
 - **No ORM** — all queries are hand-written prepared statements in the `stmts` object at the top of `server.js`
 - **Image storage** — files land in `UPLOADS_PATH`; the DB stores only the filename. Deleting an image row also deletes the file from disk
 - **Template cloning** — uses `db.transaction()` to copy cut list rows and materials atomically

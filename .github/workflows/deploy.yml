@@ -1,6 +1,7 @@
 # GitHub Actions deploy for Workshop → Azure App Service (Linux containers).
 # Runs on a GitHub-hosted ubuntu-latest runner — no self-hosted runner needed.
 # Azure auth uses OIDC federated credentials (no static secrets, no DPAPI).
+# This job cannot read /home/data and is not a data-backup job; see RECOVERY.md.
 
 name: Build & Deploy Workshop to Azure
 

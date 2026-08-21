@@ -2,7 +2,7 @@ import express from 'express';
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename, extname, resolve } from 'path';
-import { mkdirSync, unlink, unlinkSync, existsSync, renameSync, copyFileSync, readdirSync } from 'fs';
+import { mkdirSync, unlinkSync, existsSync, renameSync, copyFileSync, readdirSync } from 'fs';
 import { unlink as unlinkAsync } from 'fs/promises';
 import { lookup as dnsLookup } from 'dns/promises';
 import { isIP } from 'net';
@@ -20,15 +20,22 @@ import Anthropic from '@anthropic-ai/sdk';
 import { jwtVerify, createLocalJWKSet, createRemoteJWKSet, importPKCS8, SignJWT } from 'jose';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { fileTypeFromFile } from 'file-type';
+import { createBackupBundle, resolveStorageConfig } from './recovery.js';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
 
-const PORT         = process.env.PORT         ?? 3006;
-const DB_PATH      = process.env.DB_PATH      ?? join(__dirname, 'workshop.db');
-const UPLOADS_PATH = process.env.UPLOADS_PATH ?? join(__dirname, 'uploads');
+const PORT = process.env.PORT ?? 3006;
+const storageConfig = resolveStorageConfig(process.env, { appDir: __dirname });
+const {
+  dbPath: DB_PATH,
+  uploadsPath: UPLOADS_PATH,
+  usersDir: USERS_DIR,
+  seedDbPath: SEED_DB_PATH,
+  backupRoot: BACKUP_ROOT,
+} = storageConfig;
 
 mkdirSync(UPLOADS_PATH, { recursive: true });
 
@@ -38,9 +45,6 @@ mkdirSync(UPLOADS_PATH, { recursive: true });
 // on first request. There is no shared global connection — every request resolves
 // its own { db, stmts } via getUserDb (see the auth middleware).
 
-const DATA_DIR     = dirname(DB_PATH);
-const USERS_DIR    = process.env.USERS_DIR    ?? join(DATA_DIR, 'users');
-const SEED_DB_PATH = process.env.SEED_DB_PATH ?? join(DATA_DIR, 'workshop-seed.db');
 // The legacy single-user DB (DB_PATH) becomes the primary user's own workspace.
 // Its snapshot backs demo mode only. ALLOWED_OID — formerly the single-user gate
 // — now only identifies that primary user.
@@ -495,6 +499,11 @@ const dbHandles = new Map();   // user key → { db, stmts }
 const activeUserRequests = new Map();
 const deletingUserKeys = new Set();
 let accountDeletionLock = Promise.resolve();
+let activeStorageRequests = 0;
+let recoveryCaptureActive = false;
+let recoveryBackupPromise = null;
+let recoveryInitialTimer = null;
+let recoveryIntervalTimer = null;
 
 const userDbPath = (userKey) => join(USERS_DIR, `${userKey}.db`);
 
@@ -748,6 +757,98 @@ async function waitForActiveUserRequests(userKey, timeoutMs = 5_000) {
     error.status = 409;
     throw error;
   }
+}
+
+function trackActiveStorageRequest(res) {
+  activeStorageRequests += 1;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeStorageRequests = Math.max(0, activeStorageRequests - 1);
+  };
+  res.once('finish', release);
+  res.once('close', release);
+}
+
+function recoveryStorageGate(req, res, next) {
+  if (req.path === '/health') return next();
+  if (recoveryCaptureActive) {
+    res.setHeader('Retry-After', '5');
+    return res.status(503).json({ error: 'recovery_backup_in_progress' });
+  }
+  trackActiveStorageRequest(res);
+  return next();
+}
+
+async function waitForStorageQuiescence(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (activeStorageRequests > 0 && Date.now() < deadline) {
+    await new Promise(done => setTimeout(done, 25));
+  }
+  if (activeStorageRequests > 0) {
+    throw new Error(`timed out waiting for ${activeStorageRequests} active storage request(s)`);
+  }
+}
+
+function runRecoveryBackup() {
+  if (recoveryBackupPromise) return recoveryBackupPromise;
+
+  const run = (async () => {
+    recoveryCaptureActive = true;
+    try {
+      await waitForStorageQuiescence(storageConfig.backupQuiesceTimeoutMs);
+      return await createBackupBundle({
+        dbPath: DB_PATH,
+        seedDbPath: SEED_DB_PATH,
+        usersDir: USERS_DIR,
+        uploadsPath: UPLOADS_PATH,
+        backupRoot: BACKUP_ROOT,
+        retentionCount: storageConfig.backupRetentionCount,
+        lockStaleMs: storageConfig.backupLockStaleMs,
+      });
+    } finally {
+      recoveryCaptureActive = false;
+    }
+  })();
+  recoveryBackupPromise = run;
+  void run.finally(() => {
+    if (recoveryBackupPromise === run) recoveryBackupPromise = null;
+  }).catch(() => {});
+  return run;
+}
+
+function startRecoverySchedule() {
+  if (storageConfig.backupIntervalHours <= 0 || recoveryInitialTimer || recoveryIntervalTimer) {
+    return;
+  }
+  const intervalMs = storageConfig.backupIntervalHours * 60 * 60 * 1_000;
+  const initialDelayMs = storageConfig.backupInitialDelayMinutes * 60 * 1_000;
+  const triggerBackup = () => {
+    void runRecoveryBackup()
+      .then(result => {
+        console.log(
+          `[recovery] verified ${result.manifest.bundleId} `
+          + `(${result.manifest.databases.length} DBs, ${result.manifest.uploads.fileCount} uploads)`,
+        );
+      })
+      .catch(error => console.error('[recovery] backup failed:', error.message));
+  };
+
+  recoveryInitialTimer = setTimeout(() => {
+    recoveryInitialTimer = null;
+    triggerBackup();
+    recoveryIntervalTimer = setInterval(triggerBackup, intervalMs);
+    recoveryIntervalTimer.unref();
+  }, initialDelayMs);
+  recoveryInitialTimer.unref();
+}
+
+function stopRecoverySchedule() {
+  if (recoveryInitialTimer) clearTimeout(recoveryInitialTimer);
+  if (recoveryIntervalTimer) clearInterval(recoveryIntervalTimer);
+  recoveryInitialTimer = null;
+  recoveryIntervalTimer = null;
 }
 
 async function serializeAccountDeletion(operation) {
@@ -1411,6 +1512,7 @@ const app = express();
 app.set('trust proxy', 1);   // IIS/ARR is one hop in front
 app.use(express.json());
 app.use(express.static(join(__dirname, 'dist')));
+app.use('/api', recoveryStorageGate);
 
 const DEMO_READONLY_MSG = 'Demo mode is read-only — sign in with Microsoft to make changes.';
 
@@ -1830,14 +1932,18 @@ app.post('/api/projects/:id/images', upload.single('file'), async (req, res) => 
   res.status(400).json({ error: 'provide file or url' });
 });
 
-app.delete('/api/images/:id', (req, res) => {
+app.delete('/api/images/:id', async (req, res) => {
   const { stmts } = req;
   const id = Number(req.params.id);
   const row = stmts.getImage.get(id);
   const info = stmts.deleteImage.run(id);
   if (info.changes === 0) return res.status(404).json({ error: 'Image not found' });
   if (row?.file_path) {
-    unlink(join(UPLOADS_PATH, basename(row.file_path)), () => {});
+    try {
+      await unlinkIfPresent(join(UPLOADS_PATH, basename(row.file_path)));
+    } catch (error) {
+      console.error('[delete-image] failed to remove upload:', error.message);
+    }
   }
   res.json({ success: true });
 });
@@ -1991,13 +2097,19 @@ app.get('/api/build-log/:id/image', (req, res) => {
   });
 });
 
-app.delete('/api/build-log/:id', (req, res) => {
+app.delete('/api/build-log/:id', async (req, res) => {
   const { db, stmts } = req;
   const id = Number(req.params.id);
   const row = stmts.getBuildLogEntry.get(id);
   const info = stmts.deleteBuildLogEntry.run(id);
   if (info.changes === 0) return res.status(404).json({ error: 'Build log entry not found' });
-  if (row?.file_path) unlink(join(UPLOADS_PATH, basename(row.file_path)), () => {});
+  if (row?.file_path) {
+    try {
+      await unlinkIfPresent(join(UPLOADS_PATH, basename(row.file_path)));
+    } catch (error) {
+      console.error('[delete-build-log] failed to remove upload:', error.message);
+    }
+  }
   res.json({ success: true });
 });
 
@@ -2366,6 +2478,7 @@ app.get('/{*path}', (_req, res) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 function closeAllDatabases() {
+  stopRecoverySchedule();
   for (const { db } of dbHandles.values()) {
     if (db.open) db.close();
   }
@@ -2377,7 +2490,16 @@ function closeAllDatabases() {
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`Workshop API listening on http://localhost:${PORT}`);
+    startRecoverySchedule();
   });
 }
 
-export { app, closeAllDatabases, entraUserKey, getUserDb, mintSession, userKeyFromBearer };
+export {
+  app,
+  closeAllDatabases,
+  entraUserKey,
+  getUserDb,
+  mintSession,
+  runRecoveryBackup,
+  userKeyFromBearer,
+};
