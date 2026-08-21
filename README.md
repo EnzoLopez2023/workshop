@@ -280,8 +280,8 @@ Production creates atomic, checksummed bundles containing every isolated SQLite
 database and every upload. Capture pauses API traffic, uses SQLite's online
 backup API for WAL safety, validates DB/file references, and retains complete
 bundles only. See [the recovery runbook](RECOVERY.md) for configuration,
-verification, restore drills, account-deletion implications, and the mandatory
-encrypted off-host export.
+verification, restore drills, account-deletion implications, and the
+managed-identity off-host exporter.
 
 ---
 
@@ -442,7 +442,7 @@ Production is deployed by `.github/workflows/deploy.yml` to Azure App Service. T
 
 ### Environment variables in Docker
 
-Pass secrets via the `.env` file (excluded from the image by `.dockerignore`). The compose file forwards `AZURE_HOME_TENANT_ID`, `API_AUDIENCE`, `ALLOWED_OID`, and `ANTHROPIC_API_KEY` explicitly.
+Pass secrets via the `.env` file (excluded from the image by `.dockerignore`). The compose file forwards `AZURE_HOME_TENANT_ID`, `API_AUDIENCE`, `ALLOWED_OID`, and `ANTHROPIC_API_KEY` explicitly. Off-host recovery uses only nonsecret `OFFHOST_BACKUP_*` settings plus the production App Service's system-assigned managed identity.
 
 ---
 

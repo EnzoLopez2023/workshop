@@ -8,13 +8,15 @@ import {
   runRestoreDrill,
   verifyBackupBundle,
 } from '../recovery.js';
+import { runManualOffhostExport } from '../offhost-export.js';
 
 function usage() {
   console.error(`Usage:
   npm run recovery -- backup --offline-confirmed
   npm run recovery -- verify <bundle-path>
   npm run recovery -- drill <bundle-path>
-  npm run recovery -- stage <bundle-path> <new-target-root>`);
+  npm run recovery -- stage <bundle-path> <new-target-root>
+  npm run recovery -- export-offhost --manual-confirmed`);
 }
 
 function printableResult(result) {
@@ -61,6 +63,15 @@ async function main() {
   } else if (command === 'stage' && args.length === 2) {
     result = await materializeBackupBundle(args[0], args[1], {
       forbiddenRoots: [storage.dataRoot],
+    });
+  } else if (
+    command === 'export-offhost'
+    && args.length === 1
+    && args[0] === '--manual-confirmed'
+  ) {
+    result = await runManualOffhostExport({
+      backupRoot: storage.backupRoot,
+      appDir: resolve(import.meta.dirname, '..'),
     });
   } else {
     usage();

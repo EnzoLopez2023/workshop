@@ -39,6 +39,7 @@ COPY --from=deps    /app/node_modules ./node_modules
 COPY --from=builder /app/dist         ./dist
 COPY server.js      ./
 COPY recovery.js    ./
+COPY offhost-export.js ./
 COPY scripts/recovery.mjs ./scripts/recovery.mjs
 COPY package.json   ./
 

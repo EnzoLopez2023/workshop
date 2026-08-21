@@ -21,6 +21,7 @@ import { jwtVerify, createLocalJWKSet, createRemoteJWKSet, importPKCS8, SignJWT 
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { fileTypeFromFile } from 'file-type';
 import { createBackupBundle, resolveStorageConfig } from './recovery.js';
+import { startOffhostExportSchedule } from './offhost-export.js';
 
 dotenv.config();
 
@@ -504,6 +505,7 @@ let recoveryCaptureActive = false;
 let recoveryBackupPromise = null;
 let recoveryInitialTimer = null;
 let recoveryIntervalTimer = null;
+let offhostExportSchedule = null;
 
 const userDbPath = (userKey) => join(USERS_DIR, `${userKey}.db`);
 
@@ -849,6 +851,27 @@ function stopRecoverySchedule() {
   if (recoveryIntervalTimer) clearInterval(recoveryIntervalTimer);
   recoveryInitialTimer = null;
   recoveryIntervalTimer = null;
+}
+
+function startOffhostSchedule() {
+  if (offhostExportSchedule) return;
+  try {
+    offhostExportSchedule = startOffhostExportSchedule({
+      backupRoot: BACKUP_ROOT,
+      appDir: __dirname,
+    });
+  } catch (error) {
+    console.error(JSON.stringify({
+      component: 'offhost-backup',
+      event: 'schedule_start_failed',
+      code: typeof error?.code === 'string' ? error.code : 'OFFHOST_EXPORT_FAILED',
+    }));
+  }
+}
+
+function stopOffhostSchedule() {
+  offhostExportSchedule?.stop();
+  offhostExportSchedule = null;
 }
 
 async function serializeAccountDeletion(operation) {
@@ -2479,6 +2502,7 @@ app.get('/{*path}', (_req, res) => {
 
 function closeAllDatabases() {
   stopRecoverySchedule();
+  stopOffhostSchedule();
   for (const { db } of dbHandles.values()) {
     if (db.open) db.close();
   }
@@ -2491,6 +2515,7 @@ if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`Workshop API listening on http://localhost:${PORT}`);
     startRecoverySchedule();
+    startOffhostSchedule();
   });
 }
 
