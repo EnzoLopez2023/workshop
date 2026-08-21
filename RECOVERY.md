@@ -128,7 +128,11 @@ recovery. Workshop's exporter implements the pinned
 from canonical commit `78f28d46cfcf04315ad53fb0360bc855fa0a1eb4`.
 
 The exporter is discovery-only: it never creates a second backup, opens a live
-database, reads `UPLOADS_PATH`, or quiesces APIs. Every hour it verifies complete
+database, reads `UPLOADS_PATH`, or quiesces APIs. When explicitly enabled it
+first completes the private-DNS/identity capability check, immediately runs one
+startup scan, and then scans hourly. Startup, manual, and timer triggers join the
+same in-flight scan rather than starting overlapping work, and each completion
+is logged as a structured result. Each scan verifies complete
 `workshop-backup-*` directories already finalized by the in-process recovery
 scheduler, then uploads the manifest, all normalized databases, and every upload
 including orphans as one artifact. It uses `ManagedIdentityCredential` directly

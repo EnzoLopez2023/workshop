@@ -10,6 +10,7 @@ import {
   createOffhostExporter,
   isPrivateAddress,
   resolveOffhostConfig,
+  startOffhostExportSchedule,
 } from '../offhost-export.js';
 import { createBackupBundle, verifyBackupBundle } from '../recovery.js';
 
@@ -722,7 +723,7 @@ test('health freshness is recalculated after artifact verification finishes', as
   }
 });
 
-test('scan concurrency guard skips overlap without starting a duplicate job', async () => {
+test('scan concurrency guard joins overlap without starting a duplicate job', async () => {
   const fixture = await createBundle();
   let releaseVerifier;
   let verifierCalls = 0;
@@ -739,14 +740,168 @@ test('scan concurrency guard skips overlap without starting a duplicate job', as
   });
   try {
     const first = exporter.scan();
-    const second = await exporter.scan();
-    assert.deepEqual(second, { status: 'already_running' });
+    const second = exporter.scan();
+    assert.strictEqual(second, first);
     releaseVerifier();
-    const result = await first;
+    const [result, joinedResult] = await Promise.all([first, second]);
     assert.equal(result.status, 'completed');
+    assert.strictEqual(joinedResult, result);
   } finally {
     rmSync(fixture.storage.root, { recursive: true, force: true });
   }
+});
+
+test('enabled schedule runs an immediate capability-gated scan and joins hourly overlap', async () => {
+  const events = [];
+  const logger = {
+    info(line) { events.push(JSON.parse(line)); },
+    warn(line) { events.push(JSON.parse(line)); },
+    error(line) { events.push(JSON.parse(line)); },
+  };
+  let releaseCapability;
+  const capabilityGate = new Promise(resolve => {
+    releaseCapability = resolve;
+  });
+  const scanResolvers = [];
+  let factoryCalls = 0;
+  let scanCalls = 0;
+  const timers = [];
+  const cleared = [];
+  const productionFactory = async () => {
+    factoryCalls += 1;
+    await capabilityGate;
+    return {
+      exporter: {
+        scan() {
+          scanCalls += 1;
+          return new Promise(resolve => scanResolvers.push(resolve));
+        },
+      },
+    };
+  };
+  const schedule = startOffhostExportSchedule({
+    env: {
+      NODE_ENV: 'production',
+      OFFHOST_BACKUP_ENABLED: 'true',
+      OFFHOST_BACKUP_ACCOUNT: 'recoveryaccount',
+      OFFHOST_BACKUP_CONTAINER: 'workshop',
+    },
+    backupRoot: '/home/data/backups',
+    appDir: join(import.meta.dirname, '..'),
+    logger,
+    productionFactory,
+    setIntervalFn(callback, milliseconds) {
+      const timer = {
+        callback,
+        milliseconds,
+        unrefCalled: false,
+        unref() { this.unrefCalled = true; },
+      };
+      timers.push(timer);
+      return timer;
+    },
+    clearIntervalFn(timer) {
+      cleared.push(timer);
+    },
+  });
+
+  assert.equal(factoryCalls, 1);
+  assert.equal(scanCalls, 0);
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].milliseconds, 60 * 60 * 1_000);
+  assert.equal(timers[0].unrefCalled, true);
+
+  const startupJoin = schedule.runNow();
+  assert.strictEqual(startupJoin, schedule.startup);
+  releaseCapability();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(scanCalls, 1);
+  scanResolvers.shift()({ status: 'completed', dailyCreated: 1 });
+  const [startupResult, joinedStartupResult] = await Promise.all([
+    schedule.startup,
+    startupJoin,
+  ]);
+  assert.deepEqual(startupResult, {
+    status: 'completed',
+    dailyCreated: 1,
+    trigger: 'startup',
+  });
+  assert.strictEqual(joinedStartupResult, startupResult);
+
+  timers[0].callback();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(scanCalls, 2);
+  const intervalJoin = schedule.runNow();
+  timers[0].callback();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(scanCalls, 2);
+  scanResolvers.shift()({ status: 'completed', dailyCreated: 0 });
+  assert.deepEqual(await intervalJoin, {
+    status: 'completed',
+    dailyCreated: 0,
+    trigger: 'interval',
+  });
+  assert.equal(factoryCalls, 1);
+  assert.equal(
+    events.filter(event => event.event === 'schedule_scan_completed').length,
+    2,
+  );
+  assert.equal(
+    events.filter(event => event.event === 'schedule_scan_joined').length,
+    3,
+  );
+
+  schedule.stop();
+  assert.deepEqual(cleared, [timers[0]]);
+  assert.deepEqual(await schedule.runNow(), { status: 'stopped', trigger: 'manual' });
+});
+
+test('startup capability failure prevents the immediate scan and reports structured failure', async () => {
+  const events = [];
+  let scanCalls = 0;
+  let timer;
+  const capabilityError = new Error('private endpoint unavailable');
+  capabilityError.code = 'OFFHOST_PUBLIC_DNS';
+  const schedule = startOffhostExportSchedule({
+    env: {
+      NODE_ENV: 'production',
+      OFFHOST_BACKUP_ENABLED: 'true',
+      OFFHOST_BACKUP_ACCOUNT: 'recoveryaccount',
+      OFFHOST_BACKUP_CONTAINER: 'workshop',
+    },
+    backupRoot: '/home/data/backups',
+    appDir: join(import.meta.dirname, '..'),
+    logger: {
+      info(line) { events.push(JSON.parse(line)); },
+      warn(line) { events.push(JSON.parse(line)); },
+      error(line) { events.push(JSON.parse(line)); },
+    },
+    productionFactory: async () => {
+      throw capabilityError;
+    },
+    setIntervalFn(callback, milliseconds) {
+      timer = { callback, milliseconds, unref() {} };
+      return timer;
+    },
+    clearIntervalFn() {},
+  });
+
+  await assert.rejects(
+    schedule.startup,
+    error => error.code === 'OFFHOST_PUBLIC_DNS',
+  );
+  assert.equal(scanCalls, 0);
+  assert.deepEqual(
+    events.find(event => event.event === 'scan_failed'),
+    {
+      component: 'offhost-backup',
+      event: 'scan_failed',
+      code: 'OFFHOST_PUBLIC_DNS',
+      trigger: 'startup',
+    },
+  );
+  assert.equal(timer.milliseconds, 60 * 60 * 1_000);
+  schedule.stop();
 });
 
 test('production read-back path invokes the recovery CLI verifier', async () => {

@@ -1511,8 +1511,8 @@ export function createOffhostExporter({
 
   function scan() {
     if (scanPromise) {
-      logEvent(logger, 'warn', 'scan_skipped', { code: 'OFFHOST_SCAN_RUNNING' });
-      return Promise.resolve({ status: 'already_running' });
+      logEvent(logger, 'info', 'scan_joined', { code: 'OFFHOST_SCAN_RUNNING' });
+      return scanPromise;
     }
     const run = performScan();
     scanPromise = run;
@@ -1596,21 +1596,30 @@ export function startOffhostExportSchedule({
   appDir = process.cwd(),
   logger = console,
   dnsLookup = nodeDnsLookup,
+  productionFactory = createProductionExporter,
+  setIntervalFn = setInterval,
+  clearIntervalFn = clearInterval,
 } = {}) {
   const config = resolveOffhostConfig(env, { backupRoot });
   if (!config.enabled) {
     logEvent(logger, 'info', 'schedule_disabled', { app: APP_SLUG });
-    return { stop() {}, runNow: async () => ({ status: 'disabled' }) };
+    const startup = Promise.resolve({ status: 'disabled', trigger: 'startup' });
+    return {
+      startup,
+      stop() {},
+      runNow: async () => ({ status: 'disabled', trigger: 'manual' }),
+    };
   }
 
   let stopped = false;
   let productionPromise = null;
   let activeRun = null;
+  let activeTrigger = null;
   let interval = null;
 
   const getProduction = async () => {
     if (!productionPromise) {
-      productionPromise = createProductionExporter({
+      productionPromise = productionFactory({
         env,
         backupRoot,
         appDir,
@@ -1625,40 +1634,56 @@ export function startOffhostExportSchedule({
     return productionPromise;
   };
 
-  const runNow = () => {
-    if (stopped) return Promise.resolve({ status: 'stopped' });
+  const runForTrigger = (trigger) => {
+    if (stopped) return Promise.resolve({ status: 'stopped', trigger });
     if (activeRun) {
-      logEvent(logger, 'warn', 'scan_skipped', { code: 'OFFHOST_SCAN_RUNNING' });
-      return Promise.resolve({ status: 'already_running' });
+      logEvent(logger, 'info', 'schedule_scan_joined', {
+        code: 'OFFHOST_SCAN_RUNNING',
+        activeTrigger,
+        requestedTrigger: trigger,
+      });
+      return activeRun;
     }
     const run = getProduction()
       .then(production => production.exporter.scan())
+      .then(scanResult => {
+        const result = { ...scanResult, trigger };
+        logEvent(logger, 'info', 'schedule_scan_completed', result);
+        return result;
+      })
       .catch((error) => {
         logEvent(logger, 'error', 'scan_failed', {
           code: errorCode(error),
           statusCode: Number.isInteger(error?.statusCode) ? error.statusCode : undefined,
+          trigger,
         });
         throw error;
       });
     activeRun = run;
+    activeTrigger = trigger;
     void run.finally(() => {
-      if (activeRun === run) activeRun = null;
+      if (activeRun === run) {
+        activeRun = null;
+        activeTrigger = null;
+      }
     }).catch(() => {});
     return run;
   };
 
-  void runNow().catch(() => {});
-  interval = setInterval(
-    () => void runNow().catch(() => {}),
+  const startup = runForTrigger('startup');
+  void startup.catch(() => {});
+  interval = setIntervalFn(
+    () => void runForTrigger('interval').catch(() => {}),
     config.scanIntervalMinutes * 60 * 1_000,
   );
-  interval.unref();
+  interval?.unref?.();
 
   return {
-    runNow,
+    startup,
+    runNow: () => runForTrigger('manual'),
     stop() {
       stopped = true;
-      if (interval) clearInterval(interval);
+      if (interval) clearIntervalFn(interval);
       interval = null;
     },
   };
