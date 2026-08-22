@@ -85,6 +85,7 @@ test('workflow preserves live storage, auth, exporter, and App Service settings'
     assert.ok(workflow.includes(path), `missing preserved path: ${path}`);
   }
   assert.match(workflow, /OFFHOST_BACKUP_ENABLED == "true"/);
+  assert.doesNotMatch(workflow, /"ALLOWED_OID",/);
   assert.match(workflow, /APP_SETTINGS_HASH/);
   assert.match(workflow, /"\$APP_SETTINGS_HASH" != "\$EXPECTED_SETTINGS_HASH"/);
   assert.doesNotMatch(workflow, /az webapp config appsettings set/);

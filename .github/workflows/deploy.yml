@@ -127,7 +127,6 @@ jobs:
             and ([
               "API_AUDIENCE",
               "AZURE_TENANT_ID",
-              "ALLOWED_OID",
               "SESSION_SECRET",
               "APPLE_BUNDLE_ID",
               "APPLE_TEAM_ID",
