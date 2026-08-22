@@ -45,6 +45,12 @@ COPY scripts/recovery.mjs ./scripts/recovery.mjs
 COPY package.json   ./
 COPY version.json   ./
 
+# Production starts Node directly; package managers and their unused dependency
+# trees are excluded from the runtime image and its vulnerability surface.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+      /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx
+
 ENV NODE_ENV=production
 ENV PORT=3006
 ENV DATA_ROOT=/home/data

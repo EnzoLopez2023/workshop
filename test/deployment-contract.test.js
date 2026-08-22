@@ -109,6 +109,7 @@ test('image embeds build identity without an App Service storage volume', () => 
   assert.match(dockerfile, /"buildId":"%s"/);
   assert.match(dockerfile, /LABEL org\.opencontainers\.image\.version=\$BUILD_ID/);
   assert.match(dockerfile, /LABEL com\.workshop\.app-version=\$APP_VERSION/);
+  assert.match(dockerfile, /rm -rf \/usr\/local\/lib\/node_modules\/npm \/usr\/local\/lib\/node_modules\/corepack/);
   assert.doesNotMatch(dockerfile, /^\s*VOLUME\s+.*\/home/m);
 });
 
