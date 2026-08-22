@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 const BUILD_SHA_RE = /^[0-9a-f]{40}$/;
 const APP_VERSION_RE = /^\d+\.\d+\.\d+\+build\.\d+$/;
+const BUILD_ID_RE = /^\d+-\d+$/;
 
 function readJson(path, label) {
   const source = readFileSync(path, 'utf8');
@@ -35,7 +36,10 @@ function validateImageBuildInfo(info) {
   if (!APP_VERSION_RE.test(info.version)) {
     throw new Error('build-info.json must contain an immutable application version');
   }
-  return Object.freeze({ sha: info.sha, version: info.version });
+  if (!BUILD_ID_RE.test(info.buildId)) {
+    throw new Error('build-info.json must contain a GitHub run-attempt build ID');
+  }
+  return Object.freeze({ sha: info.sha, version: info.version, buildId: info.buildId });
 }
 
 export function loadDeploymentInfo({
@@ -54,5 +58,5 @@ export function loadDeploymentInfo({
   }
 
   const manifest = readJson(join(appDir, 'version.json'), 'version.json');
-  return Object.freeze({ sha: null, version: formatVersion(manifest) });
+  return Object.freeze({ sha: null, version: formatVersion(manifest), buildId: null });
 }

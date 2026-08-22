@@ -10,6 +10,7 @@ services:
         VITE_SHOPKEEP_URL: ${VITE_SHOPKEEP_URL:-}
         BUILD_SHA: ${BUILD_SHA:-0000000000000000000000000000000000000000}
         APP_VERSION: ${APP_VERSION:-0.0.0+build.0}
+        BUILD_ID: ${BUILD_ID:-0-0}
     container_name: workshop
     ports:
       - "3006:3006"

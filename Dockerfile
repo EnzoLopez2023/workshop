@@ -4,13 +4,13 @@ FROM node:22-alpine AS deps
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev --no-audit --no-fund
 
 FROM node:22-alpine AS builder
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm ci --no-audit --no-fund
 COPY . .
 
 # Vite bakes these into the JS bundle at build time.
@@ -53,11 +53,14 @@ ENV UPLOADS_PATH=/home/data/uploads
 
 ARG BUILD_SHA
 ARG APP_VERSION
+ARG BUILD_ID
 RUN echo "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40}$' \
     && echo "$APP_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\+build\.[0-9]+$' \
-    && printf '{"sha":"%s","version":"%s"}\n' "$BUILD_SHA" "$APP_VERSION" > /app/build-info.json
+    && echo "$BUILD_ID" | grep -Eq '^[0-9]+-[0-9]+$' \
+    && printf '{"sha":"%s","version":"%s","buildId":"%s"}\n' "$BUILD_SHA" "$APP_VERSION" "$BUILD_ID" > /app/build-info.json
 LABEL org.opencontainers.image.revision=$BUILD_SHA
-LABEL org.opencontainers.image.version=$APP_VERSION
+LABEL org.opencontainers.image.version=$BUILD_ID
+LABEL com.workshop.app-version=$APP_VERSION
 
 EXPOSE 3006
 

@@ -778,7 +778,7 @@ function trackActiveStorageRequest(res) {
 }
 
 function recoveryStorageGate(req, res, next) {
-  if (req.path === '/health') return next();
+  if (req.path === '/health' || req.path === '/live') return next();
   if (recoveryCaptureActive) {
     res.setHeader('Retry-After', '5');
     return res.status(503).json({ error: 'recovery_backup_in_progress' });
@@ -1543,6 +1543,8 @@ function withUserDb(req, res, next) {
 // `/health` is open so monitors and CI probes can hit it without a token.
 function isExemptPath(path) {
   return path === '/health'
+    || path === '/live'
+    || path === '/ready'
     || /^\/images\/\d+$/.test(path)
     || /^\/build-log\/\d+\/image$/.test(path);
 }
@@ -1713,9 +1715,86 @@ app.get('/api/health', (_req, res) => {
     sha: deploymentInfo.sha,
     version: deploymentInfo.version,
     instance: deploymentInstance,
+    buildId: deploymentInfo.buildId,
     db: DB_PATH,
     exporter: offhostExportSchedule?.health().status ?? offhostExporterFallbackHealth,
   });
+});
+
+app.get('/api/live', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    status: 'ok',
+    sha: deploymentInfo.sha,
+    version: deploymentInfo.version,
+    buildId: deploymentInfo.buildId,
+    instanceId: deploymentInstance,
+  });
+});
+
+function readinessDatabasePath() {
+  const userDatabase = readdirSync(USERS_DIR, { withFileTypes: true })
+    .filter(entry => entry.isFile() && entry.name.endsWith('.db'))
+    .map(entry => entry.name)
+    .sort()
+    .at(0);
+  if (userDatabase) return join(USERS_DIR, userDatabase);
+  if (existsSync(DB_PATH)) return DB_PATH;
+  throw new Error('no authoritative Workshop database is available');
+}
+
+app.get('/api/ready', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  let database = null;
+  try {
+    const databasePath = readinessDatabasePath();
+    database = new Database(databasePath, { readonly: true, fileMustExist: true });
+    database.prepare('SELECT 1').get();
+    const exporter = offhostExportSchedule?.health().status ?? offhostExporterFallbackHealth;
+    if (exporter !== 'healthy') {
+      return res.status(503).json({
+        status: 'unavailable',
+        sha: deploymentInfo.sha,
+        version: deploymentInfo.version,
+        buildId: deploymentInfo.buildId,
+        instanceId: deploymentInstance,
+        db: DB_PATH,
+        dbRoot: USERS_DIR,
+        database: { status: 'ready' },
+        exporter,
+      });
+    }
+    return res.json({
+      status: 'ok',
+      sha: deploymentInfo.sha,
+      version: deploymentInfo.version,
+      buildId: deploymentInfo.buildId,
+      instanceId: deploymentInstance,
+      db: DB_PATH,
+      dbRoot: USERS_DIR,
+      database: { status: 'ready' },
+      exporter,
+    });
+  } catch (error) {
+    console.error(JSON.stringify({
+      component: 'readiness',
+      event: 'database_unavailable',
+      code: typeof error?.code === 'string' ? error.code : 'SQLITE_READINESS_FAILED',
+    }));
+    return res.status(503).json({
+      status: 'unavailable',
+      sha: deploymentInfo.sha,
+      version: deploymentInfo.version,
+      buildId: deploymentInfo.buildId,
+      instanceId: deploymentInstance,
+      db: DB_PATH,
+      dbRoot: USERS_DIR,
+      database: { status: 'unavailable' },
+      exporter: offhostExportSchedule?.health().status ?? offhostExporterFallbackHealth,
+    });
+  } finally {
+    database?.close();
+  }
 });
 
 // ── Projects ──────────────────────────────────────────────────────────────────
@@ -2548,7 +2627,9 @@ export {
   closeAllDatabases,
   entraUserKey,
   getUserDb,
+  initSchema,
   mintSession,
+  readinessDatabasePath,
   runRecoveryBackup,
   userKeyFromBearer,
 };

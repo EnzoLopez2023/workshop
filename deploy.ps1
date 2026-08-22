@@ -23,6 +23,7 @@ if ($appVersion -notmatch '^\d+\.\d+\.\d+\+build\.\d+$') {
 }
 $env:BUILD_SHA = $buildSha
 $env:APP_VERSION = $appVersion
+$env:BUILD_ID = "0-0"
 
 Write-Host '==> Building Docker image...' -ForegroundColor Cyan
 docker compose build

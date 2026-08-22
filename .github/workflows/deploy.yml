@@ -1,16 +1,9 @@
-# GitHub Actions deploy for Workshop -> Azure App Service (Linux containers).
-# The workflow changes only the image reference. Persistent data and App Service
-# settings are fingerprinted before promotion and must remain unchanged.
-
-name: Build & Deploy Workshop to Azure
+name: Build, attest, and deploy Workshop to Azure
 
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'azure-infra/**'
-      - '.gitignore'
+    paths-ignore: ['**/*.md', 'azure-infra/**', '.gitignore']
   workflow_dispatch:
 
 concurrency:
@@ -18,113 +11,98 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  id-token: write
   contents: read
+  id-token: write
 
 env:
-  RG:               rg-personal-apps-prod
-  ACR:              acrenzolopez01
+  DEPLOYMENT_CONTRACT_VERSION: p1-11-v1
+  DEPLOYMENT_PROFILE: sqlite-one-worker
+  RG: rg-personal-apps-prod
+  ACR: acrenzolopez01
   ACR_LOGIN_SERVER: acrenzolopez01.azurecr.io
   IMAGE_REPOSITORY: workshop
-  WEBAPP:           app-workshop-prod-lwxhu7jxlrbtu
-
-  AZURE_CLIENT_ID:       dbd68ead-ad3f-4c2b-8559-36112970db42
-  AZURE_TENANT_ID:       de625678-c55b-4494-9558-14946cbb6133
+  WEBAPP: app-workshop-prod-lwxhu7jxlrbtu
+  PRODUCTION_URL: https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net
+  # App Service continues to use this established compatibility endpoint.
+  PLATFORM_HEALTH_PATH: /api/health
+  LIVE_PATH: /api/live
+  READY_PATH: /api/ready
+  REQUIRED_CONFIRMATIONS: '3'
+  MAX_ATTEMPTS: '120'
+  ROLLBACK_MAX_ATTEMPTS: '30'
+  POLL_INTERVAL_SECONDS: '5'
+  HTTP_TIMEOUT_SECONDS: '8'
+  AZURE_CLIENT_ID: dbd68ead-ad3f-4c2b-8559-36112970db42
+  AZURE_TENANT_ID: de625678-c55b-4494-9558-14946cbb6133
   AZURE_SUBSCRIPTION_ID: 1cf02211-8d77-4658-bb6a-0f83ec831c3b
-
-  VITE_AZURE_CLIENT_ID:            0f303f8f-207f-4b7f-84a5-b5d0abcf49d1
-  VITE_AZURE_HOME_TENANT_ID:       52188f12-db6b-46c6-88ff-08c802f0ed3b
-  VITE_AZURE_AUTHORITY_TENANT_ID:  common
+  VITE_AZURE_CLIENT_ID: 0f303f8f-207f-4b7f-84a5-b5d0abcf49d1
+  VITE_AZURE_HOME_TENANT_ID: 52188f12-db6b-46c6-88ff-08c802f0ed3b
+  VITE_AZURE_AUTHORITY_TENANT_ID: common
   VITE_TABLOOM_API_BASE_URL: https://app-tabloom-prod-lwxhu7jxlrbtu.azurewebsites.net
-  VITE_TABLOOM_CLIENT_ID:    b30f09b9-e100-4aa5-af22-ce359ff13fba
+  VITE_TABLOOM_CLIENT_ID: b30f09b9-e100-4aa5-af22-ce359ff13fba
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 40
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Resolve immutable image metadata
-        id: metadata
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - name: Prove source, dependencies, and SBOM
+        shell: bash
         run: |
           set -euo pipefail
-          APP_VERSION=$(jq -er '"\(.major).\(.minor).\(.patch)+build.\(.build)"' version.json)
-          if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+build\.[0-9]+$ ]]; then
-            echo "::error::version.json does not contain a valid application version"
-            exit 1
-          fi
-          echo "version=$APP_VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
+          mkdir -p evidence
+          npm ci --no-audit --no-fund
+          npm run ci:deploy
+          set +e
+          npm audit --omit=dev --audit-level=high --json > evidence/npm-audit.json
+          audit_status=$?
+          set -e
+          jq -e 'type == "object"' evidence/npm-audit.json >/dev/null
+          (( audit_status == 0 ))
+          npm sbom --sbom-format=cyclonedx > evidence/source-sbom.cdx.json
+          jq -e 'type == "object"' evidence/source-sbom.cdx.json >/dev/null
+      - name: Azure login with OIDC
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
-          client-id:       ${{ env.AZURE_CLIENT_ID }}
-          tenant-id:       ${{ env.AZURE_TENANT_ID }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Verify live invariants before deploy
-        id: baseline
+      - name: Prove migration and monitor preconditions
+        shell: bash
         run: |
           set -euo pipefail
-          LIVE_CONFIG=$(az webapp config show \
-            --resource-group "$RG" \
-            --name "$WEBAPP" \
-            --query '{alwaysOn:alwaysOn,numberOfWorkers:numberOfWorkers,linuxFxVersion:linuxFxVersion}' \
-            -o json)
-          if ! jq -e '.alwaysOn == true and .numberOfWorkers == 1' \
-            <<<"$LIVE_CONFIG" > /dev/null; then
-            echo "::error::Workshop must remain one worker with Always On enabled"
-            exit 1
-          fi
-
-          PREVIOUS_LATEST_DIGEST=$(az acr repository show \
-            --name "$ACR" \
-            --image "$IMAGE_REPOSITORY:latest" \
-            --query digest -o tsv)
-          if [[ ! "$PREVIOUS_LATEST_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::Current latest tag does not resolve to a valid digest"
-            exit 1
-          fi
-          LIVE_LINUX_FX=$(jq -r '.linuxFxVersion // empty' <<<"$LIVE_CONFIG")
-          LIVE_IMAGE_REF=${LIVE_LINUX_FX#DOCKER|}
-          case "$LIVE_IMAGE_REF" in
-            "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@"*)
-              PREVIOUS_DIGEST=${LIVE_IMAGE_REF##*@}
-              PREVIOUS_REF=$LIVE_IMAGE_REF
-              ;;
-            "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:latest")
-              PREVIOUS_DIGEST=$PREVIOUS_LATEST_DIGEST
-              PREVIOUS_REF="$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$PREVIOUS_DIGEST"
-              ;;
-            *)
-              echo "::error::Current App Service image reference is not the Workshop repository"
-              exit 1
-              ;;
+          npm run deploy:migration-check -- --profile "$DEPLOYMENT_PROFILE"
+          npm run deploy:monitor-check -- --phase predeploy --resource-group "$RG" --webapp "$WEBAPP"
+      - name: Capture prior release and protected configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256_stream() { sha256sum | awk '{print $1}'; }
+          config="$(az webapp config show -g "$RG" -n "$WEBAPP" --output json)"
+          site="$(az webapp show -g "$RG" -n "$WEBAPP" --output json)"
+          jq -e --arg platform "$PLATFORM_HEALTH_PATH" '
+            .alwaysOn == true and .numberOfWorkers == 1 and .healthCheckPath == $platform
+            and (.linuxFxVersion | startswith("DOCKER|"))' <<<"$config" >/dev/null
+          configured_ref="$(jq -r '.linuxFxVersion' <<<"$config")"; configured_ref="${configured_ref#DOCKER|}"
+          case "$configured_ref" in
+            "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@sha256:"*) PREVIOUS_REF="$configured_ref"; PREVIOUS_DIGEST="${configured_ref##*@}" ;;
+            *) echo "::error::Workshop must be pinned to an exact ACR digest"; exit 1 ;;
           esac
-          if [[ ! "$PREVIOUS_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::Current App Service image does not resolve to a valid digest"
-            exit 1
-          fi
-
-          APP_SETTINGS=$(az webapp config appsettings list \
-            --resource-group "$RG" \
-            --name "$WEBAPP" \
-            -o json)
-          if ! jq -e '
-            (map({key: .name, value: .value}) | from_entries) as $settings
-            | $settings.WEBSITES_ENABLE_APP_SERVICE_STORAGE == "true"
-            and $settings.DATA_ROOT == "/home/data"
-            and $settings.DB_PATH == "/home/data/workshop.db"
-            and $settings.SEED_DB_PATH == "/home/data/workshop-seed.db"
-            and $settings.USERS_DIR == "/home/data/users"
-            and $settings.UPLOADS_PATH == "/home/data/uploads"
-            and $settings.BACKUP_PATH == "/home/data/backups"
-            and $settings.OFFHOST_BACKUP_ENABLED == "true"
-            and $settings.PORT == "3006"
-            and $settings.WEBSITES_PORT == "3006"
-            and ([
+          [[ "$PREVIOUS_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          PREVIOUS_LATEST_DIGEST="$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:latest" --query digest -o tsv)"
+          [[ "$PREVIOUS_LATEST_DIGEST" == "$PREVIOUS_DIGEST" ]]
+          settings="$(az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json)"
+          jq -e '(map({key:.name,value:.value})|from_entries) as $s |
+            $s.WEBSITES_ENABLE_APP_SERVICE_STORAGE == "true" and
+            $s.DATA_ROOT == "/home/data" and $s.DB_PATH == "/home/data/workshop.db" and
+            $s.SEED_DB_PATH == "/home/data/workshop-seed.db" and $s.USERS_DIR == "/home/data/users" and
+            $s.UPLOADS_PATH == "/home/data/uploads" and $s.BACKUP_PATH == "/home/data/backups" and
+            $s.OFFHOST_BACKUP_ENABLED == "true" and $s.PORT == "3006" and $s.WEBSITES_PORT == "3006" and
+            ([
               "API_AUDIENCE",
               "AZURE_TENANT_ID",
               "SESSION_SECRET",
@@ -135,422 +113,209 @@ jobs:
               "APPLE_TOKEN_ENCRYPTION_KEY",
               "OFFHOST_BACKUP_ACCOUNT",
               "OFFHOST_BACKUP_CONTAINER"
-            ] | all(.[]; ($settings[.] // "") != ""))
-          ' <<<"$APP_SETTINGS" > /dev/null; then
-            echo "::error::Live persistence, auth, demo, or exporter invariants are incomplete"
-            exit 1
-          fi
-
-          APP_SETTINGS_HASH=$(jq -cS 'sort_by(.name)' <<<"$APP_SETTINGS" \
-            | sha256sum | cut -d ' ' -f 1)
-          BEFORE_BODY=$(curl -fsS --max-time 10 \
-            "https://$WEBAPP.azurewebsites.net/api/health" 2>/dev/null || true)
-          BEFORE_INSTANCE=$(jq -r '.instance // empty' <<<"$BEFORE_BODY" 2>/dev/null || true)
-          BEFORE_SHA=$(jq -r '.sha // empty' <<<"$BEFORE_BODY" 2>/dev/null || true)
-
-          echo "app_settings_hash=$APP_SETTINGS_HASH" >> "$GITHUB_OUTPUT"
-          echo "previous_instance=$BEFORE_INSTANCE" >> "$GITHUB_OUTPUT"
-          echo "previous_sha=$BEFORE_SHA" >> "$GITHUB_OUTPUT"
-          echo "previous_ref=$PREVIOUS_REF" >> "$GITHUB_OUTPUT"
-          echo "previous_latest_digest=$PREVIOUS_LATEST_DIGEST" >> "$GITHUB_OUTPUT"
-          echo "Live invariants verified (settings=$APP_SETTINGS_HASH, sha=${BEFORE_SHA:-legacy})"
-
-      - name: Resolve immutable SHA tag
-        id: image_tag
-        run: |
-          set -euo pipefail
-          set +e
-          EXISTING_DIGEST=$(az acr repository show \
-            --name "$ACR" \
-            --image "$IMAGE_REPOSITORY:$GITHUB_SHA" \
-            --query digest -o tsv 2>/dev/null)
-          SHOW_STATUS=$?
-          set -e
-          if [ "$SHOW_STATUS" -eq 0 ]; then
-            if [[ ! "$EXISTING_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-              echo "::error::Existing SHA tag returned an invalid digest"
-              exit 1
-            fi
-            echo "build_required=false" >> "$GITHUB_OUTPUT"
-            echo "Reusing immutable $IMAGE_REPOSITORY:$GITHUB_SHA at $EXISTING_DIGEST"
+            ] | all(.[]; ($s[.] // "") != ""))' \
+            <<<"$settings" >/dev/null
+          APP_SETTINGS_FINGERPRINT="$(jq -cS 'sort_by(.name)|map({name,value,slotSetting:(.slotSetting//false)})' <<<"$settings" | sha256_stream)"
+          SITE_INVARIANTS_FINGERPRINT="$(jq -cS '{
+            identity,httpsOnly,publicNetworkAccess,virtualNetworkSubnetId,outboundVnetRouting,clientCertEnabled,
+            siteConfig:{acrUseManagedIdentityCreds:.siteConfig.acrUseManagedIdentityCreds,alwaysOn:.siteConfig.alwaysOn,
+            healthCheckPath:.siteConfig.healthCheckPath,http20Enabled:.siteConfig.http20Enabled,
+            numberOfWorkers:.siteConfig.numberOfWorkers,vnetRouteAllEnabled:.siteConfig.vnetRouteAllEnabled,
+            ipSecurityRestrictions:(.siteConfig.ipSecurityRestrictions//[]|sort_by(.priority,.name)),
+            scmIpSecurityRestrictions:(.siteConfig.scmIpSecurityRestrictions//[]|sort_by(.priority,.name))}}' <<<"$site" | sha256_stream)"
+          echo "::add-mask::$APP_SETTINGS_FINGERPRINT"; echo "::add-mask::$SITE_INVARIANTS_FINGERPRINT"
+          prior="$(curl -fsS --max-time "$HTTP_TIMEOUT_SECONDS" -H 'Cache-Control: no-cache' "$PRODUCTION_URL$PLATFORM_HEALTH_PATH?baseline=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT")"
+          jq -e '.status == "ok" and .db == "/home/data/workshop.db" and .exporter == "healthy"' <<<"$prior" >/dev/null
+          PREVIOUS_SHA="$(jq -r '.sha // empty' <<<"$prior")"
+          PREVIOUS_BUILD_ID="$(jq -r '.buildId // empty' <<<"$prior")"
+          PREVIOUS_INSTANCE_ID="$(jq -r '.instanceId // .instance // empty' <<<"$prior")"
+          [[ "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ && -n "$PREVIOUS_INSTANCE_ID" ]]
+          # Only this deployed predecessor may omit run-attempt identity.
+          if [[ -z "$PREVIOUS_BUILD_ID" ]]; then
+            [[ "$PREVIOUS_SHA" == "b45c028e33a1b2cdb961870858d1374c7dbe5e6e" ]]
           else
-            TAG_MATCHES=$(az acr repository show-tags \
-              --name "$ACR" \
-              --repository "$IMAGE_REPOSITORY" \
-              --query "[?@=='$GITHUB_SHA'] | length(@)" -o tsv)
-            if [ "$TAG_MATCHES" != "0" ]; then
-              echo "::error::SHA tag exists but its digest could not be resolved"
-              exit 1
-            fi
-            echo "build_required=true" >> "$GITHUB_OUTPUT"
+            [[ "$PREVIOUS_BUILD_ID" =~ ^[0-9]+-[0-9]+$ ]]
           fi
-
-      - name: Build immutable image in ACR
-        if: steps.image_tag.outputs.build_required == 'true'
-        env:
-          APP_VERSION: ${{ steps.metadata.outputs.version }}
+          {
+            echo "PREVIOUS_REF=$PREVIOUS_REF"; echo "PREVIOUS_DIGEST=$PREVIOUS_DIGEST"
+            echo "PREVIOUS_LATEST_DIGEST=$PREVIOUS_LATEST_DIGEST"; echo "PREVIOUS_SHA=$PREVIOUS_SHA"
+            echo "PREVIOUS_BUILD_ID=$PREVIOUS_BUILD_ID"; echo "PREVIOUS_INSTANCE_ID=$PREVIOUS_INSTANCE_ID"
+            echo "APP_SETTINGS_FINGERPRINT=$APP_SETTINGS_FINGERPRINT"
+            echo "SITE_INVARIANTS_FINGERPRINT=$SITE_INVARIANTS_FINGERPRINT"
+            echo "DEPLOYMENT_MUTATED=false"
+          } >> "$GITHUB_ENV"
+      - name: Build and inspect run-unique immutable candidate
+        id: image
+        shell: bash
         run: |
           set -euo pipefail
-          az acr build \
-            --registry "$ACR" \
-            --image "$IMAGE_REPOSITORY:$GITHUB_SHA" \
+          APP_VERSION="$(jq -er '"\(.major).\(.minor).\(.patch)+build.\(.build)"' version.json)"
+          [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+build\.[0-9]+$ ]]
+          BUILD_ID="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          candidate="$IMAGE_REPOSITORY:$GITHUB_SHA-$BUILD_ID"
+          az acr build --registry "$ACR" --image "$candidate" \
             --build-arg "VITE_AZURE_CLIENT_ID=$VITE_AZURE_CLIENT_ID" \
             --build-arg "VITE_AZURE_AUTHORITY_TENANT_ID=$VITE_AZURE_AUTHORITY_TENANT_ID" \
             --build-arg "VITE_AZURE_HOME_TENANT_ID=$VITE_AZURE_HOME_TENANT_ID" \
             --build-arg "VITE_TABLOOM_API_BASE_URL=$VITE_TABLOOM_API_BASE_URL" \
             --build-arg "VITE_TABLOOM_CLIENT_ID=$VITE_TABLOOM_CLIENT_ID" \
-            --build-arg "BUILD_SHA=$GITHUB_SHA" \
-            --build-arg "APP_VERSION=$APP_VERSION" \
-            .
-
-      - name: Pull and inspect exact image digest
-        id: image
-        env:
-          APP_VERSION: ${{ steps.metadata.outputs.version }}
+            --build-arg "BUILD_SHA=$GITHUB_SHA" --build-arg "APP_VERSION=$APP_VERSION" --build-arg "BUILD_ID=$BUILD_ID" .
+          DIGEST="$(az acr repository show -n "$ACR" --image "$candidate" --query digest -o tsv)"
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          IMAGE_REFERENCE="$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$DIGEST"
+          az acr login -n "$ACR"; docker pull "$IMAGE_REFERENCE"
+          docker image inspect "$IMAGE_REFERENCE" --format '{{json .RepoDigests}}' | jq -e --arg ref "$IMAGE_REFERENCE" 'index($ref) != null' >/dev/null
+          docker image inspect "$IMAGE_REFERENCE" --format '{{json .Config.Volumes}}' | jq -e '[((.//{})|keys[])|select(.=="/home" or startswith("/home/"))]|length == 0' >/dev/null
+          [[ "$(docker image inspect "$IMAGE_REFERENCE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$GITHUB_SHA" ]]
+          [[ "$(docker image inspect "$IMAGE_REFERENCE" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" == "$BUILD_ID" ]]
+          [[ "$(docker image inspect "$IMAGE_REFERENCE" --format '{{index .Config.Labels "com.workshop.app-version"}}')" == "$APP_VERSION" ]]
+          attributes="$(az acr repository show -n "$ACR" --image "$candidate" --query changeableAttributes -o json)"
+          if ! jq -e '.writeEnabled == false and .deleteEnabled == false' <<<"$attributes" >/dev/null; then
+            az acr repository update -n "$ACR" --image "$candidate" --write-enabled false --delete-enabled false >/dev/null
+          fi
+          attributes="$(az acr repository show -n "$ACR" --image "$candidate" --query changeableAttributes -o json)"
+          jq -e '.writeEnabled == false and .deleteEnabled == false' <<<"$attributes" >/dev/null
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"; echo "ref=$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
+          echo "IMAGE_DIGEST=$DIGEST" >> "$GITHUB_ENV"; echo "IMAGE_REFERENCE=$IMAGE_REFERENCE" >> "$GITHUB_ENV"; echo "BUILD_ID=$BUILD_ID" >> "$GITHUB_ENV"
+      - name: Generate exact-image SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.20.8
+        with: { image: '${{ steps.image.outputs.ref }}', format: spdx-json, output-file: evidence/image-sbom.spdx.json, upload-artifact: false, upload-release-assets: false }
+      - name: Scan exact image for HIGH and CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.33.1
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: json
+          output: evidence/trivy-image.json
+          exit-code: '1'
+          ignore-unfixed: false
+          severity: HIGH,CRITICAL
+          scanners: vuln
+          timeout: 10m
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v3.8.1
+      - name: Keylessly sign and attest the exact digest
+        shell: bash
         run: |
           set -euo pipefail
-          DIGEST=$(az acr repository show \
-            --name "$ACR" \
-            --image "$IMAGE_REPOSITORY:$GITHUB_SHA" \
-            --query digest -o tsv)
-          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::ACR returned an invalid image digest"
-            exit 1
-          fi
-
-          IMAGE_REF="$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$DIGEST"
-          az acr login --name "$ACR"
-          docker pull "$IMAGE_REF"
-
-          VOLUMES=$(docker image inspect "$IMAGE_REF" --format '{{json .Config.Volumes}}')
-          if [ -z "$VOLUMES" ] || [ "$VOLUMES" = "<no value>" ]; then
-            VOLUMES=null
-          fi
-          if jq -e \
-            'if . == null then false else any(keys[]; . == "/home" or startswith("/home/")) end' \
-            <<<"$VOLUMES" > /dev/null; then
-            echo "::error::Image declares /home or a descendant as a Docker volume: $VOLUMES"
-            exit 1
-          fi
-
-          REVISION=$(docker image inspect "$IMAGE_REF" \
-            --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
-          VERSION=$(docker image inspect "$IMAGE_REF" \
-            --format '{{index .Config.Labels "org.opencontainers.image.version"}}')
-          if [ "$REVISION" != "$GITHUB_SHA" ]; then
-            echo "::error::Image revision does not match the source SHA"
-            exit 1
-          fi
-          if [ "$VERSION" != "$APP_VERSION" ]; then
-            echo "::error::Image version does not match version.json"
-            exit 1
-          fi
-
-          ATTRIBUTES=$(az acr repository show \
-            --name "$ACR" \
-            --image "$IMAGE_REPOSITORY:$GITHUB_SHA" \
-            --query changeableAttributes -o json)
-          if ! jq -e '.writeEnabled == false and .deleteEnabled == false' \
-            <<<"$ATTRIBUTES" > /dev/null; then
-            az acr repository update \
-              --name "$ACR" \
-              --image "$IMAGE_REPOSITORY:$GITHUB_SHA" \
-              --write-enabled false \
-              --delete-enabled false > /dev/null
-            ATTRIBUTES=$(az acr repository show \
-              --name "$ACR" \
-              --image "$IMAGE_REPOSITORY:$GITHUB_SHA" \
-              --query changeableAttributes -o json)
-          fi
-          if ! jq -e '.writeEnabled == false and .deleteEnabled == false' \
-            <<<"$ATTRIBUTES" > /dev/null; then
-            echo "::error::SHA tag could not be locked against writes and deletion"
-            exit 1
-          fi
-
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
-          echo "ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
-          echo "Inspected $IMAGE_REF (version=$VERSION, volumes=$VOLUMES)"
-
-      - name: Deploy inspected digest
-        id: deploy
-        env:
-          INSPECTED_REF: ${{ steps.image.outputs.ref }}
-        run: |
-          set -euo pipefail
-          echo "started=true" >> "$GITHUB_OUTPUT"
-          az webapp config container set \
-            --resource-group "$RG" \
-            --name "$WEBAPP" \
-            --container-image-name "$INSPECTED_REF" > /dev/null
-          PINNED_REF=$(az webapp config show \
-            --resource-group "$RG" \
-            --name "$WEBAPP" \
-            --query linuxFxVersion -o tsv)
-          if [ "$PINNED_REF" != "DOCKER|$INSPECTED_REF" ]; then
-            echo "::error::App Service did not retain the inspected digest reference"
-            exit 1
-          fi
-          az webapp restart --resource-group "$RG" --name "$WEBAPP"
-
-      - name: Verify replacement is consistently healthy
-        env:
-          APP_VERSION: ${{ steps.metadata.outputs.version }}
-          PREVIOUS_INSTANCE: ${{ steps.baseline.outputs.previous_instance }}
-        run: |
-          set -euo pipefail
-          url="https://$WEBAPP.azurewebsites.net/api/health"
-          consecutive=0
-          candidate_instance=
-          for i in $(seq 1 180); do
-            body=$(curl -fsS --max-time 8 -H 'Cache-Control: no-cache' "$url" 2>/dev/null || true)
-            status=$(jq -r '.status // empty' <<<"$body" 2>/dev/null || true)
-            sha=$(jq -r '.sha // empty' <<<"$body" 2>/dev/null || true)
-            version=$(jq -r '.version // empty' <<<"$body" 2>/dev/null || true)
-            instance=$(jq -r '.instance // empty' <<<"$body" 2>/dev/null || true)
-            db=$(jq -r '.db // empty' <<<"$body" 2>/dev/null || true)
-            exporter=$(jq -r '.exporter // empty' <<<"$body" 2>/dev/null || true)
-
-            replacement=true
-            if [ -n "$PREVIOUS_INSTANCE" ] && [ "$instance" = "$PREVIOUS_INSTANCE" ]; then
-              replacement=false
-            fi
-            if [ "$status" = "ok" ] \
-              && [ "$sha" = "$GITHUB_SHA" ] \
-              && [ "$version" = "$APP_VERSION" ] \
-              && [ -n "$instance" ] \
-              && [ "$replacement" = true ] \
-              && [ "$db" = "/home/data/workshop.db" ] \
-              && [ "$exporter" = "healthy" ]; then
-              if [ -n "$candidate_instance" ] && [ "$instance" != "$candidate_instance" ]; then
-                consecutive=0
-              fi
-              candidate_instance=$instance
-              consecutive=$((consecutive + 1))
-              echo "Exact replacement confirmation $consecutive/3 (sha=$sha, instance=$instance)"
-              if [ "$consecutive" -eq 3 ]; then
-                exit 0
-              fi
-            else
-              consecutive=0
-              candidate_instance=
-              echo "Waiting for exact healthy replacement (status=${status:-none}, sha=${sha:-none}, exporter=${exporter:-none})"
-            fi
-            sleep 5
-          done
-          echo "::error::Exact image $GITHUB_SHA was not healthy for three consecutive checks"
-          exit 1
-
-      - name: Verify candidate runtime invariants
-        env:
-          APP_VERSION: ${{ steps.metadata.outputs.version }}
-          EXPECTED_SETTINGS_HASH: ${{ steps.baseline.outputs.app_settings_hash }}
-          INSPECTED_DIGEST: ${{ steps.image.outputs.digest }}
-          INSPECTED_REF: ${{ steps.image.outputs.ref }}
-        run: |
-          set -euo pipefail
-          LIVE_CONFIG=$(az webapp config show \
-            --resource-group "$RG" \
-            --name "$WEBAPP" \
-            --query '{alwaysOn:alwaysOn,numberOfWorkers:numberOfWorkers,linuxFxVersion:linuxFxVersion}' \
-            -o json)
-          if ! jq -e \
-            --arg ref "DOCKER|$INSPECTED_REF" \
-            '.alwaysOn == true and .numberOfWorkers == 1 and .linuxFxVersion == $ref' \
-            <<<"$LIVE_CONFIG" > /dev/null; then
-            echo "::error::Worker, Always On, or digest pinning changed during deployment"
-            exit 1
-          fi
-
-          SHA_DIGEST=$(az acr repository show \
-            --name "$ACR" \
-            --image "$IMAGE_REPOSITORY:$GITHUB_SHA" \
-            --query digest -o tsv)
-          if [ "$SHA_DIGEST" != "$INSPECTED_DIGEST" ]; then
-            echo "::error::Locked SHA tag no longer resolves to the inspected digest"
-            exit 1
-          fi
-
-          APP_SETTINGS=$(az webapp config appsettings list \
-            --resource-group "$RG" \
-            --name "$WEBAPP" \
-            -o json)
-          APP_SETTINGS_HASH=$(jq -cS 'sort_by(.name)' <<<"$APP_SETTINGS" \
-            | sha256sum | cut -d ' ' -f 1)
-          if [ "$APP_SETTINGS_HASH" != "$EXPECTED_SETTINGS_HASH" ]; then
-            echo "::error::App Service settings changed during image promotion"
-            exit 1
-          fi
-
-          HEALTH=$(curl -fsS --max-time 15 \
-            "https://$WEBAPP.azurewebsites.net/api/health")
-          if ! jq -e \
+          workflow_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/deploy.yml@$GITHUB_REF"
+          started_on="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq -n \
+            --arg buildType "https://github.com/EnzoLopez2023/azure-infra/blob/091710dfc73094583ce683e6a560fc5522e74c85/DEPLOYMENT_RUNBOOK.md#p1-11-v1" \
+            --arg repository "git+https://github.com/$GITHUB_REPOSITORY" \
             --arg sha "$GITHUB_SHA" \
-            --arg version "$APP_VERSION" \
-            '.status == "ok"
-              and .sha == $sha
-              and .version == $version
-              and .db == "/home/data/workshop.db"
-              and .exporter == "healthy"' \
-            <<<"$HEALTH" > /dev/null; then
-            echo "::error::Final exact-image health verification failed"
-            exit 1
-          fi
-
-          DEMO_BODY=$(mktemp)
-          AUTH_BODY=$(mktemp)
-          trap 'rm -f "$DEMO_BODY" "$AUTH_BODY"' EXIT
-          DEMO_STATUS=$(curl -sS --max-time 15 -o "$DEMO_BODY" -w '%{http_code}' \
-            -H 'X-Demo: 1' \
-            "https://$WEBAPP.azurewebsites.net/api/projects")
-          AUTH_STATUS=$(curl -sS --max-time 15 -o "$AUTH_BODY" -w '%{http_code}' \
-            "https://$WEBAPP.azurewebsites.net/api/projects")
-          if [ "$DEMO_STATUS" != "200" ] || ! jq -e 'type == "array"' "$DEMO_BODY" > /dev/null; then
-            echo "::error::Read-only demo smoke check failed"
-            exit 1
-          fi
-          if [ "$AUTH_STATUS" != "401" ] \
-            || ! jq -e '.error == "missing token"' "$AUTH_BODY" > /dev/null; then
-            echo "::error::Authentication boundary smoke check failed"
-            exit 1
-          fi
-
-      - name: Promote verified digest
-        env:
-          EXPECTED_SETTINGS_HASH: ${{ steps.baseline.outputs.app_settings_hash }}
-          INSPECTED_DIGEST: ${{ steps.image.outputs.digest }}
-          INSPECTED_REF: ${{ steps.image.outputs.ref }}
+            --arg workflow "$workflow_identity" \
+            --arg invocation "$BUILD_ID" \
+            --arg started "$started_on" \
+            '{
+              buildDefinition: {
+                buildType: $buildType,
+                externalParameters: {repository: $repository, ref: env.GITHUB_REF},
+                internalParameters: {invocationId: $invocation},
+                resolvedDependencies: [{uri: $repository, digest: {gitCommit: $sha}}]
+              },
+              runDetails: {
+                builder: {id: $workflow},
+                metadata: {invocationId: $invocation, startedOn: $started}
+              }
+            }' > evidence/provenance.slsa.json
+          cosign sign --yes "$IMAGE_REFERENCE"
+          cosign attest --yes --predicate evidence/provenance.slsa.json --type slsaprovenance1 "$IMAGE_REFERENCE"
+          cosign attest --yes --predicate evidence/image-sbom.spdx.json --type spdxjson "$IMAGE_REFERENCE"
+          cosign verify --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-signature.json
+          cosign verify-attestation --type slsaprovenance1 --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-provenance.json
+          cosign verify-attestation --type spdxjson --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-sbom.json
+      - name: Arm rollback before production mutation
+        run: echo "DEPLOYMENT_MUTATED=true" >> "$GITHUB_ENV"
+      - name: Stop, prove absence, pin, and start SQLite candidate
+        shell: bash
         run: |
           set -euo pipefail
-          az acr import \
-            --name "$ACR" \
-            --registry "$ACR" \
-            --source "$INSPECTED_REF" \
-            --image "$IMAGE_REPOSITORY:latest" \
-            --force
-          PROMOTED_DIGEST=$(az acr repository show \
-            --name "$ACR" \
-            --image "$IMAGE_REPOSITORY:latest" \
-            --query digest -o tsv)
-          if [ "$PROMOTED_DIGEST" != "$INSPECTED_DIGEST" ]; then
-            echo "::error::Promoted digest differs from the inspected digest"
-            exit 1
-          fi
-
-          LIVE_REF=$(az webapp config show \
-            --resource-group "$RG" \
-            --name "$WEBAPP" \
-            --query linuxFxVersion -o tsv)
-          if [ "$LIVE_REF" != "DOCKER|$INSPECTED_REF" ]; then
-            echo "::error::App Service no longer points to the inspected digest"
-            exit 1
-          fi
-          APP_SETTINGS=$(az webapp config appsettings list \
-            --resource-group "$RG" \
-            --name "$WEBAPP" \
-            -o json)
-          APP_SETTINGS_HASH=$(jq -cS 'sort_by(.name)' <<<"$APP_SETTINGS" \
-            | sha256sum | cut -d ' ' -f 1)
-          if [ "$APP_SETTINGS_HASH" != "$EXPECTED_SETTINGS_HASH" ]; then
-            echo "::error::App Service settings changed during digest promotion"
-            exit 1
-          fi
-
-          echo "Verified sha=$GITHUB_SHA digest=$INSPECTED_DIGEST ref=$INSPECTED_REF"
-
-      - name: Roll back failed candidate
-        if: ${{ (failure() || cancelled()) && steps.deploy.outputs.started == 'true' }}
-        env:
-          PREVIOUS_LATEST_DIGEST: ${{ steps.baseline.outputs.previous_latest_digest }}
-          PREVIOUS_REF: ${{ steps.baseline.outputs.previous_ref }}
-          PREVIOUS_SHA: ${{ steps.baseline.outputs.previous_sha }}
-        run: |
-          set -euo pipefail
-          PREVIOUS_REF_PREFIX="$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@"
-          PREVIOUS_REF_DIGEST=${PREVIOUS_REF#"$PREVIOUS_REF_PREFIX"}
-          if [[ ! "$PREVIOUS_LATEST_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] \
-            || [[ ! "$PREVIOUS_REF_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] \
-            || [ "$PREVIOUS_REF" != "$PREVIOUS_REF_PREFIX$PREVIOUS_REF_DIGEST" ]; then
-            echo "::error::Previous deployment metadata is invalid; automatic rollback is unsafe"
-            exit 1
-          fi
-
-          FAILED_BODY=$(curl -fsS --max-time 8 \
-            "https://$WEBAPP.azurewebsites.net/api/health" 2>/dev/null || true)
-          FAILED_INSTANCE=$(jq -r '.instance // empty' <<<"$FAILED_BODY" 2>/dev/null || true)
-          rollback_errors=0
-          if ! az webapp config container set \
-            --resource-group "$RG" \
-            --name "$WEBAPP" \
-            --container-image-name "$PREVIOUS_REF" > /dev/null; then
-            echo "::error::Failed to restore the prior App Service digest reference"
-            rollback_errors=$((rollback_errors + 1))
-          fi
-          if ! az webapp restart --resource-group "$RG" --name "$WEBAPP"; then
-            echo "::error::Failed to restart App Service on the prior digest"
-            rollback_errors=$((rollback_errors + 1))
-          fi
-          if ! az acr import \
-            --name "$ACR" \
-            --registry "$ACR" \
-            --source "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$PREVIOUS_LATEST_DIGEST" \
-            --image "$IMAGE_REPOSITORY:latest" \
-            --force; then
-            echo "::error::Failed to restore the prior latest digest"
-            rollback_errors=$((rollback_errors + 1))
-          fi
-
-          LIVE_REF=$(az webapp config show \
-            --resource-group "$RG" \
-            --name "$WEBAPP" \
-            --query linuxFxVersion -o tsv 2>/dev/null || true)
-          RESTORED_LATEST=$(az acr repository show \
-            --name "$ACR" \
-            --image "$IMAGE_REPOSITORY:latest" \
-            --query digest -o tsv 2>/dev/null || true)
-          if [ "$LIVE_REF" != "DOCKER|$PREVIOUS_REF" ] \
-            || [ "$RESTORED_LATEST" != "$PREVIOUS_LATEST_DIGEST" ]; then
-            echo "::error::Failed deployment could not restore the previous image references"
-            rollback_errors=$((rollback_errors + 1))
-          fi
-
-          url="https://$WEBAPP.azurewebsites.net/api/health"
-          app_recovered=false
-          for i in $(seq 1 120); do
-            body=$(curl -fsS --max-time 8 -H 'Cache-Control: no-cache' "$url" 2>/dev/null || true)
-            status=$(jq -r '.status // empty' <<<"$body" 2>/dev/null || true)
-            sha=$(jq -r '.sha // empty' <<<"$body" 2>/dev/null || true)
-            instance=$(jq -r '.instance // empty' <<<"$body" 2>/dev/null || true)
-            db=$(jq -r '.db // empty' <<<"$body" 2>/dev/null || true)
-            exporter=$(jq -r '.exporter // empty' <<<"$body" 2>/dev/null || true)
-            sha_restored=false
-            if [ -z "$PREVIOUS_SHA" ] && [ -z "$sha" ]; then
-              sha_restored=true
-            elif [ -n "$PREVIOUS_SHA" ] && [ "$sha" = "$PREVIOUS_SHA" ]; then
-              if [ -z "$FAILED_INSTANCE" ] \
-                || { [ -n "$instance" ] && [ "$instance" != "$FAILED_INSTANCE" ]; }; then
-                sha_restored=true
-              fi
-            fi
-            exporter_restored=false
-            if [ -z "$exporter" ] || [ "$exporter" = "healthy" ]; then
-              exporter_restored=true
-            fi
-            if [ "$status" = "ok" ] \
-              && [ "$db" = "/home/data/workshop.db" ] \
-              && [ "$sha_restored" = true ] \
-              && [ "$exporter_restored" = true ]; then
-              app_recovered=true
-              break
-            fi
-            sleep 5
+          az webapp stop -g "$RG" -n "$WEBAPP" --output none
+          absent=0
+          for attempt in $(seq 1 60); do
+            state="$(az webapp show -g "$RG" -n "$WEBAPP" --query state -o tsv)"
+            status="$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' "$PRODUCTION_URL$LIVE_PATH?stop-proof=$GITHUB_RUN_ID-$attempt" 2>/dev/null || true)"
+            if [[ "$state" == Stopped && ! "$status" =~ ^2 ]]; then absent=$((absent+1)); [[ "$absent" -ge 3 ]] && break; else absent=0; fi
+            sleep 2
           done
-          if [ "$app_recovered" != true ]; then
-            echo "::error::Previous production image did not recover after rollback"
-            rollback_errors=$((rollback_errors + 1))
-          fi
-          if [ "$rollback_errors" -ne 0 ]; then
-            echo "::error::Rollback completed with $rollback_errors error(s)"
-            exit 1
-          fi
-          echo "Previous production image and latest digest restored"
+          [[ "$absent" -ge 3 ]]
+          az webapp config container set -g "$RG" -n "$WEBAPP" --container-image-name "$IMAGE_REFERENCE" --container-registry-url "https://$ACR_LOGIN_SERVER" --output none
+          [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
+          az webapp start -g "$RG" -n "$WEBAPP" --output none
+      - name: Verify candidate runtime invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$GITHUB_SHA" --expected-build-id "$BUILD_ID" --previous-instance-id "$PREVIOUS_INSTANCE_ID" --attempts "$MAX_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "$BUILD_ID"
+          [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
+          [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:$GITHUB_SHA-$BUILD_ID" --query digest -o tsv)" == "$IMAGE_DIGEST" ]]
+          settings_after="$(az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json | jq -cS 'sort_by(.name)|map({name,value,slotSetting:(.slotSetting//false)})' | sha256sum | awk '{print $1}')"
+          site_after="$(az webapp show -g "$RG" -n "$WEBAPP" -o json | jq -cS '{identity,httpsOnly,publicNetworkAccess,virtualNetworkSubnetId,outboundVnetRouting,clientCertEnabled,siteConfig:{acrUseManagedIdentityCreds:.siteConfig.acrUseManagedIdentityCreds,alwaysOn:.siteConfig.alwaysOn,healthCheckPath:.siteConfig.healthCheckPath,http20Enabled:.siteConfig.http20Enabled,numberOfWorkers:.siteConfig.numberOfWorkers,vnetRouteAllEnabled:.siteConfig.vnetRouteAllEnabled,ipSecurityRestrictions:(.siteConfig.ipSecurityRestrictions//[]|sort_by(.priority,.name)),scmIpSecurityRestrictions:(.siteConfig.scmIpSecurityRestrictions//[]|sort_by(.priority,.name))}}' | sha256sum | awk '{print $1}')"
+          [[ "$settings_after" == "$APP_SETTINGS_FINGERPRINT" && "$site_after" == "$SITE_INVARIANTS_FINGERPRINT" ]]
+          demo_body="$(mktemp)"; auth_body="$(mktemp)"
+          trap 'rm -f "$demo_body" "$auth_body"' EXIT
+          demo_status="$(curl -sS --max-time "$HTTP_TIMEOUT_SECONDS" -H 'X-Demo: 1' -o "$demo_body" -w '%{http_code}' "$PRODUCTION_URL/api/projects")"
+          auth_status="$(curl -sS --max-time "$HTTP_TIMEOUT_SECONDS" -o "$auth_body" -w '%{http_code}' "$PRODUCTION_URL/api/projects")"
+          [[ "$demo_status" == 200 && "$auth_status" == 401 ]]
+          jq -e 'type == "array"' "$demo_body" >/dev/null
+          jq -e '.error == "missing token"' "$auth_body" >/dev/null
+      - name: Promote verified digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          az acr import -n "$ACR" --source "$IMAGE_REFERENCE" --image "$IMAGE_REPOSITORY:latest" --force
+          [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:latest" --query digest -o tsv)" == "$IMAGE_DIGEST" ]]
+          [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
+      - name: Confirm promoted release and monitoring
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$GITHUB_SHA" --expected-build-id "$BUILD_ID" --attempts 12 --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "promoted-$BUILD_ID"
+          [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
+          [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:latest" --query digest -o tsv)" == "$IMAGE_DIGEST" ]]
+          npm run deploy:monitor-check -- --phase postdeploy --resource-group "$RG" --webapp "$WEBAPP"
+          jq -n \
+            --arg contract "$DEPLOYMENT_CONTRACT_VERSION" \
+            --arg profile "$DEPLOYMENT_PROFILE" \
+            --arg sha "$GITHUB_SHA" \
+            --arg buildId "$BUILD_ID" \
+            --arg image "$IMAGE_REFERENCE" \
+            --arg previous "$PREVIOUS_REF" \
+            '{contract:$contract,profile:$profile,sha:$sha,buildId:$buildId,image:$image,
+              previousImage:$previous,confirmations:3,settingsUnchanged:true,
+              siteInvariantsUnchanged:true,signatureVerified:true,provenanceVerified:true,
+              sbomAttestationVerified:true,rollbackPerformed:false}' > evidence/deployment.json
+      - name: Roll back failed candidate
+        if: ${{ always() && (failure() || cancelled()) && env.DEPLOYMENT_MUTATED == 'true' }}
+        timeout-minutes: 4
+        shell: bash
+        run: |
+          set -euo pipefail
+          az webapp stop -g "$RG" -n "$WEBAPP" --output none
+          absent=0; for attempt in $(seq 1 30); do state="$(az webapp show -g "$RG" -n "$WEBAPP" --query state -o tsv)"; status="$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' "$PRODUCTION_URL$LIVE_PATH?rollback-stop=$attempt" 2>/dev/null || true)"; if [[ "$state" == Stopped && ! "$status" =~ ^2 ]]; then absent=$((absent+1)); [[ "$absent" -ge 3 ]] && break; else absent=0; fi; sleep 2; done; [[ "$absent" -ge 3 ]]
+          az webapp config container set -g "$RG" -n "$WEBAPP" --container-image-name "$PREVIOUS_REF" --container-registry-url "https://$ACR_LOGIN_SERVER" --output none
+          az webapp start -g "$RG" -n "$WEBAPP" --output none
+          az acr import -n "$ACR" --source "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$PREVIOUS_LATEST_DIGEST" --image "$IMAGE_REPOSITORY:latest" --force
+          [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$PREVIOUS_REF" ]]
+          [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:latest" --query digest -o tsv)" == "$PREVIOUS_LATEST_DIGEST" ]]
+          # The pinned predecessor predates /api/live and /api/ready; its
+          # backward-compatible health response is the sole rollback proof.
+          legacy=()
+          [[ -z "$PREVIOUS_BUILD_ID" ]] && legacy=(--allow-legacy-build-id --live-path "$PLATFORM_HEALTH_PATH" --ready-path "$PLATFORM_HEALTH_PATH")
+          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$PREVIOUS_SHA" --expected-build-id "${PREVIOUS_BUILD_ID:-legacy}" "${legacy[@]}" --attempts "$ROLLBACK_MAX_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "rollback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          settings_after="$(az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json | jq -cS 'sort_by(.name)|map({name,value,slotSetting:(.slotSetting//false)})' | sha256sum | awk '{print $1}')"
+          site_after="$(az webapp show -g "$RG" -n "$WEBAPP" -o json | jq -cS '{identity,httpsOnly,publicNetworkAccess,virtualNetworkSubnetId,outboundVnetRouting,clientCertEnabled,siteConfig:{acrUseManagedIdentityCreds:.siteConfig.acrUseManagedIdentityCreds,alwaysOn:.siteConfig.alwaysOn,healthCheckPath:.siteConfig.healthCheckPath,http20Enabled:.siteConfig.http20Enabled,numberOfWorkers:.siteConfig.numberOfWorkers,vnetRouteAllEnabled:.siteConfig.vnetRouteAllEnabled,ipSecurityRestrictions:(.siteConfig.ipSecurityRestrictions//[]|sort_by(.priority,.name)),scmIpSecurityRestrictions:(.siteConfig.scmIpSecurityRestrictions//[]|sort_by(.priority,.name))}}' | sha256sum | awk '{print $1}')"
+          [[ "$settings_after" == "$APP_SETTINGS_FINGERPRINT" && "$site_after" == "$SITE_INVARIANTS_FINGERPRINT" ]]
+          npm run deploy:monitor-check -- --phase rollback --resource-group "$RG" --webapp "$WEBAPP"
+          jq -n --arg image "$PREVIOUS_REF" --arg sha "$PREVIOUS_SHA" --arg buildId "$PREVIOUS_BUILD_ID" \
+            '{rollbackPerformed:true,restoredImage:$image,restoredSha:$sha,restoredBuildId:$buildId,
+              confirmations:3,settingsUnchanged:true,siteInvariantsUnchanged:true,monitoringChecked:true}' \
+            > evidence/rollback.json
+      - name: Upload nonsecret deployment evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: deployment-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
+          include-hidden-files: false
