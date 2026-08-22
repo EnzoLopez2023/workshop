@@ -64,7 +64,7 @@ The HTTP backend is centered in `server.js`; reusable backup/restore logic lives
 |---|---|
 | Local dev | Two processes: `npm run server` + `npm run dev` (or `npm run start:all` in Git Bash) |
 | Local Docker | Three-stage `node:22-alpine` Dockerfile; `docker compose up` |
-| Production | GitHub Actions (`.github/workflows/deploy.yml`) builds and publishes the container to Azure App Service |
+| Production | GitHub Actions builds a full-SHA image, inspects its exact digest, promotes that digest to `latest`, and digest-pins Azure App Service |
 
 ---
 
@@ -438,7 +438,7 @@ docker compose logs -f workshop
 
 The SQLite databases, uploaded files, and local recovery bundles live in a named Docker volume (`workshop-data`) mounted at `/home/data` — they survive rebuilds. Same-volume bundles are not disaster recovery; see [`RECOVERY.md`](RECOVERY.md).
 
-Production is deployed by `.github/workflows/deploy.yml` to Azure App Service. The workflow builds the frontend environment into the image, pushes `acrenzolopez01.azurecr.io/workshop:latest`, and restarts `app-workshop-prod-lwxhu7jxlrbtu`. Do not use `deploy.ps1` for production.
+Production is deployed by `.github/workflows/deploy.yml` to Azure App Service. The workflow builds only `workshop:<full-git-sha>`, pulls and inspects its exact digest, rejects image volumes below `/home`, locks the SHA tag, and pins `app-workshop-prod-lwxhu7jxlrbtu` to that digest. It then requires three consecutive health responses from one replacement process with the image-baked SHA/version before checking demo, auth, exporter, worker, Always On, and unchanged App Service settings; only then is `latest` promoted to the verified digest. A failed candidate restores the prior exact App Service and `latest` digests. Do not use `deploy.ps1` for production.
 
 ### Environment variables in Docker
 

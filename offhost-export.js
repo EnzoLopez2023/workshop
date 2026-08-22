@@ -1606,6 +1606,7 @@ export function startOffhostExportSchedule({
     const startup = Promise.resolve({ status: 'disabled', trigger: 'startup' });
     return {
       startup,
+      health: () => ({ status: 'disabled', checkedUtc: null, trigger: null }),
       stop() {},
       runNow: async () => ({ status: 'disabled', trigger: 'manual' }),
       runAfterBackup: async () => ({ status: 'disabled', trigger: 'backup' }),
@@ -1618,6 +1619,7 @@ export function startOffhostExportSchedule({
   let activeTrigger = null;
   let pendingBackupRun = null;
   let interval = null;
+  let health = { status: 'starting', checkedUtc: null, trigger: 'startup' };
 
   const getProduction = async () => {
     if (!productionPromise) {
@@ -1646,14 +1648,26 @@ export function startOffhostExportSchedule({
       });
       return activeRun;
     }
+    health = { status: 'checking', checkedUtc: health.checkedUtc, trigger };
     const run = getProduction()
       .then(production => production.exporter.scan())
       .then(scanResult => {
         const result = { ...scanResult, trigger };
+        health = {
+          status: 'healthy',
+          checkedUtc: scanResult.checkedUtc ?? null,
+          trigger,
+        };
         logEvent(logger, 'info', 'schedule_scan_completed', result);
         return result;
       })
       .catch((error) => {
+        health = {
+          status: 'error',
+          checkedUtc: health.checkedUtc,
+          trigger,
+          code: errorCode(error),
+        };
         logEvent(logger, 'error', 'scan_failed', {
           code: errorCode(error),
           statusCode: Number.isInteger(error?.statusCode) ? error.statusCode : undefined,
@@ -1710,10 +1724,12 @@ export function startOffhostExportSchedule({
 
   return {
     startup,
+    health: () => ({ ...health }),
     runNow: () => runForTrigger('manual'),
     runAfterBackup,
     stop() {
       stopped = true;
+      health = { status: 'stopped', checkedUtc: health.checkedUtc, trigger: null };
       if (interval) clearIntervalFn(interval);
       interval = null;
     },

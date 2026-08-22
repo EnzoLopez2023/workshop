@@ -22,6 +22,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { fileTypeFromFile } from 'file-type';
 import { createBackupBundle, resolveStorageConfig } from './recovery.js';
 import { startOffhostExportSchedule } from './offhost-export.js';
+import { loadDeploymentInfo } from './deployment-info.js';
 
 dotenv.config();
 
@@ -29,6 +30,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
 
 const PORT = process.env.PORT ?? 3006;
+const deploymentInfo = loadDeploymentInfo({ appDir: __dirname });
+const deploymentInstance = randomUUID();
 const storageConfig = resolveStorageConfig(process.env, { appDir: __dirname });
 const {
   dbPath: DB_PATH,
@@ -506,6 +509,7 @@ let recoveryBackupPromise = null;
 let recoveryInitialTimer = null;
 let recoveryIntervalTimer = null;
 let offhostExportSchedule = null;
+let offhostExporterFallbackHealth = 'not_started';
 
 const userDbPath = (userKey) => join(USERS_DIR, `${userKey}.db`);
 
@@ -864,12 +868,14 @@ function stopRecoverySchedule() {
 
 function startOffhostSchedule() {
   if (offhostExportSchedule) return;
+  offhostExporterFallbackHealth = 'starting';
   try {
     offhostExportSchedule = startOffhostExportSchedule({
       backupRoot: BACKUP_ROOT,
       appDir: __dirname,
     });
   } catch (error) {
+    offhostExporterFallbackHealth = 'error';
     console.error(JSON.stringify({
       component: 'offhost-backup',
       event: 'schedule_start_failed',
@@ -881,6 +887,7 @@ function startOffhostSchedule() {
 function stopOffhostSchedule() {
   offhostExportSchedule?.stop();
   offhostExportSchedule = null;
+  offhostExporterFallbackHealth = 'stopped';
 }
 
 async function serializeAccountDeletion(operation) {
@@ -1700,7 +1707,15 @@ const aiLimiter = rateLimit({
 app.use(['/api/projects/analyze-url', '/api/shaper-projects/analyze-url'], aiLimiter);
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', db: DB_PATH });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    status: 'ok',
+    sha: deploymentInfo.sha,
+    version: deploymentInfo.version,
+    instance: deploymentInstance,
+    db: DB_PATH,
+    exporter: offhostExportSchedule?.health().status ?? offhostExporterFallbackHealth,
+  });
 });
 
 // ── Projects ──────────────────────────────────────────────────────────────────

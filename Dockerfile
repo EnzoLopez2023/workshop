@@ -40,14 +40,24 @@ COPY --from=builder /app/dist         ./dist
 COPY server.js      ./
 COPY recovery.js    ./
 COPY offhost-export.js ./
+COPY deployment-info.js ./
 COPY scripts/recovery.mjs ./scripts/recovery.mjs
 COPY package.json   ./
+COPY version.json   ./
 
 ENV NODE_ENV=production
 ENV PORT=3006
 ENV DATA_ROOT=/home/data
 ENV DB_PATH=/home/data/workshop.db
 ENV UPLOADS_PATH=/home/data/uploads
+
+ARG BUILD_SHA
+ARG APP_VERSION
+RUN echo "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40}$' \
+    && echo "$APP_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\+build\.[0-9]+$' \
+    && printf '{"sha":"%s","version":"%s"}\n' "$BUILD_SHA" "$APP_VERSION" > /app/build-info.json
+LABEL org.opencontainers.image.revision=$BUILD_SHA
+LABEL org.opencontainers.image.version=$APP_VERSION
 
 EXPOSE 3006
 

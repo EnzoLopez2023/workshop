@@ -807,6 +807,11 @@ test('enabled schedule runs an immediate capability-gated scan and joins hourly 
 
   assert.equal(factoryCalls, 1);
   assert.equal(scanCalls, 0);
+  assert.deepEqual(schedule.health(), {
+    status: 'checking',
+    checkedUtc: null,
+    trigger: 'startup',
+  });
   assert.equal(timers.length, 1);
   assert.equal(timers[0].milliseconds, 60 * 60 * 1_000);
   assert.equal(timers[0].unrefCalled, true);
@@ -827,10 +832,20 @@ test('enabled schedule runs an immediate capability-gated scan and joins hourly 
     trigger: 'startup',
   });
   assert.strictEqual(joinedStartupResult, startupResult);
+  assert.deepEqual(schedule.health(), {
+    status: 'healthy',
+    checkedUtc: null,
+    trigger: 'startup',
+  });
 
   timers[0].callback();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(scanCalls, 2);
+  assert.deepEqual(schedule.health(), {
+    status: 'checking',
+    checkedUtc: null,
+    trigger: 'interval',
+  });
   const intervalJoin = schedule.runNow();
   timers[0].callback();
   await new Promise(resolve => setImmediate(resolve));
@@ -852,6 +867,11 @@ test('enabled schedule runs an immediate capability-gated scan and joins hourly 
   );
 
   schedule.stop();
+  assert.deepEqual(schedule.health(), {
+    status: 'stopped',
+    checkedUtc: null,
+    trigger: null,
+  });
   assert.deepEqual(cleared, [timers[0]]);
   assert.deepEqual(await schedule.runNow(), { status: 'stopped', trigger: 'manual' });
   assert.deepEqual(
@@ -979,6 +999,11 @@ test('disabled schedule ignores finalized backup notifications', async () => {
     await schedule.runAfterBackup(),
     { status: 'disabled', trigger: 'backup' },
   );
+  assert.deepEqual(schedule.health(), {
+    status: 'disabled',
+    checkedUtc: null,
+    trigger: null,
+  });
 });
 
 test('startup capability failure prevents the immediate scan and reports structured failure', async () => {
@@ -1015,6 +1040,12 @@ test('startup capability failure prevents the immediate scan and reports structu
     schedule.startup,
     error => error.code === 'OFFHOST_PUBLIC_DNS',
   );
+  assert.deepEqual(schedule.health(), {
+    status: 'error',
+    checkedUtc: null,
+    trigger: 'startup',
+    code: 'OFFHOST_PUBLIC_DNS',
+  });
   assert.equal(scanCalls, 0);
   assert.deepEqual(
     events.find(event => event.event === 'scan_failed'),

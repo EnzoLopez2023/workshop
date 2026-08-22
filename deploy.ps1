@@ -1,5 +1,29 @@
 $ErrorActionPreference = 'Stop'
 
+$worktreeChanges = @(git status --porcelain)
+if ($LASTEXITCODE -ne 0) {
+    Write-Host 'Could not inspect the git worktree before building.' -ForegroundColor Red
+    exit 1
+}
+if ($worktreeChanges.Count -ne 0) {
+    Write-Host 'Refusing to label a dirty worktree with a committed build SHA.' -ForegroundColor Red
+    exit 1
+}
+
+$buildSha = (git rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $buildSha -notmatch '^[0-9a-f]{40}$') {
+    Write-Host 'Could not resolve a full git SHA for the image build.' -ForegroundColor Red
+    exit 1
+}
+$version = Get-Content -Raw -Path 'version.json' | ConvertFrom-Json
+$appVersion = "$($version.major).$($version.minor).$($version.patch)+build.$($version.build)"
+if ($appVersion -notmatch '^\d+\.\d+\.\d+\+build\.\d+$') {
+    Write-Host 'version.json does not contain a valid application version.' -ForegroundColor Red
+    exit 1
+}
+$env:BUILD_SHA = $buildSha
+$env:APP_VERSION = $appVersion
+
 Write-Host '==> Building Docker image...' -ForegroundColor Cyan
 docker compose build
 if ($LASTEXITCODE -ne 0) { Write-Host 'Build failed.' -ForegroundColor Red; exit 1 }

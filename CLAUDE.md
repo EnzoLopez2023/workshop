@@ -9,13 +9,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Production runs on **Azure App Service (Linux container)** — not Docker on a self-hosted box, not IIS.
 
 - Resource: `app-workshop-prod-lwxhu7jxlrbtu` in resource group `rg-personal-apps-prod`
-- Image: `acrenzolopez01.azurecr.io/workshop:latest` (pulled by App Service on restart)
+- Image: App Service is pinned to `acrenzolopez01.azurecr.io/workshop@sha256:<digest>`; the `latest` alias is promoted from that same inspected digest
 - Public URL: <https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net>
-- Verify: `curl https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net/api/health` → `{"status":"ok","db":"/home/data/workshop.db"}`
+- Verify: `curl https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net/api/health` → exact image `sha`/`version`, process `instance`, `/home/data/workshop.db`, and exporter readiness
 - Backend env vars (`AZURE_HOME_TENANT_ID` or legacy `AZURE_TENANT_ID`, `API_AUDIENCE`, `ALLOWED_OID`, `ANTHROPIC_API_KEY`, `SESSION_SECRET`, `APPLE_BUNDLE_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`, `APPLE_TOKEN_ENCRYPTION_KEY`, `DB_PATH=/home/data/workshop.db`, `UPLOADS_PATH=/home/data/uploads`) live in **App Service → Configuration**, not in committed files. `ALLOWED_OID` is the primary-user / legacy-migration key, not an access gate. Home-tenant Entra DBs retain `/home/data/users/<oid>.db`; other tenants use `/home/data/users/<tid>_<oid>.db`; Apple keys are unchanged.
 - SQLite, uploads, and verified rollback bundles persist under the App Service mounted storage at `/home/data`; Docker defaults now match that layout. Same-volume bundles are not DR: encrypted off-host export and drills remain required (see `RECOVERY.md`).
 
-**Deploy pipeline.** `.github/workflows/deploy.yml` is the live prod pipeline. It bakes `VITE_AZURE_CLIENT_ID`, `VITE_AZURE_HOME_TENANT_ID`, and `VITE_AZURE_AUTHORITY_TENANT_ID` into the frontend. The authority is `common` because the app registration accepts any Entra tenant plus personal Microsoft accounts. The deployment OIDC `AZURE_TENANT_ID` is the separate compute tenant and must not change.
+**Deploy pipeline.** `.github/workflows/deploy.yml` is the live prod pipeline. It builds only `workshop:<full-sha>`, bakes immutable SHA/version metadata plus the Vite configuration into the image, resolves and inspects the exact digest, rejects `/home` image volumes, locks the SHA tag, and digest-pins App Service. Deployment succeeds only after one replacement process returns three consecutive exact-SHA health responses and the read-only demo, auth boundary, live exporter, one-worker/Always On, `/home/data`, and unchanged-setting gates pass; only then does `latest` move to the verified digest. Any failed candidate restores the prior exact App Service and `latest` digests. The workflow reads `version.json`; it never commits a version bump, so it cannot recursively redeploy. The authority remains `common`, and the deployment OIDC `AZURE_TENANT_ID` remains the separate compute tenant.
 
 ## Stale docs / retired paths — do NOT follow these without asking
 
