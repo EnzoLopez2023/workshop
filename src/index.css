@@ -4380,6 +4380,41 @@ tbody td {
   gap: 3px;
 }
 
+.settings-account-provider {
+  margin: 6px 0 0;
+}
+
+.settings-account-provider > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+}
+
+.settings-account-provider dt,
+.settings-account-provider dd {
+  overflow-wrap: anywhere;
+  font-size: 0.76rem;
+}
+
+.settings-account-provider dt {
+  color: var(--color-muted);
+}
+
+.settings-account-provider dd {
+  margin: 0;
+  color: var(--color-ink);
+  font-weight: 700;
+}
+
+.settings-account-scope {
+  max-width: 68ch;
+  margin: 8px 0 0;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
 .settings-account span,
 .settings-account small {
   overflow-wrap: anywhere;
@@ -4399,6 +4434,15 @@ tbody td {
 
 .settings-danger-zone > .btn {
   justify-self: start;
+}
+
+.settings-danger-zone p + p {
+  margin-top: 8px;
+}
+
+.settings-danger-zone p {
+  font-size: 0.88rem;
+  line-height: 1.5;
 }
 
 .settings-delete-confirm {

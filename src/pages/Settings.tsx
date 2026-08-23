@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
+import { getDeletionScopeCopy, getWebAccountSummary } from '../auth/accountIdentity';
 import { useTheme, type Theme } from '../contexts/ThemeContext';
 import { ACCENT_PRESETS, useSettings, type AccentColor } from '../contexts/SettingsContext';
 import { exitDemoMode, isDemoMode } from '../demo/demoMode';
@@ -37,6 +38,8 @@ export default function Settings() {
   const { settings, setSetting } = useSettings();
   const demo = isDemoMode();
   const account = instance.getActiveAccount() ?? accounts[0] ?? null;
+  const accountSummary = getWebAccountSummary(account);
+  const deletionScopeCopy = getDeletionScopeCopy(accountSummary.providerLabel);
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -248,13 +251,28 @@ export default function Settings() {
         title="Account"
         description={demo
           ? 'The demo is session-scoped and cannot save changes.'
-          : 'Identity remains managed by Microsoft Entra.'}
+          : 'Your sign-in provider determines which private workspace opens.'}
       >
         <div className="settings-account">
-          <div>
+          <div className="settings-account-identity">
             <span>{demo ? 'Mode' : 'Signed in as'}</span>
-            <strong>{demo ? 'Demo workspace · Read only' : account?.name ?? account?.username ?? 'Workshop account'}</strong>
-            {!demo && account?.name && account.username && <small>{account.username}</small>}
+            <strong>{demo ? 'Demo workspace · Read only' : accountSummary.displayName}</strong>
+            {!demo && accountSummary.secondaryLabel && <small>{accountSummary.secondaryLabel}</small>}
+            {!demo && (
+              <>
+                <dl className="settings-account-provider">
+                  <div>
+                    <dt>Current provider</dt>
+                    <dd>{accountSummary.providerLabel}</dd>
+                  </div>
+                </dl>
+                <p className="settings-account-scope">
+                  Sign in with the same provider again to return to this workspace.
+                  Choosing another provider creates a separate workspace; Apple and
+                  Microsoft accounts are not linked or merged.
+                </p>
+              </>
+            )}
           </div>
           <Button variant="ghost" onClick={signOut}>
             {demo
@@ -270,12 +288,17 @@ export default function Settings() {
               <strong>Delete account</strong>
               <p>
                 Permanently removes Workshop projects, photos, lists, Shaper projects,
-                templates, and account data. This cannot be undone.
+                templates, and account data from the current workspace. This cannot be undone.
               </p>
+              <p>{deletionScopeCopy}</p>
             </div>
             {confirmDelete ? (
               <div className="settings-delete-confirm" role="alert">
-                <span>Delete this Workshop account permanently?</span>
+                <span>
+                  Delete this {accountSummary.providerLabel === 'Microsoft'
+                    ? 'Microsoft workspace'
+                    : 'provider workspace'} permanently?
+                </span>
                 <Button variant="ghost" onClick={() => setConfirmDelete(false)} disabled={deleting}>
                   Cancel
                 </Button>
