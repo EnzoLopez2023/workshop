@@ -5,7 +5,6 @@ import { dirname, join, basename, extname, resolve } from 'path';
 import {
   createWriteStream,
   mkdirSync,
-  unlink,
   unlinkSync,
   existsSync,
   renameSync,
@@ -31,15 +30,26 @@ import Anthropic from '@anthropic-ai/sdk';
 import { jwtVerify, createLocalJWKSet, createRemoteJWKSet, importPKCS8, SignJWT } from 'jose';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { fileTypeFromFile } from 'file-type';
+import { createBackupBundle, resolveStorageConfig } from './recovery.js';
+import { startOffhostExportSchedule } from './offhost-export.js';
+import { loadDeploymentInfo } from './deployment-info.js';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
 
-const PORT         = process.env.PORT         ?? 3006;
-const DB_PATH      = process.env.DB_PATH      ?? join(__dirname, 'workshop.db');
-const UPLOADS_PATH = process.env.UPLOADS_PATH ?? join(__dirname, 'uploads');
+const PORT = process.env.PORT ?? 3006;
+const deploymentInfo = loadDeploymentInfo({ appDir: __dirname });
+const deploymentInstance = randomUUID();
+const storageConfig = resolveStorageConfig(process.env, { appDir: __dirname });
+const {
+  dbPath: DB_PATH,
+  uploadsPath: UPLOADS_PATH,
+  usersDir: USERS_DIR,
+  seedDbPath: SEED_DB_PATH,
+  backupRoot: BACKUP_ROOT,
+} = storageConfig;
 const THINGIVERSE_APP_TOKEN = process.env.THINGIVERSE_APP_TOKEN || '';
 
 mkdirSync(UPLOADS_PATH, { recursive: true });
@@ -50,9 +60,6 @@ mkdirSync(UPLOADS_PATH, { recursive: true });
 // on first request. There is no shared global connection — every request resolves
 // its own { db, stmts } via getUserDb (see the auth middleware).
 
-const DATA_DIR     = dirname(DB_PATH);
-const USERS_DIR    = process.env.USERS_DIR    ?? join(DATA_DIR, 'users');
-const SEED_DB_PATH = process.env.SEED_DB_PATH ?? join(DATA_DIR, 'workshop-seed.db');
 // The legacy single-user DB (DB_PATH) becomes the primary user's own workspace.
 // Its snapshot backs demo mode only. ALLOWED_OID — formerly the single-user gate
 // — now only identifies that primary user.
@@ -631,6 +638,13 @@ const activeUserRequests = new Map();
 const deletingUserKeys = new Set();
 const bambuRequestLocks = new Map();
 let accountDeletionLock = Promise.resolve();
+let activeStorageRequests = 0;
+let recoveryCaptureActive = false;
+let recoveryBackupPromise = null;
+let recoveryInitialTimer = null;
+let recoveryIntervalTimer = null;
+let offhostExportSchedule = null;
+let offhostExporterFallbackHealth = 'not_started';
 
 const userDbPath = (userKey) => join(USERS_DIR, `${userKey}.db`);
 
@@ -924,6 +938,131 @@ async function waitForActiveUserRequests(userKey, timeoutMs = 5_000) {
     error.status = 409;
     throw error;
   }
+}
+
+function trackActiveStorageRequest(res) {
+  activeStorageRequests += 1;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeStorageRequests = Math.max(0, activeStorageRequests - 1);
+  };
+  res.once('finish', release);
+  res.once('close', release);
+}
+
+function recoveryStorageGate(req, res, next) {
+  if (req.path === '/health' || req.path === '/live') return next();
+  if (recoveryCaptureActive) {
+    res.setHeader('Retry-After', '5');
+    return res.status(503).json({ error: 'recovery_backup_in_progress' });
+  }
+  trackActiveStorageRequest(res);
+  return next();
+}
+
+async function waitForStorageQuiescence(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (activeStorageRequests > 0 && Date.now() < deadline) {
+    await new Promise(done => setTimeout(done, 25));
+  }
+  if (activeStorageRequests > 0) {
+    throw new Error(`timed out waiting for ${activeStorageRequests} active storage request(s)`);
+  }
+}
+
+function requestOffhostExportAfterBackup() {
+  return offhostExportSchedule?.runAfterBackup()
+    ?? Promise.resolve({ status: 'unavailable', trigger: 'backup' });
+}
+
+function runRecoveryBackup({ onVerified = requestOffhostExportAfterBackup } = {}) {
+  if (recoveryBackupPromise) return recoveryBackupPromise;
+  if (typeof onVerified !== 'function') {
+    throw new TypeError('onVerified must be a function');
+  }
+
+  const run = (async () => {
+    recoveryCaptureActive = true;
+    try {
+      await waitForStorageQuiescence(storageConfig.backupQuiesceTimeoutMs);
+      return await createBackupBundle({
+        dbPath: DB_PATH,
+        seedDbPath: SEED_DB_PATH,
+        usersDir: USERS_DIR,
+        uploadsPath: UPLOADS_PATH,
+        backupRoot: BACKUP_ROOT,
+        retentionCount: storageConfig.backupRetentionCount,
+        lockStaleMs: storageConfig.backupLockStaleMs,
+      });
+    } finally {
+      recoveryCaptureActive = false;
+    }
+  })();
+  recoveryBackupPromise = run;
+  void run.finally(() => {
+    if (recoveryBackupPromise === run) recoveryBackupPromise = null;
+  }).catch(() => {});
+  void run.then(result => onVerified(result)).catch(() => {});
+  return run;
+}
+
+function startRecoverySchedule() {
+  if (storageConfig.backupIntervalHours <= 0 || recoveryInitialTimer || recoveryIntervalTimer) {
+    return;
+  }
+  const intervalMs = storageConfig.backupIntervalHours * 60 * 60 * 1_000;
+  const initialDelayMs = storageConfig.backupInitialDelayMinutes * 60 * 1_000;
+  const triggerBackup = () => {
+    void runRecoveryBackup()
+      .then(result => {
+        console.log(
+          `[recovery] verified ${result.manifest.bundleId} `
+          + `(${result.manifest.databases.length} DBs, ${result.manifest.uploads.fileCount} uploads)`,
+        );
+      })
+      .catch(error => console.error('[recovery] backup failed:', error.message));
+  };
+
+  recoveryInitialTimer = setTimeout(() => {
+    recoveryInitialTimer = null;
+    triggerBackup();
+    recoveryIntervalTimer = setInterval(triggerBackup, intervalMs);
+    recoveryIntervalTimer.unref();
+  }, initialDelayMs);
+  recoveryInitialTimer.unref();
+}
+
+function stopRecoverySchedule() {
+  if (recoveryInitialTimer) clearTimeout(recoveryInitialTimer);
+  if (recoveryIntervalTimer) clearInterval(recoveryIntervalTimer);
+  recoveryInitialTimer = null;
+  recoveryIntervalTimer = null;
+}
+
+function startOffhostSchedule() {
+  if (offhostExportSchedule) return;
+  offhostExporterFallbackHealth = 'starting';
+  try {
+    offhostExportSchedule = startOffhostExportSchedule({
+      backupRoot: BACKUP_ROOT,
+      appDir: __dirname,
+    });
+  } catch (error) {
+    offhostExporterFallbackHealth = 'error';
+    console.error(JSON.stringify({
+      component: 'offhost-backup',
+      event: 'schedule_start_failed',
+      code: typeof error?.code === 'string' ? error.code : 'OFFHOST_EXPORT_FAILED',
+    }));
+  }
+}
+
+function stopOffhostSchedule() {
+  offhostExportSchedule?.stop();
+  offhostExportSchedule = null;
+  offhostExporterFallbackHealth = 'stopped';
 }
 
 async function serializeAccountDeletion(operation) {
@@ -2514,6 +2653,8 @@ function withUserDb(req, res, next) {
 // `/health` is open so monitors and CI probes can hit it without a token.
 function isExemptPath(path) {
   return path === '/health'
+    || path === '/live'
+    || path === '/ready'
     || /^\/images\/\d+$/.test(path)
     || /^\/bambu-assets\/\d+\/image$/.test(path)
     || /^\/build-log\/\d+\/image$/.test(path);
@@ -2523,6 +2664,7 @@ const app = express();
 app.set('trust proxy', 1);   // IIS/ARR is one hop in front
 app.use(express.json());
 app.use(express.static(join(__dirname, 'dist')));
+app.use('/api', recoveryStorageGate);
 
 const DEMO_READONLY_MSG = 'Demo mode is read-only — sign in with Microsoft to make changes.';
 
@@ -2687,7 +2829,92 @@ const bambuImportLimiter = rateLimit({
 });
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', db: DB_PATH });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    status: 'ok',
+    sha: deploymentInfo.sha,
+    version: deploymentInfo.version,
+    instance: deploymentInstance,
+    buildId: deploymentInfo.buildId,
+    db: DB_PATH,
+    exporter: offhostExportSchedule?.health().status ?? offhostExporterFallbackHealth,
+  });
+});
+
+app.get('/api/live', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    status: 'ok',
+    sha: deploymentInfo.sha,
+    version: deploymentInfo.version,
+    buildId: deploymentInfo.buildId,
+    instanceId: deploymentInstance,
+  });
+});
+
+function readinessDatabasePath() {
+  const userDatabase = readdirSync(USERS_DIR, { withFileTypes: true })
+    .filter(entry => entry.isFile() && entry.name.endsWith('.db'))
+    .map(entry => entry.name)
+    .sort()
+    .at(0);
+  if (userDatabase) return join(USERS_DIR, userDatabase);
+  if (existsSync(DB_PATH)) return DB_PATH;
+  throw new Error('no authoritative Workshop database is available');
+}
+
+app.get('/api/ready', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  let database = null;
+  try {
+    const databasePath = readinessDatabasePath();
+    database = new Database(databasePath, { readonly: true, fileMustExist: true });
+    database.prepare('SELECT 1').get();
+    const exporter = offhostExportSchedule?.health().status ?? offhostExporterFallbackHealth;
+    if (exporter !== 'healthy') {
+      return res.status(503).json({
+        status: 'unavailable',
+        sha: deploymentInfo.sha,
+        version: deploymentInfo.version,
+        buildId: deploymentInfo.buildId,
+        instanceId: deploymentInstance,
+        db: DB_PATH,
+        dbRoot: USERS_DIR,
+        database: { status: 'ready' },
+        exporter,
+      });
+    }
+    return res.json({
+      status: 'ok',
+      sha: deploymentInfo.sha,
+      version: deploymentInfo.version,
+      buildId: deploymentInfo.buildId,
+      instanceId: deploymentInstance,
+      db: DB_PATH,
+      dbRoot: USERS_DIR,
+      database: { status: 'ready' },
+      exporter,
+    });
+  } catch (error) {
+    console.error(JSON.stringify({
+      component: 'readiness',
+      event: 'database_unavailable',
+      code: typeof error?.code === 'string' ? error.code : 'SQLITE_READINESS_FAILED',
+    }));
+    return res.status(503).json({
+      status: 'unavailable',
+      sha: deploymentInfo.sha,
+      version: deploymentInfo.version,
+      buildId: deploymentInfo.buildId,
+      instanceId: deploymentInstance,
+      db: DB_PATH,
+      dbRoot: USERS_DIR,
+      database: { status: 'unavailable' },
+      exporter: offhostExportSchedule?.health().status ?? offhostExporterFallbackHealth,
+    });
+  } finally {
+    database?.close();
+  }
 });
 
 // ── Projects ──────────────────────────────────────────────────────────────────
@@ -2957,14 +3184,18 @@ app.post('/api/projects/:id/images', upload.single('file'), async (req, res) => 
   res.status(400).json({ error: 'provide file or url' });
 });
 
-app.delete('/api/images/:id', (req, res) => {
+app.delete('/api/images/:id', async (req, res) => {
   const { stmts } = req;
   const id = Number(req.params.id);
   const row = stmts.getImage.get(id);
   const info = stmts.deleteImage.run(id);
   if (info.changes === 0) return res.status(404).json({ error: 'Image not found' });
   if (row?.file_path) {
-    unlink(join(UPLOADS_PATH, basename(row.file_path)), () => {});
+    try {
+      await unlinkIfPresent(join(UPLOADS_PATH, basename(row.file_path)));
+    } catch (error) {
+      console.error('[delete-image] failed to remove upload:', error.message);
+    }
   }
   res.json({ success: true });
 });
@@ -3118,13 +3349,19 @@ app.get('/api/build-log/:id/image', (req, res) => {
   });
 });
 
-app.delete('/api/build-log/:id', (req, res) => {
+app.delete('/api/build-log/:id', async (req, res) => {
   const { db, stmts } = req;
   const id = Number(req.params.id);
   const row = stmts.getBuildLogEntry.get(id);
   const info = stmts.deleteBuildLogEntry.run(id);
   if (info.changes === 0) return res.status(404).json({ error: 'Build log entry not found' });
-  if (row?.file_path) unlink(join(UPLOADS_PATH, basename(row.file_path)), () => {});
+  if (row?.file_path) {
+    try {
+      await unlinkIfPresent(join(UPLOADS_PATH, basename(row.file_path)));
+    } catch (error) {
+      console.error('[delete-build-log] failed to remove upload:', error.message);
+    }
+  }
   res.json({ success: true });
 });
 
@@ -3847,6 +4084,8 @@ app.get('/{*path}', (_req, res) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 function closeAllDatabases() {
+  stopRecoverySchedule();
+  stopOffhostSchedule();
   for (const { db } of dbHandles.values()) {
     if (db.open) db.close();
   }
@@ -3858,6 +4097,8 @@ function closeAllDatabases() {
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`Workshop API listening on http://localhost:${PORT}`);
+    startRecoverySchedule();
+    startOffhostSchedule();
   });
 }
 
@@ -3867,8 +4108,11 @@ export {
   closeAllDatabases,
   entraUserKey,
   getUserDb,
+  initSchema,
   inspectBambuSource,
   mintSession,
   parseBambuSourceUrl,
+  readinessDatabasePath,
+  runRecoveryBackup,
   userKeyFromBearer,
 };

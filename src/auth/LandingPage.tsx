@@ -114,9 +114,18 @@ export default function LandingPage() {
               Browse read-only demo
             </button>
           </div>
-          <p className="landing-auth-note">
-            Sign in uses your Microsoft account. The demo needs no account and cannot save changes.
-          </p>
+          <div
+            className="landing-auth-note"
+            role="note"
+            aria-label="How sign-in affects your workspace"
+          >
+            <strong>Use the same sign-in provider each time to return to the same workspace.</strong>
+            <span>
+              Choosing Sign in with Apple in the iOS app creates a separate workspace.
+              Apple and Microsoft accounts are not linked or merged.
+            </span>
+            <span>The demo needs no account and cannot save changes.</span>
+          </div>
           {authError && <p className="landing-auth-error" role="alert">{authError}</p>}
         </div>
 

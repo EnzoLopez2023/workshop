@@ -142,8 +142,17 @@
 }
 
 .landing-auth-note {
+  display: grid;
+  gap: 4px;
   margin: 14px 0 0;
   color: var(--color-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.landing-auth-note strong {
+  color: var(--color-ink);
+  font-weight: 650;
 }
 
 .landing-auth-error {

@@ -9,13 +9,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Production runs on **Azure App Service (Linux container)** — not Docker on a self-hosted box, not IIS.
 
 - Resource: `app-workshop-prod-lwxhu7jxlrbtu` in resource group `rg-personal-apps-prod`
-- Image: `acrenzolopez01.azurecr.io/workshop:latest` (pulled by App Service on restart)
+- Image: App Service is pinned to `acrenzolopez01.azurecr.io/workshop@sha256:<digest>`; the `latest` alias is promoted from that same inspected digest
 - Public URL: <https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net>
-- Verify: `curl https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net/api/health` → `{"status":"ok","db":"/home/data/workshop.db"}`
+- Verify: `curl https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net/api/health` → exact image `sha`/`version`, process `instance`, `/home/data/workshop.db`, and exporter readiness
 - Backend env vars (`AZURE_HOME_TENANT_ID` or legacy `AZURE_TENANT_ID`, `API_AUDIENCE`, `ALLOWED_OID`, `ANTHROPIC_API_KEY`, optional `THINGIVERSE_APP_TOKEN`, optional `PROVIDER_TOKEN_ENCRYPTION_KEY`, `SESSION_SECRET`, `APPLE_BUNDLE_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`, `APPLE_TOKEN_ENCRYPTION_KEY`, `DB_PATH=/home/data/workshop.db`, `UPLOADS_PATH=/home/data/uploads`) live in **App Service → Configuration**, not in committed files. `PROVIDER_TOKEN_ENCRYPTION_KEY` falls back to a domain-separated key derived from `SESSION_SECRET`. `ALLOWED_OID` is the primary-user / legacy-migration key, not an access gate. Home-tenant Entra DBs retain `/home/data/users/<oid>.db`; other tenants use `/home/data/users/<tid>_<oid>.db`; Apple keys are unchanged.
-- SQLite + uploads persist on the App Service mounted storage at `/home/data` (note: `Dockerfile` declares `VOLUME /data`, but App Service overrides the mount point).
+- SQLite, uploads, and verified rollback bundles persist under the App Service mounted storage at `/home/data`; Docker defaults now match that layout. Same-volume bundles are not DR: encrypted off-host export and drills remain required (see `RECOVERY.md`).
 
-**Deploy pipeline.** `.github/workflows/deploy.yml` is the live prod pipeline. It bakes `VITE_AZURE_CLIENT_ID`, `VITE_AZURE_HOME_TENANT_ID`, and `VITE_AZURE_AUTHORITY_TENANT_ID` into the frontend. The authority is `common` because the app registration accepts any Entra tenant plus personal Microsoft accounts. The deployment OIDC `AZURE_TENANT_ID` is the separate compute tenant and must not change.
+**Deploy pipeline.** `.github/workflows/deploy.yml` is the live prod pipeline. It builds only `workshop:<full-sha>`, bakes immutable SHA/version metadata plus the Vite configuration into the image, resolves and inspects the exact digest, rejects `/home` image volumes, locks the SHA tag, and digest-pins App Service. Deployment succeeds only after one replacement process returns three consecutive exact-SHA health responses and the read-only demo, auth boundary, live exporter, one-worker/Always On, `/home/data`, and unchanged-setting gates pass; only then does `latest` move to the verified digest. Any failed candidate restores the prior exact App Service and `latest` digests. The workflow reads `version.json`; it never commits a version bump, so it cannot recursively redeploy. The authority remains `common`, and the deployment OIDC `AZURE_TENANT_ID` remains the separate compute tenant.
 
 ## Stale docs / retired paths — do NOT follow these without asking
 
@@ -35,7 +35,6 @@ Production runs on **Azure App Service (Linux container)** — not Docker on a s
 | `API_AUDIENCE` (backend) vs `VITE_AZURE_CLIENT_ID` (frontend) | Two names | Both hold the same Azure AD App Registration client id. Keep both — backend validates JWT audience, frontend uses it as the MSAL `clientId`. |
 | `app-workshop-prod-lwxhu7jxlrbtu` | Random suffix | Azure-assigned uniqueness suffix on the App Service name. Not a typo. |
 | `acrenzolopez01` (registry) vs `enlo@microsoft.com` / `enzolopez@hotmail.com` (accounts) | Inconsistent personal handles | All belong to the same owner. Leave alone. |
-| `VOLUME ["/data"]` in `Dockerfile` vs `/home/data/...` in prod env | Mismatch | App Service ignores Docker volumes and mounts its own persistent storage at `/home`. Both Dockerfile defaults (`/data/...`) and Azure overrides (`/home/data/...`) are correct in their respective contexts. |
 | OIDC service-principal IDs `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_SUBSCRIPTION_ID` in `deploy.yml` env | Look like secrets | Not secrets. The federated credential scopes them to this repo + branch. Safe to commit; do not move them into GitHub Secrets. |
 
 ## Architecture in 60 seconds
@@ -48,6 +47,7 @@ Production runs on **Azure App Service (Linux container)** — not Docker on a s
   - **Legacy migration.** The primary home-tenant user identified by `ALLOWED_OID` inherits the legacy `workshop.db` by rename.
 - **Auth.** Entra access tokens use Microsoft's common JWKS, exact API audiences (`<client-id>` for v2 and `api://<client-id>` for v1 compatibility), required `access_as_user`, and an issuer derived from and bound to the GUID `tid`. The app registration needs `api.requestedAccessTokenVersion: 2` and an enabled, user-consentable delegated scope. Current Apple sign-in remains independent. Public image routes resolve `?userKey=` (`?oid=` is a legacy alias).
 - **Account deletion.** Authenticated `DELETE /api/account` derives the account only from the bearer principal. Apple-backed accounts revoke every stored refresh token at Apple's `/auth/revoke` before local purge; `revoked_at` and `account_deletion_files` checkpoint partial progress so provider/filesystem failures remain retryable. The route then removes the entire isolated DB plus account-only uploads and returns `{ "success": true }`. Workshop Apple access/refresh JWTs carry the DB's `auth_state.session_generation`, so deleting or recreating an account cannot leave an old session usable. The route is registered before the general DB middleware so an idempotent Entra retry cannot recreate an empty workspace.
+- **Recovery.** `recovery.js` creates atomic, checksummed whole bundles of the legacy/seed/per-user SQLite DBs plus uploads. Production capture briefly quiesces `/api`, uses SQLite's online backup API (so WAL sidecars are not copied), validates DB integrity and every file reference, then applies whole-bundle retention. `RECOVERY.md` is the restore/DR runbook. `/home/data/backups` is same-volume rollback only; live Azure must export encrypted bundles off-host.
 - **Demo mode.** A request with header `X-Demo: 1` is unauthenticated, read-only, and served from the shared seed snapshot (`getDemoDb`); any non-GET returns 403. The frontend flag lives in `src/demo/demoMode.ts` (sessionStorage), `AuthGuard` bypasses MSAL when set, `src/services/api.ts` sends `X-Demo` on GETs and blocks writes before they leave the browser, and the landing page has a **Demo** button.
 - **Adding a new endpoint.** Prepared statement in `stmts` → handler in `server.js` matching neighbouring patterns → typed wrapper in `src/services/api.ts` → type in `src/types/project.ts`.
 
@@ -67,6 +67,8 @@ Production runs on **Azure App Service (Linux container)** — not Docker on a s
 | Production build (also type-checks) | `npm run build` |
 | Run locally (two terminals) | `npm run server` then `npm run dev` (Vite proxies `/api` → `:3006`) |
 | Account deletion tests | `npm test` |
+| Recovery bundle tests | `node --test test/recovery.test.js` |
+| Verify / drill a bundle | `npm run recovery -- verify <bundle>` then `npm run recovery -- drill <bundle>` |
 | Lint | No linter configured. |
 | Hit deployed health | `curl https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net/api/health` |
 | App Service logs | `az webapp log tail -n app-workshop-prod-lwxhu7jxlrbtu -g rg-personal-apps-prod` |
