@@ -117,27 +117,23 @@ test('migration checker applies current schema and preserves prior-release reads
   assert.equal(await checkMigrationCompatibility(), true);
 });
 
-test('monitor checker accepts only the required enabled recovery wiring', () => {
+test('monitor checker accepts only the alert-free recovery control plane', () => {
   assert.equal(validateMonitor({
-    alert: {
-      enabled: true,
-      severity: 1,
-      scopes: ['/subscriptions/x/resourceGroups/rg/providers/Microsoft.OperationalInsights/workspaces/log-recovery-prod'],
-      actions: {
-        actionGroups: ['/subscriptions/x/resourceGroups/rg/providers/Microsoft.Insights/actionGroups/ag-recovery-alerts'],
-      },
-      criteria: {
-        allOf: [{
-          query: 'workshop/v1/monitoring/daily/.../_HEALTH[.]json workshop/v1/monitoring/monthly/.../_HEALTH[.]json',
-        }],
-      },
-    },
+    alert: null,
     actionGroup: {
       enabled: true,
       id: '/subscriptions/x/resourceGroups/rg/providers/Microsoft.Insights/actionGroups/ag-recovery-alerts',
     },
+    workspace: { name: 'log-recovery-prod' },
   }), true);
-  assert.throws(() => validateMonitor({ alert: { enabled: false }, actionGroup: {} }), /enabled/);
+  assert.throws(
+    () => validateMonitor({
+      alert: { enabled: false },
+      actionGroup: { enabled: true, id: '/actionGroups/ag-recovery-alerts' },
+      workspace: { name: 'log-recovery-prod' },
+    }),
+    /remain absent/,
+  );
 });
 
 test('verifier requires three stable, distinct live and ready identity rounds', async () => {
@@ -184,30 +180,24 @@ test('verifier permits no build ID only for the explicitly requested legacy roll
   assert.equal(result.instanceId, 'legacy');
 });
 
-test('monitor checker rejects incomplete alert queries and the wrong app', () => {
+test('monitor checker rejects missing retained controls and the wrong app', () => {
   const actionGroup = {
     enabled: true,
     id: '/subscriptions/x/resourceGroups/rg/providers/Microsoft.Insights/actionGroups/ag-recovery-alerts',
   };
-  const alert = {
-    enabled: true,
-    severity: 1,
-    scopes: ['/subscriptions/x/resourceGroups/rg/providers/Microsoft.OperationalInsights/workspaces/log-recovery-prod'],
-    actions: { actionGroups: [actionGroup.id] },
-    criteria: { allOf: [{ query: 'workshop/v1/monitoring/daily/.../_HEALTH[.]json' }] },
-  };
-  assert.throws(() => validateMonitor({ alert, actionGroup }), /daily\/monthly/);
+  assert.throws(
+    () => validateMonitor({ alert: null, actionGroup: {}, workspace: { name: 'log-recovery-prod' } }),
+    /missing or disabled/,
+  );
+  assert.throws(
+    () => validateMonitor({ alert: null, actionGroup, workspace: null }),
+    /log-recovery-prod is missing/,
+  );
   assert.throws(
     () => validateMonitor({
-      alert: {
-        ...alert,
-        criteria: {
-          allOf: [{
-            query: 'workshop/v1/monitoring/daily/.../_HEALTH[.]json workshop/v1/monitoring/monthly/.../_HEALTH[.]json',
-          }],
-        },
-      },
+      alert: null,
       actionGroup,
+      workspace: { name: 'log-recovery-prod' },
       webapp: 'another-app',
     }),
     /scoped only/,

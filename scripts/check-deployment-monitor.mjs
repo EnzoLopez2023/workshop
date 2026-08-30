@@ -5,27 +5,13 @@ const ACTION_GROUP = 'ag-recovery-alerts';
 const WORKSPACE = 'log-recovery-prod';
 const WEBAPP = 'app-workshop-prod-lwxhu7jxlrbtu';
 
-export function validateMonitor({ alert, actionGroup, webapp = WEBAPP }) {
-  const query = (alert.criteria?.allOf ?? [])
-    .map(criterion => criterion.query ?? '')
-    .join('\n')
-    .toLowerCase();
-  const scopes = alert.scopes ?? [];
+export function validateMonitor({ alert, actionGroup, workspace, webapp = WEBAPP }) {
   if (webapp !== WEBAPP) throw new Error(`monitor check is scoped only to ${WEBAPP}`);
-  if (alert.enabled !== true || Number(alert.severity) !== 1) throw new Error('Workshop recovery alert must be enabled at severity 1');
-  if (!JSON.stringify(scopes).toLowerCase().includes(WORKSPACE)) throw new Error('Workshop recovery alert is not scoped to log-recovery-prod');
-  if (
-    !query.includes('workshop/v1/monitoring/daily/')
-    || !query.includes('workshop/v1/monitoring/monthly/')
-    || !query.includes('_health[.]json')
-  ) {
-    throw new Error('Workshop recovery alert must contain daily/monthly _HEALTH queries');
-  }
-  const actionGroups = JSON.stringify(alert.actions?.actionGroups ?? alert.actionGroups ?? []).toLowerCase();
-  if (!actionGroups.includes(ACTION_GROUP)) throw new Error('Workshop recovery alert is not wired to ag-recovery-alerts');
+  if (alert) throw new Error('Workshop recovery alert must remain absent under the alert-free production policy');
   if (actionGroup.enabled !== true || !String(actionGroup.id ?? '').toLowerCase().endsWith(`/actiongroups/${ACTION_GROUP}`)) {
     throw new Error('ag-recovery-alerts is missing or disabled');
   }
+  if (workspace?.name !== WORKSPACE) throw new Error('log-recovery-prod is missing');
   return true;
 }
 
@@ -46,9 +32,17 @@ function parseArgs(args) {
 if (import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   try {
     const args = parseArgs(process.argv.slice(2));
-    const alert = runAzure(['monitor', 'scheduled-query', 'show', '--resource-group', args['resource-group'], '--name', ALERT_NAME, '--output', 'json']);
+    const alerts = runAzure([
+      'resource', 'list',
+      '--resource-group', args['resource-group'],
+      '--resource-type', 'Microsoft.Insights/scheduledQueryRules',
+      '--query', `[?name=='${ALERT_NAME}']`,
+      '--output', 'json',
+    ]);
+    const alert = Array.isArray(alerts) ? alerts[0] ?? null : null;
     const actionGroup = runAzure(['monitor', 'action-group', 'show', '--resource-group', args['resource-group'], '--name', ACTION_GROUP, '--output', 'json']);
-    validateMonitor({ alert, actionGroup, webapp: args.webapp });
+    const workspace = runAzure(['monitor', 'log-analytics', 'workspace', 'show', '--resource-group', args['resource-group'], '--workspace-name', WORKSPACE, '--output', 'json']);
+    validateMonitor({ alert, actionGroup, workspace, webapp: args.webapp });
     console.log(`monitor checks passed for ${args.phase}`);
   } catch (error) {
     console.error(`monitor check failed: ${error.message}`);
