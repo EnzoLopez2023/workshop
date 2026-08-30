@@ -35,6 +35,10 @@ RUN npm run build
 FROM node:22-alpine AS runner
 WORKDIR /app
 
+# Pull patched Alpine runtime libraries even when the moving Node tag still
+# references an older base-image package snapshot.
+RUN apk upgrade --no-cache
+
 COPY --from=deps    /app/node_modules ./node_modules
 COPY --from=builder /app/dist         ./dist
 COPY server.js      ./
