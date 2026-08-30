@@ -28,6 +28,18 @@ only to:
 - `makerworld.com`
 - `workshop.nintek.com`
 
+The generator applies Workshop's development team (`3KB968X34U`) to every
+generated target. Override it only when needed:
+
+```bash
+DEVELOPMENT_TEAM=YOURTEAMID ./scripts/generate-makerworld-safari-extension.sh
+```
+
+If the host app opens but Safari does not list the extension, rerun the
+generator, clean the generated Xcode project, and run the macOS scheme again.
+An app whose signature says `TeamIdentifier=not set` was built ad hoc and Safari
+will hide its extension.
+
 The extension stores no account credentials and has no browser-cookie
 permission. A user-triggered import sends only short-lived signed file URLs to
 a one-time Workshop job. Workshop consumes them immediately, stores the files
