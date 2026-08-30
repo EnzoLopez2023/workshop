@@ -46,6 +46,18 @@ function request(path, { auth = true, ...options } = {}) {
   return fetch(`${baseUrl}${path}`, { ...options, headers });
 }
 
+async function waitForBridgeJob(projectId, jobId) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const response = await request(
+      `/api/bambu-projects/${projectId}/makerworld-bridge-jobs/${jobId}`,
+    );
+    const job = await response.json();
+    if (job.status === 'complete' || job.status === 'failed') return job;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error('MakerWorld bridge test job did not finish');
+}
+
 test('Bambu source URLs normalize all supported provider forms', () => {
   assert.deepEqual(
     api.parseBambuSourceUrl('https://makerworld.com/en/models/2792836-table-saw-sled#profileId-3105792'),
@@ -260,8 +272,17 @@ test('parallel Bambu uploads serialize quota checks per account', async () => {
     creator_name: null,
     license_name: null,
   }).lastInsertRowid);
+  const quotaOwnerId = Number(entry.stmts.insertBambuProject.run({
+    title: 'Existing account storage',
+    source_url: 'https://makerworld.com/en/models/457-existing-storage',
+    source_site: 'makerworld',
+    source_model_id: '457',
+    description: null,
+    creator_name: null,
+    license_name: null,
+  }).lastInsertRowid);
   entry.stmts.insertBambuAsset.run({
-    bambu_project_id: projectId,
+    bambu_project_id: quotaOwnerId,
     kind: 'file',
     filename: 'quota-placeholder.bin',
     content_type: 'application/octet-stream',
@@ -287,6 +308,41 @@ test('parallel Bambu uploads serialize quota checks per account', async () => {
     }),
   ]);
   assert.deepEqual(responses.map(response => response.status).sort(), [201, 413]);
+
+  const remove = await request(`/api/bambu-projects/${projectId}`, { method: 'DELETE' });
+  assert.equal(remove.status, 200);
+  const removeOwner = await request(`/api/bambu-projects/${quotaOwnerId}`, { method: 'DELETE' });
+  assert.equal(removeOwner.status, 200);
+});
+
+test('manual Bambu uploads include existing project bytes in the 1 GB limit', async () => {
+  const projectId = Number(entry.stmts.insertBambuProject.run({
+    title: 'Project quota model',
+    source_url: 'https://makerworld.com/en/models/458-project-quota',
+    source_site: 'makerworld',
+    source_model_id: '458',
+    description: null,
+    creator_name: null,
+    license_name: null,
+  }).lastInsertRowid);
+  entry.stmts.insertBambuAsset.run({
+    bambu_project_id: projectId,
+    kind: 'file',
+    filename: 'existing-project.bin',
+    content_type: 'application/octet-stream',
+    size_bytes: (1024 * 1024 * 1024) - 20,
+    original_url: 'https://makerworld.com/en/models/458-project-quota',
+    file_path: 'existing-project.bin',
+    sort_order: 0,
+  });
+  const form = new FormData();
+  form.append('file', new Blob(['x'.repeat(40)]), 'over-limit.bin');
+  const upload = await request(`/api/bambu-projects/${projectId}/assets`, {
+    method: 'POST',
+    body: form,
+  });
+  assert.equal(upload.status, 413);
+  assert.match((await upload.json()).error, /1 GB/);
 
   const remove = await request(`/api/bambu-projects/${projectId}`, { method: 'DELETE' });
   assert.equal(remove.status, 200);
@@ -318,4 +374,204 @@ test('Bambu PUT treats omitted optional metadata as an explicit clear', async ()
   assert.equal(updated.license_name, null);
 
   entry.stmts.deleteBambuProject.run(projectId);
+});
+
+test('MakerWorld bridge consumes signed URLs once without persisting them', async () => {
+  const projectId = Number(entry.stmts.insertBambuProject.run({
+    title: 'Automatic MakerWorld model',
+    source_url: 'https://makerworld.com/en/models/123-automatic-model',
+    source_site: 'makerworld',
+    source_model_id: '123',
+    description: null,
+    creator_name: null,
+    license_name: null,
+  }).lastInsertRowid);
+  entry.stmts.saveBambuImportWarnings.run({
+    id: projectId,
+    warnings: JSON.stringify(['MakerWorld requires sign-in to download 1 original file: model.stl.']),
+  });
+
+  const start = await request(`/api/bambu-projects/${projectId}/makerworld-bridge-jobs`, {
+    method: 'POST',
+  });
+  assert.equal(start.status, 201);
+  const job = await start.json();
+  assert.equal(job.design_id, '123');
+  assert.equal(job.status, 'waiting');
+  assert.ok(job.token.length >= 32);
+
+  const waiting = await request(
+    `/api/bambu-projects/${projectId}/makerworld-bridge-jobs/${job.id}`,
+  );
+  const waitingBody = await waiting.json();
+  assert.equal(waitingBody.status, 'waiting');
+  assert.equal('token' in waitingBody, false);
+
+  const signedUrl = 'https://makerworld.bblmw.com/model/private-model.stl?at=1&exp=2&key=test';
+  const realFetch = globalThis.fetch;
+  let signedFetches = 0;
+  globalThis.fetch = (input, options) => {
+    const url = input instanceof URL ? input : new URL(String(input));
+    if (url.hostname === 'makerworld.bblmw.com') {
+      signedFetches += 1;
+      return Promise.resolve(new Response('solid automatic-model\nendsolid automatic-model', {
+        status: 200,
+        headers: { 'Content-Type': 'model/stl' },
+      }));
+    }
+    return realFetch(input, options);
+  };
+
+  try {
+    const submit = await request(job.submit_path, {
+      auth: false,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: job.token,
+        design_id: '123',
+        assets: [{
+          source_key: 'instance:456',
+          filename: 'private-model.stl',
+          url: signedUrl,
+        }],
+      }),
+    });
+    assert.equal(submit.status, 202);
+    assert.equal(submit.headers.get('access-control-allow-origin'), '*');
+
+    let completed;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const status = await request(
+        `/api/bambu-projects/${projectId}/makerworld-bridge-jobs/${job.id}`,
+      );
+      completed = await status.json();
+      if (completed.status === 'complete' || completed.status === 'failed') break;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    assert.equal(completed.status, 'complete');
+    assert.equal(completed.imported_count, 1);
+    assert.equal(completed.failed_count, 0);
+    assert.equal(signedFetches, 1);
+
+    const stored = entry.db.prepare(`
+      SELECT filename, original_url, source_key
+      FROM bambu_assets
+      WHERE bambu_project_id = ? AND source_key = ?
+    `).get(projectId, 'instance:456');
+    assert.deepEqual(stored, {
+      filename: 'private-model.stl',
+      original_url: 'https://makerworld.com/en/models/123-automatic-model',
+      source_key: 'instance:456',
+    });
+    assert.equal(stored.original_url.includes('?'), false);
+    assert.deepEqual(
+      JSON.parse(entry.stmts.getBambuProject.get(projectId).import_warnings),
+      [],
+    );
+
+    const repeatStart = await request(
+      `/api/bambu-projects/${projectId}/makerworld-bridge-jobs`,
+      { method: 'POST' },
+    );
+    const repeatJob = await repeatStart.json();
+    const repeatSubmit = await request(repeatJob.submit_path, {
+      auth: false,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: repeatJob.token,
+        design_id: '123',
+        assets: [{
+          source_key: 'instance:456',
+          filename: 'private-model.stl',
+          url: signedUrl,
+        }],
+      }),
+    });
+    assert.equal(repeatSubmit.status, 202);
+
+    let repeated;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const status = await request(
+        `/api/bambu-projects/${projectId}/makerworld-bridge-jobs/${repeatJob.id}`,
+      );
+      repeated = await status.json();
+      if (repeated.status === 'complete' || repeated.status === 'failed') break;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    assert.equal(repeated.status, 'complete');
+    assert.equal(repeated.imported_count, 0);
+    assert.equal(repeated.skipped_count, 1);
+    assert.equal(signedFetches, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const remove = await request(`/api/bambu-projects/${projectId}`, { method: 'DELETE' });
+  assert.equal(remove.status, 200);
+});
+
+test('MakerWorld bridge includes existing project bytes in the 1 GB limit', async () => {
+  const projectId = Number(entry.stmts.insertBambuProject.run({
+    title: 'Bridge quota model',
+    source_url: 'https://makerworld.com/en/models/124-bridge-quota',
+    source_site: 'makerworld',
+    source_model_id: '124',
+    description: null,
+    creator_name: null,
+    license_name: null,
+  }).lastInsertRowid);
+  entry.stmts.insertBambuAsset.run({
+    bambu_project_id: projectId,
+    kind: 'file',
+    filename: 'existing-project.bin',
+    content_type: 'application/octet-stream',
+    size_bytes: (1024 * 1024 * 1024) - 20,
+    original_url: 'https://makerworld.com/en/models/124-bridge-quota',
+    file_path: 'existing-project.bin',
+    sort_order: 0,
+  });
+  const start = await request(`/api/bambu-projects/${projectId}/makerworld-bridge-jobs`, {
+    method: 'POST',
+  });
+  const job = await start.json();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (input, options) => {
+    const url = input instanceof URL ? input : new URL(String(input));
+    if (url.hostname === 'makerworld.bblmw.com') {
+      return Promise.resolve(new Response('x'.repeat(40), {
+        status: 200,
+        headers: { 'Content-Type': 'application/octet-stream' },
+      }));
+    }
+    return realFetch(input, options);
+  };
+  try {
+    const submit = await request(job.submit_path, {
+      auth: false,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: job.token,
+        design_id: '124',
+        assets: [{
+          source_key: 'instance:999',
+          filename: 'over-limit.bin',
+          url: 'https://makerworld.bblmw.com/model/over-limit.bin?key=test',
+        }],
+      }),
+    });
+    assert.equal(submit.status, 202);
+    const completed = await waitForBridgeJob(projectId, job.id);
+    assert.equal(completed.status, 'complete');
+    assert.equal(completed.imported_count, 0);
+    assert.equal(completed.failed_count, 1);
+    assert.match(completed.warnings[0], /1 GB/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const remove = await request(`/api/bambu-projects/${projectId}`, { method: 'DELETE' });
+  assert.equal(remove.status, 200);
 });

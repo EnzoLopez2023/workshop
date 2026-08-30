@@ -54,7 +54,9 @@ parts list) into something they'd otherwise do by hand.
   downloadable STL/3MF/CAD attachments, and durable warnings when a provider requires
   authentication. An official Thingiverse token can be encrypted per user from Settings;
   MakerWorld credentials are never collected, and protected originals can be uploaded
-  manually after download.
+  manually after download. A personal, sideloaded Safari bridge may use the owner's
+  existing MakerWorld browser session to hand Workshop short-lived signed file URLs;
+  it is unofficial, opt-in, and absent unless the companion extension is installed.
 - **Notebook.** An editable window onto a separate product, Tabloom. Pages are fetched and
   written over `/api/integrations/workshop/*` as Markdown; there is no local notebook store.
 - **Conversion tables.** mm ↔ inches and fractional reference tables plus a live calculator,

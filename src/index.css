@@ -2427,6 +2427,29 @@ tbody td {
   border-block: 1px solid var(--color-divider);
 }
 
+.bambu-bridge-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-divider);
+  background: color-mix(in srgb, var(--color-annotation-fill) 6%, var(--color-surface));
+}
+
+.bambu-bridge-panel > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.bambu-bridge-panel small {
+  max-width: 64ch;
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
 .bambu-file-list > button {
   display: grid;
   width: 100%;
@@ -5157,6 +5180,15 @@ tbody td {
   }
 
   .input-action-row > .btn {
+    width: 100%;
+  }
+
+  .bambu-bridge-panel {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .bambu-bridge-panel > .btn {
+    grid-column: 1 / -1;
     width: 100%;
   }
 

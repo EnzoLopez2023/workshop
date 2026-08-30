@@ -276,6 +276,26 @@ export interface ProviderConnections {
   thingiverse: ThingiverseConnectionStatus;
 }
 
+export type MakerWorldBridgeJobStatus = 'waiting' | 'processing' | 'complete' | 'failed';
+
+export interface MakerWorldBridgeJob {
+  id: string;
+  status: MakerWorldBridgeJobStatus;
+  expires_at: string;
+  imported_count: number;
+  skipped_count: number;
+  failed_count: number;
+  warnings: string[];
+  error: string | null;
+}
+
+export interface MakerWorldBridgeStart extends MakerWorldBridgeJob {
+  token: string;
+  design_id: string;
+  source_url: string;
+  submit_path: string;
+}
+
 export const STATUS_LABELS: Record<ProjectStatus, string> = {
   idea: 'Idea',
   planning: 'Planning',

@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Box,
+  CloudDownload,
   Download,
   ExternalLink,
   FileArchive,
@@ -20,10 +21,16 @@ import {
   deleteBambuProject,
   fetchBambuAsset,
   getBambuProject,
+  getMakerWorldBridgeJob,
+  startMakerWorldBridgeJob,
   uploadBambuAsset,
 } from '../services/api';
 import { isDemoMode } from '../demo/demoMode';
 import type { BambuAsset, BambuProject } from '../types/project';
+import {
+  requestMakerWorldBridge,
+  subscribeToMakerWorldBridge,
+} from '../lib/makerWorldBridge';
 import { Button, PageFrame, StatePanel } from '../components/ui';
 import { WorkflowSection } from '../components/workflows';
 import { ProjectDetailSkeleton } from '../components/Skeleton';
@@ -46,7 +53,12 @@ export default function BambuProjectDetail() {
   const [uploadStatus, setUploadStatus] = useState('');
   const [uploadError, setUploadError] = useState('');
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [bridgeVersion, setBridgeVersion] = useState<string | null>(null);
+  const [bridgeImporting, setBridgeImporting] = useState(false);
+  const [bridgeStatus, setBridgeStatus] = useState('');
+  const [bridgeError, setBridgeError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bridgeRunRef = useRef(0);
   const demo = isDemoMode();
 
   const load = useCallback(() => {
@@ -64,6 +76,14 @@ export default function BambuProjectDetail() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToMakerWorldBridge(setBridgeVersion);
+    return () => {
+      bridgeRunRef.current += 1;
+      unsubscribe();
+    };
+  }, []);
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -126,6 +146,65 @@ export default function BambuProjectDetail() {
       toast.error(error instanceof Error ? error.message : 'Workshop could not download that file.');
     } finally {
       setDownloadingId(null);
+    }
+  };
+
+  const handleMakerWorldBridgeImport = async () => {
+    if (
+      !project
+      || project.source_site !== 'makerworld'
+      || !project.source_model_id
+      || bridgeImporting
+    ) return;
+
+    const runId = bridgeRunRef.current + 1;
+    bridgeRunRef.current = runId;
+    setBridgeImporting(true);
+    setBridgeError('');
+    setBridgeStatus('Preparing a one-time Workshop import…');
+    try {
+      const job = await startMakerWorldBridgeJob(project.id);
+      await requestMakerWorldBridge({
+        designId: job.design_id,
+        sourceUrl: job.source_url,
+        submitUrl: new URL(job.submit_path, window.location.origin).href,
+        token: job.token,
+      });
+      if (bridgeRunRef.current !== runId) return;
+      setBridgeStatus('MakerWorld authorized the files. Workshop is downloading them privately…');
+
+      const deadline = Date.now() + (6 * 60 * 60 * 1_000);
+      while (Date.now() < deadline) {
+        await new Promise(resolve => window.setTimeout(resolve, 1_000));
+        if (bridgeRunRef.current !== runId) return;
+        const status = await getMakerWorldBridgeJob(project.id, job.id);
+        if (status.status === 'failed') {
+          throw new Error(status.error || 'Workshop could not download the MakerWorld files.');
+        }
+        if (status.status !== 'complete') continue;
+        const summary = [
+          status.imported_count > 0
+            ? `${status.imported_count} file${status.imported_count === 1 ? '' : 's'} imported`
+            : '',
+          status.skipped_count > 0
+            ? `${status.skipped_count} already present`
+            : '',
+          status.failed_count > 0
+            ? `${status.failed_count} failed`
+            : '',
+        ].filter(Boolean).join(' · ');
+        setBridgeStatus(summary || 'MakerWorld files are already up to date.');
+        load();
+        return;
+      }
+      throw new Error('The MakerWorld import expired before it completed. Try again.');
+    } catch (error) {
+      setBridgeStatus('');
+      setBridgeError(error instanceof Error
+        ? error.message
+        : 'The Safari bridge could not import MakerWorld files.');
+    } finally {
+      if (bridgeRunRef.current === runId) setBridgeImporting(false);
     }
   };
 
@@ -289,6 +368,51 @@ export default function BambuProjectDetail() {
               </>
             ) : undefined}
           >
+            {project.source_site === 'makerworld' && !demo && (
+              <div className="bambu-bridge-panel">
+                <span className="bambu-file-icon" aria-hidden="true">
+                  <CloudDownload size={20} />
+                </span>
+                <span>
+                  <strong>Automatic MakerWorld files</strong>
+                  <small>
+                    {bridgeVersion
+                      ? 'The personal Safari bridge is ready. MakerWorld credentials and cookies remain in Safari.'
+                      : 'The personal Safari bridge is not installed or enabled. Add Files remains available.'}
+                  </small>
+                </span>
+                {bridgeVersion ? (
+                  <Button
+                    variant="ghost"
+                    onClick={() => void handleMakerWorldBridgeImport()}
+                    disabled={bridgeImporting}
+                  >
+                    {bridgeImporting
+                      ? <Loader className="spinner" size={16} aria-hidden="true" />
+                      : <CloudDownload size={16} aria-hidden="true" />}
+                    {bridgeImporting ? 'Importing…' : 'Import from MakerWorld'}
+                  </Button>
+                ) : (
+                  <a
+                    className="btn btn-ghost"
+                    href="https://github.com/EnzoLopez2023/workshop/tree/main/extensions/makerworld-bridge"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Setup guide <ExternalLink size={15} aria-hidden="true" />
+                  </a>
+                )}
+              </div>
+            )}
+            {(bridgeStatus || bridgeError) && (
+              <div
+                className={`bambu-upload-status ${bridgeError ? 'is-error' : ''}`}
+                role={bridgeError ? 'alert' : 'status'}
+                aria-live="polite"
+              >
+                <span>{bridgeError || bridgeStatus}</span>
+              </div>
+            )}
             {(uploading || uploadStatus || uploadError) && (
               <div
                 className={`bambu-upload-status ${uploadError ? 'is-error' : ''}`}

@@ -18,7 +18,7 @@ A browser-native woodworking project companion built around a Living Plan Table.
 | **Project templates** | Save any project as a reusable template; clone it with one click |
 | **Shopping list** | Cross-project view of all unpurchased materials, grouped by project |
 | **Shaper Hub import** | Paste a Shaper Tools Hub share URL — AI extracts title, description, materials, instructions, and all project photos |
-| **Bambu Hub import** | Paste a MakerWorld, Thingiverse, or Printables URL — preserve attribution, copy public source images, locally store accessible STL/3MF/CAD files, and upload protected originals manually |
+| **Bambu Hub import** | Paste a MakerWorld, Thingiverse, or Printables URL — preserve attribution, copy public source images, locally store accessible STL/3MF/CAD files, and add protected originals manually or through the optional personal Safari bridge |
 | **AI URL analysis** | Analyze any inspiration URL to pre-fill a new project's fields (title, description, difficulty, wood types, cut list, materials) |
 | **Unit conversions** | Live millimeter/inch converter plus exact decimal, fractional, and millimeter reference tables |
 | **Image gallery** | Upload sketches and inspiration photos per project; PDF plans supported; hero image shown on project cards |
@@ -438,6 +438,26 @@ Successful deletion removes projects, templates, Shaper and Bambu data, download
 | `DELETE` | `/api/provider-connections/thingiverse` | Remove the account’s Thingiverse token |
 
 Printables currently supports anonymous metadata and file links. MakerWorld permits anonymous metadata/images but requires sign-in for original model files; Workshop never stores MakerWorld credentials or cookies, so download those originals and use **Add files**. Thingiverse accepts an official token from Settings, encrypted per user and never returned to a client; optional `THINGIVERSE_APP_TOKEN` remains a server-wide alternative. Workshop persists provider limitations and individual download failures instead of silently omitting them. Imports are capped at 40 MB per image, 250 MB per file, 1 GB per project, and 5 GB per account.
+
+### Personal MakerWorld Safari bridge
+
+`extensions/makerworld-bridge/` contains an optional Manifest V3 Safari Web
+Extension. It uses the owner's existing signed-in MakerWorld tab to request
+short-lived file URLs, submits them to a one-time Workshop job, and returns to
+the project while the server downloads privately. Passwords, account tokens,
+cookies, and signed URLs are never persisted by Workshop.
+
+MakerWorld does not offer a public third-party download API and its terms
+restrict automated acquisition. This bridge is intentionally personal,
+sideloaded, and unsupported; manual **Add files** remains the compliant default.
+Generate the macOS+iOS Safari host project with:
+
+```bash
+./scripts/generate-makerworld-safari-extension.sh
+```
+
+See [`extensions/makerworld-bridge/README.md`](extensions/makerworld-bridge/README.md)
+for installation and use.
 
 ---
 

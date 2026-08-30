@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "Workshop MakerWorld Bridge",
+  "version": "0.1.0",
+  "description": "Personal bridge that imports protected MakerWorld files into Workshop without sharing account credentials.",
+  "permissions": [
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://makerworld.com/*",
+    "https://www.makerworld.com/*",
+    "https://workshop.nintek.com/*",
+    "https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Workshop MakerWorld Bridge",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://workshop.nintek.com/*",
+        "https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net/*"
+      ],
+      "js": [
+        "content-workshop.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://makerworld.com/*",
+        "https://www.makerworld.com/*"
+      ],
+      "js": [
+        "makerworld-client.js",
+        "content-makerworld.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

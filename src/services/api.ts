@@ -6,6 +6,7 @@ import type {
   CutListItem, Material, AnalyzedProject,
   ShaperProject, ShaperProjectPayload, ShaperAnalysisResult,
   BambuAsset, BambuProject, BambuProjectPayload, BambuAnalysisResult, BambuImportResult,
+  MakerWorldBridgeJob, MakerWorldBridgeStart,
   ProviderConnections, ThingiverseConnectionStatus,
   BuildLogEntry, FinishLogEntry, ShoppingListItem, TemplateListItem,
 } from '../types/project';
@@ -288,6 +289,17 @@ export const uploadBambuAsset = async (
 
 export const deleteBambuAsset = (id: number) =>
   request<{ success: boolean }>(`/bambu-assets/${id}`, { method: 'DELETE' });
+
+export const startMakerWorldBridgeJob = (bambuProjectId: number) =>
+  request<MakerWorldBridgeStart>(
+    `/bambu-projects/${bambuProjectId}/makerworld-bridge-jobs`,
+    { method: 'POST' },
+  );
+
+export const getMakerWorldBridgeJob = (bambuProjectId: number, jobId: string) =>
+  request<MakerWorldBridgeJob>(
+    `/bambu-projects/${bambuProjectId}/makerworld-bridge-jobs/${encodeURIComponent(jobId)}`,
+  );
 
 // ── Provider connections ──────────────────────────────────────────────────────
 

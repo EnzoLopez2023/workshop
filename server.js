@@ -23,6 +23,7 @@ import {
   createSecretKey,
   createCipheriv,
   createDecipheriv,
+  timingSafeEqual,
 } from 'crypto';
 import multer from 'multer';
 import dotenv from 'dotenv';
@@ -276,6 +277,7 @@ db.exec(`
     size_bytes       INTEGER NOT NULL DEFAULT 0,
     original_url     TEXT NOT NULL,
     file_path        TEXT,
+    source_key       TEXT,
     sort_order       INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS idx_bambu_assets_project
@@ -348,6 +350,17 @@ const bambuProjectCols = new Set(
 if (!bambuProjectCols.has('import_warnings')) {
   db.exec(`ALTER TABLE bambu_projects ADD COLUMN import_warnings TEXT NOT NULL DEFAULT '[]'`);
 }
+const bambuAssetCols = new Set(
+  db.prepare(`PRAGMA table_info(bambu_assets)`).all().map(column => column.name)
+);
+if (!bambuAssetCols.has('source_key')) {
+  db.exec(`ALTER TABLE bambu_assets ADD COLUMN source_key TEXT`);
+}
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_bambu_assets_source_key
+  ON bambu_assets(bambu_project_id, source_key)
+  WHERE source_key IS NOT NULL
+`);
 
 db.prepare(`
   INSERT OR IGNORE INTO auth_state (id, session_generation, accept_legacy_tokens)
@@ -518,11 +531,20 @@ function buildStmts(db) {
     ORDER BY sort_order, id
   `),
   getBambuAsset: db.prepare(`SELECT * FROM bambu_assets WHERE id = ?`),
+  getBambuAssetBySourceKey: db.prepare(`
+    SELECT id FROM bambu_assets
+    WHERE bambu_project_id = ? AND source_key = ?
+  `),
   deleteBambuAsset: db.prepare(`DELETE FROM bambu_assets WHERE id = ?`),
   bambuStorageUsage: db.prepare(`
     SELECT COALESCE(SUM(size_bytes), 0) AS total_bytes
     FROM bambu_assets
     WHERE file_path IS NOT NULL
+  `),
+  bambuProjectStorageUsage: db.prepare(`
+    SELECT COALESCE(SUM(size_bytes), 0) AS total_bytes
+    FROM bambu_assets
+    WHERE bambu_project_id = ? AND file_path IS NOT NULL
   `),
   insertBambuAsset: db.prepare(`
     INSERT INTO bambu_assets (
@@ -531,6 +553,15 @@ function buildStmts(db) {
     ) VALUES (
       @bambu_project_id, @kind, @filename, @content_type,
       @size_bytes, @original_url, @file_path, @sort_order
+    )
+  `),
+  insertMakerWorldAsset: db.prepare(`
+    INSERT INTO bambu_assets (
+      bambu_project_id, kind, filename, content_type,
+      size_bytes, original_url, file_path, source_key, sort_order
+    ) VALUES (
+      @bambu_project_id, @kind, @filename, @content_type,
+      @size_bytes, @original_url, @file_path, @source_key, @sort_order
     )
   `),
   getProviderCredential: db.prepare(`
@@ -637,6 +668,7 @@ const dbHandles = new Map();   // user key → { db, stmts }
 const activeUserRequests = new Map();
 const deletingUserKeys = new Set();
 const bambuRequestLocks = new Map();
+const makerWorldBridgeJobs = new Map();
 let accountDeletionLock = Promise.resolve();
 let activeStorageRequests = 0;
 let recoveryCaptureActive = false;
@@ -724,28 +756,34 @@ function getExistingUserDb(userKey) {
   return openUserDb(userKey);
 }
 
-function serializeBambuRequest(req, res, next) {
-  const userKey = req.user?.userKey;
-  if (!userKey) return next();
-
+async function acquireBambuLock(userKey) {
   const previous = bambuRequestLocks.get(userKey) ?? Promise.resolve();
   let release;
   const gate = new Promise(resolveLock => { release = resolveLock; });
   const tail = previous.then(() => gate);
   bambuRequestLocks.set(userKey, tail);
+  await previous;
 
-  previous.then(() => {
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    release();
+    if (bambuRequestLocks.get(userKey) === tail) bambuRequestLocks.delete(userKey);
+  };
+}
+
+function serializeBambuRequest(req, res, next) {
+  const userKey = req.user?.userKey;
+  if (!userKey) return next();
+
+  acquireBambuLock(userKey).then(release => {
     if (res.destroyed) {
       release();
-      if (bambuRequestLocks.get(userKey) === tail) bambuRequestLocks.delete(userKey);
       return;
     }
-    let released = false;
     const done = () => {
-      if (released) return;
-      released = true;
       release();
-      if (bambuRequestLocks.get(userKey) === tail) bambuRequestLocks.delete(userKey);
     };
     res.once('finish', done);
     res.once('close', done);
@@ -940,14 +978,18 @@ async function waitForActiveUserRequests(userKey, timeoutMs = 5_000) {
   }
 }
 
-function trackActiveStorageRequest(res) {
+function beginActiveStorageOperation() {
   activeStorageRequests += 1;
   let released = false;
-  const release = () => {
+  return () => {
     if (released) return;
     released = true;
     activeStorageRequests = Math.max(0, activeStorageRequests - 1);
   };
+}
+
+function trackActiveStorageRequest(res) {
+  const release = beginActiveStorageOperation();
   res.once('finish', release);
   res.once('close', release);
 }
@@ -1316,6 +1358,10 @@ const BAMBU_MAX_PROJECT_BYTES = 1024 * 1024 * 1024;
 const BAMBU_MAX_USER_BYTES = 5 * 1024 * 1024 * 1024;
 const BAMBU_MAX_REDIRECTS = 5;
 const BAMBU_DOWNLOAD_TIMEOUT_MS = 120_000;
+const MAKERWORLD_BRIDGE_JOB_TTL_MS = 10 * 60 * 1000;
+const MAKERWORLD_BRIDGE_PROCESS_TTL_MS = 6 * 60 * 60 * 1000;
+const MAKERWORLD_BRIDGE_MAX_ASSETS = 150;
+const MAKERWORLD_BRIDGE_MAX_JOBS = 100;
 
 const MAKERWORLD_API_HOSTS = ['api.bambulab.com'];
 const MAKERWORLD_ASSET_HOSTS = ['.bblmw.com'];
@@ -1982,10 +2028,14 @@ async function fileStartsWithMarkup(filePath) {
 
 async function downloadBambuAsset(asset, importState) {
   const maxBytes = asset.kind === 'image' ? BAMBU_MAX_IMAGE_BYTES : BAMBU_MAX_FILE_BYTES;
+  const projectBytes = Number(importState.projectBytes) || 0;
   if (asset.declaredSize && asset.declaredSize > maxBytes) {
     throw new Error(`declared size exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB per-file limit`);
   }
-  if (asset.declaredSize && importState.totalBytes + asset.declaredSize > BAMBU_MAX_PROJECT_BYTES) {
+  if (
+    asset.declaredSize
+    && projectBytes + importState.totalBytes + asset.declaredSize > BAMBU_MAX_PROJECT_BYTES
+  ) {
     throw new Error('project exceeds the 1 GB import limit');
   }
   if (asset.declaredSize && importState.userBytes + importState.totalBytes + asset.declaredSize > BAMBU_MAX_USER_BYTES) {
@@ -2013,7 +2063,10 @@ async function downloadBambuAsset(asset, importState) {
       await response.body.cancel();
       throw new Error(`file exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB per-file limit`);
     }
-    if (Number.isFinite(contentLength) && importState.totalBytes + contentLength > BAMBU_MAX_PROJECT_BYTES) {
+    if (
+      Number.isFinite(contentLength)
+      && projectBytes + importState.totalBytes + contentLength > BAMBU_MAX_PROJECT_BYTES
+    ) {
       await response.body.cancel();
       throw new Error('project exceeds the 1 GB import limit');
     }
@@ -2030,7 +2083,8 @@ async function downloadBambuAsset(asset, importState) {
       transform(chunk, _encoding, callback) {
         sizeBytes += chunk.length;
         const exceedsFile = sizeBytes > maxBytes;
-        const exceedsProject = importState.totalBytes + sizeBytes > BAMBU_MAX_PROJECT_BYTES;
+        const exceedsProject =
+          projectBytes + importState.totalBytes + sizeBytes > BAMBU_MAX_PROJECT_BYTES;
         const exceedsUser = importState.userBytes + importState.totalBytes + sizeBytes > BAMBU_MAX_USER_BYTES;
         if (exceedsFile || exceedsProject || exceedsUser) {
           callback(new Error(
@@ -2120,6 +2174,184 @@ function cleanBambuInput(value, maxLength) {
   if (typeof value !== 'string') return null;
   const cleaned = value.replace(/\u0000/g, '').trim().slice(0, maxLength);
   return cleaned || null;
+}
+
+function pruneMakerWorldBridgeJobs(now = Date.now()) {
+  for (const [id, job] of makerWorldBridgeJobs) {
+    if (job.status !== 'processing' && job.expiresAt <= now) {
+      makerWorldBridgeJobs.delete(id);
+    }
+  }
+  if (makerWorldBridgeJobs.size < MAKERWORLD_BRIDGE_MAX_JOBS) return;
+  const removable = [...makerWorldBridgeJobs.values()]
+    .filter(job => job.status === 'complete' || job.status === 'failed')
+    .sort((left, right) => left.createdAt - right.createdAt);
+  for (const job of removable) {
+    makerWorldBridgeJobs.delete(job.id);
+    if (makerWorldBridgeJobs.size < MAKERWORLD_BRIDGE_MAX_JOBS) break;
+  }
+}
+
+function makerWorldBridgeJobResponse(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    expires_at: new Date(job.expiresAt).toISOString(),
+    imported_count: job.importedCount,
+    skipped_count: job.skippedCount,
+    failed_count: job.failedCount,
+    warnings: job.warnings,
+    error: job.error,
+  };
+}
+
+function bridgeTokenMatches(job, rawToken) {
+  if (!job.tokenHash || typeof rawToken !== 'string' || rawToken.length > 256) return false;
+  const supplied = createHash('sha256').update(rawToken, 'utf8').digest();
+  const expected = Buffer.from(job.tokenHash, 'hex');
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
+function normalizeMakerWorldBridgeManifest(body, job) {
+  if (String(body?.design_id ?? '') !== job.designId) {
+    throw apiError('MakerWorld design does not match this Workshop project');
+  }
+  if (!Array.isArray(body?.assets) || body.assets.length === 0) {
+    throw apiError('MakerWorld returned no downloadable files');
+  }
+  if (body.assets.length > MAKERWORLD_BRIDGE_MAX_ASSETS) {
+    throw apiError(`MakerWorld returned more than ${MAKERWORLD_BRIDGE_MAX_ASSETS} files`);
+  }
+
+  const seen = new Set();
+  const assets = [];
+  for (const [index, item] of body.assets.entries()) {
+    const sourceKey = typeof item?.source_key === 'string' ? item.source_key.trim() : '';
+    if (!/^(?:instance|design):[a-zA-Z0-9:_-]{1,120}$/.test(sourceKey)) {
+      throw apiError(`MakerWorld file ${index + 1} has an invalid source key`);
+    }
+    if (seen.has(sourceKey)) continue;
+    seen.add(sourceKey);
+
+    let signedUrl;
+    try { signedUrl = new URL(String(item?.url ?? '')); }
+    catch { throw apiError(`MakerWorld file ${index + 1} has an invalid download URL`); }
+    if (
+      signedUrl.protocol !== 'https:'
+      || signedUrl.username
+      || signedUrl.password
+      || !hostMatchesAllowlist(signedUrl.hostname, MAKERWORLD_ASSET_HOSTS)
+      || !signedUrl.search
+    ) {
+      throw apiError(`MakerWorld file ${index + 1} is not a signed MakerWorld download`);
+    }
+
+    const filename = sanitizeAssetFilename(
+      item?.filename || filenameFromUrl(signedUrl.href, `MakerWorld file ${index + 1}`),
+      `MakerWorld file ${index + 1}`
+    );
+    assets.push({
+      sourceKey,
+      kind: bambuAssetKind(filename),
+      filename,
+      downloadUrl: signedUrl.href,
+      declaredSize: null,
+      allowedHosts: MAKERWORLD_ASSET_HOSTS,
+    });
+  }
+  if (assets.length === 0) throw apiError('MakerWorld returned no unique downloadable files');
+  const warnings = Array.isArray(body?.warnings)
+    ? body.warnings
+        .filter(value => typeof value === 'string')
+        .map(value => value.replace(/\u0000/g, '').trim().slice(0, 500))
+        .filter(Boolean)
+        .slice(0, 20)
+    : [];
+  return { assets, warnings };
+}
+
+async function processMakerWorldBridgeJob(
+  job,
+  assets,
+  releaseLock,
+  releaseUser,
+  releaseStorage
+) {
+  try {
+    const entry = getExistingUserDb(job.userKey);
+    if (!entry) throw new Error('Workshop account no longer exists');
+    const project = entry.stmts.getBambuProject.get(job.projectId);
+    if (
+      !project
+      || project.source_site !== 'makerworld'
+      || String(project.source_model_id) !== job.designId
+    ) {
+      throw new Error('MakerWorld project no longer matches this import');
+    }
+
+    const userBytes = Number(entry.stmts.bambuStorageUsage.get()?.total_bytes) || 0;
+    const projectBytes = Number(
+      entry.stmts.bambuProjectStorageUsage.get(job.projectId)?.total_bytes
+    ) || 0;
+    const importState = { totalBytes: 0, userBytes, projectBytes };
+    const failures = [];
+
+    for (const [index, asset] of assets.entries()) {
+      if (entry.stmts.getBambuAssetBySourceKey.get(job.projectId, asset.sourceKey)) {
+        job.skippedCount += 1;
+        continue;
+      }
+      let downloaded;
+      try {
+        downloaded = await downloadBambuAsset(asset, importState);
+        entry.stmts.insertMakerWorldAsset.run({
+          bambu_project_id: job.projectId,
+          kind: asset.kind,
+          filename: asset.filename,
+          content_type: downloaded.contentType,
+          size_bytes: downloaded.sizeBytes,
+          original_url: project.source_url,
+          file_path: downloaded.filePath,
+          source_key: asset.sourceKey,
+          sort_order: Date.now() + index,
+        });
+        job.importedCount += 1;
+      } catch (error) {
+        if (downloaded?.filePath) {
+          await unlinkAsync(join(UPLOADS_PATH, basename(downloaded.filePath))).catch(() => {});
+        }
+        job.failedCount += 1;
+        failures.push(`${asset.filename}: ${error.message || 'download failed'}`);
+      }
+    }
+
+    const preservedWarnings = parseJsonArray(project.import_warnings).filter(warning =>
+      !/^MakerWorld requires sign-in\b/i.test(warning)
+      && !/^Automatic MakerWorld import\b/i.test(warning)
+    );
+    const bridgeWarnings = [
+      ...job.extensionWarnings,
+      ...(failures.length > 0
+        ? [`Automatic MakerWorld import could not download ${failures.length} file${failures.length === 1 ? '' : 's'}: ${failures.join('; ')}`]
+        : []),
+    ];
+    entry.stmts.saveBambuImportWarnings.run({
+      id: job.projectId,
+      warnings: JSON.stringify([...preservedWarnings, ...bridgeWarnings].slice(0, 100)),
+    });
+    entry.stmts.touchBambuProject.run(job.projectId);
+    job.warnings = bridgeWarnings;
+    job.status = 'complete';
+  } catch (error) {
+    job.status = 'failed';
+    job.error = error.message || 'Automatic MakerWorld import failed';
+  } finally {
+    job.updatedAt = Date.now();
+    job.expiresAt = job.updatedAt + MAKERWORLD_BRIDGE_JOB_TTL_MS;
+    releaseLock?.();
+    releaseUser();
+    releaseStorage();
+  }
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -2607,20 +2839,25 @@ async function requireAuth(req, res, next) {
   }
 }
 
-function trackActiveUserRequest(userKey, res) {
+function beginActiveUserOperation(userKey) {
   if (deletingUserKeys.has(userKey)) {
-    return false;
+    return null;
   }
 
   activeUserRequests.set(userKey, (activeUserRequests.get(userKey) ?? 0) + 1);
   let released = false;
-  const release = () => {
+  return () => {
     if (released) return;
     released = true;
     const remaining = (activeUserRequests.get(userKey) ?? 1) - 1;
     if (remaining > 0) activeUserRequests.set(userKey, remaining);
     else activeUserRequests.delete(userKey);
   };
+}
+
+function trackActiveUserRequest(userKey, res) {
+  const release = beginActiveUserOperation(userKey);
+  if (!release) return false;
   res.once('finish', release);
   res.once('close', release);
   return true;
@@ -2790,6 +3027,79 @@ app.delete('/api/account', requireAuth, async (req, res) => {
     deletingUserKeys.delete(userKey);
   }
 });
+
+const makerWorldBridgeSubmitLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: req => ipKeyGenerator(req.ip),
+  message: { error: 'MakerWorld bridge rate limit exceeded — try again later' },
+});
+
+function makerWorldBridgeCors(req, res, next) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Max-Age', '600');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  return next();
+}
+
+app.options('/api/extensions/makerworld-import/:jobId', makerWorldBridgeCors);
+app.post(
+  '/api/extensions/makerworld-import/:jobId',
+  makerWorldBridgeCors,
+  makerWorldBridgeSubmitLimiter,
+  async (req, res) => {
+    pruneMakerWorldBridgeJobs();
+    const job = makerWorldBridgeJobs.get(String(req.params.jobId));
+    if (!job) return res.status(404).json({ error: 'MakerWorld import job not found or expired' });
+    if (job.status !== 'waiting') {
+      return res.status(409).json({ error: `MakerWorld import job is already ${job.status}` });
+    }
+    if (!bridgeTokenMatches(job, req.body?.token)) {
+      return res.status(401).json({ error: 'Invalid MakerWorld import job token' });
+    }
+
+    let manifest;
+    try {
+      manifest = normalizeMakerWorldBridgeManifest(req.body, job);
+    } catch (error) {
+      return res.status(Number.isInteger(error.status) ? error.status : 400).json({
+        error: error.message || 'Invalid MakerWorld file manifest',
+      });
+    }
+
+    if (bambuRequestLocks.has(job.userKey)) {
+      return res.status(409).json({
+        error: 'Another Bambu operation is active. Return to Workshop and retry.',
+      });
+    }
+    const releaseLock = await acquireBambuLock(job.userKey);
+    const releaseUser = beginActiveUserOperation(job.userKey);
+    if (!releaseUser) {
+      releaseLock();
+      return res.status(409).json({ error: 'Workshop account deletion is in progress' });
+    }
+    const releaseStorage = beginActiveStorageOperation();
+    job.tokenHash = null;
+    job.status = 'processing';
+    job.extensionWarnings = manifest.warnings;
+    job.updatedAt = Date.now();
+    job.expiresAt = job.updatedAt + MAKERWORLD_BRIDGE_PROCESS_TTL_MS;
+    res.status(202).json(makerWorldBridgeJobResponse(job));
+    setImmediate(() => {
+      void processMakerWorldBridgeJob(
+        job,
+        manifest.assets,
+        releaseLock,
+        releaseUser,
+        releaseStorage
+      );
+    });
+  }
+);
 
 app.use('/api', (req, res, next) => {
   // Exemption is GET-only — only `<img>`/`<iframe>` loads need it. Any write
@@ -3574,6 +3884,73 @@ app.get('/api/bambu-projects/:id', (req, res) => {
   res.json(project);
 });
 
+app.post(
+  '/api/bambu-projects/:id/makerworld-bridge-jobs',
+  bambuImportLimiter,
+  (req, res) => {
+    const projectId = Number(req.params.id);
+    const project = req.stmts.getBambuProject.get(projectId);
+    if (!project) return res.status(404).json({ error: 'Bambu project not found' });
+    if (project.source_site !== 'makerworld' || !project.source_model_id) {
+      return res.status(400).json({ error: 'Automatic bridge import is available only for MakerWorld projects' });
+    }
+
+    pruneMakerWorldBridgeJobs();
+    for (const existing of makerWorldBridgeJobs.values()) {
+      if (existing.userKey !== req.user.userKey) continue;
+      if (existing.status === 'processing') {
+        return res.status(409).json({ error: 'A MakerWorld import is already processing' });
+      }
+      if (existing.status === 'waiting') makerWorldBridgeJobs.delete(existing.id);
+    }
+    if (makerWorldBridgeJobs.size >= MAKERWORLD_BRIDGE_MAX_JOBS) {
+      return res.status(503).json({ error: 'MakerWorld bridge is busy — try again shortly' });
+    }
+
+    const token = randomBytes(32).toString('base64url');
+    const now = Date.now();
+    const job = {
+      id: randomUUID(),
+      tokenHash: createHash('sha256').update(token, 'utf8').digest('hex'),
+      userKey: req.user.userKey,
+      projectId,
+      designId: String(project.source_model_id),
+      sourceUrl: project.source_url,
+      status: 'waiting',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + MAKERWORLD_BRIDGE_JOB_TTL_MS,
+      importedCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      warnings: [],
+      extensionWarnings: [],
+      error: null,
+    };
+    makerWorldBridgeJobs.set(job.id, job);
+    return res.status(201).json({
+      ...makerWorldBridgeJobResponse(job),
+      token,
+      design_id: job.designId,
+      source_url: job.sourceUrl,
+      submit_path: `/api/extensions/makerworld-import/${job.id}`,
+    });
+  }
+);
+
+app.get('/api/bambu-projects/:id/makerworld-bridge-jobs/:jobId', (req, res) => {
+  pruneMakerWorldBridgeJobs();
+  const job = makerWorldBridgeJobs.get(String(req.params.jobId));
+  if (
+    !job
+    || job.userKey !== req.user.userKey
+    || job.projectId !== Number(req.params.id)
+  ) {
+    return res.status(404).json({ error: 'MakerWorld import job not found or expired' });
+  }
+  return res.json(makerWorldBridgeJobResponse(job));
+});
+
 function sendBambuAsset(res, asset, { attachment, cacheControl }) {
   const headers = {
     'Content-Type': asset.content_type || 'application/octet-stream',
@@ -3639,6 +4016,11 @@ app.post(
     if (currentBytes + req.file.size > BAMBU_MAX_USER_BYTES) {
       await unlinkAsync(uploadedPath).catch(() => {});
       return res.status(413).json({ error: 'Bambu Hub storage exceeds the 5 GB per-account limit' });
+    }
+    const projectBytes = Number(stmts.bambuProjectStorageUsage.get(projectId)?.total_bytes) || 0;
+    if (projectBytes + req.file.size > BAMBU_MAX_PROJECT_BYTES) {
+      await unlinkAsync(uploadedPath).catch(() => {});
+      return res.status(413).json({ error: 'Bambu project storage exceeds the 1 GB limit' });
     }
 
     const filename = sanitizeAssetFilename(req.file.originalname, 'Bambu file');
@@ -4090,6 +4472,8 @@ function closeAllDatabases() {
     if (db.open) db.close();
   }
   dbHandles.clear();
+  makerWorldBridgeJobs.clear();
+  bambuRequestLocks.clear();
   if (demoEntry?.db.open) demoEntry.db.close();
   demoEntry = null;
 }

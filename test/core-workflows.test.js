@@ -247,6 +247,8 @@ test('create menus, route context, demo blocking, upload ownership, and state co
   assert.match(bambuDetail, /project\.import_warnings/);
   assert.match(bambuDetail, /await fetchBambuAsset\(file\.id\)/);
   assert.match(bambuDetail, /await uploadBambuAsset\(projectId, file/);
+  assert.match(bambuDetail, /await startMakerWorldBridgeJob\(project\.id\)/);
+  assert.match(bambuDetail, /await requestMakerWorldBridge/);
   assert.match(settings, /saveThingiverseToken/);
   assert.match(settings, /type="password"/);
   assert.match(shopping, /No matching shopping items/);
