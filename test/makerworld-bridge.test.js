@@ -79,6 +79,7 @@ test('MakerWorld collector merges the complete profile endpoint with embedded pr
       url: 'https://makerworld.bblmw.com/model/additional.3mf?key=two',
     }],
   ]);
+  const requestedPaths = [];
   const context = {
     URL,
     Response,
@@ -87,6 +88,7 @@ test('MakerWorld collector merges the complete profile endpoint with embedded pr
     window: { location: { origin: 'https://makerworld.com' } },
     fetch: async url => {
       const parsed = url instanceof URL ? url : new URL(String(url));
+      requestedPaths.push(parsed.pathname);
       const payload = responses.get(parsed.pathname);
       return payload
         ? new Response(JSON.stringify(payload), {
@@ -100,11 +102,16 @@ test('MakerWorld collector merges the complete profile endpoint with embedded pr
   vm.createContext(context);
   vm.runInContext(source, context);
 
-  const result = await context.WorkshopMakerWorldClient.collect('123');
+  const result = await context.WorkshopMakerWorldClient.collect('123', {
+    existingSourceKeys: ['instance:1'],
+    profileDelayMs: 0,
+  });
   assert.deepEqual(
     JSON.parse(JSON.stringify(result.assets.map(asset => asset.source_key))),
-    ['instance:1', 'instance:2'],
+    ['instance:2'],
   );
+  assert.equal(requestedPaths.includes('/api/v1/design-service/instance/1/f3mf'), false);
+  assert.equal(requestedPaths.includes('/api/v1/design-service/instance/2/f3mf'), true);
 });
 
 test('bridge protocol never requests or relays MakerWorld credentials', async () => {

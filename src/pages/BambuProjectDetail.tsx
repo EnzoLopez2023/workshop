@@ -164,13 +164,18 @@ export default function BambuProjectDetail() {
     setBridgeStatus('Preparing a one-time Workshop import…');
     try {
       const job = await startMakerWorldBridgeJob(project.id);
-      await requestMakerWorldBridge({
+      const bridgeResult = await requestMakerWorldBridge({
         designId: job.design_id,
         sourceUrl: job.source_url,
         submitUrl: new URL(job.submit_path, window.location.origin).href,
         token: job.token,
+        existingSourceKeys: job.existing_source_keys,
       });
       if (bridgeRunRef.current !== runId) return;
+      if (bridgeResult.status === 'up_to_date') {
+        setBridgeStatus('All MakerWorld profile files are already stored in this project.');
+        return;
+      }
       setBridgeStatus('MakerWorld authorized the files. Workshop is downloading them privately…');
 
       const deadline = Date.now() + (6 * 60 * 60 * 1_000);

@@ -118,6 +118,7 @@ async function collectFromTab(tabId, payload) {
       const response = await tabsSendMessage(tabId, {
         type: "WORKSHOP_MAKERWORLD_COLLECT",
         designId: payload.designId,
+        existingSourceKeys: payload.existingSourceKeys ?? [],
       });
       if (response) return response;
     } catch (error) {
@@ -140,6 +141,18 @@ async function runImport(payload, workshopTabId) {
     const error = new Error(collected.error || "MakerWorld did not provide download links.");
     error.code = collected.code;
     throw error;
+  }
+  if (collected.upToDate || collected.assets.length === 0) {
+    await tabsRemove(tab.id).catch(() => {});
+    if (workshopTabId != null) {
+      await tabsUpdate(workshopTabId, { active: true }).catch(() => {});
+    }
+    return {
+      ok: true,
+      status: "up_to_date",
+      assetCount: 0,
+      warnings: collected.warnings ?? [],
+    };
   }
 
   const response = await fetch(submitUrl, {

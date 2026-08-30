@@ -128,10 +128,16 @@
         "Sign in to MakerWorld in this Safari tab, then retry from Workshop."
       );
     }
-    if (response.status === 418 || response.status === 429) {
+    if (response.status === 418) {
       throw new MakerWorldBridgeError(
         "makerworld_challenge",
-        "MakerWorld requested a verification challenge. Complete it in this tab, then retry."
+        "MakerWorld requested a verification challenge. Wait a moment, complete any prompt in Safari, then retry; Workshop will request only missing files."
+      );
+    }
+    if (response.status === 429) {
+      throw new MakerWorldBridgeError(
+        "makerworld_rate_limited",
+        "MakerWorld temporarily rate-limited this profile. Wait 30 seconds, then retry; Workshop will request only missing files."
       );
     }
     if (!response.ok) {
@@ -150,7 +156,11 @@
     }
   }
 
-  async function collect(designId) {
+  function hasExistingSource(existingSourceKeys, prefix) {
+    return [...existingSourceKeys].some(key => key === prefix || key.startsWith(`${prefix}:`));
+  }
+
+  async function collect(designId, options = {}) {
     const normalizedId = String(designId ?? "");
     if (!/^\d+$/.test(normalizedId)) {
       throw new MakerWorldBridgeError("invalid_design", "MakerWorld model ID is invalid.");
@@ -158,6 +168,14 @@
 
     const design = await fetchJson(`/design/${normalizedId}`);
     const title = safeFilename(design?.title, `MakerWorld model ${normalizedId}`);
+    const existingSourceKeys = new Set(
+      Array.isArray(options.existingSourceKeys)
+        ? options.existingSourceKeys.filter(key => typeof key === "string")
+        : []
+    );
+    const profileDelayMs = Number.isFinite(options.profileDelayMs)
+      ? Math.max(0, Number(options.profileDelayMs))
+      : 1_200;
     const warnings = [];
     const instances = Array.isArray(design?.instances) ? [...design.instances] : [];
     try {
@@ -169,16 +187,25 @@
     }
 
     const assets = [];
-    try {
-      const rawModel = await fetchJson(`/design/${normalizedId}/model`);
-      assets.push(...collectSignedEntries(
-        rawModel,
-        `design:${normalizedId}:model`,
-        `${title} source files.zip`
-      ));
-    } catch (error) {
-      if (error.code === "makerworld_sign_in_required") throw error;
-      warnings.push(`Raw source bundle: ${error.message}`);
+    const rawFiles = design?.designExtension?.model_files
+      ?? design?.designExtension?.modelFiles
+      ?? [];
+    const rawSourceKey = `design:${normalizedId}:model`;
+    const needsRawModel = Array.isArray(rawFiles)
+      && rawFiles.length > 0
+      && !hasExistingSource(existingSourceKeys, rawSourceKey);
+    if (needsRawModel) {
+      try {
+        const rawModel = await fetchJson(`/design/${normalizedId}/model`);
+        assets.push(...collectSignedEntries(
+          rawModel,
+          rawSourceKey,
+          `${title} source files.zip`
+        ));
+      } catch (error) {
+        if (error.code === "makerworld_sign_in_required") throw error;
+        warnings.push(`Raw source bundle: ${error.message}`);
+      }
     }
 
     const uniqueInstances = [];
@@ -190,7 +217,10 @@
       uniqueInstances.push({ id, value: instance });
     }
 
-    for (const [index, entry] of uniqueInstances.entries()) {
+    const pendingInstances = uniqueInstances.filter(entry =>
+      !hasExistingSource(existingSourceKeys, `instance:${entry.id}`)
+    );
+    for (const [index, entry] of pendingInstances.entries()) {
       const name = instanceName(entry.value, entry.id);
       try {
         const profile = await fetchJson(`/instance/${entry.id}/f3mf`, {
@@ -212,8 +242,8 @@
         if (error.code === "makerworld_sign_in_required") throw error;
         warnings.push(`${name}: ${error.message}`);
       }
-      if (index < uniqueInstances.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 150));
+      if (index < pendingInstances.length - 1 && profileDelayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, profileDelayMs));
       }
     }
 
@@ -226,13 +256,14 @@
       seenKeys.add(sourceKey);
       uniqueAssets.push({ ...asset, source_key: sourceKey });
     }
-    if (uniqueAssets.length === 0) {
+    const upToDate = !needsRawModel && pendingInstances.length === 0;
+    if (uniqueAssets.length === 0 && !upToDate) {
       throw new MakerWorldBridgeError(
         "makerworld_no_files",
         "MakerWorld did not provide any signed model-file URLs."
       );
     }
-    return { designId: normalizedId, assets: uniqueAssets, warnings };
+    return { designId: normalizedId, assets: uniqueAssets, warnings, upToDate };
   }
 
   globalThis.WorkshopMakerWorldClient = {

@@ -294,6 +294,7 @@ export interface MakerWorldBridgeStart extends MakerWorldBridgeJob {
   design_id: string;
   source_url: string;
   submit_path: string;
+  existing_source_keys: string[];
 }
 
 export const STATUS_LABELS: Record<ProjectStatus, string> = {

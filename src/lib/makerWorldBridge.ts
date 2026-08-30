@@ -8,6 +8,7 @@ export interface MakerWorldBridgeRequest {
   sourceUrl: string;
   submitUrl: string;
   token: string;
+  existingSourceKeys: string[];
 }
 
 export interface MakerWorldBridgeResult {

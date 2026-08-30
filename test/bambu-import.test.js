@@ -475,6 +475,7 @@ test('MakerWorld bridge consumes signed URLs once without persisting them', asyn
       { method: 'POST' },
     );
     const repeatJob = await repeatStart.json();
+    assert.deepEqual(repeatJob.existing_source_keys, ['instance:456']);
     const repeatSubmit = await request(repeatJob.submit_path, {
       auth: false,
       method: 'POST',

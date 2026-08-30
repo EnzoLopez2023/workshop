@@ -535,6 +535,11 @@ function buildStmts(db) {
     SELECT id FROM bambu_assets
     WHERE bambu_project_id = ? AND source_key = ?
   `),
+  listBambuSourceKeys: db.prepare(`
+    SELECT source_key FROM bambu_assets
+    WHERE bambu_project_id = ? AND source_key IS NOT NULL
+    ORDER BY source_key
+  `),
   deleteBambuAsset: db.prepare(`DELETE FROM bambu_assets WHERE id = ?`),
   bambuStorageUsage: db.prepare(`
     SELECT COALESCE(SUM(size_bytes), 0) AS total_bytes
@@ -3934,6 +3939,9 @@ app.post(
       design_id: job.designId,
       source_url: job.sourceUrl,
       submit_path: `/api/extensions/makerworld-import/${job.id}`,
+      existing_source_keys: req.stmts.listBambuSourceKeys
+        .all(projectId)
+        .map(row => row.source_key),
     });
   }
 );

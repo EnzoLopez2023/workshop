@@ -2,13 +2,16 @@ const extensionApi = globalThis.browser ?? globalThis.chrome;
 
 extensionApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "WORKSHOP_MAKERWORLD_COLLECT") return false;
-  globalThis.WorkshopMakerWorldClient.collect(message.designId)
+  globalThis.WorkshopMakerWorldClient.collect(message.designId, {
+    existingSourceKeys: message.existingSourceKeys,
+  })
     .then(result => {
       sendResponse({
         ok: true,
         designId: result.designId,
         assets: result.assets,
         warnings: result.warnings,
+        upToDate: result.upToDate,
       });
     })
     .catch(error => {
