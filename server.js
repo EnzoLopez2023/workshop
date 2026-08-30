@@ -2221,16 +2221,18 @@ function normalizeMakerWorldBridgeManifest(body, job) {
   if (String(body?.design_id ?? '') !== job.designId) {
     throw apiError('MakerWorld design does not match this Workshop project');
   }
-  if (!Array.isArray(body?.assets) || body.assets.length === 0) {
+  const submittedAssets = Array.isArray(body?.assets) ? body.assets : [];
+  const upToDate = body?.up_to_date === true;
+  if (submittedAssets.length === 0 && !upToDate) {
     throw apiError('MakerWorld returned no downloadable files');
   }
-  if (body.assets.length > MAKERWORLD_BRIDGE_MAX_ASSETS) {
+  if (submittedAssets.length > MAKERWORLD_BRIDGE_MAX_ASSETS) {
     throw apiError(`MakerWorld returned more than ${MAKERWORLD_BRIDGE_MAX_ASSETS} files`);
   }
 
   const seen = new Set();
   const assets = [];
-  for (const [index, item] of body.assets.entries()) {
+  for (const [index, item] of submittedAssets.entries()) {
     const sourceKey = typeof item?.source_key === 'string' ? item.source_key.trim() : '';
     if (!/^(?:instance|design):[a-zA-Z0-9:_-]{1,120}$/.test(sourceKey)) {
       throw apiError(`MakerWorld file ${index + 1} has an invalid source key`);
@@ -2264,7 +2266,9 @@ function normalizeMakerWorldBridgeManifest(body, job) {
       allowedHosts: MAKERWORLD_ASSET_HOSTS,
     });
   }
-  if (assets.length === 0) throw apiError('MakerWorld returned no unique downloadable files');
+  if (assets.length === 0 && !upToDate) {
+    throw apiError('MakerWorld returned no unique downloadable files');
+  }
   const warnings = Array.isArray(body?.warnings)
     ? body.warnings
         .filter(value => typeof value === 'string')
@@ -2272,7 +2276,7 @@ function normalizeMakerWorldBridgeManifest(body, job) {
         .filter(Boolean)
         .slice(0, 20)
     : [];
-  return { assets, warnings };
+  return { assets, warnings, upToDate };
 }
 
 async function processMakerWorldBridgeJob(
@@ -2333,9 +2337,14 @@ async function processMakerWorldBridgeJob(
     const preservedWarnings = parseJsonArray(project.import_warnings).filter(warning =>
       !/^MakerWorld requires sign-in\b/i.test(warning)
       && !/^Automatic MakerWorld import\b/i.test(warning)
+      && !/^Raw source bundle:/i.test(warning)
+      && !/^Complete print-profile list:/i.test(warning)
+      && !/:\s*MakerWorld (?:requested|returned|temporarily rate-limited|did not provide)\b/i.test(warning)
     );
     const bridgeWarnings = [
-      ...job.extensionWarnings,
+      ...job.extensionWarnings
+        .filter(warning => !/^Raw source bundle:\s*MakerWorld returned 404\.?$/i.test(warning))
+        .map(warning => `Automatic MakerWorld import: ${warning}`),
       ...(failures.length > 0
         ? [`Automatic MakerWorld import could not download ${failures.length} file${failures.length === 1 ? '' : 's'}: ${failures.join('; ')}`]
         : []),

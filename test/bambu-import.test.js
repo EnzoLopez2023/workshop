@@ -505,6 +505,39 @@ test('MakerWorld bridge consumes signed URLs once without persisting them', asyn
     assert.equal(repeated.imported_count, 0);
     assert.equal(repeated.skipped_count, 1);
     assert.equal(signedFetches, 1);
+
+    entry.stmts.saveBambuImportWarnings.run({
+      id: projectId,
+      warnings: JSON.stringify([
+        'Raw source bundle: MakerWorld returned 404.',
+        'Phone stand: MakerWorld requested a verification challenge.',
+        'Pen holder: MakerWorld temporarily rate-limited this profile.',
+      ]),
+    });
+    const cleanupStart = await request(
+      `/api/bambu-projects/${projectId}/makerworld-bridge-jobs`,
+      { method: 'POST' },
+    );
+    const cleanupJob = await cleanupStart.json();
+    const cleanupSubmit = await request(cleanupJob.submit_path, {
+      auth: false,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: cleanupJob.token,
+        design_id: '123',
+        assets: [],
+        warnings: [],
+        up_to_date: true,
+      }),
+    });
+    assert.equal(cleanupSubmit.status, 202);
+    const cleaned = await waitForBridgeJob(projectId, cleanupJob.id);
+    assert.equal(cleaned.status, 'complete');
+    assert.deepEqual(
+      JSON.parse(entry.stmts.getBambuProject.get(projectId).import_warnings),
+      [],
+    );
   } finally {
     globalThis.fetch = realFetch;
   }

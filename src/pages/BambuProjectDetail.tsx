@@ -172,11 +172,9 @@ export default function BambuProjectDetail() {
         existingSourceKeys: job.existing_source_keys,
       });
       if (bridgeRunRef.current !== runId) return;
-      if (bridgeResult.status === 'up_to_date') {
-        setBridgeStatus('All MakerWorld profile files are already stored in this project.');
-        return;
-      }
-      setBridgeStatus('MakerWorld authorized the files. Workshop is downloading them privately…');
+      setBridgeStatus(bridgeResult.status === 'reconciling'
+        ? 'All files are present. Workshop is clearing resolved import notices…'
+        : 'MakerWorld authorized the files. Workshop is downloading them privately…');
 
       const deadline = Date.now() + (6 * 60 * 60 * 1_000);
       while (Date.now() < deadline) {

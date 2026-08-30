@@ -142,19 +142,6 @@ async function runImport(payload, workshopTabId) {
     error.code = collected.code;
     throw error;
   }
-  if (collected.upToDate || collected.assets.length === 0) {
-    await tabsRemove(tab.id).catch(() => {});
-    if (workshopTabId != null) {
-      await tabsUpdate(workshopTabId, { active: true }).catch(() => {});
-    }
-    return {
-      ok: true,
-      status: "up_to_date",
-      assetCount: 0,
-      warnings: collected.warnings ?? [],
-    };
-  }
-
   const response = await fetch(submitUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -163,6 +150,7 @@ async function runImport(payload, workshopTabId) {
       design_id: String(payload.designId),
       assets: collected.assets,
       warnings: collected.warnings ?? [],
+      up_to_date: collected.upToDate === true,
     }),
   });
   const result = await response.json().catch(() => ({}));
@@ -174,7 +162,7 @@ async function runImport(payload, workshopTabId) {
   }
   return {
     ok: true,
-    status: result.status,
+    status: collected.upToDate ? "reconciling" : result.status,
     assetCount: collected.assets.length,
     warnings: collected.warnings ?? [],
   };

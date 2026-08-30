@@ -124,6 +124,7 @@ test('bridge protocol never requests or relays MakerWorld credentials', async ()
   assert.doesNotMatch(background, /chrome\.cookies|browser\.cookies|password|refreshToken|accessToken/);
   assert.match(background, /token: payload\.token/);
   assert.match(background, /assets: collected\.assets/);
+  assert.match(background, /up_to_date: collected\.upToDate === true/);
   assert.match(workshop, /WORKSHOP_MAKERWORLD_BRIDGE_READY/);
   assert.match(makerworld, /WorkshopMakerWorldClient\.collect/);
   assert.doesNotMatch(generator, /rm\s+-rf/);
