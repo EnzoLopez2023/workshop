@@ -8,7 +8,7 @@ const readSource = path => readFile(new URL(`../${path}`, import.meta.url), 'utf
 test('Safari bridge requests only the hosts and permissions needed for handoff', async () => {
   const manifest = JSON.parse(await readSource('extensions/makerworld-bridge/manifest.json'));
   assert.equal(manifest.manifest_version, 3);
-  assert.deepEqual(manifest.permissions, ['tabs']);
+  assert.deepEqual(manifest.permissions, ['scripting', 'tabs']);
   assert.equal(manifest.permissions.includes('cookies'), false);
   assert.equal(manifest.permissions.includes('downloads'), false);
   assert.ok(manifest.host_permissions.includes('https://makerworld.com/*'));
@@ -125,6 +125,8 @@ test('bridge protocol never requests or relays MakerWorld credentials', async ()
   assert.match(background, /token: payload\.token/);
   assert.match(background, /assets: collected\.assets/);
   assert.match(background, /up_to_date: collected\.upToDate === true/);
+  assert.match(background, /Always Allow on makerworld\.com/);
+  assert.match(background, /executeScripts\(tabId, \["makerworld-client\.js", "content-makerworld\.js"\]\)/);
   assert.match(workshop, /WORKSHOP_MAKERWORLD_BRIDGE_READY/);
   assert.match(makerworld, /WorkshopMakerWorldClient\.collect/);
   assert.doesNotMatch(generator, /rm\s+-rf/);

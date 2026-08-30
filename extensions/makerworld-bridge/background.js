@@ -64,6 +64,19 @@ function tabsSendMessage(tabId, message) {
   });
 }
 
+function executeScripts(tabId, files) {
+  if (!extensionApi.scripting?.executeScript) return Promise.resolve();
+  const injection = { target: { tabId }, files };
+  if (globalThis.browser) return extensionApi.scripting.executeScript(injection);
+  return new Promise((resolve, reject) => {
+    extensionApi.scripting.executeScript(injection, result => {
+      const error = runtimeError();
+      if (error) reject(new Error(error));
+      else resolve(result);
+    });
+  });
+}
+
 function isMakerWorldUrl(rawUrl) {
   try {
     const host = new URL(rawUrl).hostname.toLowerCase().replace(/^www\./, "");
@@ -112,6 +125,17 @@ async function makerWorldTab(sourceUrl) {
 }
 
 async function collectFromTab(tabId, payload) {
+  try {
+    await executeScripts(tabId, ["makerworld-client.js", "content-makerworld.js"]);
+  } catch {
+    const error = new Error(
+      "Safari has not allowed Workshop MakerWorld Bridge on makerworld.com. " +
+      "In the MakerWorld tab, click the bridge toolbar icon and choose Always Allow on makerworld.com, then retry."
+    );
+    error.code = "makerworld_site_access_required";
+    throw error;
+  }
+
   let lastError;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
@@ -126,7 +150,13 @@ async function collectFromTab(tabId, payload) {
     }
     await new Promise(resolve => setTimeout(resolve, 400));
   }
-  throw lastError ?? new Error("The MakerWorld bridge did not load in the tab.");
+  const error = new Error(
+    "The MakerWorld bridge did not load in the tab. " +
+    "In the MakerWorld tab, click the bridge toolbar icon and choose Always Allow on makerworld.com, then retry."
+  );
+  error.code = "makerworld_site_access_required";
+  error.cause = lastError;
+  throw error;
 }
 
 async function runImport(payload, workshopTabId) {
