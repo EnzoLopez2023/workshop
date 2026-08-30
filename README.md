@@ -1,6 +1,6 @@
 # The Workshop — Project Companion
 
-A browser-native woodworking project companion built around a Living Plan Table. Capture ideas, plan cut lists, track materials and costs, log build progress, record finishes, and import projects directly from Shaper Tools Hub — with optional AI-assisted parsing, per-user storage, and a read-only demo.
+A browser-native woodworking project companion built around a Living Plan Table. Capture ideas, plan cut lists, track materials and costs, log build progress, record finishes, and import projects from Shaper Tools Hub or public 3D-model libraries — with optional AI-assisted parsing, per-user storage, and a read-only demo.
 
 ---
 
@@ -18,6 +18,7 @@ A browser-native woodworking project companion built around a Living Plan Table.
 | **Project templates** | Save any project as a reusable template; clone it with one click |
 | **Shopping list** | Cross-project view of all unpurchased materials, grouped by project |
 | **Shaper Hub import** | Paste a Shaper Tools Hub share URL — AI extracts title, description, materials, instructions, and all project photos |
+| **Bambu Hub import** | Paste a MakerWorld, Thingiverse, or Printables URL — preserve attribution, copy public source images, locally store accessible STL/3MF/CAD files, and upload protected originals manually |
 | **AI URL analysis** | Analyze any inspiration URL to pre-fill a new project's fields (title, description, difficulty, wood types, cut list, materials) |
 | **Unit conversions** | Live millimeter/inch converter plus exact decimal, fractional, and millimeter reference tables |
 | **Image gallery** | Upload sketches and inspiration photos per project; PDF plans supported; hero image shown on project cards |
@@ -312,7 +313,7 @@ Except for the documented health/image exemptions and Apple sign-in exchange, ro
 
 The account is derived only from the verified Bearer token; the endpoint accepts no user identifier. Success is `200` with `{ "success": true }`. For Apple-backed accounts, the server first revokes every stored Apple refresh token at `/auth/revoke`; provider failure returns `502 { "error": "apple_token_revocation_failed" }` and leaves local data intact for retry. Successful token revocations and local file cleanup are durably checkpointed, so a later retry resumes rather than repeating completed work. Pre-migration Apple accounts without a stored token return `409 { "error": "apple_reauthentication_required" }` and must complete one fresh Apple sign-in. Missing/invalid authentication returns `401`; all other failures also return a non-success `{ "error": "..." }` response.
 
-Successful deletion removes projects, templates, Shaper data, cut/material/shopping data, images/BLOBs, build/finish logs, legacy notebook rows, profile/auth/Apple credential state, and invalidates all Workshop access/refresh tokens issued for that account. Entra users' Workshop data is deleted, but their Microsoft account and Entra grant are not.
+Successful deletion removes projects, templates, Shaper and Bambu data, downloaded 3D assets, cut/material/shopping data, images/BLOBs, build/finish logs, legacy notebook rows, profile/auth/Apple credential state, and invalidates all Workshop access/refresh tokens issued for that account. Entra users' Workshop data is deleted, but their Microsoft account and Entra grant are not.
 
 ### Projects
 
@@ -407,6 +408,26 @@ Successful deletion removes projects, templates, Shaper data, cut/material/shopp
 | `POST` | `/api/shaper-projects/:id/images` | Upload file or register URL as project image |
 | `POST` | `/api/shaper-projects/:id/cut-list` | Add a cut list part |
 
+### Bambu Hub projects
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/bambu-projects` | List 3D projects with local image/file counts |
+| `GET` | `/api/bambu-projects/:id` | Full metadata, durable import warnings, and locally stored assets |
+| `POST` | `/api/bambu-projects/analyze-url` | Inspect a supported public model URL and return its metadata and file manifest |
+| `POST` | `/api/bambu-projects` | Create the project and stream every accessible public image/model file into per-user storage |
+| `PUT` | `/api/bambu-projects/:id` | Update metadata for the same source model |
+| `DELETE` | `/api/bambu-projects/:id` | Delete the project and locally stored assets |
+| `POST` | `/api/bambu-projects/:id/assets` | Authenticated manual model/CAD/archive upload |
+| `GET` | `/api/bambu-assets/:id/image` | Serve a saved image through the existing user-key media contract |
+| `GET` | `/api/bambu-assets/:id` | Authenticated model/attachment download |
+| `DELETE` | `/api/bambu-assets/:id` | Delete one locally stored asset |
+| `GET` | `/api/provider-connections` | Return provider status only; never returns tokens |
+| `PUT` | `/api/provider-connections/thingiverse` | Validate and encrypt a write-only official Thingiverse token |
+| `DELETE` | `/api/provider-connections/thingiverse` | Remove the account’s Thingiverse token |
+
+Printables currently supports anonymous metadata and file links. MakerWorld permits anonymous metadata/images but requires sign-in for original model files; Workshop never stores MakerWorld credentials or cookies, so download those originals and use **Add files**. Thingiverse accepts an official token from Settings, encrypted per user and never returned to a client; optional `THINGIVERSE_APP_TOKEN` remains a server-wide alternative. Workshop persists provider limitations and individual download failures instead of silently omitting them. Imports are capped at 40 MB per image, 250 MB per file, 1 GB per project, and 5 GB per account.
+
 ---
 
 ## Local Docker
@@ -431,7 +452,7 @@ Production is deployed by `.github/workflows/deploy.yml` to Azure App Service. T
 
 ### Environment variables in Docker
 
-Pass secrets via the `.env` file (excluded from the image by `.dockerignore`). The compose file forwards `AZURE_HOME_TENANT_ID`, `API_AUDIENCE`, `ALLOWED_OID`, and `ANTHROPIC_API_KEY` explicitly.
+Pass secrets via the `.env` file (excluded from the image by `.dockerignore`). `THINGIVERSE_APP_TOKEN` is an optional server-wide connection; `PROVIDER_TOKEN_ENCRYPTION_KEY` is an optional dedicated per-user token key and otherwise derives from `SESSION_SECRET`. Never use a personal browser cookie.
 
 ---
 

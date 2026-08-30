@@ -116,13 +116,16 @@ test('remaining routes retain paths, titles, redirect behavior, and lazy failure
   ]);
   assert.equal(routeTitleForPath('/notebook/new'), 'New Notebook Page · Workshop');
   assert.equal(routeTitleForPath('/projects/42/edit'), 'Edit Project · Workshop');
+  assert.equal(routeTitleForPath('/bambu/42/edit'), 'Edit Bambu Project · Workshop');
   assert.equal(routeTitleForPath('/unknown'), 'Workshop · Project Companion');
   assert.match(app, /const NotebookPage = lazy\(\(\) => import\('\.\/pages\/NotebookPage'\)\)/);
+  assert.match(app, /const BambuProjectDetail = lazy\(\(\) => import\('\.\/pages\/BambuProjectDetail'\)\)/);
   assert.match(app, /<Suspense fallback=\{<RouteLoading \/>\}>/);
   assert.match(app, /<ErrorBoundary key=\{location\.pathname\}>/);
   assert.match(app, /<Route path="\*"[\s\S]*<Navigate to="\/" replace \/>/);
   assert.match(app, /document\.title = routeTitleForPath\(location\.pathname\)/);
   assert.match(navigation, /'\/notebook\/:id'/);
+  assert.match(navigation, /'\/bambu\/:id'/);
   assert.match(errorBoundary, /Workshop could not open this page/);
 });
 

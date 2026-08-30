@@ -197,6 +197,85 @@ export interface ShaperAnalysisResult {
   image_urls?: string[];
 }
 
+// ── Bambu Hub Projects ────────────────────────────────────────────────────────
+
+export type BambuSourceSite = 'makerworld' | 'thingiverse' | 'printables';
+export type BambuAssetKind = 'image' | 'model' | 'file';
+
+export interface BambuAsset {
+  id: number;
+  bambu_project_id: number;
+  kind: BambuAssetKind;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  original_url: string;
+  sort_order: number;
+}
+
+export interface BambuProject {
+  id: number;
+  title: string;
+  source_url: string;
+  source_site: BambuSourceSite;
+  source_model_id: string | null;
+  description: string | null;
+  creator_name: string | null;
+  license_name: string | null;
+  import_warnings: string[];
+  /** Detail endpoint only — the list response omits these. */
+  assets?: BambuAsset[];
+  image_count: number;
+  file_count: number;
+  hero_asset_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BambuProjectPayload {
+  title: string;
+  source_url: string;
+  description: string | null;
+  creator_name: string | null;
+  license_name: string | null;
+}
+
+export interface BambuAnalysisFile {
+  filename: string;
+  kind: Exclude<BambuAssetKind, 'image'>;
+}
+
+export interface BambuAnalysisResult {
+  source_site: BambuSourceSite;
+  source_model_id: string | null;
+  title: string;
+  description: string;
+  creator_name: string | null;
+  license_name: string | null;
+  preview_image_url: string | null;
+  image_count: number;
+  file_count: number;
+  files: BambuAnalysisFile[];
+  warnings: string[];
+}
+
+export interface BambuImportResult {
+  project: BambuProject;
+  warnings: string[];
+}
+
+export type ThingiverseConnectionSource = 'account' | 'server' | 'none';
+
+export interface ThingiverseConnectionStatus {
+  connected: boolean;
+  source: ThingiverseConnectionSource;
+  storage_configured: boolean;
+}
+
+export interface ProviderConnections {
+  thingiverse: ThingiverseConnectionStatus;
+}
+
 export const STATUS_LABELS: Record<ProjectStatus, string> = {
   idea: 'Idea',
   planning: 'Planning',

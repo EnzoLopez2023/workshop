@@ -3,6 +3,7 @@ import { useMsal } from '@azure/msal-react';
 import {
   ArrowRight,
   BookOpen,
+  Box,
   Check,
   ClipboardList,
   Cpu,
@@ -39,6 +40,7 @@ const CONNECTED_TOOLS = [
   { icon: <ShoppingCart size={18} />, title: 'Shopping List', copy: 'Materials grouped by the project that needs them.' },
   { icon: <BookOpen size={18} />, title: 'Notebook', copy: 'A browser editor connected to the Workshop notebook in Tabloom.' },
   { icon: <Cpu size={18} />, title: 'Shaper Hub', copy: 'A separate project context for Origin references, parts, and instructions.' },
+  { icon: <Box size={18} />, title: 'Bambu Hub', copy: '3D model pages, source images, and accessible print files saved together.' },
   { icon: <Ruler size={18} />, title: 'Conversion Tables', copy: 'Exact millimeter, decimal-inch, and fractional references.' },
 ];
 

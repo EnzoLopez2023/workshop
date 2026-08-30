@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react';
-import { Cpu, Hammer, Plus } from 'lucide-react';
+import { Box, Cpu, Hammer, Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
   DASHBOARD_PAGE_STORAGE_KEY,
@@ -49,6 +49,13 @@ export function CreateProjectMenu({
         >
           <Cpu size={18} aria-hidden="true" />
           <span><strong>Shaper Hub project</strong><small>Import CNC parts and instructions</small></span>
+        </Link>
+        <Link
+          to="/bambu/new"
+          onClick={event => selectProjectType(event, 'bambu')}
+        >
+          <Box size={18} aria-hidden="true" />
+          <span><strong>Bambu Hub project</strong><small>Import 3D files and source images</small></span>
         </Link>
       </div>
     </details>

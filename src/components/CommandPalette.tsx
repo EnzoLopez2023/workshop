@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   Search, LayoutDashboard, Plus, ShoppingCart, Ruler,
-  BookOpen, Settings, Hammer, Cpu,
+  BookOpen, Settings, Hammer, Cpu, Box,
 } from 'lucide-react';
 import { listProjects } from '../services/api';
 import type { ProjectListItem } from '../types/project';
@@ -149,6 +149,7 @@ export default function CommandPalette({ open, onClose, returnFocusTo }: Props) 
                   <PaletteItem icon={<Ruler size={15} />} label="Conversions" onSelect={() => go('/conversions')} />
                   <PaletteItem icon={<BookOpen size={15} />} label="Notebook" onSelect={() => go('/notebook')} />
                   <PaletteItem icon={<Cpu size={15} />} label="Add Shaper Hub Project" onSelect={() => go('/shaper/new')} />
+                  <PaletteItem icon={<Box size={15} />} label="Add Bambu Hub Project" onSelect={() => go('/bambu/new')} />
                   <PaletteItem icon={<Settings size={15} />} label="Settings" onSelect={() => go('/settings')} />
                 </PaletteGroup>
 

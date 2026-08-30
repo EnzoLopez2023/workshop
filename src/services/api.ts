@@ -5,6 +5,8 @@ import type {
   ProjectListItem, ProjectDetail, ProjectFormPayload,
   CutListItem, Material, AnalyzedProject,
   ShaperProject, ShaperProjectPayload, ShaperAnalysisResult,
+  BambuAsset, BambuProject, BambuProjectPayload, BambuAnalysisResult, BambuImportResult,
+  ProviderConnections, ThingiverseConnectionStatus,
   BuildLogEntry, FinishLogEntry, ShoppingListItem, TemplateListItem,
 } from '../types/project';
 
@@ -218,6 +220,89 @@ export const uploadShaperImage = async (
 
 export const addShaperCutItem = (shaperProjectId: number, item: Partial<CutListItem>) =>
   request<{ id: number }>(`/shaper-projects/${shaperProjectId}/cut-list`, json('POST', item));
+
+// ── Bambu Hub Projects ────────────────────────────────────────────────────────
+
+export const listBambuProjects = () =>
+  request<BambuProject[]>('/bambu-projects');
+export const getBambuProject = (id: number) =>
+  request<BambuProject>(`/bambu-projects/${id}`);
+export const analyzeBambuUrl = (url: string) =>
+  request<BambuAnalysisResult>('/bambu-projects/analyze-url', json('POST', { url }));
+export const createBambuProject = (project: BambuProjectPayload) =>
+  request<BambuImportResult>('/bambu-projects', json('POST', project));
+export const updateBambuProject = (id: number, project: BambuProjectPayload) =>
+  request<BambuProject>(`/bambu-projects/${id}`, json('PUT', project));
+export const deleteBambuProject = (id: number) =>
+  request<{ success: boolean }>(`/bambu-projects/${id}`, { method: 'DELETE' });
+
+export const bambuAssetUrl = (id: number) => {
+  const userKey = currentUserKey();
+  return userKey
+    ? `${BASE}/bambu-assets/${id}/image?userKey=${encodeURIComponent(userKey)}`
+    : `${BASE}/bambu-assets/${id}/image`;
+};
+
+export const fetchBambuAsset = async (id: number): Promise<Blob> => {
+  const demo = isDemoMode();
+  const auth = demo ? { 'X-Demo': '1' } : await authHeaders();
+  const response = await fetch(`${BASE}/bambu-assets/${id}`, { headers: auth });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.error ?? response.statusText);
+  }
+  return response.blob();
+};
+
+export const uploadBambuAsset = async (
+  bambuProjectId: number,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<BambuAsset> => {
+  blockIfDemo();
+  const auth = await authHeaders();
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE}/bambu-projects/${bambuProjectId}/assets`);
+    for (const [key, value] of Object.entries(auth)) xhr.setRequestHeader(key, value);
+    if (onProgress) {
+      xhr.upload.onprogress = event => {
+        if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText) as BambuAsset);
+      } else {
+        let message = xhr.statusText;
+        try { message = JSON.parse(xhr.responseText).error ?? message; } catch { /* response is not JSON */ }
+        reject(new Error(message));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload failed'));
+    xhr.send(form);
+  });
+};
+
+export const deleteBambuAsset = (id: number) =>
+  request<{ success: boolean }>(`/bambu-assets/${id}`, { method: 'DELETE' });
+
+// ── Provider connections ──────────────────────────────────────────────────────
+
+export const getProviderConnections = () =>
+  request<ProviderConnections>('/provider-connections');
+export const saveThingiverseToken = (token: string) =>
+  request<ThingiverseConnectionStatus>(
+    '/provider-connections/thingiverse',
+    json('PUT', { token }),
+  );
+export const disconnectThingiverse = () =>
+  request<ThingiverseConnectionStatus>(
+    '/provider-connections/thingiverse',
+    { method: 'DELETE' },
+  );
 
 // ── Build log ─────────────────────────────────────────────────────────────────
 

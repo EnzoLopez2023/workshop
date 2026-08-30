@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight,
+  Box,
   Boxes,
   Clock3,
   Copy,
@@ -16,11 +17,13 @@ import {
   cloneTemplate,
   deleteTemplate,
   imageUrl,
+  listBambuProjects,
   listProjects,
   listShaperProjects,
   listTemplates,
 } from '../services/api';
 import type {
+  BambuProject,
   ProjectListItem,
   ShaperProject,
   TemplateListItem,
@@ -31,6 +34,7 @@ import {
   type DashboardPage,
 } from '../navigation';
 import ProjectCard from '../components/ProjectCard';
+import BambuProjectCard from '../components/BambuProjectCard';
 import ShaperProjectCard from '../components/ShaperProjectCard';
 import StatusBadge from '../components/StatusBadge';
 import { ProjectCardSkeleton } from '../components/Skeleton';
@@ -45,6 +49,7 @@ import {
 import { CreateProjectMenu } from '../components/workflows';
 import {
   filterProjects,
+  filterBambuProjects,
   filterShaperProjects,
   PROJECT_NEXT_ACTION,
   PROJECT_STATUS_ORDER,
@@ -57,7 +62,23 @@ import { useSettings } from '../contexts/SettingsContext';
 const DASHBOARD_PAGES = [
   { value: 'projects', label: 'Projects' },
   { value: 'shaper', label: 'Shaper Hub' },
+  { value: 'bambu', label: 'Bambu Hub' },
 ] as const;
+
+const PAGE_HEADERS: Record<DashboardPage, { title: string; description: string }> = {
+  projects: {
+    title: 'Projects',
+    description: 'Move one idea from plan to materials, cuts, shopping, and build log.',
+  },
+  shaper: {
+    title: 'Shaper Hub',
+    description: 'Keep CNC references, stock, parts, and instructions together without mixing project types.',
+  },
+  bambu: {
+    title: 'Bambu Hub',
+    description: 'Keep 3D model sources, reference images, and locally saved print files together.',
+  },
+};
 
 const FILTERS: { key: ProjectStatusFilter; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -82,12 +103,14 @@ export default function Dashboard() {
   );
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [shaperProjects, setShaperProjects] = useState<ShaperProject[]>([]);
+  const [bambuProjects, setBambuProjects] = useState<BambuProject[]>([]);
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<ProjectStatusFilter>('all');
   const [projectSearch, setProjectSearch] = useState('');
   const [shaperSearch, setShaperSearch] = useState('');
+  const [bambuSearch, setBambuSearch] = useState('');
   const [cloningId, setCloningId] = useState<number | null>(null);
   const [confirmDeleteTemplateId, setConfirmDeleteTemplateId] = useState<number | null>(null);
 
@@ -95,13 +118,15 @@ export default function Dashboard() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [nextProjects, nextShaperProjects, nextTemplates] = await Promise.all([
+      const [nextProjects, nextShaperProjects, nextBambuProjects, nextTemplates] = await Promise.all([
         listProjects(),
         listShaperProjects(),
+        listBambuProjects(),
         listTemplates(),
       ]);
       setProjects(nextProjects);
       setShaperProjects(nextShaperProjects);
+      setBambuProjects(nextBambuProjects);
       setTemplates(nextTemplates);
     } catch (error) {
       console.error('Dashboard load failed', error);
@@ -167,6 +192,10 @@ export default function Dashboard() {
     () => filterShaperProjects(shaperProjects, shaperSearch),
     [shaperProjects, shaperSearch],
   );
+  const filteredBambuProjects = useMemo(
+    () => filterBambuProjects(bambuProjects, bambuSearch),
+    [bambuProjects, bambuSearch],
+  );
   const focusProject = useMemo(
     () => selectFocusProject(
       settings.showCompletedByDefault
@@ -179,10 +208,8 @@ export default function Dashboard() {
   return (
     <PageFrame>
       <PageHeader
-        title={page === 'projects' ? 'Projects' : 'Shaper Hub'}
-        description={page === 'projects'
-          ? 'Move one idea from plan to materials, cuts, shopping, and build log.'
-          : 'Keep CNC references, stock, parts, and instructions together without mixing project types.'}
+        title={PAGE_HEADERS[page].title}
+        description={PAGE_HEADERS[page].description}
         actions={<CreateProjectMenu align="end" />}
       />
 
@@ -261,7 +288,7 @@ export default function Dashboard() {
 
           <InspirationSection />
         </>
-      ) : (
+      ) : page === 'shaper' ? (
         <section className="shaper-dashboard" aria-labelledby="shaper-library-title">
           <div className="dashboard-tools">
             <label className="search-field">
@@ -298,6 +325,48 @@ export default function Dashboard() {
                   project={project}
                   to={`/shaper/${project.id}`}
                   onOpen={() => setPage('shaper')}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      ) : (
+        <section className="bambu-dashboard" aria-labelledby="bambu-library-title">
+          <div className="dashboard-tools">
+            <label className="search-field">
+              <Search size={18} aria-hidden="true" />
+              <span className="sr-only">Search Bambu Hub projects</span>
+              <input
+                value={bambuSearch}
+                onChange={event => setBambuSearch(event.target.value)}
+                placeholder="Search 3D projects, creators, or sources"
+              />
+            </label>
+          </div>
+          <SectionRail
+            title={<span id="bambu-library-title"><Box size={16} aria-hidden="true" /> Bambu Hub library</span>}
+            count={loading ? '—' : filteredBambuProjects.length}
+          />
+          {loading ? (
+            <ProjectGridSkeleton />
+          ) : filteredBambuProjects.length === 0 ? (
+            <StatePanel
+              title={bambuProjects.length === 0 ? 'No 3D projects yet' : 'No matching 3D projects'}
+              description={bambuProjects.length === 0
+                ? 'Import a MakerWorld, Thingiverse, or Printables URL to save its public images and downloadable model files.'
+                : 'Change the search to bring projects back into view.'}
+              action={bambuProjects.length === 0
+                ? <Button variant="primary" onClick={() => navigate('/bambu/new')}>New Bambu project</Button>
+                : undefined}
+            />
+          ) : (
+            <div className="project-library-grid">
+              {filteredBambuProjects.map(project => (
+                <BambuProjectCard
+                  key={project.id}
+                  project={project}
+                  to={`/bambu/${project.id}`}
+                  onOpen={() => setPage('bambu')}
                 />
               ))}
             </div>

@@ -16,7 +16,7 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     compactLabel: 'Projects',
     href: '/',
     exact: true,
-    matchPrefixes: ['/projects', '/shaper'],
+    matchPrefixes: ['/projects', '/shaper', '/bambu'],
   },
   {
     id: 'shopping',
@@ -56,6 +56,9 @@ export const APP_ROUTE_PATHS = [
   '/shaper/new',
   '/shaper/:id',
   '/shaper/:id/edit',
+  '/bambu/new',
+  '/bambu/:id',
+  '/bambu/:id/edit',
   '/conversions',
   '/shopping-list',
   '/notebook',
@@ -71,6 +74,9 @@ export function routeTitleForPath(pathname: string): string {
   if (pathname === '/shaper/new') return 'New Shaper Project · Workshop';
   if (/^\/shaper\/[^/]+\/edit$/.test(pathname)) return 'Edit Shaper Project · Workshop';
   if (/^\/shaper\/[^/]+$/.test(pathname)) return 'Shaper Project · Workshop';
+  if (pathname === '/bambu/new') return 'New Bambu Project · Workshop';
+  if (/^\/bambu\/[^/]+\/edit$/.test(pathname)) return 'Edit Bambu Project · Workshop';
+  if (/^\/bambu\/[^/]+$/.test(pathname)) return 'Bambu Project · Workshop';
   if (pathname === '/conversions') return 'Conversion Tables · Workshop';
   if (pathname === '/shopping-list') return 'Shopping List · Workshop';
   if (pathname === '/notebook') return 'Notebook · Workshop';
@@ -85,16 +91,17 @@ export function isNavigationItemCurrent(item: NavigationItem, pathname: string):
   return item.matchPrefixes.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-export type DashboardPage = 'projects' | 'shaper';
+export type DashboardPage = 'projects' | 'shaper' | 'bambu';
 
 export const DASHBOARD_PAGE_STORAGE_KEY = 'workshop-dashboard-page';
 
 export function readDashboardPage(value: string | null): DashboardPage {
-  return value === 'shaper' ? 'shaper' : 'projects';
+  return value === 'shaper' || value === 'bambu' ? value : 'projects';
 }
 
 export function dashboardPageForPath(pathname: string): DashboardPage | null {
   if (pathname === '/shaper' || pathname.startsWith('/shaper/')) return 'shaper';
+  if (pathname === '/bambu' || pathname.startsWith('/bambu/')) return 'bambu';
   if (pathname === '/projects' || pathname.startsWith('/projects/')) return 'projects';
   return null;
 }

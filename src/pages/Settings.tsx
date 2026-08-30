@@ -1,15 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
   ArrowLeft,
   Check,
+  Cable,
   Download,
+  KeyRound,
   LogIn,
   LogOut,
   Monitor,
   Paintbrush,
   Settings2,
   Trash2,
+  Unplug,
   UserRound,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -17,7 +20,14 @@ import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/u
 import { useTheme, type Theme } from '../contexts/ThemeContext';
 import { ACCENT_PRESETS, useSettings, type AccentColor } from '../contexts/SettingsContext';
 import { exitDemoMode, isDemoMode } from '../demo/demoMode';
-import { deleteAccount, listProjects } from '../services/api';
+import {
+  deleteAccount,
+  disconnectThingiverse,
+  getProviderConnections,
+  listProjects,
+  saveThingiverseToken,
+} from '../services/api';
+import type { ThingiverseConnectionStatus } from '../types/project';
 
 const THEME_OPTIONS = [
   { value: 'light', label: 'Light' },
@@ -42,6 +52,59 @@ export default function Settings() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [thingiverse, setThingiverse] = useState<ThingiverseConnectionStatus | null>(null);
+  const [thingiverseToken, setThingiverseToken] = useState('');
+  const [connectionLoading, setConnectionLoading] = useState(!demo);
+  const [connectionSaving, setConnectionSaving] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('');
+  const [connectionError, setConnectionError] = useState('');
+
+  useEffect(() => {
+    if (demo) return;
+    getProviderConnections()
+      .then(result => setThingiverse(result.thingiverse))
+      .catch(error => {
+        console.error('Provider connections load failed', error);
+        setConnectionError('Workshop could not load provider connections. Try reloading Settings.');
+      })
+      .finally(() => setConnectionLoading(false));
+  }, [demo]);
+
+  const handleSaveThingiverse = async () => {
+    if (!thingiverseToken.trim() || connectionSaving) return;
+    setConnectionSaving(true);
+    setConnectionError('');
+    setConnectionStatus('');
+    try {
+      const status = await saveThingiverseToken(thingiverseToken.trim());
+      setThingiverse(status);
+      setThingiverseToken('');
+      setConnectionStatus('Thingiverse is connected for this Workshop account.');
+    } catch (error) {
+      setConnectionError(error instanceof Error ? error.message : 'Thingiverse could not be connected.');
+    } finally {
+      setConnectionSaving(false);
+    }
+  };
+
+  const handleDisconnectThingiverse = async () => {
+    if (connectionSaving) return;
+    setConnectionSaving(true);
+    setConnectionError('');
+    setConnectionStatus('');
+    try {
+      const status = await disconnectThingiverse();
+      setThingiverse(status);
+      setThingiverseToken('');
+      setConnectionStatus(status.source === 'server'
+        ? 'Your account token was removed. Workshop is using the server connection.'
+        : 'Thingiverse was disconnected from this Workshop account.');
+    } catch (error) {
+      setConnectionError(error instanceof Error ? error.message : 'Thingiverse could not be disconnected.');
+    } finally {
+      setConnectionSaving(false);
+    }
+  };
 
   const handleExportJson = async () => {
     if (exporting) return;
@@ -116,7 +179,7 @@ export default function Settings() {
 
       <PageHeader
         title="Settings"
-        description="Appearance, project defaults, local preferences, and account controls for this browser."
+        description="Appearance, project defaults, provider connections, and account controls."
       />
 
       <SettingsGroup
@@ -171,6 +234,63 @@ export default function Settings() {
           />
         </SettingsRow>
       </SettingsGroup>
+
+      {!demo && (
+        <SettingsGroup
+          icon={<Cable size={18} aria-hidden="true" />}
+          title="Provider connections"
+          description="Use official provider tokens for imports that require API authentication."
+        >
+          <SettingsRow
+            label="Thingiverse"
+            description={thingiverseDescription(thingiverse, connectionLoading)}
+          >
+            <div className="settings-connection-control">
+              <span className={`settings-connection-state ${thingiverse?.connected ? 'is-connected' : ''}`}>
+                {connectionLoading
+                  ? 'Checking…'
+                  : thingiverse?.source === 'account'
+                    ? 'Account token'
+                    : thingiverse?.source === 'server'
+                      ? 'Server connection'
+                      : 'Not connected'}
+              </span>
+              {thingiverse?.storage_configured !== false && (
+                <div className="settings-token-entry">
+                  <input
+                    type="password"
+                    name="thingiverse-token"
+                    autoComplete="off"
+                    value={thingiverseToken}
+                    onChange={event => setThingiverseToken(event.target.value)}
+                    placeholder={thingiverse?.source === 'account' ? 'Replace official token' : 'Official API token'}
+                    aria-label="Thingiverse API token"
+                    disabled={connectionLoading || connectionSaving}
+                  />
+                  <Button
+                    onClick={() => void handleSaveThingiverse()}
+                    disabled={connectionLoading || connectionSaving || !thingiverseToken.trim()}
+                  >
+                    <KeyRound size={16} aria-hidden="true" />
+                    {connectionSaving ? 'Saving…' : 'Connect'}
+                  </Button>
+                </div>
+              )}
+              {thingiverse?.source === 'account' && (
+                <Button
+                  variant="ghost"
+                  onClick={() => void handleDisconnectThingiverse()}
+                  disabled={connectionSaving}
+                >
+                  <Unplug size={16} aria-hidden="true" /> Disconnect account token
+                </Button>
+              )}
+            </div>
+          </SettingsRow>
+          {connectionStatus && <p className="settings-status" role="status">{connectionStatus}</p>}
+          {connectionError && <p className="settings-connection-error" role="alert">{connectionError}</p>}
+        </SettingsGroup>
+      )}
 
       <SettingsGroup
         icon={<Settings2 size={18} aria-hidden="true" />}
@@ -269,8 +389,9 @@ export default function Settings() {
             <div>
               <strong>Delete account</strong>
               <p>
-                Permanently removes Workshop projects, photos, lists, Shaper projects,
-                templates, and account data. This cannot be undone.
+                Permanently removes Workshop projects, photos, lists, Shaper and Bambu
+                projects, downloaded files, provider tokens, templates, and account data.
+                This cannot be undone.
               </p>
             </div>
             {confirmDelete ? (
@@ -301,6 +422,26 @@ export default function Settings() {
       </footer>
     </PageFrame>
   );
+}
+
+function thingiverseDescription(
+  status: ThingiverseConnectionStatus | null,
+  loading: boolean,
+) {
+  if (loading) return 'Checking the shared Workshop backend.';
+  if (!status) return 'Connection status is unavailable.';
+  if (status.source === 'server') {
+    return status.storage_configured
+      ? 'Thingiverse imports are available through the shared server connection.'
+      : 'Thingiverse imports use the shared server connection; personal token storage is unavailable.';
+  }
+  if (!status.storage_configured) {
+    return 'Encrypted token storage is not configured on the Workshop server.';
+  }
+  if (status.source === 'account') {
+    return 'Your official token is encrypted per account and is never returned to this browser.';
+  }
+  return 'Connect an official Thingiverse API token to import complete metadata, images, and files.';
 }
 
 function SettingsGroup({

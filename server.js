@@ -2,10 +2,21 @@ import express from 'express';
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename, extname, resolve } from 'path';
-import { mkdirSync, unlink, unlinkSync, existsSync, renameSync, copyFileSync, readdirSync } from 'fs';
-import { unlink as unlinkAsync } from 'fs/promises';
+import {
+  createWriteStream,
+  mkdirSync,
+  unlink,
+  unlinkSync,
+  existsSync,
+  renameSync,
+  copyFileSync,
+  readdirSync,
+} from 'fs';
+import { open as openFile, unlink as unlinkAsync } from 'fs/promises';
 import { lookup as dnsLookup } from 'dns/promises';
 import { isIP } from 'net';
+import { Readable, Transform } from 'stream';
+import { pipeline } from 'stream/promises';
 import {
   randomUUID,
   randomBytes,
@@ -29,6 +40,7 @@ const __dirname  = dirname(__filename);
 const PORT         = process.env.PORT         ?? 3006;
 const DB_PATH      = process.env.DB_PATH      ?? join(__dirname, 'workshop.db');
 const UPLOADS_PATH = process.env.UPLOADS_PATH ?? join(__dirname, 'uploads');
+const THINGIVERSE_APP_TOKEN = process.env.THINGIVERSE_APP_TOKEN || '';
 
 mkdirSync(UPLOADS_PATH, { recursive: true });
 
@@ -234,6 +246,41 @@ db.exec(`
     updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS bambu_projects (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    title           TEXT NOT NULL DEFAULT '',
+    source_url      TEXT NOT NULL,
+    source_site     TEXT NOT NULL,
+    source_model_id TEXT,
+    description     TEXT,
+    creator_name    TEXT,
+    license_name    TEXT,
+    import_warnings TEXT NOT NULL DEFAULT '[]',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS bambu_assets (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    bambu_project_id INTEGER NOT NULL REFERENCES bambu_projects(id) ON DELETE CASCADE,
+    kind             TEXT NOT NULL CHECK (kind IN ('image', 'model', 'file')),
+    filename         TEXT NOT NULL,
+    content_type     TEXT NOT NULL DEFAULT 'application/octet-stream',
+    size_bytes       INTEGER NOT NULL DEFAULT 0,
+    original_url     TEXT NOT NULL,
+    file_path        TEXT,
+    sort_order       INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_bambu_assets_project
+    ON bambu_assets(bambu_project_id, kind, sort_order, id);
+
+  CREATE TABLE IF NOT EXISTS provider_credentials (
+    provider       TEXT PRIMARY KEY CHECK (provider IN ('thingiverse')),
+    token_enc      TEXT NOT NULL,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS notebook_pages (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     title      TEXT NOT NULL DEFAULT 'Untitled',
@@ -287,6 +334,13 @@ db.exec(`
     filename              TEXT PRIMARY KEY
   );
 `);
+
+const bambuProjectCols = new Set(
+  db.prepare(`PRAGMA table_info(bambu_projects)`).all().map(column => column.name)
+);
+if (!bambuProjectCols.has('import_warnings')) {
+  db.exec(`ALTER TABLE bambu_projects ADD COLUMN import_warnings TEXT NOT NULL DEFAULT '[]'`);
+}
 
 db.prepare(`
   INSERT OR IGNORE INTO auth_state (id, session_generation, accept_legacy_tokens)
@@ -407,6 +461,87 @@ function buildStmts(db) {
     ORDER BY sort_order, id LIMIT 1
   `),
 
+  // ── Bambu Hub ────────────────────────────────────────────────────────────────
+  listBambuProjects: db.prepare(`
+    SELECT b.*,
+      (SELECT COUNT(*) FROM bambu_assets a
+        WHERE a.bambu_project_id = b.id AND a.kind = 'image' AND a.file_path IS NOT NULL) AS image_count,
+      (SELECT COUNT(*) FROM bambu_assets a
+        WHERE a.bambu_project_id = b.id AND a.kind != 'image' AND a.file_path IS NOT NULL) AS file_count,
+      (SELECT a.id FROM bambu_assets a
+        WHERE a.bambu_project_id = b.id AND a.kind = 'image' AND a.file_path IS NOT NULL
+        ORDER BY a.sort_order, a.id LIMIT 1) AS hero_asset_id
+    FROM bambu_projects b
+    ORDER BY b.updated_at DESC
+  `),
+  getBambuProject: db.prepare(`SELECT * FROM bambu_projects WHERE id = ?`),
+  insertBambuProject: db.prepare(`
+    INSERT INTO bambu_projects (
+      title, source_url, source_site, source_model_id,
+      description, creator_name, license_name
+    ) VALUES (
+      @title, @source_url, @source_site, @source_model_id,
+      @description, @creator_name, @license_name
+    )
+  `),
+  updateBambuProject: db.prepare(`
+    UPDATE bambu_projects SET
+      title = @title,
+      source_url = @source_url,
+      description = @description,
+      creator_name = @creator_name,
+      license_name = @license_name,
+      updated_at = datetime('now')
+    WHERE id = @id
+  `),
+  deleteBambuProject: db.prepare(`DELETE FROM bambu_projects WHERE id = ?`),
+  touchBambuProject: db.prepare(`
+    UPDATE bambu_projects SET updated_at = datetime('now') WHERE id = ?
+  `),
+  saveBambuImportWarnings: db.prepare(`
+    UPDATE bambu_projects
+    SET import_warnings = @warnings, updated_at = datetime('now')
+    WHERE id = @id
+  `),
+  listBambuAssets: db.prepare(`
+    SELECT id, bambu_project_id, kind, filename, content_type,
+      size_bytes, original_url, sort_order
+    FROM bambu_assets
+    WHERE bambu_project_id = ? AND file_path IS NOT NULL
+    ORDER BY sort_order, id
+  `),
+  getBambuAsset: db.prepare(`SELECT * FROM bambu_assets WHERE id = ?`),
+  deleteBambuAsset: db.prepare(`DELETE FROM bambu_assets WHERE id = ?`),
+  bambuStorageUsage: db.prepare(`
+    SELECT COALESCE(SUM(size_bytes), 0) AS total_bytes
+    FROM bambu_assets
+    WHERE file_path IS NOT NULL
+  `),
+  insertBambuAsset: db.prepare(`
+    INSERT INTO bambu_assets (
+      bambu_project_id, kind, filename, content_type,
+      size_bytes, original_url, file_path, sort_order
+    ) VALUES (
+      @bambu_project_id, @kind, @filename, @content_type,
+      @size_bytes, @original_url, @file_path, @sort_order
+    )
+  `),
+  getProviderCredential: db.prepare(`
+    SELECT provider, token_enc, created_at, updated_at
+    FROM provider_credentials
+    WHERE provider = ?
+  `),
+  upsertProviderCredential: db.prepare(`
+    INSERT INTO provider_credentials (provider, token_enc)
+    VALUES (@provider, @token_enc)
+    ON CONFLICT(provider) DO UPDATE SET
+      token_enc = excluded.token_enc,
+      updated_at = datetime('now')
+  `),
+  deleteProviderCredential: db.prepare(`
+    DELETE FROM provider_credentials WHERE provider = ?
+  `),
+
   getCutPlanConfig:  db.prepare(`SELECT cut_plan_config FROM projects WHERE id = ?`),
   saveCutPlanConfig: db.prepare(`UPDATE projects SET cut_plan_config = @config WHERE id = @id`),
 
@@ -494,6 +629,7 @@ function buildStmts(db) {
 const dbHandles = new Map();   // user key → { db, stmts }
 const activeUserRequests = new Map();
 const deletingUserKeys = new Set();
+const bambuRequestLocks = new Map();
 let accountDeletionLock = Promise.resolve();
 
 const userDbPath = (userKey) => join(USERS_DIR, `${userKey}.db`);
@@ -574,6 +710,35 @@ function getExistingUserDb(userKey) {
   return openUserDb(userKey);
 }
 
+function serializeBambuRequest(req, res, next) {
+  const userKey = req.user?.userKey;
+  if (!userKey) return next();
+
+  const previous = bambuRequestLocks.get(userKey) ?? Promise.resolve();
+  let release;
+  const gate = new Promise(resolveLock => { release = resolveLock; });
+  const tail = previous.then(() => gate);
+  bambuRequestLocks.set(userKey, tail);
+
+  previous.then(() => {
+    if (res.destroyed) {
+      release();
+      if (bambuRequestLocks.get(userKey) === tail) bambuRequestLocks.delete(userKey);
+      return;
+    }
+    let released = false;
+    const done = () => {
+      if (released) return;
+      released = true;
+      release();
+      if (bambuRequestLocks.get(userKey) === tail) bambuRequestLocks.delete(userKey);
+    };
+    res.once('finish', done);
+    res.once('close', done);
+    next();
+  }).catch(next);
+}
+
 // Demo mode reads the shared starter snapshot; writes are blocked upstream.
 let demoEntry = null;
 function getDemoDb() {
@@ -624,6 +789,12 @@ function collectAccountUploadReferences(db) {
     addRows(
       'build_log_entries',
       db.prepare(`SELECT file_path FROM build_log_entries WHERE file_path IS NOT NULL ORDER BY id`).all()
+    );
+  }
+  if (tables.has('bambu_assets') && hasFilePathColumn('bambu_assets')) {
+    addRows(
+      'bambu_assets',
+      db.prepare(`SELECT file_path FROM bambu_assets WHERE file_path IS NOT NULL ORDER BY id`).all()
     );
   }
   return references;
@@ -705,12 +876,17 @@ async function deleteAccountData(userKey) {
     const clearBuildLogImage = entry.db.prepare(`
       UPDATE build_log_entries SET file_path = NULL WHERE file_path = ?
     `);
+    const clearBambuAsset = entry.db.prepare(`
+      UPDATE bambu_assets SET file_path = NULL WHERE file_path = ?
+    `);
 
     for (const filename of cleanup.filenames) enqueue.run(filename);
     for (const reference of cleanup.references) {
       const clear = reference.table === 'project_images'
         ? clearProjectImage
-        : clearBuildLogImage;
+        : reference.table === 'build_log_entries'
+          ? clearBuildLogImage
+          : clearBambuAsset;
       clear.run(reference.filePath);
     }
   })();
@@ -804,16 +980,36 @@ const extractJsonLd = (html) => {
 
 // ── File upload (multer — disk storage) ──────────────────────────────────────
 
+const uploadStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOADS_PATH),
+  filename: (_req, file, cb) => {
+    cb(null, `${randomUUID()}${extensionForStoredAsset(file.originalname)}`);
+  },
+});
+
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, UPLOADS_PATH),
-    filename: (_req, file, cb) => {
-      const ext = extname(file.originalname).toLowerCase();
-      cb(null, `${randomUUID()}${ext}`);
-    },
-  }),
+  storage: uploadStorage,
   limits: { fileSize: 200 * 1024 * 1024 },
 });
+
+const bambuUpload = multer({
+  storage: uploadStorage,
+  limits: { fileSize: 250 * 1024 * 1024, files: 1 },
+});
+
+function receiveBambuUpload(req, res, next) {
+  bambuUpload.single('file')(req, res, error => {
+    if (!error) return next();
+    const status = error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE'
+      ? 413
+      : 400;
+    return res.status(status).json({
+      error: status === 413
+        ? 'File exceeds the 250 MB upload limit'
+        : 'Workshop could not read that uploaded file',
+    });
+  });
+}
 
 // Server-side MIME sniffing. The client-supplied req.file.mimetype is not
 // trustworthy — an HTML file uploaded as image/jpeg would otherwise be served
@@ -971,6 +1167,822 @@ const htmlToPlainText = (html) => {
     .trim();
 };
 
+// ── Bambu Hub provider import ─────────────────────────────────────────────────
+
+const BAMBU_IMPORT_USER_AGENT = 'Workshop/0.1 (+https://github.com/EnzoLopez2023/workshop)';
+const BAMBU_MAX_JSON_BYTES = 10 * 1024 * 1024;
+const BAMBU_MAX_IMAGE_BYTES = 40 * 1024 * 1024;
+const BAMBU_MAX_FILE_BYTES = 250 * 1024 * 1024;
+const BAMBU_MAX_PROJECT_BYTES = 1024 * 1024 * 1024;
+const BAMBU_MAX_USER_BYTES = 5 * 1024 * 1024 * 1024;
+const BAMBU_MAX_REDIRECTS = 5;
+const BAMBU_DOWNLOAD_TIMEOUT_MS = 120_000;
+
+const MAKERWORLD_API_HOSTS = ['api.bambulab.com'];
+const MAKERWORLD_ASSET_HOSTS = ['.bblmw.com'];
+const PRINTABLES_API_HOSTS = ['api.printables.com'];
+const PRINTABLES_IMAGE_HOSTS = ['media.printables.com'];
+const PRINTABLES_FILE_HOSTS = ['files.printables.com'];
+const THINGIVERSE_PAGE_HOSTS = ['www.thingiverse.com'];
+const THINGIVERSE_API_HOSTS = ['api.thingiverse.com'];
+const THINGIVERSE_ASSET_HOSTS = [
+  '.thingiverse.com',
+  'thingiverse-production-new.s3.amazonaws.com',
+];
+
+const BAMBU_MODEL_EXTENSIONS = new Set([
+  '.3mf', '.amf', '.blend', '.dwg', '.dxf', '.f3d', '.fbx', '.gcode',
+  '.iges', '.igs', '.obj', '.ply', '.scad', '.step', '.stl', '.stp',
+]);
+
+function hostMatchesAllowlist(hostname, allowedHosts) {
+  const host = hostname.toLowerCase();
+  return allowedHosts.some(pattern =>
+    pattern.startsWith('.')
+      ? host.endsWith(pattern) && host.length > pattern.length
+      : host === pattern
+  );
+}
+
+function apiError(message, status = 400) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function cleanImportedText(value, maxLength) {
+  if (typeof value !== 'string') return '';
+  return htmlToPlainText(value).replace(/\u0000/g, '').trim().slice(0, maxLength);
+}
+
+function safeDecodeURIComponent(value) {
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
+function sanitizeAssetFilename(value, fallback = 'download') {
+  const decoded = safeDecodeURIComponent(String(value || ''));
+  const leaf = decoded.split(/[\\/]/).pop() ?? '';
+  const cleaned = leaf
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return fallback;
+  if (cleaned.length <= 180) return cleaned;
+  const extension = extname(cleaned).slice(0, 16);
+  return `${cleaned.slice(0, Math.max(1, 180 - extension.length))}${extension}`;
+}
+
+function filenameFromUrl(rawUrl, fallback) {
+  try {
+    const leaf = new URL(rawUrl).pathname.split('/').pop();
+    return sanitizeAssetFilename(leaf, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function bambuAssetKind(filename, fallback = 'file') {
+  const extension = extname(filename).toLowerCase();
+  return BAMBU_MODEL_EXTENSIONS.has(extension) ? 'model' : fallback;
+}
+
+function parseBambuSourceUrl(rawUrl) {
+  let url;
+  try { url = new URL(String(rawUrl)); } catch { throw apiError('Enter a valid model URL.'); }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw apiError('Only HTTP and HTTPS model URLs are supported.');
+  }
+  if (url.username || url.password || (url.port && url.port !== '443' && url.port !== '80')) {
+    throw apiError('Model URLs cannot contain credentials or custom ports.');
+  }
+  url.protocol = 'https:';
+  url.port = '';
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+
+  if (host === 'makerworld.com') {
+    const match = url.pathname.match(/^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?models\/(\d+)(?:-[^/]*)?\/?$/i);
+    if (!match) throw apiError('Enter a MakerWorld model URL.');
+    const profileMatch = url.hash.match(/profileId[-=](\d+)/i);
+    url.hostname = 'makerworld.com';
+    return {
+      site: 'makerworld',
+      modelId: match[1],
+      profileId: profileMatch?.[1] ?? null,
+      sourceUrl: url.href,
+    };
+  }
+
+  if (host === 'printables.com') {
+    const match = url.pathname.match(/^\/model\/(\d+)(?:-[^/]*)?(?:\/files)?\/?$/i);
+    if (!match) throw apiError('Enter a Printables model URL.');
+    url.hostname = 'www.printables.com';
+    url.pathname = url.pathname.replace(/\/files\/?$/i, '').replace(/\/$/, '');
+    url.hash = '';
+    url.search = '';
+    return { site: 'printables', modelId: match[1], profileId: null, sourceUrl: url.href };
+  }
+
+  if (host === 'thingiverse.com') {
+    const match = url.pathname.match(/^\/thing:(\d+)(?:\/files)?\/?$/i);
+    if (!match) throw apiError('Enter a Thingiverse thing URL.');
+    return {
+      site: 'thingiverse',
+      modelId: match[1],
+      profileId: null,
+      sourceUrl: `https://www.thingiverse.com/thing:${match[1]}`,
+    };
+  }
+
+  throw apiError('Use a MakerWorld, Thingiverse, or Printables model URL.');
+}
+
+async function openPublicResponse(rawUrl, options = {}, redirectCount = 0) {
+  let url;
+  try { url = new URL(rawUrl); } catch { throw new Error('invalid asset url'); }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+    throw new Error('disallowed asset url');
+  }
+  if (!Array.isArray(options.allowedHosts) || !hostMatchesAllowlist(url.hostname, options.allowedHosts)) {
+    throw new Error('provider redirected to an untrusted host');
+  }
+  await assertHostIsPublic(url.hostname);
+
+  const headers = new Headers(options.headers);
+  if (!headers.has('User-Agent')) headers.set('User-Agent', BAMBU_IMPORT_USER_AGENT);
+  const response = await fetch(url, {
+    method: options.method ?? 'GET',
+    headers,
+    body: options.body,
+    redirect: 'manual',
+    signal: AbortSignal.timeout(options.timeoutMs ?? FETCH_TIMEOUT_MS),
+  });
+
+  if ([301, 302, 303, 307, 308].includes(response.status)) {
+    if (redirectCount >= BAMBU_MAX_REDIRECTS) {
+      await response.body?.cancel();
+      throw new Error('too many redirects');
+    }
+    const location = response.headers.get('location');
+    if (!location) {
+      await response.body?.cancel();
+      throw new Error('redirect missing location');
+    }
+    const nextUrl = new URL(location, url);
+    const nextHeaders = new Headers(headers);
+    if (nextUrl.origin !== url.origin) {
+      nextHeaders.delete('Authorization');
+      nextHeaders.delete('Cookie');
+    }
+    const switchToGet = response.status === 303
+      || ((response.status === 301 || response.status === 302) && options.method === 'POST');
+    await response.body?.cancel();
+    return openPublicResponse(nextUrl.href, {
+      ...options,
+      method: switchToGet ? 'GET' : options.method,
+      body: switchToGet ? undefined : options.body,
+      headers: nextHeaders,
+    }, redirectCount + 1);
+  }
+  return response;
+}
+
+async function readResponseBuffer(response, maxBytes) {
+  if (!response.body) return Buffer.alloc(0);
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    await response.body.cancel();
+    throw new Error('response too large');
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error('response too large');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
+async function fetchPublicJson(rawUrl, options = {}) {
+  const headers = new Headers(options.headers);
+  headers.set('Accept', 'application/json');
+  const response = await openPublicResponse(rawUrl, { ...options, headers });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`provider returned ${response.status}`);
+  }
+  const buffer = await readResponseBuffer(response, BAMBU_MAX_JSON_BYTES);
+  try { return JSON.parse(buffer.toString('utf8')); }
+  catch { throw new Error('provider returned invalid JSON'); }
+}
+
+async function fetchPublicText(rawUrl, allowedHosts) {
+  const response = await openPublicResponse(rawUrl, {
+    headers: { Accept: 'text/html,application/xhtml+xml' },
+    allowedHosts,
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`provider returned ${response.status}`);
+  }
+  return (await readResponseBuffer(response, MAX_RESPONSE_BYTES)).toString('utf8');
+}
+
+function collectHtmlImages(html, baseUrl) {
+  if (typeof html !== 'string') return [];
+  const urls = [];
+  const regex = /<img[^>]+src=["']([^"']+)["']/gi;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    try {
+      const url = new URL(decodeEntities(match[1]), baseUrl);
+      if (['http:', 'https:'].includes(url.protocol)) urls.push(url.href);
+    } catch { /* skip malformed image URLs */ }
+  }
+  return urls;
+}
+
+function dedupeDownloadAssets(assets) {
+  const seen = new Set();
+  return assets.filter(asset => {
+    const key = asset.downloadUrl
+      ? `url:${asset.downloadUrl}`
+      : `missing:${asset.providerKey ?? asset.filename}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function flattenMakerWorldFiles(entries, result = []) {
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (Array.isArray(entry?.children) && entry.children.length > 0) {
+      flattenMakerWorldFiles(entry.children, result);
+      continue;
+    }
+    const filename = sanitizeAssetFilename(entry?.modelName || entry?.modelFileName, 'MakerWorld file');
+    result.push({
+      kind: bambuAssetKind(filename),
+      filename,
+      declaredSize: Number(entry?.modelSize) || null,
+      downloadUrl: typeof entry?.modelUrl === 'string' && entry.modelUrl.startsWith('http')
+        ? entry.modelUrl
+        : null,
+      originalUrl: typeof entry?.modelUrl === 'string' && entry.modelUrl.startsWith('http')
+        ? entry.modelUrl
+        : null,
+      providerKey: `makerworld-file:${entry?.unikey || filename}`,
+      allowedHosts: MAKERWORLD_ASSET_HOSTS,
+    });
+  }
+  return result;
+}
+
+async function inspectMakerWorld(source) {
+  const design = await fetchPublicJson(
+    `https://api.bambulab.com/v1/design-service/design/${source.modelId}`,
+    { allowedHosts: MAKERWORLD_API_HOSTS }
+  );
+  if (!design || String(design.id) !== source.modelId) {
+    throw apiError('MakerWorld did not return that model.', 502);
+  }
+
+  const imageCandidates = [];
+  let skippedExternalImages = 0;
+  const addImage = (url, filename) => {
+    if (typeof url !== 'string' || !url.startsWith('http')) return;
+    try {
+      if (!hostMatchesAllowlist(new URL(url).hostname, MAKERWORLD_ASSET_HOSTS)) {
+        skippedExternalImages += 1;
+        return;
+      }
+    } catch {
+      return;
+    }
+    imageCandidates.push({
+      kind: 'image',
+      filename: sanitizeAssetFilename(filename || filenameFromUrl(url, 'MakerWorld image')),
+      downloadUrl: url,
+      originalUrl: url,
+      declaredSize: null,
+      allowedHosts: MAKERWORLD_ASSET_HOSTS,
+    });
+  };
+
+  addImage(design.coverUrl, 'cover' + (extname(filenameFromUrl(design.coverUrl, '')) || '.jpg'));
+  for (const image of design.designExtension?.design_pictures ?? []) addImage(image?.url, image?.name);
+  for (const url of collectHtmlImages(design.summary, source.sourceUrl)) addImage(url);
+
+  for (const instance of design.instances ?? []) {
+    addImage(instance?.cover);
+    for (const image of instance?.pictures ?? []) addImage(image?.url, image?.name);
+    const modelInfo = instance?.extention?.modelInfo;
+    for (const plate of modelInfo?.plates ?? []) {
+      addImage(plate?.thumbnail?.url, plate?.thumbnail?.name);
+      addImage(plate?.top_picture?.url, plate?.top_picture?.name);
+      addImage(plate?.pick_picture?.url, plate?.pick_picture?.name);
+    }
+    for (const auxiliary of [
+      ...(modelInfo?.auxiliaryPictures ?? []),
+      ...(modelInfo?.auxiliaryGuide ?? []),
+      ...(modelInfo?.auxiliaryOther ?? []),
+    ]) {
+      addImage(auxiliary?.url, auxiliary?.name);
+    }
+  }
+
+  const files = flattenMakerWorldFiles(design.designExtension?.model_files);
+  for (const instance of design.instances ?? []) {
+    const filename = `${sanitizeAssetFilename(instance?.title, `Print profile ${instance?.id}`)}.3mf`;
+    files.push({
+      kind: 'model',
+      filename,
+      declaredSize: null,
+      downloadUrl: null,
+      originalUrl: null,
+      providerKey: `makerworld-instance:${instance?.id}`,
+      allowedHosts: MAKERWORLD_ASSET_HOSTS,
+    });
+  }
+
+  const missingFiles = files.filter(file => !file.downloadUrl).map(file => file.filename);
+  const warnings = missingFiles.length > 0
+    ? [`MakerWorld requires sign-in to download ${missingFiles.length} original file${missingFiles.length === 1 ? '' : 's'}: ${missingFiles.join(', ')}. Images were imported; download the originals from MakerWorld, then use Add files in this project.`]
+    : [];
+  if (skippedExternalImages > 0) {
+    warnings.push(`Skipped ${skippedExternalImages} image${skippedExternalImages === 1 ? '' : 's'} hosted outside MakerWorld's media service.`);
+  }
+
+  return {
+    sourceSite: 'makerworld',
+    sourceModelId: source.modelId,
+    sourceUrl: source.sourceUrl,
+    title: cleanImportedText(design.title, 300) || `MakerWorld model ${source.modelId}`,
+    description: cleanImportedText(design.summary, 50_000),
+    creatorName: cleanImportedText(design.designCreator?.name || design.designCreator?.handle, 300) || null,
+    licenseName: cleanImportedText(design.license, 300) || null,
+    images: dedupeDownloadAssets(imageCandidates),
+    files: dedupeDownloadAssets(files),
+    warnings,
+  };
+}
+
+const PRINTABLES_MODEL_QUERY = `
+  query ModelDetail($id: ID!) {
+    model: print(id: $id) {
+      id name slug description
+      user { handle publicUsername }
+      license { name }
+      image { filePath }
+      images { filePath }
+      stls { id name fileSize }
+      gcodes { id name fileSize }
+      slas { id name fileSize }
+      otherFiles { id name fileSize }
+    }
+  }
+`;
+
+const PRINTABLES_DOWNLOAD_QUERY = `
+  mutation GetDownloadLink(
+    $printId: ID!,
+    $files: [DownloadFileInput],
+    $source: DownloadSourceEnum!
+  ) {
+    getDownloadLink(printId: $printId, files: $files, source: $source) {
+      ok
+      errors { field messages }
+      output {
+        files { id link fileType }
+      }
+    }
+  }
+`;
+
+async function printablesGraphql(query, variables) {
+  const payload = await fetchPublicJson('https://api.printables.com/graphql/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables }),
+    allowedHosts: PRINTABLES_API_HOSTS,
+  });
+  if (Array.isArray(payload?.errors) && payload.errors.length > 0) {
+    throw new Error(payload.errors.map(error => error?.message).filter(Boolean).join('; ') || 'Printables query failed');
+  }
+  return payload?.data;
+}
+
+async function inspectPrintables(source, includeDownloadUrls) {
+  const data = await printablesGraphql(PRINTABLES_MODEL_QUERY, { id: source.modelId });
+  const model = data?.model;
+  if (!model) throw apiError('Printables did not return that model.', 502);
+
+  const imagePaths = [
+    model.image?.filePath,
+    ...(model.images ?? []).map(image => image?.filePath),
+  ].filter(Boolean);
+  const images = dedupeDownloadAssets(imagePaths.map((filePath, index) => {
+    const url = new URL(filePath, 'https://media.printables.com/').href;
+    return {
+      kind: 'image',
+      filename: filenameFromUrl(url, `Printables image ${index + 1}`),
+      downloadUrl: url,
+      originalUrl: url,
+      declaredSize: null,
+      allowedHosts: PRINTABLES_IMAGE_HOSTS,
+    };
+  }));
+
+  const groups = [
+    ['stls', 'stl'],
+    ['gcodes', 'gcode'],
+    ['slas', 'sla'],
+    ['otherFiles', 'other'],
+  ];
+  const files = [];
+  for (const [field, fileType] of groups) {
+    for (const file of model[field] ?? []) {
+      const filename = sanitizeAssetFilename(file?.name, `Printables file ${file?.id}`);
+      files.push({
+        id: String(file.id),
+        fileType,
+        kind: bambuAssetKind(filename),
+        filename,
+        declaredSize: Number(file?.fileSize) || null,
+        downloadUrl: null,
+        originalUrl: null,
+        providerKey: `printables:${fileType}:${file?.id}`,
+      });
+    }
+  }
+
+  const warnings = [];
+  if (includeDownloadUrls && files.length > 0) {
+    const groupedFiles = groups
+      .map(([, fileType]) => ({
+        ids: files.filter(file => file.fileType === fileType).map(file => file.id),
+        fileType,
+      }))
+      .filter(group => group.ids.length > 0);
+    try {
+      const downloadData = await printablesGraphql(PRINTABLES_DOWNLOAD_QUERY, {
+        printId: source.modelId,
+        files: groupedFiles,
+        source: 'model_detail',
+      });
+      const result = downloadData?.getDownloadLink;
+      if (!result?.ok) {
+        const messages = (result?.errors ?? [])
+          .flatMap(error => error?.messages ?? [])
+          .filter(Boolean);
+        throw new Error(messages.join('; ') || 'Printables did not issue download links');
+      }
+      const linksById = new Map(
+        (result.output?.files ?? []).map(file => [String(file.id), file.link])
+      );
+      for (const file of files) {
+        const link = linksById.get(file.id);
+        if (typeof link === 'string' && link.startsWith('http')) {
+          file.downloadUrl = link;
+          file.originalUrl = link;
+          file.allowedHosts = PRINTABLES_FILE_HOSTS;
+        }
+      }
+      const missing = files.filter(file => !file.downloadUrl);
+      if (missing.length > 0) {
+        warnings.push(`Printables did not provide download links for: ${missing.map(file => file.filename).join(', ')}.`);
+      }
+    } catch (error) {
+      warnings.push(`Printables file links were unavailable: ${error.message}.`);
+    }
+  }
+
+  return {
+    sourceSite: 'printables',
+    sourceModelId: source.modelId,
+    sourceUrl: source.sourceUrl,
+    title: cleanImportedText(model.name, 300) || `Printables model ${source.modelId}`,
+    description: cleanImportedText(model.description, 50_000),
+    creatorName: cleanImportedText(model.user?.publicUsername || model.user?.handle, 300) || null,
+    licenseName: cleanImportedText(model.license?.name, 300) || null,
+    images,
+    files,
+    warnings,
+  };
+}
+
+function thingiverseCreatorName(creator) {
+  if (typeof creator === 'string') return creator;
+  return creator?.name || creator?.public_name || creator?.username || '';
+}
+
+function thingiverseLicenseName(license) {
+  if (typeof license === 'string') return license;
+  return license?.name || license?.title || '';
+}
+
+async function inspectThingiverse(source, thingiverseToken) {
+  if (!thingiverseToken) {
+    let html = '';
+    try {
+      html = await fetchPublicText(source.sourceUrl, THINGIVERSE_PAGE_HOSTS);
+    } catch { /* provider commonly rate-limits anonymous fetches */ }
+    const og = html ? extractOgMeta(html) : {};
+    const images = og.image
+      ? [{
+          kind: 'image',
+          filename: filenameFromUrl(og.image, 'Thingiverse cover'),
+          downloadUrl: og.image,
+          originalUrl: og.image,
+          declaredSize: null,
+          allowedHosts: THINGIVERSE_ASSET_HOSTS,
+        }]
+      : [];
+    return {
+      sourceSite: 'thingiverse',
+      sourceModelId: source.modelId,
+      sourceUrl: source.sourceUrl,
+      title: cleanImportedText(og.title, 300) || `Thingiverse model ${source.modelId}`,
+      description: cleanImportedText(og.description, 50_000),
+      creatorName: null,
+      licenseName: null,
+      images,
+      files: [],
+      warnings: [
+        'Thingiverse requires API authentication for complete metadata, images, and file downloads. Connect an official token in Workshop Settings, or open Thingiverse and download the files manually.',
+      ],
+    };
+  }
+
+  const authHeaders = { Authorization: `Bearer ${thingiverseToken}` };
+  const apiBase = 'https://api.thingiverse.com';
+  let thing;
+  let files;
+  let images;
+  try {
+    [thing, files, images] = await Promise.all([
+      fetchPublicJson(`${apiBase}/things/${source.modelId}`, {
+        headers: authHeaders,
+        allowedHosts: THINGIVERSE_API_HOSTS,
+      }),
+      fetchPublicJson(`${apiBase}/things/${source.modelId}/files`, {
+        headers: authHeaders,
+        allowedHosts: THINGIVERSE_API_HOSTS,
+      }),
+      fetchPublicJson(`${apiBase}/things/${source.modelId}/images`, {
+        headers: authHeaders,
+        allowedHosts: THINGIVERSE_API_HOSTS,
+      }),
+    ]);
+  } catch (error) {
+    throw apiError(`Thingiverse import failed: ${error.message}`, 502);
+  }
+
+  const imageAssets = dedupeDownloadAssets((Array.isArray(images) ? images : []).map((image, index) => {
+    const sizes = Array.isArray(image?.sizes) ? image.sizes : [];
+    const largest = [...sizes].sort((a, b) =>
+      (Number(b?.width) * Number(b?.height)) - (Number(a?.width) * Number(a?.height))
+    )[0];
+    const url = largest?.url || image?.url;
+    if (typeof url !== 'string' || !url.startsWith('http')) return null;
+    return {
+      kind: 'image',
+      filename: filenameFromUrl(url, `Thingiverse image ${index + 1}`),
+      downloadUrl: url,
+      originalUrl: url,
+      declaredSize: null,
+      providerKey: `thingiverse-image:${image?.id || index}`,
+      allowedHosts: THINGIVERSE_ASSET_HOSTS,
+    };
+  }).filter(Boolean));
+
+  const fileAssets = (Array.isArray(files) ? files : []).map(file => {
+    const filename = sanitizeAssetFilename(file?.name, `Thingiverse file ${file?.id}`);
+    const directUrl = [file?.download_url, file?.direct_url]
+      .find(url => typeof url === 'string' && url.startsWith('http'));
+    const downloadUrl = directUrl || `${apiBase}/files/${file.id}/download`;
+    const downloadHost = new URL(downloadUrl).hostname.toLowerCase();
+    return {
+      kind: bambuAssetKind(filename),
+      filename,
+      declaredSize: Number(file?.size) || null,
+      downloadUrl,
+      originalUrl: typeof file?.public_url === 'string' ? file.public_url : downloadUrl,
+      downloadHeaders: downloadHost === 'api.thingiverse.com' ? authHeaders : undefined,
+      providerKey: `thingiverse-file:${file?.id}`,
+      allowedHosts: [...THINGIVERSE_API_HOSTS, ...THINGIVERSE_ASSET_HOSTS],
+    };
+  });
+
+  return {
+    sourceSite: 'thingiverse',
+    sourceModelId: source.modelId,
+    sourceUrl: source.sourceUrl,
+    title: cleanImportedText(thing?.name, 300) || `Thingiverse model ${source.modelId}`,
+    description: cleanImportedText(thing?.description_html || thing?.description, 50_000),
+    creatorName: cleanImportedText(thingiverseCreatorName(thing?.creator), 300) || null,
+    licenseName: cleanImportedText(thingiverseLicenseName(thing?.license), 300) || null,
+    images: imageAssets,
+    files: fileAssets,
+    warnings: [],
+  };
+}
+
+async function inspectBambuSource(
+  rawUrl,
+  {
+    includeDownloadUrls = false,
+    thingiverseToken = THINGIVERSE_APP_TOKEN,
+  } = {}
+) {
+  const source = parseBambuSourceUrl(rawUrl);
+  if (source.site === 'makerworld') return inspectMakerWorld(source);
+  if (source.site === 'printables') return inspectPrintables(source, includeDownloadUrls);
+  return inspectThingiverse(source, thingiverseToken);
+}
+
+function extensionForStoredAsset(filename) {
+  const extension = extname(filename).toLowerCase();
+  return /^\.[a-z0-9]{1,12}$/.test(extension) ? extension : '';
+}
+
+function contentTypeForFilename(filename) {
+  const extension = extname(filename).toLowerCase();
+  const known = {
+    '.3mf': 'model/3mf',
+    '.gcode': 'text/x-gcode',
+    '.obj': 'model/obj',
+    '.pdf': 'application/pdf',
+    '.stl': 'model/stl',
+    '.zip': 'application/zip',
+  };
+  return known[extension] || 'application/octet-stream';
+}
+
+async function fileStartsWithMarkup(filePath) {
+  const handle = await openFile(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(512);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const prefix = buffer.subarray(0, bytesRead).toString('utf8').trimStart().toLowerCase();
+    return prefix.startsWith('<!doctype html')
+      || prefix.startsWith('<html')
+      || prefix.startsWith('<svg')
+      || (prefix.startsWith('<?xml') && prefix.includes('<svg'))
+      || prefix.startsWith('{"error"');
+  } finally {
+    await handle.close();
+  }
+}
+
+async function downloadBambuAsset(asset, importState) {
+  const maxBytes = asset.kind === 'image' ? BAMBU_MAX_IMAGE_BYTES : BAMBU_MAX_FILE_BYTES;
+  if (asset.declaredSize && asset.declaredSize > maxBytes) {
+    throw new Error(`declared size exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB per-file limit`);
+  }
+  if (asset.declaredSize && importState.totalBytes + asset.declaredSize > BAMBU_MAX_PROJECT_BYTES) {
+    throw new Error('project exceeds the 1 GB import limit');
+  }
+  if (asset.declaredSize && importState.userBytes + importState.totalBytes + asset.declaredSize > BAMBU_MAX_USER_BYTES) {
+    throw new Error('Bambu Hub storage exceeds the 5 GB per-account limit');
+  }
+
+  const tempName = `${randomUUID()}.part`;
+  const storedName = `${randomUUID()}${extensionForStoredAsset(asset.filename)}`;
+  const tempPath = join(UPLOADS_PATH, tempName);
+  const storedPath = join(UPLOADS_PATH, storedName);
+
+  try {
+    const response = await openPublicResponse(asset.downloadUrl, {
+      headers: asset.downloadHeaders,
+      timeoutMs: BAMBU_DOWNLOAD_TIMEOUT_MS,
+      allowedHosts: asset.allowedHosts,
+    });
+    if (!response.ok || !response.body) {
+      await response.body?.cancel();
+      throw new Error(`download returned ${response.status}`);
+    }
+
+    const contentLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      await response.body.cancel();
+      throw new Error(`file exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB per-file limit`);
+    }
+    if (Number.isFinite(contentLength) && importState.totalBytes + contentLength > BAMBU_MAX_PROJECT_BYTES) {
+      await response.body.cancel();
+      throw new Error('project exceeds the 1 GB import limit');
+    }
+    if (
+      Number.isFinite(contentLength)
+      && importState.userBytes + importState.totalBytes + contentLength > BAMBU_MAX_USER_BYTES
+    ) {
+      await response.body.cancel();
+      throw new Error('Bambu Hub storage exceeds the 5 GB per-account limit');
+    }
+
+    let sizeBytes = 0;
+    const limiter = new Transform({
+      transform(chunk, _encoding, callback) {
+        sizeBytes += chunk.length;
+        const exceedsFile = sizeBytes > maxBytes;
+        const exceedsProject = importState.totalBytes + sizeBytes > BAMBU_MAX_PROJECT_BYTES;
+        const exceedsUser = importState.userBytes + importState.totalBytes + sizeBytes > BAMBU_MAX_USER_BYTES;
+        if (exceedsFile || exceedsProject || exceedsUser) {
+          callback(new Error(
+            exceedsFile
+              ? `file exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB per-file limit`
+              : exceedsProject
+                ? 'project exceeds the 1 GB import limit'
+                : 'Bambu Hub storage exceeds the 5 GB per-account limit'
+          ));
+          return;
+        }
+        callback(null, chunk);
+      },
+    });
+    await pipeline(
+      Readable.fromWeb(response.body),
+      limiter,
+      createWriteStream(tempPath, { flags: 'wx' })
+    );
+
+    const detected = await fileTypeFromFile(tempPath);
+    const responseType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (asset.kind === 'image') {
+      if (!detected?.mime?.startsWith('image/') || detected.mime === 'image/svg+xml') {
+        throw new Error('provider returned a non-image response');
+      }
+    } else if (
+      responseType === 'text/html'
+      || responseType === 'application/json'
+      || await fileStartsWithMarkup(tempPath)
+    ) {
+      throw new Error('provider returned an error page instead of a model file');
+    }
+
+    const contentType = detected?.mime
+      || (responseType && responseType !== 'application/octet-stream' ? responseType : '')
+      || contentTypeForFilename(asset.filename);
+    renameSync(tempPath, storedPath);
+    importState.totalBytes += sizeBytes;
+    return { filePath: storedName, contentType, sizeBytes };
+  } catch (error) {
+    await unlinkAsync(tempPath).catch(() => {});
+    await unlinkAsync(storedPath).catch(() => {});
+    throw error;
+  }
+}
+
+function bambuAnalysisResponse(inspection) {
+  return {
+    source_site: inspection.sourceSite,
+    source_model_id: inspection.sourceModelId,
+    title: inspection.title,
+    description: inspection.description,
+    creator_name: inspection.creatorName,
+    license_name: inspection.licenseName,
+    preview_image_url: inspection.images[0]?.downloadUrl ?? null,
+    image_count: inspection.images.length,
+    file_count: inspection.files.length,
+    files: inspection.files.map(file => ({ filename: file.filename, kind: file.kind })),
+    warnings: inspection.warnings,
+  };
+}
+
+function hydrateBambuProject(stmts, id, includeAssets = true) {
+  const project = stmts.getBambuProject.get(id);
+  if (!project) return null;
+  const assets = stmts.listBambuAssets.all(id);
+  const images = assets.filter(asset => asset.kind === 'image');
+  const result = {
+    ...project,
+    import_warnings: parseJsonArray(project.import_warnings),
+    image_count: images.length,
+    file_count: assets.length - images.length,
+    hero_asset_id: images[0]?.id ?? null,
+  };
+  return includeAssets ? { ...result, assets } : result;
+}
+
+function publicBambuAsset(asset) {
+  if (!asset) return null;
+  const result = { ...asset };
+  delete result.file_path;
+  return result;
+}
+
+function cleanBambuInput(value, maxLength) {
+  if (typeof value !== 'string') return null;
+  const cleaned = value.replace(/\u0000/g, '').trim().slice(0, maxLength);
+  return cleaned || null;
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -1040,6 +2052,8 @@ function validateEntraScope(payload) {
 const APPLE_BUNDLE_ID       = process.env.APPLE_BUNDLE_ID       || '';  // native app audience
 const APPLE_WEB_SERVICES_ID = process.env.APPLE_WEB_SERVICES_ID || '';  // web Services ID audience (if web Apple sign-in comes later)
 const SESSION_SECRET        = process.env.SESSION_SECRET        || '';  // HMAC key for our session JWTs
+const PROVIDER_TOKEN_ENCRYPTION_SECRET =
+  process.env.PROVIDER_TOKEN_ENCRYPTION_KEY || SESSION_SECRET;
 const APPLE_TEAM_ID          = process.env.APPLE_TEAM_ID          || '';
 const APPLE_KEY_ID           = process.env.APPLE_KEY_ID           || '';
 const APPLE_PRIVATE_KEY      = (process.env.APPLE_PRIVATE_KEY     || '').replace(/\\n/g, '\n');
@@ -1060,6 +2074,12 @@ const SESSION_AUDIENCE = 'workshop-clients';
 const SESSION_KEY = SESSION_SECRET ? createSecretKey(Buffer.from(SESSION_SECRET, 'utf8')) : null;
 const APPLE_TOKEN_KEY = APPLE_TOKEN_ENCRYPTION_SECRET.length >= 32
   ? createHash('sha256').update(APPLE_TOKEN_ENCRYPTION_SECRET, 'utf8').digest()
+  : null;
+const PROVIDER_TOKEN_KEY = PROVIDER_TOKEN_ENCRYPTION_SECRET.length >= 32
+  ? createHash('sha256')
+      .update('workshop-provider-token:', 'utf8')
+      .update(PROVIDER_TOKEN_ENCRYPTION_SECRET, 'utf8')
+      .digest()
   : null;
 const APPLE_SERVER_CREDENTIALS_CONFIGURED = Boolean(
   APPLE_BUNDLE_ID
@@ -1117,6 +2137,97 @@ function decryptAppleRefreshToken(userKey, encrypted) {
     decipher.update(Buffer.from(ciphertextRaw, 'base64url')),
     decipher.final(),
   ]).toString('utf8');
+}
+
+function encryptProviderToken(userKey, provider, token) {
+  if (!PROVIDER_TOKEN_KEY) throw new Error('Provider token encryption is not configured');
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', PROVIDER_TOKEN_KEY, iv);
+  cipher.setAAD(Buffer.from(`${userKey}:${provider}`, 'utf8'));
+  const ciphertext = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `v1:${iv.toString('base64url')}:${tag.toString('base64url')}:${ciphertext.toString('base64url')}`;
+}
+
+function decryptProviderToken(userKey, provider, encrypted) {
+  if (!PROVIDER_TOKEN_KEY) throw new Error('Provider token encryption is not configured');
+  const [version, ivRaw, tagRaw, ciphertextRaw] = String(encrypted).split(':');
+  if (version !== 'v1' || !ivRaw || !tagRaw || !ciphertextRaw) {
+    throw new Error('Stored provider token is invalid');
+  }
+  const decipher = createDecipheriv(
+    'aes-256-gcm',
+    PROVIDER_TOKEN_KEY,
+    Buffer.from(ivRaw, 'base64url')
+  );
+  decipher.setAAD(Buffer.from(`${userKey}:${provider}`, 'utf8'));
+  decipher.setAuthTag(Buffer.from(tagRaw, 'base64url'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextRaw, 'base64url')),
+    decipher.final(),
+  ]).toString('utf8');
+}
+
+function normalizeThingiverseToken(value) {
+  if (typeof value !== 'string') throw apiError('Thingiverse token is required');
+  const token = value.trim().replace(/^Bearer\s+/i, '');
+  if (token.length < 16 || token.length > 4096 || /\s/.test(token)) {
+    throw apiError('Enter a valid Thingiverse API token');
+  }
+  return token;
+}
+
+function thingiverseConnectionStatus(stmts, userKey) {
+  const credential = stmts.getProviderCredential.get('thingiverse');
+  if (credential && PROVIDER_TOKEN_KEY && userKey) {
+    try {
+      decryptProviderToken(userKey, 'thingiverse', credential.token_enc);
+      return {
+        connected: true,
+        source: 'account',
+        storage_configured: true,
+      };
+    } catch {
+      // A rotated encryption key makes the old token unusable; never claim it is connected.
+    }
+  }
+  if (THINGIVERSE_APP_TOKEN) {
+    return {
+      connected: true,
+      source: 'server',
+      storage_configured: Boolean(PROVIDER_TOKEN_KEY),
+    };
+  }
+  return {
+    connected: false,
+    source: 'none',
+    storage_configured: Boolean(PROVIDER_TOKEN_KEY),
+  };
+}
+
+function thingiverseTokenForRequest(req) {
+  const credential = req.stmts.getProviderCredential.get('thingiverse');
+  if (!credential) return THINGIVERSE_APP_TOKEN;
+  try {
+    return decryptProviderToken(req.user.userKey, 'thingiverse', credential.token_enc);
+  } catch (error) {
+    if (THINGIVERSE_APP_TOKEN) return THINGIVERSE_APP_TOKEN;
+    throw apiError('Saved Thingiverse token is unavailable. Reconnect it in Settings.', 500);
+  }
+}
+
+async function validateThingiverseToken(token) {
+  try {
+    await fetchPublicJson('https://api.thingiverse.com/users/me', {
+      headers: { Authorization: `Bearer ${token}` },
+      allowedHosts: THINGIVERSE_API_HOSTS,
+    });
+  } catch (error) {
+    if (/\b(401|403)\b/.test(error.message)) {
+      throw apiError('Thingiverse rejected that token. Check it and try again.');
+    }
+    throw apiError(`Thingiverse could not validate the token: ${error.message}`, 502);
+  }
 }
 
 let applePrivateKeyPromise = null;
@@ -1404,6 +2515,7 @@ function withUserDb(req, res, next) {
 function isExemptPath(path) {
   return path === '/health'
     || /^\/images\/\d+$/.test(path)
+    || /^\/bambu-assets\/\d+\/image$/.test(path)
     || /^\/build-log\/\d+\/image$/.test(path);
 }
 
@@ -1565,6 +2677,15 @@ const aiLimiter = rateLimit({
 });
 app.use(['/api/projects/analyze-url', '/api/shaper-projects/analyze-url'], aiLimiter);
 
+const bambuImportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.userKey ?? ipKeyGenerator(req.ip),
+  message: { error: 'Bambu import rate limit exceeded — try again later' },
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', db: DB_PATH });
 });
@@ -1647,6 +2768,12 @@ function collectProjectFiles(db, projectId) {
 function collectShaperProjectFiles(db, shaperProjectId) {
   const imgs = db.prepare(`SELECT file_path FROM project_images WHERE shaper_project_id = ? AND file_path IS NOT NULL`).all(shaperProjectId);
   return imgs.map(r => r.file_path);
+}
+function collectBambuProjectFiles(db, bambuProjectId) {
+  return db.prepare(`
+    SELECT file_path FROM bambu_assets
+    WHERE bambu_project_id = ? AND file_path IS NOT NULL
+  `).all(bambuProjectId).map(row => row.file_path);
 }
 async function unlinkAll(filenames) {
   await Promise.all(filenames.map(f => unlinkAsync(join(UPLOADS_PATH, basename(f))).catch(() => {})));
@@ -2155,6 +3282,360 @@ app.delete('/api/templates/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ── Provider connections ──────────────────────────────────────────────────────
+
+app.get('/api/provider-connections', (req, res) => {
+  const userKey = req.user?.userKey ?? '';
+  res.json({
+    thingiverse: thingiverseConnectionStatus(req.stmts, userKey),
+  });
+});
+
+app.put('/api/provider-connections/thingiverse', bambuImportLimiter, async (req, res) => {
+  if (!PROVIDER_TOKEN_KEY) {
+    return res.status(503).json({
+      error: 'Provider token encryption is not configured on the Workshop server.',
+    });
+  }
+
+  let token;
+  try {
+    token = normalizeThingiverseToken(req.body?.token);
+    await validateThingiverseToken(token);
+  } catch (error) {
+    return res.status(Number.isInteger(error.status) ? error.status : 400).json({
+      error: error.message || 'Thingiverse token could not be saved',
+    });
+  }
+
+  const userKey = req.user.userKey;
+  req.stmts.upsertProviderCredential.run({
+    provider: 'thingiverse',
+    token_enc: encryptProviderToken(userKey, 'thingiverse', token),
+  });
+  return res.json(thingiverseConnectionStatus(req.stmts, userKey));
+});
+
+app.delete('/api/provider-connections/thingiverse', (req, res) => {
+  req.stmts.deleteProviderCredential.run('thingiverse');
+  return res.json(thingiverseConnectionStatus(req.stmts, req.user.userKey));
+});
+
+// ── Bambu Hub Projects ────────────────────────────────────────────────────────
+
+app.get('/api/bambu-projects', (req, res) => {
+  res.json(req.stmts.listBambuProjects.all().map(project => ({
+    ...project,
+    import_warnings: parseJsonArray(project.import_warnings),
+    assets: [],
+  })));
+});
+
+app.get('/api/bambu-projects/:id', (req, res) => {
+  const project = hydrateBambuProject(req.stmts, Number(req.params.id));
+  if (!project) return res.status(404).json({ error: 'Bambu project not found' });
+  res.json(project);
+});
+
+function sendBambuAsset(res, asset, { attachment, cacheControl }) {
+  const headers = {
+    'Content-Type': asset.content_type || 'application/octet-stream',
+    'Cache-Control': cacheControl,
+    'X-Content-Type-Options': 'nosniff',
+  };
+  if (attachment) {
+    const asciiName = asset.filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+    const encodedName = encodeURIComponent(asset.filename)
+      .replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+    headers['Content-Disposition'] = `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`;
+  }
+  res.sendFile(join(UPLOADS_PATH, basename(asset.file_path)), { headers }, error => {
+    if (error && !res.headersSent) res.status(error.statusCode || 404).end();
+  });
+}
+
+app.get('/api/bambu-assets/:id/image', (req, res) => {
+  const entry = resolveReadDb(req);
+  if (!entry) return res.status(404).end();
+  const asset = entry.stmts.getBambuAsset.get(Number(req.params.id));
+  if (!asset?.file_path || asset.kind !== 'image') return res.status(404).end();
+  sendBambuAsset(res, asset, {
+    attachment: false,
+    cacheControl: 'public, max-age=3600',
+  });
+});
+
+app.get('/api/bambu-assets/:id', (req, res) => {
+  const asset = req.stmts.getBambuAsset.get(Number(req.params.id));
+  if (!asset?.file_path) return res.status(404).json({ error: 'Bambu asset not found' });
+  sendBambuAsset(res, asset, {
+    attachment: asset.kind !== 'image',
+    cacheControl: 'private, max-age=3600',
+  });
+});
+
+app.post(
+  '/api/bambu-projects/:id/assets',
+  serializeBambuRequest,
+  receiveBambuUpload,
+  async (req, res) => {
+    const { stmts } = req;
+    const projectId = Number(req.params.id);
+    const project = stmts.getBambuProject.get(projectId);
+    const uploadedPath = req.file
+      ? join(UPLOADS_PATH, basename(req.file.filename))
+      : null;
+
+    if (!project) {
+      if (uploadedPath) await unlinkAsync(uploadedPath).catch(() => {});
+      return res.status(404).json({ error: 'Bambu project not found' });
+    }
+    if (!req.file || !uploadedPath) {
+      return res.status(400).json({ error: 'file is required' });
+    }
+    if (req.file.size <= 0) {
+      await unlinkAsync(uploadedPath).catch(() => {});
+      return res.status(400).json({ error: 'Uploaded file is empty' });
+    }
+
+    const currentBytes = Number(stmts.bambuStorageUsage.get()?.total_bytes) || 0;
+    if (currentBytes + req.file.size > BAMBU_MAX_USER_BYTES) {
+      await unlinkAsync(uploadedPath).catch(() => {});
+      return res.status(413).json({ error: 'Bambu Hub storage exceeds the 5 GB per-account limit' });
+    }
+
+    const filename = sanitizeAssetFilename(req.file.originalname, 'Bambu file');
+    if (extname(filename).toLowerCase() === '.svg') {
+      await unlinkAsync(uploadedPath).catch(() => {});
+      return res.status(400).json({ error: 'SVG files cannot be added to Bambu Hub' });
+    }
+
+    let detected;
+    try {
+      detected = await fileTypeFromFile(uploadedPath);
+      const blockedMimes = new Set([
+        'application/x-msdownload',
+        'application/x-executable',
+        'application/x-elf',
+        'application/x-mach-binary',
+      ]);
+      if (blockedMimes.has(detected?.mime) || await fileStartsWithMarkup(uploadedPath)) {
+        throw apiError('Executable and web-page files cannot be added to Bambu Hub');
+      }
+    } catch (error) {
+      await unlinkAsync(uploadedPath).catch(() => {});
+      return res.status(Number.isInteger(error.status) ? error.status : 400).json({
+        error: error.message || 'Uploaded file could not be validated',
+      });
+    }
+
+    const kind = detected?.mime?.startsWith('image/')
+      ? 'image'
+      : bambuAssetKind(filename);
+    const contentType = detected?.mime || contentTypeForFilename(filename);
+
+    let assetId;
+    try {
+      assetId = Number(stmts.insertBambuAsset.run({
+        bambu_project_id: projectId,
+        kind,
+        filename,
+        content_type: contentType,
+        size_bytes: req.file.size,
+        original_url: project.source_url,
+        file_path: req.file.filename,
+        sort_order: Date.now(),
+      }).lastInsertRowid);
+      stmts.touchBambuProject.run(projectId);
+    } catch (error) {
+      await unlinkAsync(uploadedPath).catch(() => {});
+      throw error;
+    }
+
+    return res.status(201).json(publicBambuAsset(stmts.getBambuAsset.get(assetId)));
+  }
+);
+
+app.delete('/api/bambu-assets/:id', serializeBambuRequest, async (req, res) => {
+  const { stmts } = req;
+  const id = Number(req.params.id);
+  const asset = stmts.getBambuAsset.get(id);
+  if (!asset) return res.status(404).json({ error: 'Bambu asset not found' });
+  if (asset.file_path) {
+    try {
+      await unlinkIfPresent(join(UPLOADS_PATH, basename(asset.file_path)));
+    } catch (error) {
+      console.error('[bambu/asset-delete]', error);
+      return res.status(500).json({
+        error: 'Bambu asset file could not be removed. Try again.',
+      });
+    }
+  }
+  stmts.deleteBambuAsset.run(id);
+  stmts.touchBambuProject.run(asset.bambu_project_id);
+  return res.json({ success: true });
+});
+
+app.post('/api/bambu-projects/analyze-url', bambuImportLimiter, async (req, res) => {
+  const { url } = req.body ?? {};
+  if (typeof url !== 'string' || !url.trim()) {
+    return res.status(400).json({ error: 'url is required' });
+  }
+  try {
+    const source = parseBambuSourceUrl(url);
+    const thingiverseToken = source.site === 'thingiverse'
+      ? thingiverseTokenForRequest(req)
+      : undefined;
+    const inspection = await inspectBambuSource(source.sourceUrl, { thingiverseToken });
+    return res.json(bambuAnalysisResponse(inspection));
+  } catch (error) {
+    console.error('[bambu/analyze]', error.message);
+    return res.status(Number.isInteger(error.status) ? error.status : 502).json({
+      error: error.message || 'Could not read that model page',
+    });
+  }
+});
+
+app.post(
+  '/api/bambu-projects',
+  bambuImportLimiter,
+  serializeBambuRequest,
+  async (req, res) => {
+    const { stmts } = req;
+    const body = req.body ?? {};
+    if (typeof body.source_url !== 'string' || !body.source_url.trim()) {
+      return res.status(400).json({ error: 'source_url is required' });
+    }
+    const userBytes = Number(stmts.bambuStorageUsage.get()?.total_bytes) || 0;
+    if (userBytes >= BAMBU_MAX_USER_BYTES) {
+      return res.status(413).json({ error: 'Bambu Hub storage has reached the 5 GB per-account limit' });
+    }
+
+    let inspection;
+    try {
+      const source = parseBambuSourceUrl(body.source_url);
+      const thingiverseToken = source.site === 'thingiverse'
+        ? thingiverseTokenForRequest(req)
+        : undefined;
+      inspection = await inspectBambuSource(source.sourceUrl, {
+        includeDownloadUrls: true,
+        thingiverseToken,
+      });
+    } catch (error) {
+      console.error('[bambu/import]', error.message);
+      return res.status(Number.isInteger(error.status) ? error.status : 502).json({
+        error: error.message || 'Could not import that model page',
+      });
+    }
+
+    const info = stmts.insertBambuProject.run({
+      title: cleanBambuInput(body.title, 300) || inspection.title || `3D model ${inspection.sourceModelId}`,
+      source_url: inspection.sourceUrl,
+      source_site: inspection.sourceSite,
+      source_model_id: inspection.sourceModelId,
+      description: body.description !== undefined
+        ? cleanBambuInput(body.description, 50_000)
+        : (inspection.description || null),
+      creator_name: body.creator_name !== undefined
+        ? cleanBambuInput(body.creator_name, 300)
+        : inspection.creatorName,
+      license_name: body.license_name !== undefined
+        ? cleanBambuInput(body.license_name, 300)
+        : inspection.licenseName,
+    });
+    const projectId = Number(info.lastInsertRowid);
+    const warnings = [...inspection.warnings];
+    const importState = { totalBytes: 0, userBytes };
+    const assets = [...inspection.images, ...inspection.files];
+
+    for (const [index, asset] of assets.entries()) {
+      if (!asset.downloadUrl) continue;
+      let downloaded;
+      try {
+        downloaded = await downloadBambuAsset(asset, importState);
+        stmts.insertBambuAsset.run({
+          bambu_project_id: projectId,
+          kind: asset.kind,
+          filename: asset.filename,
+          content_type: downloaded.contentType,
+          size_bytes: downloaded.sizeBytes,
+          original_url: asset.originalUrl || asset.downloadUrl,
+          file_path: downloaded.filePath,
+          sort_order: index,
+        });
+      } catch (error) {
+        if (downloaded?.filePath) {
+          await unlinkAsync(join(UPLOADS_PATH, basename(downloaded.filePath))).catch(() => {});
+        }
+        warnings.push(`${asset.filename}: ${error.message || 'download failed'}`);
+      }
+    }
+
+    stmts.saveBambuImportWarnings.run({
+      id: projectId,
+      warnings: JSON.stringify(warnings.slice(0, 100)),
+    });
+    const project = hydrateBambuProject(stmts, projectId);
+    return res.status(201).json({ project, warnings: warnings.slice(0, 100) });
+  }
+);
+
+app.put('/api/bambu-projects/:id', serializeBambuRequest, (req, res) => {
+  const { stmts } = req;
+  const id = Number(req.params.id);
+  const existing = stmts.getBambuProject.get(id);
+  if (!existing) return res.status(404).json({ error: 'Bambu project not found' });
+
+  const body = req.body ?? {};
+  let source;
+  try {
+    source = parseBambuSourceUrl(body.source_url ?? existing.source_url);
+  } catch (error) {
+    return res.status(Number.isInteger(error.status) ? error.status : 400).json({ error: error.message });
+  }
+  if (source.site !== existing.source_site || source.modelId !== existing.source_model_id) {
+    return res.status(409).json({
+      error: 'Create a new Bambu project to import a different source model.',
+    });
+  }
+
+  stmts.updateBambuProject.run({
+    id,
+    title: body.title !== undefined
+      ? (cleanBambuInput(body.title, 300) || existing.title)
+      : existing.title,
+    source_url: source.sourceUrl,
+    description: cleanBambuInput(body.description, 50_000),
+    creator_name: cleanBambuInput(body.creator_name, 300),
+    license_name: cleanBambuInput(body.license_name, 300),
+  });
+  return res.json(hydrateBambuProject(stmts, id));
+});
+
+app.delete('/api/bambu-projects/:id', serializeBambuRequest, async (req, res) => {
+  const { db, stmts } = req;
+  const id = Number(req.params.id);
+  if (!stmts.getBambuProject.get(id)) {
+    return res.status(404).json({ error: 'Bambu project not found' });
+  }
+  const filesToRemove = collectBambuProjectFiles(db, id);
+  try {
+    await Promise.all(
+      filesToRemove.map(file => unlinkIfPresent(join(UPLOADS_PATH, basename(file))))
+    );
+  } catch (error) {
+    console.error('[bambu/delete]', error);
+    return res.status(500).json({
+      error: 'Bambu project files could not be removed. Try deleting the project again.',
+    });
+  }
+  const info = stmts.deleteBambuProject.run(id);
+  if (info.changes === 0) {
+    return res.status(409).json({ error: 'Bambu project changed during deletion. Try again.' });
+  }
+  return res.json({ success: true });
+});
+
 // ── Shaper Hub Projects ───────────────────────────────────────────────────────
 
 const SHAPER_ANALYZE_SYSTEM = `You extract structured data from a Shaper Tools Hub project page.
@@ -2380,4 +3861,14 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
-export { app, closeAllDatabases, entraUserKey, getUserDb, mintSession, userKeyFromBearer };
+export {
+  app,
+  bambuAnalysisResponse,
+  closeAllDatabases,
+  entraUserKey,
+  getUserDb,
+  inspectBambuSource,
+  mintSession,
+  parseBambuSourceUrl,
+  userKeyFromBearer,
+};

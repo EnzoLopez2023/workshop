@@ -951,6 +951,11 @@ input[type="checkbox"] {
   background: var(--color-glass-strong);
 }
 
+.dashboard-switcher .segmented-control {
+  width: min(100%, 520px);
+  grid-auto-columns: minmax(0, 1fr);
+}
+
 .active-project-layer {
   position: relative;
   display: grid;
@@ -1238,6 +1243,20 @@ input[type="checkbox"] {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.bambu-card-media {
+  display: grid;
+  place-items: stretch;
+}
+
+.bambu-card-placeholder {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  background: var(--color-recessed);
+  color: var(--color-annotation);
 }
 
 .depart-head {
@@ -2210,6 +2229,296 @@ tbody td {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.bambu-import-preview {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-hero);
+  background: var(--color-surface);
+}
+
+.bambu-import-preview > img,
+.bambu-import-preview-placeholder {
+  width: 100%;
+  min-height: 210px;
+  max-height: 310px;
+}
+
+.bambu-import-preview > img {
+  display: block;
+  object-fit: cover;
+}
+
+.bambu-import-preview-placeholder {
+  display: grid;
+  place-items: center;
+  background: var(--color-recessed);
+  color: var(--color-annotation);
+}
+
+.bambu-import-preview > div:last-child {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 20px;
+}
+
+.bambu-import-preview h3,
+.bambu-import-preview p {
+  margin: 0;
+}
+
+.bambu-import-preview h3 {
+  font-family: var(--font-rounded);
+  font-size: 1.22rem;
+}
+
+.bambu-import-preview p {
+  color: var(--color-muted);
+  font-size: 0.88rem;
+}
+
+.bambu-import-preview dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 0;
+}
+
+.bambu-import-preview dl > div {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-compact);
+  background: var(--color-recessed);
+}
+
+.bambu-import-preview dt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.bambu-import-preview dd {
+  margin: 0;
+  font-family: var(--font-rounded);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.bambu-manifest-list {
+  display: grid;
+  max-height: 340px;
+  margin: 0;
+  overflow: auto;
+  padding: 0;
+  border-block: 1px solid var(--color-divider);
+  list-style: none;
+}
+
+.bambu-manifest-list li {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--color-divider);
+}
+
+.bambu-manifest-list li:first-child {
+  border-top: 0;
+}
+
+.bambu-manifest-list svg {
+  color: var(--color-annotation);
+}
+
+.bambu-manifest-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bambu-manifest-list small {
+  color: var(--color-muted);
+}
+
+.bambu-import-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 34%, var(--color-divider));
+  border-radius: var(--radius-default);
+  background: color-mix(in srgb, var(--color-warning-fill) 8%, var(--color-surface));
+  color: var(--color-ink);
+}
+
+.bambu-import-warning > svg {
+  flex: 0 0 auto;
+  color: var(--color-warning);
+}
+
+.bambu-import-warning strong {
+  font-family: var(--font-rounded);
+}
+
+.bambu-import-warning p {
+  max-width: 72ch;
+  margin: 5px 0 0;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.form-grid-2 {
+  display: grid;
+  gap: 16px;
+}
+
+.bambu-import-progress {
+  position: sticky;
+  bottom: 16px;
+  z-index: 20;
+  display: flex;
+  width: min(100%, 520px);
+  min-height: 64px;
+  align-items: center;
+  gap: 12px;
+  margin: 24px auto 0;
+  padding: 12px 16px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-default);
+  background: var(--color-glass-strong);
+  box-shadow: var(--shadow-glass);
+}
+
+.bambu-import-progress > svg {
+  flex: 0 0 auto;
+  color: var(--color-annotation);
+}
+
+.bambu-import-progress > span {
+  display: grid;
+  gap: 3px;
+}
+
+.bambu-import-progress strong {
+  font-family: var(--font-rounded);
+}
+
+.bambu-import-progress small {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.bambu-detail-warning {
+  margin-bottom: 28px;
+}
+
+.bambu-file-list {
+  border-block: 1px solid var(--color-divider);
+}
+
+.bambu-file-list > button {
+  display: grid;
+  width: 100%;
+  min-height: 64px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 0;
+  border-top: 1px solid var(--color-divider);
+  background: transparent;
+  color: var(--color-ink);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.bambu-file-list > button:first-child {
+  border-top: 0;
+}
+
+.bambu-file-list > button:hover:not(:disabled) {
+  background: var(--color-recessed);
+}
+
+.bambu-file-list > button:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -3px;
+}
+
+.bambu-file-list > button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.bambu-file-list > button > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.bambu-file-list strong {
+  overflow-wrap: anywhere;
+}
+
+.bambu-file-list small {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.bambu-file-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: var(--radius-compact);
+  background: var(--color-recessed);
+  color: var(--color-annotation);
+}
+
+.bambu-file-list > button > svg {
+  color: var(--color-annotation);
+}
+
+.bambu-upload-status {
+  display: grid;
+  gap: 6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-divider);
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.bambu-upload-status.is-error {
+  color: var(--color-danger);
+}
+
+.bambu-upload-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-capsule);
+  background: var(--color-divider);
+}
+
+.bambu-upload-track > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-annotation-fill);
+  transform-origin: left;
+  transition: transform var(--motion-fast) ease;
 }
 
 .workflow-table-wrap {
@@ -3394,7 +3703,8 @@ tbody td {
     align-items: center;
   }
 
-  .shaper-dashboard .dashboard-tools {
+  .shaper-dashboard .dashboard-tools,
+  .bambu-dashboard .dashboard-tools {
     grid-template-columns: minmax(240px, 520px);
   }
 }
@@ -4312,6 +4622,48 @@ tbody td {
   max-width: 260px;
 }
 
+.settings-connection-control {
+  display: grid;
+  min-width: min(100%, 340px);
+  justify-items: start;
+  gap: 10px;
+}
+
+.settings-connection-state {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: var(--radius-capsule);
+  background: var(--color-recessed);
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.settings-connection-state.is-connected {
+  background: color-mix(in srgb, var(--color-success-fill) 10%, var(--color-surface));
+  color: var(--color-success);
+}
+
+.settings-token-entry {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 8px;
+}
+
+.settings-token-entry input {
+  min-width: 0;
+}
+
+.settings-connection-error {
+  margin: 0;
+  padding: 12px 4px;
+  color: var(--color-danger);
+  font-size: 0.88rem;
+}
+
 .settings-swatches {
   display: flex;
   flex-wrap: wrap;
@@ -4569,8 +4921,13 @@ tbody td {
 
   .settings-account .btn,
   .settings-danger-zone > .btn,
-  .settings-delete-confirm .btn {
+  .settings-delete-confirm .btn,
+  .settings-token-entry .btn {
     width: 100%;
+  }
+
+  .settings-token-entry {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -4637,6 +4994,14 @@ tbody td {
 }
 
 @media (min-width: 620px) {
+  .form-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bambu-import-preview {
+    grid-template-columns: minmax(220px, 42%) minmax(0, 1fr);
+  }
+
   .form-grid-three {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }

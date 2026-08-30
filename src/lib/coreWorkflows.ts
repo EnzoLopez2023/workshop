@@ -2,6 +2,8 @@ import type {
   ProjectListItem,
   ProjectFormPayload,
   ProjectStatus,
+  BambuProject,
+  BambuProjectPayload,
   ShaperMaterial,
   ShaperProject,
   ShaperProjectPayload,
@@ -89,6 +91,16 @@ export function filterShaperProjects(projects: ShaperProject[], query: string): 
   ], query));
 }
 
+export function filterBambuProjects(projects: BambuProject[], query: string): BambuProject[] {
+  return projects.filter(project => includesQuery([
+    project.title,
+    project.description,
+    project.creator_name,
+    project.license_name,
+    project.source_site,
+  ], query));
+}
+
 export function selectFocusProject(projects: ProjectListItem[]): ProjectListItem | undefined {
   const priority: ProjectStatus[] = ['in_progress', 'planning', 'idea', 'completed'];
   return priority
@@ -165,5 +177,21 @@ export function buildShaperProjectPayload(input: {
       .filter(material => material.name.trim())
       .map(material => ({ name: material.name.trim(), qty: material.qty.trim() })),
     instructions: input.instructions.trim() || null,
+  };
+}
+
+export function buildBambuProjectPayload(input: {
+  title: string;
+  sourceUrl: string;
+  description: string;
+  creatorName: string;
+  licenseName: string;
+}): BambuProjectPayload {
+  return {
+    title: input.title.trim(),
+    source_url: input.sourceUrl.trim(),
+    description: input.description.trim() || null,
+    creator_name: input.creatorName.trim() || null,
+    license_name: input.licenseName.trim() || null,
   };
 }

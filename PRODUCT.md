@@ -49,6 +49,12 @@ parts list) into something they'd otherwise do by hand.
 - **Shaper Hub.** A parallel project type for Shaper Origin CNC work, with its own parts,
   bit info, and SVG/design files. Shaper projects and regular projects share the
   `cut_list_items` table but never both at once (DB `CHECK` constraint).
+- **Bambu Hub.** A parallel 3D-print project library for MakerWorld, Thingiverse, and
+  Printables links. Workshop keeps source attribution, locally copied public images,
+  downloadable STL/3MF/CAD attachments, and durable warnings when a provider requires
+  authentication. An official Thingiverse token can be encrypted per user from Settings;
+  MakerWorld credentials are never collected, and protected originals can be uploaded
+  manually after download.
 - **Notebook.** An editable window onto a separate product, Tabloom. Pages are fetched and
   written over `/api/integrations/workshop/*` as Markdown; there is no local notebook store.
 - **Conversion tables.** mm ↔ inches and fractional reference tables plus a live calculator,

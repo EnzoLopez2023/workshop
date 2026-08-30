@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import {
+  buildBambuProjectPayload,
   buildProjectPayload,
   buildShaperProjectPayload,
+  filterBambuProjects,
   filterProjects,
   filterShaperProjects,
   groupShoppingItems,
@@ -49,7 +51,25 @@ const shaperProject = (overrides = {}) => ({
   ...overrides,
 });
 
-test('project and Shaper searches stay independent and project status applies only to projects', () => {
+const bambuProject = (overrides = {}) => ({
+  id: 20,
+  title: 'Systainer insert',
+  source_url: 'https://www.printables.com/model/20-systainer-insert',
+  source_site: 'printables',
+  source_model_id: '20',
+  description: 'Modular tool organizer',
+  creator_name: 'Kende',
+  license_name: 'Creative Commons Attribution',
+  import_warnings: [],
+  image_count: 2,
+  file_count: 4,
+  hero_asset_id: 21,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+  ...overrides,
+});
+
+test('project, Shaper, and Bambu searches stay independent and project status applies only to projects', () => {
   const projects = [
     project(),
     project({
@@ -65,16 +85,22 @@ test('project and Shaper searches stay independent and project status applies on
     shaperProject(),
     shaperProject({ id: 11, title: 'Plywood clock', materials: [{ name: 'Birch plywood', qty: '1 sheet' }] }),
   ];
+  const bambuProjects = [
+    bambuProject(),
+    bambuProject({ id: 21, title: 'Table saw sled', source_site: 'makerworld', creator_name: 'SparksTech' }),
+  ];
 
   assert.deepEqual(filterProjects(projects, 'planning', '').map(item => item.id), [1]);
   assert.deepEqual(filterProjects(projects, 'all', 'oak').map(item => item.id), [2]);
   assert.deepEqual(filterProjects(projects, 'all', 'screws').map(item => item.id), [1]);
   assert.deepEqual(filterShaperProjects(shaperProjects, 'maple').map(item => item.id), [10]);
   assert.deepEqual(filterShaperProjects(shaperProjects, 'clock').map(item => item.id), [11]);
+  assert.deepEqual(filterBambuProjects(bambuProjects, 'kende').map(item => item.id), [20]);
+  assert.deepEqual(filterBambuProjects(bambuProjects, 'makerworld').map(item => item.id), [21]);
   assert.equal(selectFocusProject(projects)?.id, 2);
 });
 
-test('regular and Shaper payload builders preserve API field names and normalize editable input', () => {
+test('project-type payload builders preserve API field names and normalize editable input', () => {
   assert.deepEqual(buildProjectPayload({
     title: '  Workbench  ',
     description: 'Shop bench',
@@ -111,6 +137,20 @@ test('regular and Shaper payload builders preserve API field names and normalize
     photo_url: 'https://example.com/tray.jpg',
     materials: [{ name: 'Maple', qty: '1 board' }],
     instructions: 'Cut handles first',
+  });
+
+  assert.deepEqual(buildBambuProjectPayload({
+    title: '  Systainer insert ',
+    sourceUrl: ' https://www.printables.com/model/20-systainer-insert ',
+    description: '  Tool organizer ',
+    creatorName: ' Kende ',
+    licenseName: ' ',
+  }), {
+    title: 'Systainer insert',
+    source_url: 'https://www.printables.com/model/20-systainer-insert',
+    description: 'Tool organizer',
+    creator_name: 'Kende',
+    license_name: null,
   });
 });
 
@@ -178,27 +218,42 @@ test('cut-plan UI boundary preserves fraction parsing and exact optimizer layout
 });
 
 test('create menus, route context, demo blocking, upload ownership, and state copy remain wired', async () => {
-  const [workflows, shell, dashboard, projectForm, shaperForm, shopping, api] = await Promise.all([
+  const [workflows, shell, dashboard, projectForm, shaperForm, bambuForm, bambuDetail, settings, shopping, api] = await Promise.all([
     readSource('src/components/workflows.tsx'),
     readSource('src/components/AppShell.tsx'),
     readSource('src/pages/Dashboard.tsx'),
     readSource('src/pages/ProjectForm.tsx'),
     readSource('src/pages/ShaperProjectForm.tsx'),
+    readSource('src/pages/BambuProjectForm.tsx'),
+    readSource('src/pages/BambuProjectDetail.tsx'),
+    readSource('src/pages/Settings.tsx'),
     readSource('src/pages/ShoppingList.tsx'),
     readSource('src/services/api.ts'),
   ]);
 
   assert.match(workflows, /to="\/projects\/new"[\s\S]*selectProjectType\(event, 'projects'\)/);
   assert.match(workflows, /to="\/shaper\/new"[\s\S]*selectProjectType\(event, 'shaper'\)/);
+  assert.match(workflows, /to="\/bambu\/new"[\s\S]*selectProjectType\(event, 'bambu'\)/);
   assert.match(workflows, /closest\('details'\)\?\.removeAttribute\('open'\)/);
   assert.match(shell, /<CreateProjectMenu \/>/);
   assert.match(shell, /<CreateProjectMenu align="end" compact \/>/);
   assert.match(dashboard, /No matching projects/);
   assert.match(dashboard, /No matching Shaper projects/);
+  assert.match(dashboard, /No matching 3D projects/);
   assert.match(projectForm, /Project could not be saved/);
   assert.match(shaperForm, /Shaper project needs attention/);
+  assert.match(bambuForm, /MakerWorld, Thingiverse, or Printables/);
+  assert.match(bambuForm, /Importing files…/);
+  assert.match(bambuDetail, /project\.import_warnings/);
+  assert.match(bambuDetail, /await fetchBambuAsset\(file\.id\)/);
+  assert.match(bambuDetail, /await uploadBambuAsset\(projectId, file/);
+  assert.match(settings, /saveThingiverseToken/);
+  assert.match(settings, /type="password"/);
   assert.match(shopping, /No matching shopping items/);
   assert.match(api, /if \(demo && method !== 'GET'\) blockIfDemo\(\)/);
   assert.match(api, /\/projects\/\$\{projectId\}\/images/);
   assert.match(api, /\/shaper-projects\/\$\{shaperProjectId\}\/images/);
+  assert.match(api, /request<BambuImportResult>\('\/bambu-projects'/);
+  assert.match(api, /\/bambu-assets\/\$\{id\}\/image/);
+  assert.match(api, /\/provider-connections\/thingiverse/);
 });

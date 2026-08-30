@@ -14,6 +14,8 @@ const ProjectDetail = lazy(() => import('./pages/ProjectDetail'));
 const ProjectForm = lazy(() => import('./pages/ProjectForm'));
 const ShaperProjectDetail = lazy(() => import('./pages/ShaperProjectDetail'));
 const ShaperProjectForm = lazy(() => import('./pages/ShaperProjectForm'));
+const BambuProjectDetail = lazy(() => import('./pages/BambuProjectDetail'));
+const BambuProjectForm = lazy(() => import('./pages/BambuProjectForm'));
 const ConversionTables = lazy(() => import('./pages/ConversionTables'));
 const ShoppingList = lazy(() => import('./pages/ShoppingList'));
 const NotebookList = lazy(() => import('./pages/NotebookList'));
@@ -68,6 +70,9 @@ function AppRoutes() {
               <Route path="/shaper/new"        element={<ShaperProjectForm />} />
               <Route path="/shaper/:id"        element={<ShaperProjectDetail />} />
               <Route path="/shaper/:id/edit"   element={<ShaperProjectForm />} />
+              <Route path="/bambu/new"         element={<BambuProjectForm />} />
+              <Route path="/bambu/:id"         element={<BambuProjectDetail />} />
+              <Route path="/bambu/:id/edit"    element={<BambuProjectForm />} />
               <Route path="/conversions"       element={<ConversionTables />} />
               <Route path="/shopping-list"     element={<ShoppingList />} />
               <Route path="/notebook"          element={<NotebookList />} />

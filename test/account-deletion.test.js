@@ -223,6 +223,24 @@ function seedCompleteAccount(db, filenames) {
     ) VALUES (?, 'Shaper part', 1, '4', '4', '0.5', 'Plywood', 1)
   `).run(shaperId);
 
+  const bambuId = Number(db.prepare(`
+    INSERT INTO bambu_projects (
+      title, source_url, source_site, source_model_id, description
+    ) VALUES (
+      'Bambu project', 'https://www.printables.com/model/1-example',
+      'printables', '1', '3D model data'
+    )
+  `).run().lastInsertRowid);
+  db.prepare(`
+    INSERT INTO bambu_assets (
+      bambu_project_id, kind, filename, content_type,
+      size_bytes, original_url, file_path, sort_order
+    ) VALUES (
+      ?, 'model', 'part.stl', 'model/stl',
+      12, 'https://files.printables.com/part.stl', ?, 1
+    )
+  `).run(bambuId, filenames.bambu);
+
   const pageId = Number(db.prepare(`
     INSERT INTO notebook_pages (title, body) VALUES ('Legacy note', 'Account-owned note')
   `).run().lastInsertRowid);
@@ -340,6 +358,7 @@ before(async () => {
   const callerProjectId = seedCompleteAccount(userA.db, {
     project: 'caller-project.png',
     build: 'caller-build.jpg',
+    bambu: 'caller-model.stl',
     shared: 'shared-reference.png',
   });
   userA.db.prepare(`
@@ -365,6 +384,7 @@ before(async () => {
 
   writeUpload('caller-project.png', 'caller project');
   writeUpload('caller-build.jpg', 'caller build');
+  writeUpload('caller-model.stl', 'solid model');
   writeUpload('shared-reference.png', 'shared');
   writeUpload('other-user.png', 'other user');
   mkdirSync(join(uploadsPath, 'cleanup-blocker'));
@@ -548,6 +568,14 @@ test('Apple-backed DELETE /api/account', async (t) => {
     assert.equal(
       userA.db.prepare(`
         SELECT COUNT(*) AS count
+        FROM bambu_assets
+        WHERE file_path = 'caller-model.stl'
+      `).get().count,
+      0
+    );
+    assert.equal(
+      userA.db.prepare(`
+        SELECT COUNT(*) AS count
         FROM project_images
         WHERE file_path IN ('caller-project.png', 'cleanup-blocker')
       `).get().count,
@@ -603,6 +631,7 @@ test('Apple-backed DELETE /api/account', async (t) => {
     assert.equal(existsSync(`${userADbPath}-shm`), false);
     assert.equal(existsSync(join(uploadsPath, 'caller-project.png')), false);
     assert.equal(existsSync(join(uploadsPath, 'caller-build.jpg')), false);
+    assert.equal(existsSync(join(uploadsPath, 'caller-model.stl')), false);
     assert.equal(existsSync(join(uploadsPath, 'shared-reference.png')), true);
     assert.equal(readFileSync(join(uploadsPath, 'shared-reference.png'), 'utf8'), 'shared');
 
@@ -665,6 +694,8 @@ test('Apple-backed DELETE /api/account', async (t) => {
 
     const publicImageResponse = await request(`/api/images/1?oid=${USER_A}`);
     assert.equal(publicImageResponse.status, 404);
+    const publicBambuAssetResponse = await request(`/api/bambu-assets/1/image?oid=${USER_A}`);
+    assert.equal(publicBambuAssetResponse.status, 404);
     assert.equal(existsSync(userADbPath), false);
 
     const recreated = api.getUserDb(USER_A);
