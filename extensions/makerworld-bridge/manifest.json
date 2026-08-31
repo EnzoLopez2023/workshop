@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Workshop MakerWorld Bridge",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Personal Chrome and Safari bridge that imports protected MakerWorld files without sharing account credentials.",
   "permissions": [
     "scripting"

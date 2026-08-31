@@ -1648,7 +1648,9 @@ export function startOffhostExportSchedule({
       });
       return activeRun;
     }
-    health = { status: 'checking', checkedUtc: health.checkedUtc, trigger };
+    if (health.status !== 'healthy') {
+      health = { status: 'checking', checkedUtc: health.checkedUtc, trigger };
+    }
     const run = getProduction()
       .then(production => production.exporter.scan())
       .then(scanResult => {

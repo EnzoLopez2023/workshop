@@ -1000,7 +1000,9 @@ function trackActiveStorageRequest(res) {
 }
 
 function recoveryStorageGate(req, res, next) {
-  if (req.path === '/health' || req.path === '/live') return next();
+  const readOnlyProbe = (req.method === 'GET' || req.method === 'HEAD')
+    && (req.path === '/health' || req.path === '/live' || req.path === '/ready');
+  if (readOnlyProbe) return next();
   if (recoveryCaptureActive) {
     res.setHeader('Retry-After', '5');
     return res.status(503).json({ error: 'recovery_backup_in_progress' });

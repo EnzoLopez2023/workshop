@@ -29,7 +29,7 @@ env:
   READY_PATH: /api/ready
   REQUIRED_CONFIRMATIONS: '3'
   MAX_ATTEMPTS: '120'
-  ROLLBACK_MAX_ATTEMPTS: '30'
+  ROLLBACK_MAX_ATTEMPTS: '120'
   POLL_INTERVAL_SECONDS: '5'
   HTTP_TIMEOUT_SECONDS: '8'
   AZURE_CLIENT_ID: dbd68ead-ad3f-4c2b-8559-36112970db42
@@ -286,7 +286,7 @@ jobs:
               sbomAttestationVerified:true,rollbackPerformed:false}' > evidence/deployment.json
       - name: Roll back failed candidate
         if: ${{ always() && (failure() || cancelled()) && env.DEPLOYMENT_MUTATED == 'true' }}
-        timeout-minutes: 4
+        timeout-minutes: 16
         shell: bash
         run: |
           set -euo pipefail

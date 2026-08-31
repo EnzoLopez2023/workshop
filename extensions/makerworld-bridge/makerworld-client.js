@@ -111,6 +111,16 @@
     return results;
   }
 
+  function providerMessage(payload) {
+    if (!payload || typeof payload !== "object") return "";
+    for (const key of ["error", "message", "msg"]) {
+      if (typeof payload[key] === "string" && payload[key].trim()) {
+        return payload[key].replace(/\s+/g, " ").trim().slice(0, 240);
+      }
+    }
+    return "";
+  }
+
   async function fetchJson(path, query) {
     const url = new URL(`${API_PREFIX}${path}`, window.location.origin);
     for (const [key, value] of Object.entries(query ?? {})) {
@@ -122,38 +132,96 @@
       headers: CLIENT_HEADERS,
       redirect: "follow",
     });
-    if (response.status === 401 || response.status === 403) {
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      if (response.status === 429) {
+        throw new MakerWorldBridgeError(
+          "makerworld_rate_limited",
+          "MakerWorld temporarily rate-limited this profile. Wait 30 seconds, then retry; Workshop will request only missing files."
+        );
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new MakerWorldBridgeError(
+          "makerworld_sign_in_required",
+          "Sign in to MakerWorld in the opened tab, then retry from Workshop."
+        );
+      }
+      if (response.status === 418) {
+        throw new MakerWorldBridgeError(
+          "makerworld_challenge",
+          "MakerWorld requested a verification challenge. Use MakerWorld's Download button once in the opened tab, complete any prompt, then retry from Workshop."
+        );
+      }
+      throw new MakerWorldBridgeError(
+        "makerworld_invalid_response",
+        `MakerWorld returned an unreadable download response (${response.status}).`
+      );
+    }
+
+    const message = providerMessage(payload);
+    if (response.status === 418 || /captcha|robot|verification challenge/i.test(message)) {
+      throw new MakerWorldBridgeError(
+        "makerworld_challenge",
+        "MakerWorld requested a verification challenge. Use MakerWorld's Download button once in the opened tab, complete any prompt, then retry from Workshop."
+      );
+    }
+    if (
+      response.status === 401
+      || response.status === 403
+      || /(?:log|sign)\s*in|unauthenticated|unauthorized/i.test(message)
+    ) {
       throw new MakerWorldBridgeError(
         "makerworld_sign_in_required",
         "Sign in to MakerWorld in the opened tab, then retry from Workshop."
       );
     }
-    if (response.status === 418) {
-      throw new MakerWorldBridgeError(
-        "makerworld_challenge",
-        "MakerWorld requested a verification challenge. Complete any prompt in the opened tab, then retry; Workshop will request only missing files."
-      );
-    }
-    if (response.status === 429) {
+    if (response.status === 429 || /rate.?limit|too many requests/i.test(message)) {
       throw new MakerWorldBridgeError(
         "makerworld_rate_limited",
         "MakerWorld temporarily rate-limited this profile. Wait 30 seconds, then retry; Workshop will request only missing files."
       );
     }
-    if (!response.ok) {
+    if (
+      !response.ok
+      || payload?.success === false
+      || (message && typeof payload?.code === "number" && payload.code !== 0)
+    ) {
       throw new MakerWorldBridgeError(
         "makerworld_request_failed",
-        `MakerWorld returned ${response.status}.`
+        message || `MakerWorld returned ${response.status}.`
       );
     }
-    try {
-      return await response.json();
-    } catch {
-      throw new MakerWorldBridgeError(
-        "makerworld_invalid_response",
-        "MakerWorld returned an invalid download response."
-      );
+    return payload;
+  }
+
+  async function fetchSignedEntries(path, queries, sourceKeyBase, fallbackName) {
+    let lastError = null;
+    for (const query of queries) {
+      try {
+        const payload = await fetchJson(path, query);
+        const entries = collectSignedEntries(payload, sourceKeyBase, fallbackName);
+        if (entries.length > 0) return entries;
+        lastError = new MakerWorldBridgeError(
+          "makerworld_no_signed_url",
+          "MakerWorld returned no signed file URL."
+        );
+      } catch (error) {
+        lastError = error;
+        if (
+          error.code === "makerworld_sign_in_required"
+          || error.code === "makerworld_challenge"
+          || error.code === "makerworld_rate_limited"
+        ) {
+          break;
+        }
+      }
     }
+    throw lastError ?? new MakerWorldBridgeError(
+      "makerworld_no_signed_url",
+      "MakerWorld returned no signed file URL."
+    );
   }
 
   function hasExistingSource(existingSourceKeys, prefix) {
@@ -177,12 +245,14 @@
       ? Math.max(0, Number(options.profileDelayMs))
       : 1_200;
     const warnings = [];
+    const failures = [];
     const instances = Array.isArray(design?.instances) ? [...design.instances] : [];
     try {
       const fullInstances = firstArray(await fetchJson(`/design/${normalizedId}/instances`));
       instances.push(...fullInstances);
     } catch (error) {
       if (error.code === "makerworld_sign_in_required") throw error;
+      failures.push(error);
       warnings.push(`Complete print-profile list: ${error.message}`);
     }
 
@@ -196,14 +266,19 @@
       && !hasExistingSource(existingSourceKeys, rawSourceKey);
     if (needsRawModel) {
       try {
-        const rawModel = await fetchJson(`/design/${normalizedId}/model`);
-        assets.push(...collectSignedEntries(
-          rawModel,
+        assets.push(...await fetchSignedEntries(
+          `/design/${normalizedId}/model`,
+          [
+            { modelType: "all", type: "download" },
+            { type: "download" },
+            undefined,
+          ],
           rawSourceKey,
           `${title} source files.zip`
         ));
       } catch (error) {
         if (error.code === "makerworld_sign_in_required") throw error;
+        failures.push(error);
         warnings.push(`Raw source bundle: ${error.message}`);
       }
     }
@@ -223,24 +298,28 @@
     for (const [index, entry] of pendingInstances.entries()) {
       const name = instanceName(entry.value, entry.id);
       try {
-        const profile = await fetchJson(`/instance/${entry.id}/f3mf`, {
-          type: "download",
-          fileType: "",
-          devModelName: instancePrinter(entry.value) || undefined,
-        });
-        const entries = collectSignedEntries(
-          profile,
+        const devModelName = instancePrinter(entry.value) || undefined;
+        const entries = await fetchSignedEntries(
+          `/instance/${entry.id}/f3mf`,
+          [
+            { type: "download", fileType: "3mfstl", devModelName },
+            { type: "download", fileType: "", devModelName },
+            undefined,
+          ],
           `instance:${entry.id}`,
           `${name}.3mf`
         );
-        if (entries.length === 0) {
-          warnings.push(`${name}: MakerWorld returned no signed file URL.`);
-        } else {
-          assets.push(...entries);
-        }
+        assets.push(...entries);
       } catch (error) {
         if (error.code === "makerworld_sign_in_required") throw error;
+        failures.push(error);
         warnings.push(`${name}: ${error.message}`);
+        if (
+          error.code === "makerworld_challenge"
+          || error.code === "makerworld_rate_limited"
+        ) {
+          break;
+        }
       }
       if (index < pendingInstances.length - 1 && profileDelayMs > 0) {
         await new Promise(resolve => setTimeout(resolve, profileDelayMs));
@@ -258,9 +337,14 @@
     }
     const upToDate = !needsRawModel && pendingInstances.length === 0;
     if (uniqueAssets.length === 0 && !upToDate) {
+      const actionable = failures.find(error => error.code === "makerworld_challenge")
+        ?? failures.find(error => error.code === "makerworld_rate_limited");
+      if (actionable) throw actionable;
       throw new MakerWorldBridgeError(
         "makerworld_no_files",
-        "MakerWorld did not provide any signed model-file URLs."
+        warnings.length > 0
+          ? `MakerWorld did not provide any signed model-file URLs. ${warnings.slice(0, 2).join(" ")}`
+          : "MakerWorld did not provide any signed model-file URLs."
       );
     }
     return { designId: normalizedId, assets: uniqueAssets, warnings, upToDate };

@@ -93,3 +93,13 @@ privately, and never persists the signed URLs.
 
 If MakerWorld presents a verification challenge, complete it in the opened tab
 and retry.
+
+## Troubleshooting
+
+- **Sign in requested:** Sign in to MakerWorld in the same Chrome or Safari
+  profile where Workshop Bridge is installed, then retry from Workshop.
+- **Verification challenge:** In the opened MakerWorld tab, use MakerWorld's
+  own **Download** button once and complete any prompt. Return to Workshop and
+  retry; the bridge requests only files that are still missing.
+- **Extension updated:** Open `chrome://extensions` and choose **Reload** on
+  Workshop MakerWorld Bridge before retrying.

@@ -72,7 +72,8 @@ test('workflow preserves Workshop SQLite activation, fingerprints, and rollback'
   assert.match(workflow, /az webapp stop/);
   assert.match(workflow, /state" == Stopped/);
   assert.match(workflow, /--container-image-name "\$IMAGE_REFERENCE"/);
-  assert.match(workflow, /timeout-minutes: 4/);
+  assert.match(workflow, /ROLLBACK_MAX_ATTEMPTS: '120'/);
+  assert.match(workflow, /timeout-minutes: 16/);
   assert.match(workflow, /failure\(\) \|\| cancelled\(\)/);
   assert.match(workflow, /--allow-legacy-build-id/);
   assert.match(workflow, /--ready-path "\$PLATFORM_HEALTH_PATH"/);
@@ -99,7 +100,10 @@ test('runtime has distinct public no-store liveness and SQLite/exporter readines
   assert.match(server, /database: \{ status: 'ready' \}/);
   assert.match(server, /path === '\/live'/);
   assert.match(server, /path === '\/ready'/);
-  assert.match(server, /req\.path === '\/health' \|\| req\.path === '\/live'/);
+  assert.match(
+    server,
+    /\(req\.method === 'GET' \|\| req\.method === 'HEAD'\)[\s\S]*req\.path === '\/ready'/,
+  );
   assert.match(server, /buildId: deploymentInfo\.buildId/);
   assert.match(server, /Cache-Control', 'no-store'/);
 });

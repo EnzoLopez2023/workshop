@@ -842,9 +842,9 @@ test('enabled schedule runs an immediate capability-gated scan and joins hourly 
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(scanCalls, 2);
   assert.deepEqual(schedule.health(), {
-    status: 'checking',
+    status: 'healthy',
     checkedUtc: null,
-    trigger: 'interval',
+    trigger: 'startup',
   });
   const intervalJoin = schedule.runNow();
   timers[0].callback();
@@ -940,6 +940,11 @@ test('a finalized backup queues one retry behind an active empty startup scan', 
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(scanCalls, 2);
   assert.equal(maxActiveScans, 1);
+  assert.deepEqual(schedule.health(), {
+    status: 'healthy',
+    checkedUtc: null,
+    trigger: 'startup',
+  });
 
   const nextBackupRetry = schedule.runAfterBackup();
   const joinedNextBackupRetry = schedule.runAfterBackup();
@@ -963,6 +968,11 @@ test('a finalized backup queues one retry behind an active empty startup scan', 
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(scanCalls, 3);
   assert.equal(maxActiveScans, 1);
+  assert.deepEqual(schedule.health(), {
+    status: 'healthy',
+    checkedUtc: null,
+    trigger: 'backup',
+  });
 
   scanResolvers.shift()({
     status: 'completed',

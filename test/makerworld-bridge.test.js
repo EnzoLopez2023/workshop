@@ -8,7 +8,7 @@ const readSource = path => readFile(new URL(`../${path}`, import.meta.url), 'utf
 test('browser bridge is directly loadable by Chrome with narrowly scoped access', async () => {
   const manifest = JSON.parse(await readSource('extensions/makerworld-bridge/manifest.json'));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, '0.4.0');
+  assert.equal(manifest.version, '0.4.1');
   assert.deepEqual(manifest.permissions, ['scripting']);
   assert.equal(manifest.permissions.includes('cookies'), false);
   assert.equal(manifest.permissions.includes('downloads'), false);
@@ -97,7 +97,7 @@ test('MakerWorld collector merges the complete profile endpoint with embedded pr
       url: 'https://makerworld.bblmw.com/model/additional.3mf?key=two',
     }],
   ]);
-  const requestedPaths = [];
+  const requestedUrls = [];
   const context = {
     URL,
     Response,
@@ -106,7 +106,7 @@ test('MakerWorld collector merges the complete profile endpoint with embedded pr
     window: { location: { origin: 'https://makerworld.com' } },
     fetch: async url => {
       const parsed = url instanceof URL ? url : new URL(String(url));
-      requestedPaths.push(parsed.pathname);
+      requestedUrls.push(parsed);
       const payload = responses.get(parsed.pathname);
       return payload
         ? new Response(JSON.stringify(payload), {
@@ -128,8 +128,150 @@ test('MakerWorld collector merges the complete profile endpoint with embedded pr
     JSON.parse(JSON.stringify(result.assets.map(asset => asset.source_key))),
     ['instance:2'],
   );
-  assert.equal(requestedPaths.includes('/api/v1/design-service/instance/1/f3mf'), false);
-  assert.equal(requestedPaths.includes('/api/v1/design-service/instance/2/f3mf'), true);
+  assert.equal(
+    requestedUrls.some(url => url.pathname === '/api/v1/design-service/instance/1/f3mf'),
+    false,
+  );
+  assert.equal(
+    requestedUrls.some(url =>
+      url.pathname === '/api/v1/design-service/instance/2/f3mf'
+      && url.searchParams.get('fileType') === '3mfstl'
+    ),
+    true,
+  );
+});
+
+test('MakerWorld collector requests the current whole-model download shape', async () => {
+  const source = await readSource('extensions/makerworld-bridge/makerworld-client.js');
+  const requestedUrls = [];
+  const context = {
+    URL,
+    Response,
+    setTimeout,
+    clearTimeout,
+    window: { location: { origin: 'https://makerworld.com' } },
+    fetch: async url => {
+      const parsed = url instanceof URL ? url : new URL(String(url));
+      requestedUrls.push(parsed);
+      if (parsed.pathname.endsWith('/design/1130362')) {
+        return new Response(JSON.stringify({
+          id: 1130362,
+          title: 'Drawer installation spacers',
+          instances: [{ id: 1130523, title: '0.2mm layer, 6 walls' }],
+          designExtension: { model_files: [{ modelName: 'dystanse.skp' }] },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (
+        parsed.pathname.endsWith('/design/1130362/model')
+        && parsed.searchParams.get('modelType') === 'all'
+        && parsed.searchParams.get('type') === 'download'
+      ) {
+        return new Response(JSON.stringify({
+          data: {
+            downloadUrl: 'https://makerworld.bblmw.com/model/all.zip?at=1&key=all',
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (parsed.pathname.endsWith('/design/1130362/instances')) {
+        return new Response('{}', { status: 404, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('{}', { status: 500, headers: { 'Content-Type': 'application/json' } });
+    },
+  };
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(source, context);
+
+  const result = await context.WorkshopMakerWorldClient.collect('1130362', {
+    existingSourceKeys: ['instance:1130523'],
+    profileDelayMs: 0,
+  });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.assets)),
+    [{
+      source_key: 'design:1130362:model',
+      filename: 'Drawer installation spacers source files.zip',
+      url: 'https://makerworld.bblmw.com/model/all.zip?at=1&key=all',
+    }],
+  );
+  assert.equal(
+    requestedUrls.some(url =>
+      url.pathname.endsWith('/design/1130362/model')
+      && url.searchParams.get('modelType') === 'all'
+      && url.searchParams.get('type') === 'download'
+    ),
+    true,
+  );
+});
+
+test('MakerWorld collector preserves actionable provider failures', async (t) => {
+  const source = await readSource('extensions/makerworld-bridge/makerworld-client.js');
+
+  for (const testCase of [
+    {
+      name: 'login response returned with HTTP 200',
+      response: { status: 200, body: { code: 1, error: 'Please log in to download models.' } },
+      code: 'makerworld_sign_in_required',
+      message: /Sign in to MakerWorld/,
+    },
+    {
+      name: 'verification challenge',
+      response: { status: 418, body: { code: 1, error: 'We need to confirm that you are not a robot.' } },
+      code: 'makerworld_challenge',
+      message: /Download button once/,
+    },
+    {
+      name: 'non-JSON rate limit',
+      response: { status: 429, body: 'Too many requests', contentType: 'text/plain' },
+      code: 'makerworld_rate_limited',
+      message: /Wait 30 seconds/,
+    },
+  ]) {
+    await t.test(testCase.name, async () => {
+      let profileRequests = 0;
+      const context = {
+        URL,
+        Response,
+        setTimeout,
+        clearTimeout,
+        window: { location: { origin: 'https://makerworld.com' } },
+        fetch: async url => {
+          const parsed = url instanceof URL ? url : new URL(String(url));
+          if (parsed.pathname.endsWith('/design/1130362')) {
+            return new Response(JSON.stringify({
+              id: 1130362,
+              title: 'Drawer installation spacers',
+              instances: [
+                { id: 1130523, title: '0.2mm layer, 6 walls' },
+                { id: 1130524, title: 'Second print profile' },
+              ],
+              designExtension: { model_files: [] },
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+          if (parsed.pathname.endsWith('/design/1130362/instances')) {
+            return new Response('{}', { status: 404, headers: { 'Content-Type': 'application/json' } });
+          }
+          profileRequests += 1;
+          const body = testCase.response.contentType === 'text/plain'
+            ? testCase.response.body
+            : JSON.stringify(testCase.response.body);
+          return new Response(body, {
+            status: testCase.response.status,
+            headers: { 'Content-Type': testCase.response.contentType ?? 'application/json' },
+          });
+        },
+      };
+      context.globalThis = context;
+      vm.createContext(context);
+      vm.runInContext(source, context);
+
+      await assert.rejects(
+        context.WorkshopMakerWorldClient.collect('1130362', { profileDelayMs: 0 }),
+        error => error.code === testCase.code && testCase.message.test(error.message),
+      );
+      assert.equal(profileRequests, 1);
+    });
+  }
 });
 
 test('bridge protocol remains browser-neutral and never requests or relays credentials', async () => {
