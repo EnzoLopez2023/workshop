@@ -1,6 +1,28 @@
 # The Workshop — Project Companion
 
-A browser-native woodworking project companion built around a Living Plan Table. Capture ideas, plan cut lists, track materials and costs, log build progress, record finishes, and import projects from Shaper Tools Hub or public 3D-model libraries — with optional AI-assisted parsing, per-user storage, and a read-only demo.
+A browser-native woodworking project companion built around a Living Plan Table. Capture ideas, plan cut lists, track materials and costs, log build progress, record finishes, and import projects from Shaper Tools Hub or public 3D-model libraries — with optional AI-assisted parsing, per-user storage, and a read-only demo. This web application is the only canonical supported Workshop client and remains live at <https://workshop.nintek.com>.
+
+---
+
+## Supported client and historical iOS
+
+[Workshop-for-iOS](https://github.com/EnzoLopez2023/Workshop-for-iOS) was a sole-user,
+TestFlight-only client and was never publicly released. It is archived/read-only at final
+retirement main SHA `bcf46a91cdbc95b2b1c0e4a5c585c76369051828`. Its final functional
+source was `5be546524e79b9c63b2a4effb5ec24e03fe6d777`, version 2.3.0 (15). All 16
+TestFlight builds are expired, the beta group is deleted, and there is no public listing or
+current submission.
+
+The archived iOS repository is not an active delivery or parity target. Web API, schema,
+backend, UI, and model work happens in this repository. The web cut-plan implementation may
+evolve independently; NintekKit's `WorkshopAPI`, models, and `CutPlan` remain frozen public
+compatibility surfaces.
+
+**Backend compatibility guardrail:** iOS retirement changes no shared backend behavior and
+does not authorize removal of dormant Apple authentication, Apple refresh-token
+storage/revocation, provider-scoped Apple database compatibility, account deletion, or
+historical accounts. The shared backend must retain those paths until a separately approved
+phase.
 
 ---
 
@@ -198,7 +220,7 @@ Navigate to `http://localhost:5180`. The SQLite database (`workshop.db`) and upl
 ### Validation
 
 ```bash
-npm test       # Node regression suite, including auth, data isolation, cut-plan parity, and web surfaces
+npm test       # Node regression suite, including auth, data isolation, cut-plan behavior, and web surfaces
 npx tsc -b     # Strict TypeScript check
 npm run build  # Production bundle and route chunks
 ```
@@ -240,15 +262,25 @@ export const msalConfig: Configuration = {
 
 Home-tenant users retain the existing `<oid>.db` path. Other Entra tenants and personal Microsoft accounts use `<tid>_<oid>.db`, preventing cross-tenant object-ID collisions. `ALLOWED_OID` is only the owner key for migrating a legacy single-user database; it is not an access gate.
 
-### Configure Sign in with Apple
+### Historical Sign in with Apple compatibility
 
-The native iOS client sends both `identityToken` and the one-time `authorizationCode` from `ASAuthorizationAppleIDCredential`:
+The retired native iOS client sent both `identityToken` and the one-time `authorizationCode`
+from `ASAuthorizationAppleIDCredential`:
 
 ```json
 { "id_token": "...", "authorization_code": "...", "name": "Optional first-login name" }
 ```
 
-The server verifies the ID token, exchanges the code at Apple's `/auth/token` endpoint, encrypts the returned refresh token with AES-256-GCM, and stores it in that user's database. `authorization_code` is accepted as optional only so already-shipped clients can continue signing in; those legacy sessions must complete one fresh sign-in on a current client before deleting the account. Configure `SESSION_SECRET`, `APPLE_BUNDLE_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`, and `APPLE_TOKEN_ENCRYPTION_KEY`; see [`.env.example`](.env.example). The private key, session secret, and token-encryption key are runtime secrets and must be supplied through Key Vault in production.
+The server verifies the ID token, exchanges the code at Apple's `/auth/token` endpoint,
+encrypts the returned refresh token with AES-256-GCM, and stores it in that user's database.
+`authorization_code` remains optional for historical client and account compatibility. A
+legacy Apple-backed account without a stored revocation credential can require a fresh
+compatible Apple sign-in before account deletion. Although no supported iOS client is
+distributed, this backend contract remains dormant and supported until a separately approved
+removal phase. Configure `SESSION_SECRET`, `APPLE_BUNDLE_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`,
+`APPLE_PRIVATE_KEY`, and `APPLE_TOKEN_ENCRYPTION_KEY`; see [`.env.example`](.env.example). The
+private key, session secret, and token-encryption key are runtime secrets and must be supplied
+through Key Vault in production.
 
 ---
 

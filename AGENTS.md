@@ -1,6 +1,6 @@
 # AGENTS.md — Workshop
 
-Woodworking project planner: React/Vite web client on an Azure App Service API with Entra auth and per-user SQLite.
+Canonical woodworking project planner: React/Vite web client on an Azure App Service API with Entra auth and per-user SQLite.
 
 ## Start here
 - **Repo detail / architecture:** see [CLAUDE.md](CLAUDE.md)
@@ -9,22 +9,35 @@ Woodworking project planner: React/Vite web client on an Azure App Service API w
 
 > Agent sessions run in git worktrees, so relative paths into sibling repos (`../foo/BAR.md`) do **not** resolve. The cross-repo facts below are inlined deliberately. Always link other repos by absolute GitHub URL.
 
-## Related surfaces
+## Supported client and retired surfaces
 
-### [Workshop-for-iOS](https://github.com/EnzoLopez2023/Workshop-for-iOS) — native SwiftUI Workshop
-**PORT on a shared Azure backend.**
+**Workshop web is the only canonical supported client** and remains live at
+<https://workshop.nintek.com>.
 
-- Same Entra registration, same server, full **bidirectional CRUD**.
-- 10 of the 12 web routes are implemented on iOS. The **Notebook** route (Tabloom integration) is **deferred to v2**.
+### [Workshop-for-iOS](https://github.com/EnzoLopez2023/Workshop-for-iOS) — historical native SwiftUI client
 
-### [NintekKit](https://github.com/EnzoLopez2023/NintekKit) — shared Swift package
-Holds the Swift side of the duplicated cut-plan optimiser (`CutPlan.swift`).
+Workshop-for-iOS was a sole-user, TestFlight-only port on the shared Azure backend; it was
+never publicly released. It is archived/read-only at retirement main SHA
+`bcf46a91cdbc95b2b1c0e4a5c585c76369051828`. The final functional source was
+`5be546524e79b9c63b2a4effb5ec24e03fe6d777`, version 2.3.0 (15). All 16 TestFlight builds
+are expired, the beta group is deleted, and there is no public listing or current submission.
 
-## Propagation rule
+Historically, the client shared the web app's Entra registration and backend and implemented
+10 of the then-12 web routes; Notebook was deferred. This is historical context, not an active
+product or parity commitment.
 
-**BACKEND + ALGORITHM PARITY.**
+### [NintekKit](https://github.com/EnzoLopez2023/NintekKit) — frozen public compatibility
 
-1. **API / schema changes go to both clients.** The backend is shared; a one-sided change breaks iOS silently.
-2. **The cut-plan optimiser is DUPLICATED.** `src/lib/cutPlan.ts` in this repo mirrors `CutPlan.swift` in NintekKit — including `parseInches` fraction parsing — and the two are **unit-tested against each other so layouts match exactly**.
+NintekKit retains its `WorkshopAPI`, models, and `CutPlan.swift` as frozen public
+compatibility surfaces. They are no longer active Workshop parity targets.
 
-   **Change one, change the other, re-run the parity tests.** A cut-plan edit landed on only one side is a bug, not a partial feature.
+## Contribution rules
+
+1. Make supported client changes in this repository. Do not attempt to propagate web API,
+   schema, backend, UI, or model changes to the archived iOS repository.
+2. The web cut-plan implementation in `src/lib/cutPlan.ts` may evolve as web product code.
+   Do not change NintekKit solely to preserve retired Workshop iOS parity.
+3. **iOS retirement changes no shared backend behavior and does not authorize account
+   compatibility removal.** Until a separately approved phase, preserve dormant Apple
+   authentication, Apple refresh-token storage/revocation, provider-scoped Apple database
+   compatibility, account deletion, and access to historical accounts.
