@@ -6,6 +6,25 @@
 
 web
 
+## Client Authority
+
+Workshop web is the only canonical supported client and remains live at
+<https://workshop.nintek.com>.
+
+The historical Workshop-for-iOS client was sole-user and TestFlight-only, was never publicly
+released, and is now archived/read-only at retirement main SHA
+`bcf46a91cdbc95b2b1c0e4a5c585c76369051828`. Its final functional source was
+`5be546524e79b9c63b2a4effb5ec24e03fe6d777`, version 2.3.0 (15). All 16 TestFlight builds
+are expired, the beta group is deleted, and there is no public listing or current submission.
+It is not an active product or parity target.
+
+NintekKit's `WorkshopAPI`, models, and `CutPlan` remain frozen public compatibility surfaces.
+The web cut-plan implementation may evolve independently. This retirement changes no shared
+backend behavior and does not authorize removing any compatibility path. Dormant Apple
+authentication, Apple refresh-token storage/revocation, provider-scoped Apple database
+compatibility, account deletion, and historical accounts remain supported until a separately
+approved phase.
+
 ## Users
 
 One primary user: the owner, a hobbyist woodworker. Confirmed scene of use — planning at a
@@ -70,7 +89,9 @@ parts list) into something they'd otherwise do by hand.
 
 - React 19 + Vite + Tailwind v4 + React Router v7 frontend; single-file Express + SQLite
   backend (`server.js`). No state library — each page fetches its own data.
-- Auth is Azure AD (MSAL) only; there are no passwords. Per-user SQLite files keyed by OID.
+- The supported web sign-in is Azure AD (MSAL); there are no passwords. Microsoft accounts use
+  per-user SQLite files keyed by their provider identity, while dormant Apple-backed account
+  compatibility remains in the shared backend.
 - Demo mode (`X-Demo: 1`) is unauthenticated, read-only, and blocks writes in the browser
   before they leave the client.
 - Light and dark themes both ship and both must work; the preference persists in
@@ -78,7 +99,7 @@ parts list) into something they'd otherwise do by hand.
   `index.html`.
 - Deployed as a Linux container on Azure App Service. Frontend env vars are baked at build
   time, so anything visual must be static-buildable.
-- The Node test suite covers auth/data isolation, account deletion, cut-plan parity, core
+- The Node test suite covers auth/data isolation, account deletion, cut-plan behavior, core
   workflows, route/shell contracts, and the remaining web surfaces. `npx tsc -b` and
   `npm run build` are additional automated gates; no linter is configured. TypeScript runs
   `strict` + `noUnusedLocals` + `noUnusedParameters`.
@@ -92,14 +113,16 @@ parts list) into something they'd otherwise do by hand.
 
 - **Name:** Workshop. The hammer is the identifying mark; "Project Companion" may appear as
   supporting product copy, not as a replacement name.
-- **Shared direction:** Web and iOS use the shipped **Living Plan Table** language: cool vellum
+- **Web direction:** The shipped **Living Plan Table** language uses a cool vellum
   canvas, deep spruce structure, pencil-blue annotation, restrained amber next-action emphasis,
   a subtle 24px drafting grid, layered project plans/photos, and functional glass only where
   navigation, selection, or tracing requires it.
-- **Cross-platform character, platform-native behavior:** iOS uses native SwiftUI navigation and
-  material; web uses semantic landmarks, persistent URLs, links, browser history, native form
-  behavior, visible keyboard focus, and responsive sidebar/bottom navigation. The visual language
-  is shared, but web never simulates iOS chrome or gestures.
+- **Historical iOS direction:** The retired client used the same visual language with native
+  SwiftUI navigation and material. This is historical context, not an active cross-platform
+  requirement.
+- **Web platform behavior:** Use semantic landmarks, persistent URLs, links, browser history,
+  native form behavior, visible keyboard focus, and responsive sidebar/bottom navigation. Web
+  never simulates iOS chrome or gestures.
 - **Companion products:** Tabloom (notebook source) and Shopkeep (tool inventory, linked when
   `VITE_SHOPKEEP_URL` is set) are real sibling apps by the same owner.
 - **Retired directions:** warm-paper/editorial-serif/terracotta and the later Concourse Board

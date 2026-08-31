@@ -2,7 +2,26 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Cross-app standards** (versioning, Key Vault/secrets, deploy/CI, auth, iOS readiness, Azure registry) are defined in the canonical [azure-infra/STANDARDS.md](../azure-infra/STANDARDS.md). Consult it first; it wins over this file for shared conventions.
+> **Cross-app standards** (versioning, Key Vault/secrets, deploy/CI, auth, Azure registry) are defined in the canonical [azure-infra/STANDARDS.md](../azure-infra/STANDARDS.md). Consult it first; it wins over this file for shared conventions.
+
+## Client authority and iOS retirement (READ FIRST)
+
+- **Workshop web is the only canonical supported client** and remains live at
+  <https://workshop.nintek.com>.
+- [Workshop-for-iOS](https://github.com/EnzoLopez2023/Workshop-for-iOS) was a sole-user,
+  TestFlight-only client that was never publicly released. It is archived/read-only at final
+  retirement main SHA `bcf46a91cdbc95b2b1c0e4a5c585c76369051828`; its final functional
+  source was `5be546524e79b9c63b2a4effb5ec24e03fe6d777`, version 2.3.0 (15). All 16
+  TestFlight builds are expired, the beta group is deleted, and there is no public listing or
+  current submission.
+- Make API, schema, backend, model, and UI changes for the supported web product in this
+  repository. Do not update the archived iOS repository. NintekKit's `WorkshopAPI`, models,
+  and `CutPlan.swift` remain frozen public compatibility surfaces, not active Workshop
+  parity targets. `src/lib/cutPlan.ts` may evolve independently as web product code.
+- **Retirement changes no shared backend behavior and is not permission to remove Apple
+  account compatibility.** Until a separately approved phase, preserve dormant Apple
+  authentication, Apple refresh-token storage/revocation, provider-scoped Apple database
+  compatibility, account deletion, and historical accounts.
 
 ## Deploy reality (READ FIRST)
 
@@ -10,7 +29,8 @@ Production runs on **Azure App Service (Linux container)** — not Docker on a s
 
 - Resource: `app-workshop-prod-lwxhu7jxlrbtu` in resource group `rg-personal-apps-prod`
 - Image: App Service is pinned to `acrenzolopez01.azurecr.io/workshop@sha256:<digest>`; the `latest` alias is promoted from that same inspected digest
-- Public URL: <https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net>
+- Canonical product URL: <https://workshop.nintek.com>
+- App Service URL: <https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net>
 - Verify: `curl https://app-workshop-prod-lwxhu7jxlrbtu.azurewebsites.net/api/health` → exact image `sha`/`version`, process `instance`, `/home/data/workshop.db`, and exporter readiness
 - Backend env vars (`AZURE_HOME_TENANT_ID` or legacy `AZURE_TENANT_ID`, `API_AUDIENCE`, `ALLOWED_OID`, `ANTHROPIC_API_KEY`, optional `THINGIVERSE_APP_TOKEN`, optional `PROVIDER_TOKEN_ENCRYPTION_KEY`, `SESSION_SECRET`, `APPLE_BUNDLE_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`, `APPLE_TOKEN_ENCRYPTION_KEY`, `DB_PATH=/home/data/workshop.db`, `UPLOADS_PATH=/home/data/uploads`) live in **App Service → Configuration**, not in committed files. `PROVIDER_TOKEN_ENCRYPTION_KEY` falls back to a domain-separated key derived from `SESSION_SECRET`. `ALLOWED_OID` is the primary-user / legacy-migration key, not an access gate. Home-tenant Entra DBs retain `/home/data/users/<oid>.db`; other tenants use `/home/data/users/<tid>_<oid>.db`; Apple keys are unchanged.
 - SQLite, uploads, and verified rollback bundles persist under the App Service mounted storage at `/home/data`; Docker defaults now match that layout. Same-volume bundles are not DR: encrypted off-host export and drills remain required (see `RECOVERY.md`).
@@ -45,7 +65,7 @@ Production runs on **Azure App Service (Linux container)** — not Docker on a s
 - **Per-user DB isolation (READ THIS before touching data code).** There is **no shared global `db`**. Home-tenant Microsoft users keep `USERS_DIR/<oid>.db`; external Entra and MSA users use `USERS_DIR/<tid>_<oid>.db`; Apple keys remain `apple_<sha256(sub)>`. GUIDs are lowercase-canonicalized. The `/api` middleware attaches the selected database as `req.db` / `req.stmts`.
   - **Seed template.** The legacy DB snapshot backs demo mode only. New accounts start empty.
   - **Legacy migration.** The primary home-tenant user identified by `ALLOWED_OID` inherits the legacy `workshop.db` by rename.
-- **Auth.** Entra access tokens use Microsoft's common JWKS, exact API audiences (`<client-id>` for v2 and `api://<client-id>` for v1 compatibility), required `access_as_user`, and an issuer derived from and bound to the GUID `tid`. The app registration needs `api.requestedAccessTokenVersion: 2` and an enabled, user-consentable delegated scope. Current Apple sign-in remains independent. Public image routes resolve `?userKey=` (`?oid=` is a legacy alias).
+- **Auth.** Entra access tokens use Microsoft's common JWKS, exact API audiences (`<client-id>` for v2 and `api://<client-id>` for v1 compatibility), required `access_as_user`, and an issuer derived from and bound to the GUID `tid`. The app registration needs `api.requestedAccessTokenVersion: 2` and an enabled, user-consentable delegated scope. Dormant Apple sign-in and Workshop-token compatibility remain for historical Apple-backed accounts; they are not current web sign-in paths. Public image routes resolve `?userKey=` (`?oid=` is a legacy alias).
 - **Account deletion.** Authenticated `DELETE /api/account` derives the account only from the bearer principal. Apple-backed accounts revoke every stored refresh token at Apple's `/auth/revoke` before local purge; `revoked_at` and `account_deletion_files` checkpoint partial progress so provider/filesystem failures remain retryable. The route then removes the entire isolated DB plus account-only uploads and returns `{ "success": true }`. Workshop Apple access/refresh JWTs carry the DB's `auth_state.session_generation`, so deleting or recreating an account cannot leave an old session usable. The route is registered before the general DB middleware so an idempotent Entra retry cannot recreate an empty workspace.
 - **Recovery.** `recovery.js` creates atomic, checksummed whole bundles of the legacy/seed/per-user SQLite DBs plus uploads. Production capture briefly quiesces `/api`, uses SQLite's online backup API (so WAL sidecars are not copied), validates DB integrity and every file reference, then applies whole-bundle retention. `RECOVERY.md` is the restore/DR runbook. `/home/data/backups` is same-volume rollback only; live Azure must export encrypted bundles off-host.
 - **Demo mode.** A request with header `X-Demo: 1` is unauthenticated, read-only, and served from the shared seed snapshot (`getDemoDb`); any non-GET returns 403. The frontend flag lives in `src/demo/demoMode.ts` (sessionStorage), `AuthGuard` bypasses MSAL when set, `src/services/api.ts` sends `X-Demo` on GETs and blocks writes before they leave the browser, and the landing page has a **Demo** button.
