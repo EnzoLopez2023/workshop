@@ -10,6 +10,7 @@
     "ci:deploy": "npm test && npm run build",
     "deploy:migration-check": "node scripts/check-migration-compatibility.mjs",
     "deploy:monitor-check": "node scripts/check-deployment-monitor.mjs",
+    "extension:chrome": "./scripts/package-makerworld-chrome-extension.sh",
     "preview": "vite preview",
     "server": "node server.js",
     "recovery": "node scripts/recovery.mjs",

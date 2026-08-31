@@ -119,7 +119,7 @@ async function waitForTab(tabId, timeoutMs = 30_000) {
 
 async function makerWorldTab(sourceUrl) {
   const created = await tabsCreate({ url: sourceUrl, active: true });
-  if (created.id == null) throw new Error("Safari did not create the MakerWorld tab.");
+  if (created.id == null) throw new Error("The browser did not create the MakerWorld tab.");
   await waitForTab(created.id);
   return created;
 }
@@ -129,8 +129,8 @@ async function collectFromTab(tabId, payload) {
     await executeScripts(tabId, ["makerworld-client.js", "content-makerworld.js"]);
   } catch {
     const error = new Error(
-      "Safari has not allowed Workshop MakerWorld Bridge on makerworld.com. " +
-      "In the MakerWorld tab, click the bridge toolbar icon and choose Always Allow on makerworld.com, then retry."
+      "Workshop MakerWorld Bridge cannot access makerworld.com. " +
+      "Allow the extension to read and change data on makerworld.com, then retry."
     );
     error.code = "makerworld_site_access_required";
     throw error;
@@ -152,7 +152,7 @@ async function collectFromTab(tabId, payload) {
   }
   const error = new Error(
     "The MakerWorld bridge did not load in the tab. " +
-    "In the MakerWorld tab, click the bridge toolbar icon and choose Always Allow on makerworld.com, then retry."
+    "Allow Workshop MakerWorld Bridge to read and change data on makerworld.com, then retry."
   );
   error.code = "makerworld_site_access_required";
   error.cause = lastError;

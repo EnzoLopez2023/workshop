@@ -4016,6 +4016,81 @@ tbody td {
   border-radius: var(--radius-capsule);
 }
 
+.auth-account-picker > p {
+  max-width: 62ch;
+}
+
+.auth-account-list {
+  display: grid;
+  width: min(100%, 500px);
+  gap: 10px;
+  margin: 2px 0 18px;
+}
+
+.auth-account-option {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-default);
+  padding: 10px 12px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  color: var(--color-ink);
+  cursor: pointer;
+  text-align: start;
+}
+
+.auth-account-avatar {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-recessed);
+  color: var(--color-action);
+  font-family: var(--font-rounded);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.auth-account-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.auth-account-option-copy strong,
+.auth-account-option-copy span,
+.auth-account-option-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-account-option-copy span,
+.auth-account-option-copy small {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.auth-account-option > svg {
+  color: var(--color-annotation);
+}
+
+.auth-account-error,
+.settings-account-error {
+  color: var(--color-danger);
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.auth-account-error {
+  margin: 14px 0 0;
+}
+
 .fatal-state {
   width: min(calc(100% - 32px), 660px);
   margin: clamp(32px, 10vh, 96px) auto;
@@ -4749,6 +4824,18 @@ tbody td {
   padding: 14px 4px;
 }
 
+.settings-account-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-account-error {
+  margin: 0 4px 14px;
+}
+
 .settings-account > div {
   display: grid;
   min-width: 0;
@@ -4858,6 +4945,11 @@ tbody td {
 }
 
 @media (hover: hover) {
+  .auth-account-option:hover {
+    border-color: var(--color-divider-strong);
+    background: var(--color-navigation);
+    box-shadow: var(--shadow-card-hover);
+  }
   .notebook-page-row:hover {
     background: var(--color-recessed);
   }
@@ -4984,6 +5076,11 @@ tbody td {
   .settings-account {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .settings-account-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .settings-account .btn,

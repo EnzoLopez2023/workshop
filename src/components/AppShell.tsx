@@ -33,7 +33,7 @@ const NAV_ICONS: Record<NavigationId, ComponentType<{ size?: number; strokeWidth
 };
 
 export default function AppShell({ children }: { children: ReactNode }) {
-  const { instance, accounts } = useMsal();
+  const { instance } = useMsal();
   const { pathname } = useLocation();
   const { resolvedTheme, setTheme } = useTheme();
   const demo = isDemoMode();
@@ -43,7 +43,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     if (dashboardPage) localStorage.setItem(DASHBOARD_PAGE_STORAGE_KEY, dashboardPage);
   }, [pathname]);
 
-  const account = accounts[0] ?? null;
+  const account = instance.getActiveAccount();
   const displayName = demo ? 'Demo workspace' : account?.name ?? account?.username ?? 'Workshop account';
   const secondary = demo ? 'Read only' : account?.username ?? 'Signed in';
   const initials = displayName
@@ -59,7 +59,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
       window.location.assign('/');
       return;
     }
-    instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+    void instance.logoutRedirect({
+      account: account ?? undefined,
+      postLogoutRedirectUri: window.location.origin,
+    });
   };
 
   const toggleTheme = () => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');

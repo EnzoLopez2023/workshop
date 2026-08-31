@@ -2,7 +2,7 @@ import { InteractionRequiredAuthError, type IPublicClientApplication } from '@az
 import { apiScope } from './msalConfig'
 
 export async function getApiToken(instance: IPublicClientApplication): Promise<string> {
-  const account = instance.getActiveAccount() ?? instance.getAllAccounts()[0]
+  const account = instance.getActiveAccount()
   if (!account) throw new Error('No signed-in account')
   try {
     const result = await instance.acquireTokenSilent({ scopes: [apiScope], account })

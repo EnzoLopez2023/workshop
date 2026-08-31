@@ -1,6 +1,7 @@
 export interface MicrosoftAccountIdentity {
   name?: string;
   username?: string;
+  tenantId?: string;
 }
 
 export interface WebAccountSummary {
@@ -13,6 +14,18 @@ const cleanLabel = (value: string | undefined) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
+
+const PERSONAL_MICROSOFT_TENANT_ID = '9188040d-6c67-4c5b-b112-36a304b66dad';
+
+export function getMicrosoftAccountType(
+  account: MicrosoftAccountIdentity | null | undefined,
+): 'Personal Microsoft account' | 'Work or school account' | 'Microsoft account' {
+  const tenantId = cleanLabel(account?.tenantId)?.toLowerCase();
+  if (!tenantId) return 'Microsoft account';
+  return tenantId === PERSONAL_MICROSOFT_TENANT_ID
+    ? 'Personal Microsoft account'
+    : 'Work or school account';
+}
 
 export function getWebAccountSummary(
   account: MicrosoftAccountIdentity | null | undefined,

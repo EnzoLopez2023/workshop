@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import {
   getDeletionScopeCopy,
+  getMicrosoftAccountType,
   getWebAccountSummary,
 } from '../src/auth/accountIdentity.ts';
 
@@ -35,6 +36,18 @@ test('web account summaries label Microsoft accounts without exposing raw identi
   );
 });
 
+test('Microsoft account summaries distinguish personal and organizational identities', () => {
+  assert.equal(
+    getMicrosoftAccountType({ tenantId: '9188040D-6C67-4C5B-B112-36A304B66DAD' }),
+    'Personal Microsoft account',
+  );
+  assert.equal(
+    getMicrosoftAccountType({ tenantId: '52188f12-db6b-46c6-88ff-08c802f0ed3b' }),
+    'Work or school account',
+  );
+  assert.equal(getMicrosoftAccountType(null), 'Microsoft account');
+});
+
 test('deletion scope copy covers known-provider and safe fallback states', () => {
   assert.equal(
     getDeletionScopeCopy('Microsoft'),
@@ -46,22 +59,45 @@ test('deletion scope copy covers known-provider and safe fallback states', () =>
   );
 });
 
-test('sign-in and account surfaces disclose the provider-scoped workspace boundary', async () => {
-  const [landing, settings] = await Promise.all([
+test('sign-in and account surfaces disclose the exact identity workspace boundary', async () => {
+  const [landing, settings, authGuard, msalConfig, main, appShell, api, apiToken, tabloomToken] = await Promise.all([
     readSource('src/auth/LandingPage.tsx'),
     readSource('src/pages/Settings.tsx'),
+    readSource('src/auth/AuthGuard.tsx'),
+    readSource('src/auth/msalConfig.ts'),
+    readSource('src/main.tsx'),
+    readSource('src/components/AppShell.tsx'),
+    readSource('src/services/api.ts'),
+    readSource('src/auth/getToken.ts'),
+    readSource('src/auth/getTabloomToken.ts'),
   ]);
 
-  assert.match(landing, /Use the same sign-in provider each time to return to the same workspace\./);
-  assert.match(landing, /Choosing Sign in with Apple in the iOS app creates a separate workspace\./);
-  assert.match(landing, /Apple and Microsoft accounts are not linked or merged\./);
+  assert.match(landing, /Use the same Microsoft account each time to return to your workspace\./);
+  assert.match(landing, /Another Microsoft identity opens a separate workspace/);
+  assert.match(landing, /even if it shows[\s\S]*the same email address/);
+  assert.match(landing, /Apple and Microsoft accounts are not linked\./);
   assert.match(landing, /role="note"[\s\S]*aria-label="How sign-in affects your workspace"/);
 
   assert.match(settings, /<dt>Current provider<\/dt>/);
-  assert.match(settings, /Sign in with the same provider again to return to this workspace\./);
-  assert.match(settings, /Choosing another provider creates a separate workspace/);
-  assert.match(settings, /Apple and[\s\S]*Microsoft accounts are not linked or merged\./);
+  assert.match(settings, /<dt>Account type<\/dt>/);
+  assert.match(settings, /Sign in with this same Microsoft account to return to this workspace\./);
+  assert.match(settings, /Another Microsoft identity opens a separate workspace/);
+  assert.match(settings, /Switch account/);
   assert.doesNotMatch(settings, /localAccountId|homeAccountId|idTokenClaims|\boid\b|\bsub\b/);
+
+  assert.match(msalConfig, /prompt: 'select_account'/);
+  assert.match(main, /EventType\.LOGIN_SUCCESS/);
+  assert.match(main, /EventType\.ACQUIRE_TOKEN_SUCCESS/);
+  assert.match(main, /setActiveAccount\(result\.account\)/);
+  assert.match(authGuard, /accounts\.length === 1/);
+  assert.match(authGuard, /Choose your Workshop account/);
+  assert.match(authGuard, /Use another Microsoft account/);
+  assert.doesNotMatch(authGuard, /accounts\[0\][\s\S]*accounts\.length > 0/);
+  assert.match(appShell, /instance\.getActiveAccount\(\)/);
+
+  for (const source of [appShell, api, apiToken, tabloomToken]) {
+    assert.doesNotMatch(source, /getAllAccounts\(\)\[0\]|accounts\[0\]/);
+  }
 });
 
 test('account deletion keeps the authenticated-workspace lifecycle intact', async () => {

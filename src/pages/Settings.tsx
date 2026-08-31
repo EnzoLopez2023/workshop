@@ -10,6 +10,7 @@ import {
   LogOut,
   Monitor,
   Paintbrush,
+  RefreshCw,
   Settings2,
   Trash2,
   Unplug,
@@ -17,7 +18,12 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
-import { getDeletionScopeCopy, getWebAccountSummary } from '../auth/accountIdentity';
+import {
+  getDeletionScopeCopy,
+  getMicrosoftAccountType,
+  getWebAccountSummary,
+} from '../auth/accountIdentity';
+import { loginRequest } from '../auth/msalConfig';
 import { useTheme, type Theme } from '../contexts/ThemeContext';
 import { ACCENT_PRESETS, useSettings, type AccentColor } from '../contexts/SettingsContext';
 import { exitDemoMode, isDemoMode } from '../demo/demoMode';
@@ -52,6 +58,8 @@ export default function Settings() {
   const deletionScopeCopy = getDeletionScopeCopy(accountSummary.providerLabel);
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
+  const [switchingAccount, setSwitchingAccount] = useState(false);
+  const [accountActionError, setAccountActionError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -139,7 +147,25 @@ export default function Settings() {
       window.location.assign('/');
       return;
     }
-    void instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+    void instance.logoutRedirect({
+      account: account ?? undefined,
+      postLogoutRedirectUri: window.location.origin,
+    });
+  };
+
+  const handleSwitchAccount = async () => {
+    if (switchingAccount || demo) return;
+    setSwitchingAccount(true);
+    setAccountActionError('');
+    try {
+      await instance.loginRedirect(loginRequest);
+    } catch (error) {
+      console.error('Microsoft account selection failed', error);
+      setSwitchingAccount(false);
+      setAccountActionError(
+        'Microsoft account selection could not open. Check the connection and try again.',
+      );
+    }
   };
 
   const handleDeleteAccount = async () => {
@@ -371,7 +397,7 @@ export default function Settings() {
         title="Account"
         description={demo
           ? 'The demo is session-scoped and cannot save changes.'
-          : 'Your sign-in provider determines which private workspace opens.'}
+          : 'The exact Microsoft identity determines which private workspace opens.'}
       >
         <div className="settings-account">
           <div className="settings-account-identity">
@@ -385,22 +411,41 @@ export default function Settings() {
                     <dt>Current provider</dt>
                     <dd>{accountSummary.providerLabel}</dd>
                   </div>
+                  <div>
+                    <dt>Account type</dt>
+                    <dd>{getMicrosoftAccountType(account)}</dd>
+                  </div>
                 </dl>
                 <p className="settings-account-scope">
-                  Sign in with the same provider again to return to this workspace.
-                  Choosing another provider creates a separate workspace; Apple and
-                  Microsoft accounts are not linked or merged.
+                  Sign in with this same Microsoft account to return to this workspace.
+                  Another Microsoft identity opens a separate workspace, even if it shows
+                  the same email address. Apple and Microsoft accounts are not linked.
                 </p>
               </>
             )}
           </div>
-          <Button variant="ghost" onClick={signOut}>
-            {demo
-              ? <LogIn size={16} aria-hidden="true" />
-              : <LogOut size={16} aria-hidden="true" />}
-            {demo ? 'Sign in' : 'Sign out'}
-          </Button>
+          <div className="settings-account-actions">
+            {!demo && (
+              <Button
+                variant="ghost"
+                onClick={() => void handleSwitchAccount()}
+                disabled={switchingAccount}
+              >
+                <RefreshCw size={16} aria-hidden="true" />
+                {switchingAccount ? 'Opening…' : 'Switch account'}
+              </Button>
+            )}
+            <Button variant="ghost" onClick={signOut}>
+              {demo
+                ? <LogIn size={16} aria-hidden="true" />
+                : <LogOut size={16} aria-hidden="true" />}
+              {demo ? 'Sign in' : 'Sign out'}
+            </Button>
+          </div>
         </div>
+        {accountActionError && (
+          <p className="settings-account-error" role="alert">{accountActionError}</p>
+        )}
 
         {!demo && (
           <div className="settings-danger-zone">

@@ -1,6 +1,11 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { PublicClientApplication } from '@azure/msal-browser';
+import {
+  EventType,
+  InteractionType,
+  PublicClientApplication,
+  type AuthenticationResult,
+} from '@azure/msal-browser';
 import { MsalProvider } from '@azure/msal-react';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { msalConfig } from './auth/msalConfig';
@@ -35,6 +40,17 @@ try {
   msalInstance
     .initialize()
     .then(() => {
+      msalInstance.addEventCallback(event => {
+        const selectsAccount = event.eventType === EventType.LOGIN_SUCCESS
+          || (
+            event.eventType === EventType.ACQUIRE_TOKEN_SUCCESS
+            && event.interactionType === InteractionType.Redirect
+          );
+        if (!selectsAccount) return;
+
+        const result = event.payload as AuthenticationResult | null;
+        if (result?.account) msalInstance.setActiveAccount(result.account);
+      });
       setMsalInstance(msalInstance);
       setTabloomMsalInstance(msalInstance);
       createRoot(rootEl).render(

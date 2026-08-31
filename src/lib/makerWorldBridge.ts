@@ -51,7 +51,7 @@ export function requestMakerWorldBridge(
       window.removeEventListener('message', listener);
       reject(new MakerWorldBridgeError(
         'bridge_timeout',
-        'The Safari bridge timed out. Return to Workshop and try again.',
+        'Workshop Bridge timed out. Return to Workshop and try again.',
       ));
     }, timeoutMs);
 
@@ -64,7 +64,7 @@ export function requestMakerWorldBridge(
       if (!result?.ok) {
         reject(new MakerWorldBridgeError(
           result?.code ?? 'bridge_failed',
-          result?.error ?? 'The Safari bridge could not import MakerWorld files.',
+          result?.error ?? 'Workshop Bridge could not import MakerWorld files.',
         ));
         return;
       }

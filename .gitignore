@@ -11,3 +11,4 @@ docs/
 tsconfig.*.tsbuildinfo
 uploads/
 .safari-extension-build/
+.chrome-extension-build/

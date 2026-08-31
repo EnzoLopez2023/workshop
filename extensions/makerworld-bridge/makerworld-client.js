@@ -125,13 +125,13 @@
     if (response.status === 401 || response.status === 403) {
       throw new MakerWorldBridgeError(
         "makerworld_sign_in_required",
-        "Sign in to MakerWorld in this Safari tab, then retry from Workshop."
+        "Sign in to MakerWorld in the opened tab, then retry from Workshop."
       );
     }
     if (response.status === 418) {
       throw new MakerWorldBridgeError(
         "makerworld_challenge",
-        "MakerWorld requested a verification challenge. Wait a moment, complete any prompt in Safari, then retry; Workshop will request only missing files."
+        "MakerWorld requested a verification challenge. Complete any prompt in the opened tab, then retry; Workshop will request only missing files."
       );
     }
     if (response.status === 429) {

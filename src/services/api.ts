@@ -24,7 +24,7 @@ export function setMsalInstance(instance: IPublicClientApplication) { msal = ins
 
 // Match the backend's home-preserving tenant namespace for auth-exempt images.
 function currentUserKey(): string | null {
-  const account = msal?.getActiveAccount() ?? msal?.getAllAccounts()[0] ?? null;
+  const account = msal?.getActiveAccount() ?? null;
   const oidClaim = account?.idTokenClaims?.oid;
   const oid = typeof oidClaim === 'string' ? oidClaim : (account?.localAccountId ?? '');
   const tid = account?.tenantId ?? '';

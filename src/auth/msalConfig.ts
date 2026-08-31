@@ -1,4 +1,4 @@
-import { LogLevel } from '@azure/msal-browser'
+import { LogLevel, type RedirectRequest } from '@azure/msal-browser'
 
 const clientId = import.meta.env.VITE_AZURE_CLIENT_ID
 const authorityTenant = import.meta.env.VITE_AZURE_AUTHORITY_TENANT_ID
@@ -36,4 +36,5 @@ export const msalConfig = {
 
 export const loginRequest = {
   scopes: [apiScope],
-}
+  prompt: 'select_account',
+} satisfies RedirectRequest

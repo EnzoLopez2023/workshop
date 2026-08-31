@@ -119,10 +119,10 @@ export default function LandingPage() {
             role="note"
             aria-label="How sign-in affects your workspace"
           >
-            <strong>Use the same sign-in provider each time to return to the same workspace.</strong>
+            <strong>Use the same Microsoft account each time to return to your workspace.</strong>
             <span>
-              Choosing Sign in with Apple in the iOS app creates a separate workspace.
-              Apple and Microsoft accounts are not linked or merged.
+              Another Microsoft identity opens a separate workspace, even if it shows
+              the same email address. Apple and Microsoft accounts are not linked.
             </span>
             <span>The demo needs no account and cannot save changes.</span>
           </div>

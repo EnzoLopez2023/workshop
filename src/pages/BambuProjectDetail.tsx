@@ -205,7 +205,7 @@ export default function BambuProjectDetail() {
       setBridgeStatus('');
       setBridgeError(error instanceof Error
         ? error.message
-        : 'The Safari bridge could not import MakerWorld files.');
+        : 'Workshop Bridge could not import MakerWorld files.');
     } finally {
       if (bridgeRunRef.current === runId) setBridgeImporting(false);
     }
@@ -380,8 +380,8 @@ export default function BambuProjectDetail() {
                   <strong>Automatic MakerWorld files</strong>
                   <small>
                     {bridgeVersion
-                      ? 'The personal Safari bridge is ready. MakerWorld credentials and cookies remain in Safari.'
-                      : 'The personal Safari bridge is not installed or enabled. Add Files remains available.'}
+                      ? 'Workshop Bridge is ready in this browser. MakerWorld credentials and cookies stay here.'
+                      : 'Workshop Bridge is not installed or enabled in this browser. Add Files remains available.'}
                   </small>
                 </span>
                 {bridgeVersion ? (

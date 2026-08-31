@@ -12,7 +12,7 @@ if (!TABLOOM_CLIENT_ID) {
 export const tabloomApiScope = `api://${TABLOOM_CLIENT_ID}/access_as_user`
 
 export async function getTabloomToken(instance: IPublicClientApplication): Promise<string> {
-  const account = instance.getActiveAccount() ?? instance.getAllAccounts()[0]
+  const account = instance.getActiveAccount()
   if (!account) throw new Error('No signed-in account')
   try {
     const result = await instance.acquireTokenSilent({ scopes: [tabloomApiScope], account })

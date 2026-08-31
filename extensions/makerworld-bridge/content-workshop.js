@@ -5,7 +5,8 @@ const REQUEST = "WORKSHOP_MAKERWORLD_BRIDGE_REQUEST";
 const RESULT = "WORKSHOP_MAKERWORLD_BRIDGE_RESULT";
 
 function postReady() {
-  window.postMessage({ type: READY, version: "0.1.0" }, window.location.origin);
+  const version = extensionApi.runtime.getManifest().version;
+  window.postMessage({ type: READY, version }, window.location.origin);
 }
 
 function sendRuntimeMessage(message) {
