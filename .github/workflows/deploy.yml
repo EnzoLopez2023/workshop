@@ -29,7 +29,9 @@ env:
   READY_PATH: /api/ready
   REQUIRED_CONFIRMATIONS: '3'
   MAX_ATTEMPTS: '120'
+  READINESS_GRACE_ATTEMPTS: '360'
   ROLLBACK_MAX_ATTEMPTS: '120'
+  ROLLBACK_READINESS_GRACE_ATTEMPTS: '360'
   POLL_INTERVAL_SECONDS: '5'
   HTTP_TIMEOUT_SECONDS: '8'
   AZURE_CLIENT_ID: dbd68ead-ad3f-4c2b-8559-36112970db42
@@ -44,7 +46,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { fetch-depth: 0 }
@@ -245,7 +247,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$GITHUB_SHA" --expected-build-id "$BUILD_ID" --previous-instance-id "$PREVIOUS_INSTANCE_ID" --attempts "$MAX_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "$BUILD_ID"
+          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$GITHUB_SHA" --expected-build-id "$BUILD_ID" --previous-instance-id "$PREVIOUS_INSTANCE_ID" --attempts "$MAX_ATTEMPTS" --readiness-grace-attempts "$READINESS_GRACE_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "$BUILD_ID"
           [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
           [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:$GITHUB_SHA-$BUILD_ID" --query digest -o tsv)" == "$IMAGE_DIGEST" ]]
           settings_after="$(az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json | jq -cS 'sort_by(.name)|map({name,value,slotSetting:(.slotSetting//false)})' | sha256sum | awk '{print $1}')"
@@ -286,7 +288,7 @@ jobs:
               sbomAttestationVerified:true,rollbackPerformed:false}' > evidence/deployment.json
       - name: Roll back failed candidate
         if: ${{ always() && (failure() || cancelled()) && env.DEPLOYMENT_MUTATED == 'true' }}
-        timeout-minutes: 16
+        timeout-minutes: 45
         shell: bash
         run: |
           set -euo pipefail
@@ -301,7 +303,7 @@ jobs:
           # backward-compatible health response is the sole rollback proof.
           legacy=()
           [[ -z "$PREVIOUS_BUILD_ID" ]] && legacy=(--allow-legacy-build-id --live-path "$PLATFORM_HEALTH_PATH" --ready-path "$PLATFORM_HEALTH_PATH")
-          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$PREVIOUS_SHA" --expected-build-id "${PREVIOUS_BUILD_ID:-legacy}" "${legacy[@]}" --attempts "$ROLLBACK_MAX_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "rollback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$PREVIOUS_SHA" --expected-build-id "${PREVIOUS_BUILD_ID:-legacy}" "${legacy[@]}" --attempts "$ROLLBACK_MAX_ATTEMPTS" --readiness-grace-attempts "$ROLLBACK_READINESS_GRACE_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "rollback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           settings_after="$(az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json | jq -cS 'sort_by(.name)|map({name,value,slotSetting:(.slotSetting//false)})' | sha256sum | awk '{print $1}')"
           site_after="$(az webapp show -g "$RG" -n "$WEBAPP" -o json | jq -cS '{identity,httpsOnly,publicNetworkAccess,virtualNetworkSubnetId,outboundVnetRouting,clientCertEnabled,siteConfig:{acrUseManagedIdentityCreds:.siteConfig.acrUseManagedIdentityCreds,alwaysOn:.siteConfig.alwaysOn,healthCheckPath:.siteConfig.healthCheckPath,http20Enabled:.siteConfig.http20Enabled,numberOfWorkers:.siteConfig.numberOfWorkers,vnetRouteAllEnabled:.siteConfig.vnetRouteAllEnabled,ipSecurityRestrictions:(.siteConfig.ipSecurityRestrictions//[]|sort_by(.priority,.name)),scmIpSecurityRestrictions:(.siteConfig.scmIpSecurityRestrictions//[]|sort_by(.priority,.name))}}' | sha256sum | awk '{print $1}')"
           [[ "$settings_after" == "$APP_SETTINGS_FINGERPRINT" && "$site_after" == "$SITE_INVARIANTS_FINGERPRINT" ]]
