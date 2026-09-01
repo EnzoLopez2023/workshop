@@ -34,6 +34,7 @@ const COMPLETE_PATH = '_COMPLETE.json';
 const COMMITTED_PATH = '_COMMITTED.json';
 const HEALTH_PATH = '_HEALTH.json';
 const CHECKSUM_ALGORITHM = 'StorageCrc64';
+const EMPTY_CONTENT_CRC64 = Buffer.alloc(8);
 const BUNDLE_NAME_RE = /^workshop-backup-\d{8}T\d{9}Z-[0-9a-f]{8}$/;
 const ARTIFACT_ID_RE = /^\d{8}T\d{6}Z-[0-9a-f]{16}$/;
 const RANDOM_HEX_RE = /^[0-9a-f]{32}$/;
@@ -737,11 +738,16 @@ async function uploadArtifactFiles(containerClient, prefix, artifact, tags) {
   for (const file of artifact.files) {
     const blobName = `${prefix}/${file.relativePath}`;
     const client = containerClient.getBlockBlobClient(blobName);
-    await assertStableUploadSource(file, () => client.uploadFile(file.fullPath, {
+    const options = {
       conditions: { ifNoneMatch: '*' },
       tags,
-      contentChecksumAlgorithm: CHECKSUM_ALGORITHM,
-    }));
+      ...(file.size === 0
+        ? { transactionalContentCrc64: EMPTY_CONTENT_CRC64 }
+        : { contentChecksumAlgorithm: CHECKSUM_ALGORITHM }),
+    };
+    await assertStableUploadSource(file, () => file.size === 0
+      ? client.upload(Buffer.alloc(0), 0, options)
+      : client.uploadFile(file.fullPath, options));
   }
 }
 

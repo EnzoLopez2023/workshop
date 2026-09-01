@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { AnonymousCredential, BlockBlobClient } from '@azure/storage-blob';
 import Database from 'better-sqlite3';
 import {
   assertOffhostCapabilities,
@@ -131,7 +134,10 @@ function makeStorageRoot(prefix = 'workshop-offhost-') {
   };
 }
 
-async function createBundle(sourceCreatedUtc = '2026-08-21T12:00:00.000Z') {
+async function createBundle(
+  sourceCreatedUtc = '2026-08-21T12:00:00.000Z',
+  { includeEmptyUpload = false } = {},
+) {
   const storage = makeStorageRoot();
   const userDbPath = join(storage.usersDir, '11111111-1111-4111-8111-111111111111.db');
   const db = new Database(userDbPath);
@@ -150,6 +156,7 @@ async function createBundle(sourceCreatedUtc = '2026-08-21T12:00:00.000Z') {
   writeFileSync(join(storage.uploadsPath, 'referenced.jpg'), 'referenced bytes');
   mkdirSync(join(storage.uploadsPath, 'orphans'));
   writeFileSync(join(storage.uploadsPath, 'orphans', 'retained.bin'), 'orphan bytes');
+  if (includeEmptyUpload) writeFileSync(join(storage.uploadsPath, 'empty.png'), '');
   const created = await createBackupBundle({
     ...storage,
     retentionCount: 7,
@@ -429,6 +436,73 @@ test('repeat scan validates committed artifacts without duplicating recovery slo
   } finally {
     rmSync(fixture.storage.root, { recursive: true, force: true });
   }
+});
+
+test('zero-byte artifact files use an empty blob upload and verify normally', async () => {
+  const fixture = await createBundle(undefined, { includeEmptyUpload: true });
+  const { exporter, container } = makeExporter({
+    backupRoot: fixture.storage.backupRoot,
+  });
+  try {
+    await exporter.scan();
+    const marker = container.json('v1/daily/2026/08/21/_COMMITTED.json');
+    const blobName = `${marker.attemptPrefix}/uploads/empty.png`;
+    assert.equal(container.blobs.get(blobName).body.length, 0);
+    const operation = container.operations.find(candidate => candidate.name === blobName);
+    assert.equal(operation.kind, 'upload');
+    assert.equal(operation.options.contentChecksumAlgorithm, undefined);
+    assert.deepEqual(operation.options.transactionalContentCrc64, Buffer.alloc(8));
+  } finally {
+    rmSync(fixture.storage.root, { recursive: true, force: true });
+  }
+});
+
+test('explicit empty CRC64 upload sends a zero-length HTTP body', { timeout: 2_000 }, async (t) => {
+  let resolveRequest;
+  const requestReceived = new Promise(resolve => {
+    resolveRequest = resolve;
+  });
+  const server = createServer((req, res) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      resolveRequest({
+        body: Buffer.concat(chunks),
+        headers: req.headers,
+      });
+      res.writeHead(201, {
+        etag: '"empty-upload"',
+        'last-modified': new Date().toUTCString(),
+        'x-ms-request-id': 'empty-upload',
+        'x-ms-version': '2025-11-05',
+      });
+      res.end();
+    });
+  });
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+
+  const address = server.address();
+  assert.equal(typeof address, 'object');
+  const client = new BlockBlobClient(
+    `http://127.0.0.1:${address.port}/container/empty`,
+    new AnonymousCredential(),
+    { allowInsecureConnection: true },
+  );
+  await client.upload(Buffer.alloc(0), 0, {
+    conditions: { ifNoneMatch: '*' },
+    transactionalContentCrc64: Buffer.alloc(8),
+  });
+  const request = await requestReceived;
+
+  assert.equal(request.headers['content-length'], '0');
+  assert.equal(request.headers['x-ms-content-crc64'], 'AAAAAAAAAAA=');
+  assert.equal(request.headers['x-ms-structured-body'], undefined);
+  assert.equal(request.body.length, 0);
 });
 
 test('immutable collisions leave partials and retry under a unique attempt prefix', async () => {
