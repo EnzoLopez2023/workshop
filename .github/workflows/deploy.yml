@@ -17,6 +17,7 @@ permissions:
 env:
   DEPLOYMENT_CONTRACT_VERSION: p1-11-v1
   DEPLOYMENT_PROFILE: sqlite-one-worker
+  DIAGNOSTIC_RECORDS: deployment-diagnostics/records.jsonl
   RG: rg-personal-apps-prod
   ACR: acrenzolopez01
   ACR_LOGIN_SERVER: acrenzolopez01.azurecr.io
@@ -52,43 +53,80 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22, cache: npm }
-      - name: Prove source, dependencies, and SBOM
+      - name: Install exact dependencies and prove source
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p evidence
           npm ci --no-audit --no-fund
           npm run ci:deploy
-          set +e
-          npm audit --omit=dev --audit-level=high --json > evidence/npm-audit.json
-          audit_status=$?
-          set -e
-          jq -e 'type == "object"' evidence/npm-audit.json >/dev/null
-          (( audit_status == 0 ))
-          npm sbom --sbom-format=cyclonedx > evidence/source-sbom.cdx.json
-          jq -e 'type == "object"' evidence/source-sbom.cdx.json >/dev/null
+      - name: Diagnostic - production dependency audit
+        id: source-dependency-audit
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: source-dependency-audit
+          category: source-audit
+          phase: pre-build
+          report: evidence/npm-audit.json
+          report-format: npm-audit-json
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+          run: |
+            mkdir -p evidence
+            npm audit --omit=dev --audit-level=high --json > evidence/npm-audit.json
+      - name: Diagnostic - source dependency SBOM
+        id: source-sbom
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: source-sbom
+          category: sbom
+          phase: pre-build
+          report: evidence/source-sbom.cdx.json
+          report-format: cyclonedx-json
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+          run: |
+            mkdir -p evidence
+            npm sbom --sbom-format=cyclonedx > evidence/source-sbom.cdx.json
       - name: Azure login with OIDC
         uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-      - name: Prove migration and monitor preconditions
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run deploy:migration-check -- --profile "$DEPLOYMENT_PROFILE"
-          npm run deploy:monitor-check -- --phase predeploy --resource-group "$RG" --webapp "$WEBAPP"
-      - name: Capture prior release and protected configuration
+      - name: Diagnostic - migration compatibility precondition
+        id: migration-precheck
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: migration-compatibility-precheck
+          category: migration-precondition
+          phase: pre-activation
+          report: evidence/migration-precheck.txt
+          report-format: text
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+          run: |
+            set -o pipefail
+            mkdir -p evidence
+            npm run deploy:migration-check -- --profile "$DEPLOYMENT_PROFILE" 2>&1 | tee evidence/migration-precheck.txt
+      - name: Diagnostic - monitoring resource precondition
+        id: monitoring-precheck
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: monitoring-precheck
+          category: monitoring-precheck
+          phase: pre-activation
+          report: evidence/monitoring-precheck.txt
+          report-format: text
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+          run: |
+            set -o pipefail
+            mkdir -p evidence
+            npm run deploy:monitor-check -- --phase predeploy --resource-group "$RG" --webapp "$WEBAPP" 2>&1 | tee evidence/monitoring-precheck.txt
+      - name: Capture prior release and rollback state
         shell: bash
         run: |
           set -euo pipefail
           sha256_stream() { sha256sum | awk '{print $1}'; }
           config="$(az webapp config show -g "$RG" -n "$WEBAPP" --output json)"
           site="$(az webapp show -g "$RG" -n "$WEBAPP" --output json)"
-          jq -e --arg platform "$PLATFORM_HEALTH_PATH" '
-            .alwaysOn == true and .numberOfWorkers == 1 and .healthCheckPath == $platform
-            and (.linuxFxVersion | startswith("DOCKER|"))' <<<"$config" >/dev/null
           configured_ref="$(jq -r '.linuxFxVersion' <<<"$config")"; configured_ref="${configured_ref#DOCKER|}"
           case "$configured_ref" in
             "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@sha256:"*) PREVIOUS_REF="$configured_ref"; PREVIOUS_DIGEST="${configured_ref##*@}" ;;
@@ -96,27 +134,8 @@ jobs:
           esac
           [[ "$PREVIOUS_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           PREVIOUS_LATEST_DIGEST="$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:latest" --query digest -o tsv)"
-          [[ "$PREVIOUS_LATEST_DIGEST" == "$PREVIOUS_DIGEST" ]]
+          [[ "$PREVIOUS_LATEST_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           settings="$(az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json)"
-          jq -e '(map({key:.name,value:.value})|from_entries) as $s |
-            $s.WEBSITES_ENABLE_APP_SERVICE_STORAGE == "true" and
-            $s.DATA_ROOT == "/home/data" and $s.DB_PATH == "/home/data/workshop.db" and
-            $s.SEED_DB_PATH == "/home/data/workshop-seed.db" and $s.USERS_DIR == "/home/data/users" and
-            $s.UPLOADS_PATH == "/home/data/uploads" and $s.BACKUP_PATH == "/home/data/backups" and
-            $s.OFFHOST_BACKUP_ENABLED == "true" and $s.PORT == "3006" and $s.WEBSITES_PORT == "3006" and
-            ([
-              "API_AUDIENCE",
-              "AZURE_TENANT_ID",
-              "SESSION_SECRET",
-              "APPLE_BUNDLE_ID",
-              "APPLE_TEAM_ID",
-              "APPLE_KEY_ID",
-              "APPLE_PRIVATE_KEY",
-              "APPLE_TOKEN_ENCRYPTION_KEY",
-              "OFFHOST_BACKUP_ACCOUNT",
-              "OFFHOST_BACKUP_CONTAINER"
-            ] | all(.[]; ($s[.] // "") != ""))' \
-            <<<"$settings" >/dev/null
           APP_SETTINGS_FINGERPRINT="$(jq -cS 'sort_by(.name)|map({name,value,slotSetting:(.slotSetting//false)})' <<<"$settings" | sha256_stream)"
           SITE_INVARIANTS_FINGERPRINT="$(jq -cS '{
             identity,httpsOnly,publicNetworkAccess,virtualNetworkSubnetId,outboundVnetRouting,clientCertEnabled,
@@ -126,26 +145,153 @@ jobs:
             ipSecurityRestrictions:(.siteConfig.ipSecurityRestrictions//[]|sort_by(.priority,.name)),
             scmIpSecurityRestrictions:(.siteConfig.scmIpSecurityRestrictions//[]|sort_by(.priority,.name))}}' <<<"$site" | sha256_stream)"
           echo "::add-mask::$APP_SETTINGS_FINGERPRINT"; echo "::add-mask::$SITE_INVARIANTS_FINGERPRINT"
-          prior="$(curl -fsS --max-time "$HTTP_TIMEOUT_SECONDS" -H 'Cache-Control: no-cache' "$PRODUCTION_URL$PLATFORM_HEALTH_PATH?baseline=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT")"
-          jq -e '.status == "ok" and .db == "/home/data/workshop.db" and .exporter == "healthy"' <<<"$prior" >/dev/null
-          PREVIOUS_SHA="$(jq -r '.sha // empty' <<<"$prior")"
-          PREVIOUS_BUILD_ID="$(jq -r '.buildId // empty' <<<"$prior")"
-          PREVIOUS_INSTANCE_ID="$(jq -r '.instanceId // .instance // empty' <<<"$prior")"
-          [[ "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ && -n "$PREVIOUS_INSTANCE_ID" ]]
-          # Only this deployed predecessor may omit run-attempt identity.
-          if [[ -z "$PREVIOUS_BUILD_ID" ]]; then
-            [[ "$PREVIOUS_SHA" == "b45c028e33a1b2cdb961870858d1374c7dbe5e6e" ]]
-          else
-            [[ "$PREVIOUS_BUILD_ID" =~ ^[0-9]+-[0-9]+$ ]]
+          az acr login -n "$ACR"
+          docker pull "$PREVIOUS_REF"
+          docker image inspect "$PREVIOUS_REF" --format '{{json .RepoDigests}}' | jq -e --arg ref "$PREVIOUS_REF" 'index($ref) != null' >/dev/null
+          PREVIOUS_SHA="$(docker image inspect "$PREVIOUS_REF" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+          previous_version="$(docker image inspect "$PREVIOUS_REF" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')"
+          [[ "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]]
+          PREVIOUS_BUILD_ID=""
+          if [[ "$PREVIOUS_SHA" != "b45c028e33a1b2cdb961870858d1374c7dbe5e6e" ]]; then
+            [[ "$previous_version" =~ ^[0-9]+-[0-9]+$ ]]
+            PREVIOUS_BUILD_ID="$previous_version"
           fi
           {
             echo "PREVIOUS_REF=$PREVIOUS_REF"; echo "PREVIOUS_DIGEST=$PREVIOUS_DIGEST"
             echo "PREVIOUS_LATEST_DIGEST=$PREVIOUS_LATEST_DIGEST"; echo "PREVIOUS_SHA=$PREVIOUS_SHA"
-            echo "PREVIOUS_BUILD_ID=$PREVIOUS_BUILD_ID"; echo "PREVIOUS_INSTANCE_ID=$PREVIOUS_INSTANCE_ID"
+            echo "PREVIOUS_BUILD_ID=$PREVIOUS_BUILD_ID"
             echo "APP_SETTINGS_FINGERPRINT=$APP_SETTINGS_FINGERPRINT"
             echo "SITE_INVARIANTS_FINGERPRINT=$SITE_INVARIANTS_FINGERPRINT"
             echo "DEPLOYMENT_MUTATED=false"
           } >> "$GITHUB_ENV"
+      - name: Diagnostic - protected configuration precondition
+        id: protected-configuration-precheck
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: protected-configuration-precheck
+          category: protected-configuration-precheck
+          phase: pre-activation
+          report: evidence/protected-configuration-precheck.json
+          report-format: generic-json
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+          run: |
+            set -euo pipefail
+            mkdir -p evidence
+            config="$(az webapp config show -g "$RG" -n "$WEBAPP" --output json)"
+            settings="$(az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json)"
+            config_ok="$(jq -r --arg platform "$PLATFORM_HEALTH_PATH" '
+              .alwaysOn == true and .numberOfWorkers == 1 and .healthCheckPath == $platform
+              and (.linuxFxVersion | startswith("DOCKER|"))' <<<"$config")"
+            settings_ok="$(jq -r '(map({key:.name,value:.value})|from_entries) as $s |
+              $s.WEBSITES_ENABLE_APP_SERVICE_STORAGE == "true" and
+              $s.DATA_ROOT == "/home/data" and $s.DB_PATH == "/home/data/workshop.db" and
+              $s.SEED_DB_PATH == "/home/data/workshop-seed.db" and $s.USERS_DIR == "/home/data/users" and
+              $s.UPLOADS_PATH == "/home/data/uploads" and $s.BACKUP_PATH == "/home/data/backups" and
+              $s.OFFHOST_BACKUP_ENABLED == "true" and $s.PORT == "3006" and $s.WEBSITES_PORT == "3006" and
+              ([
+                "API_AUDIENCE",
+                "AZURE_TENANT_ID",
+                "SESSION_SECRET",
+                "APPLE_BUNDLE_ID",
+                "APPLE_TEAM_ID",
+                "APPLE_KEY_ID",
+                "APPLE_PRIVATE_KEY",
+                "APPLE_TOKEN_ENCRYPTION_KEY",
+                "OFFHOST_BACKUP_ACCOUNT",
+                "OFFHOST_BACKUP_CONTAINER"
+              ] | all(.[]; ($s[.] // "") != ""))' <<<"$settings")"
+            jq -n --argjson siteConfig "$config_ok" --argjson appSettings "$settings_ok" '{
+              checked: {
+                siteConfig: ["alwaysOn", "numberOfWorkers", "healthCheckPath", "linuxFxVersion"],
+                appSettings: [
+                  "WEBSITES_ENABLE_APP_SERVICE_STORAGE", "DATA_ROOT", "DB_PATH", "SEED_DB_PATH",
+                  "USERS_DIR", "UPLOADS_PATH", "BACKUP_PATH", "OFFHOST_BACKUP_ENABLED", "PORT",
+                  "WEBSITES_PORT", "API_AUDIENCE", "AZURE_TENANT_ID", "SESSION_SECRET",
+                  "APPLE_BUNDLE_ID", "APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY",
+                  "APPLE_TOKEN_ENCRYPTION_KEY", "OFFHOST_BACKUP_ACCOUNT", "OFFHOST_BACKUP_CONTAINER"
+                ]
+              },
+              results: {siteConfig: $siteConfig, appSettings: $appSettings}
+            }' > evidence/protected-configuration-precheck.json
+            [[ "$config_ok" == "true" && "$settings_ok" == "true" ]]
+      - name: Diagnostic - pre-activation readiness
+        id: readiness-precheck
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: readiness-precondition-precheck
+          category: readiness-precondition
+          phase: pre-activation
+          report: evidence/readiness-precheck.json
+          report-format: generic-json
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+          run: |
+            set -euo pipefail
+            mkdir -p evidence
+            prior="$(curl -fsS --max-time "$HTTP_TIMEOUT_SECONDS" -H 'Cache-Control: no-cache' "$PRODUCTION_URL$PLATFORM_HEALTH_PATH?baseline=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT")"
+            jq '{
+              status, sha, buildId, instanceId: (.instanceId // .instance // null),
+              db, dbRoot, exporter, database
+            }' <<<"$prior" > evidence/readiness-precheck.json
+            jq -e '.status == "ok" and .db == "/home/data/workshop.db" and .exporter == "healthy"' <<<"$prior" >/dev/null
+            response_sha="$(jq -r '.sha // empty' <<<"$prior")"
+            response_build_id="$(jq -r '.buildId // empty' <<<"$prior")"
+            response_instance_id="$(jq -r '.instanceId // .instance // empty' <<<"$prior")"
+            [[ "$response_sha" =~ ^[0-9a-f]{40}$ && -n "$response_instance_id" ]]
+            [[ "$response_sha" == "$PREVIOUS_SHA" ]]
+            if [[ -z "$response_build_id" ]]; then
+              [[ "$response_sha" == "b45c028e33a1b2cdb961870858d1374c7dbe5e6e" && -z "$PREVIOUS_BUILD_ID" ]]
+            else
+              [[ "$response_build_id" =~ ^[0-9]+-[0-9]+$ && "$response_build_id" == "$PREVIOUS_BUILD_ID" ]]
+            fi
+      - name: Diagnostic - recovery precondition
+        id: recovery-precheck
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: recovery-precondition-precheck
+          category: recovery-precondition
+          phase: pre-activation
+          report: evidence/recovery-precheck.json
+          report-format: generic-json
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+          run: |
+            set -euo pipefail
+            mkdir -p evidence
+            settings="$(az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json)"
+            backup_ok="$(jq -r '(map({key:.name,value:.value})|from_entries) as $s |
+              $s.BACKUP_PATH == "/home/data/backups" and $s.OFFHOST_BACKUP_ENABLED == "true" and
+              ($s.OFFHOST_BACKUP_ACCOUNT // "") != "" and ($s.OFFHOST_BACKUP_CONTAINER // "") != ""' <<<"$settings")"
+            latest_matches="$(jq -nr --arg latest "$PREVIOUS_LATEST_DIGEST" --arg deployed "$PREVIOUS_DIGEST" '$latest == $deployed')"
+            exporter_ready="$(jq -r '.status == "ok" and .db == "/home/data/workshop.db" and .exporter == "healthy"' evidence/readiness-precheck.json)"
+            jq -n \
+              --argjson backupConfiguration "$backup_ok" \
+              --argjson rollbackTagMatches "$latest_matches" \
+              --argjson exporterReady "$exporter_ready" \
+              '{
+                checked: {
+                  appSettings: ["BACKUP_PATH", "OFFHOST_BACKUP_ENABLED", "OFFHOST_BACKUP_ACCOUNT", "OFFHOST_BACKUP_CONTAINER"],
+                  releaseState: ["productionDigest", "latestDigest"],
+                  readiness: ["db", "exporter"]
+                },
+                results: {
+                  backupConfiguration: $backupConfiguration,
+                  rollbackTagMatches: $rollbackTagMatches,
+                  exporterReady: $exporterReady
+                }
+              }' > evidence/recovery-precheck.json
+            [[ "$backup_ok" == "true" && "$latest_matches" == "true" && "$exporter_ready" == "true" ]]
+      - name: Capture prior instance identity for canary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -u
+          PREVIOUS_INSTANCE_ID=""
+          if [[ -s evidence/readiness-precheck.json ]]; then
+            PREVIOUS_INSTANCE_ID="$(jq -r '.instanceId // empty' evidence/readiness-precheck.json 2>/dev/null || true)"
+          fi
+          if [[ -z "$PREVIOUS_INSTANCE_ID" ]]; then
+            echo "::warning title=Deployment readiness diagnostic::Prior instance identity is unavailable; the post-activation canary will still require the exact SHA, build ID, and three stable rounds."
+          fi
+          echo "PREVIOUS_INSTANCE_ID=$PREVIOUS_INSTANCE_ID" >> "$GITHUB_ENV"
       - name: Build and inspect run-unique immutable candidate
         id: image
         shell: bash
@@ -178,23 +324,56 @@ jobs:
           attributes="$(az acr repository show -n "$ACR" --image "$candidate" --query changeableAttributes -o json)"
           jq -e '.writeEnabled == false and .deleteEnabled == false' <<<"$attributes" >/dev/null
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"; echo "ref=$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
-          echo "IMAGE_DIGEST=$DIGEST" >> "$GITHUB_ENV"; echo "IMAGE_REFERENCE=$IMAGE_REFERENCE" >> "$GITHUB_ENV"; echo "BUILD_ID=$BUILD_ID" >> "$GITHUB_ENV"
+          {
+            echo "IMAGE_DIGEST=$DIGEST"; echo "IMAGE_REFERENCE=$IMAGE_REFERENCE"; echo "BUILD_ID=$BUILD_ID"
+            echo "DIAGNOSTIC_CANDIDATE_DIGEST=$DIGEST"; echo "DIAGNOSTIC_BUILD_ID=$BUILD_ID"
+          } >> "$GITHUB_ENV"
       - name: Generate exact-image SPDX SBOM
+        id: image-sbom
+        continue-on-error: true
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.20.8
         with: { image: '${{ steps.image.outputs.ref }}', format: spdx-json, output-file: evidence/image-sbom.spdx.json, upload-artifact: false, upload-release-assets: false }
+      - name: Diagnostic - record exact-image SPDX SBOM
+        id: image-sbom-record
+        if: ${{ always() }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: image-sbom
+          category: sbom
+          phase: pre-activation
+          mode: record
+          exit-code: ${{ steps.image-sbom.outcome == 'success' && '0' || '1' }}
+          report: evidence/image-sbom.spdx.json
+          report-format: spdx-json
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
       - name: Scan exact image for HIGH and CRITICAL vulnerabilities
+        id: image-vulnerability-scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.33.1
         with:
           image-ref: ${{ steps.image.outputs.ref }}
           format: json
           output: evidence/trivy-image.json
-          exit-code: '1'
+          exit-code: '0'
           ignore-unfixed: false
           severity: HIGH,CRITICAL
           scanners: vuln
           timeout: 10m
+      - name: Diagnostic - record exact-image vulnerability scan
+        id: image-vulnerability-record
+        if: ${{ always() }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: image-vulnerability-scan
+          category: image-scan
+          phase: pre-activation
+          mode: record
+          exit-code: ${{ steps.image-vulnerability-scan.outcome == 'success' && '0' || '1' }}
+          report: evidence/trivy-image.json
+          report-format: trivy-json
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v3.8.1
-      - name: Keylessly sign and attest the exact digest
+      - name: Keylessly sign and create provenance attestation
         shell: bash
         run: |
           set -euo pipefail
@@ -221,10 +400,52 @@ jobs:
             }' > evidence/provenance.slsa.json
           cosign sign --yes "$IMAGE_REFERENCE"
           cosign attest --yes --predicate evidence/provenance.slsa.json --type slsaprovenance1 "$IMAGE_REFERENCE"
+      - name: Attach exact-image SBOM attestation
+        id: sbom-attestation
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
           cosign attest --yes --predicate evidence/image-sbom.spdx.json --type spdxjson "$IMAGE_REFERENCE"
-          cosign verify --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-signature.json
-          cosign verify-attestation --type slsaprovenance1 --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-provenance.json
-          cosign verify-attestation --type spdxjson --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-sbom.json
+      - name: Diagnostic - verify keyless signature
+        id: signature-verification
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: signature-verification
+          category: signature-provenance
+          phase: pre-activation
+          report: evidence/cosign-signature.json
+          report-format: generic-json
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+          run: |
+            workflow_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/deploy.yml@$GITHUB_REF"
+            cosign verify --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-signature.json
+      - name: Diagnostic - verify provenance attestation
+        id: provenance-verification
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: provenance-attestation-verification
+          category: signature-provenance
+          phase: pre-activation
+          report: evidence/cosign-provenance.json
+          report-format: generic-json
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+          run: |
+            workflow_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/deploy.yml@$GITHUB_REF"
+            cosign verify-attestation --type slsaprovenance1 --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-provenance.json
+      - name: Diagnostic - verify SBOM attestation
+        id: sbom-attestation-verification
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: provenance-attestation-verification
+          category: signature-provenance
+          phase: pre-activation
+          report: evidence/cosign-sbom.json
+          report-format: generic-json
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+          run: |
+            workflow_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/deploy.yml@$GITHUB_REF"
+            cosign verify-attestation --type spdxjson --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-sbom.json
       - name: Arm rollback before production mutation
         run: echo "DEPLOYMENT_MUTATED=true" >> "$GITHUB_ENV"
       - name: Stop, prove absence, pin, and start SQLite candidate
@@ -247,7 +468,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$GITHUB_SHA" --expected-build-id "$BUILD_ID" --previous-instance-id "$PREVIOUS_INSTANCE_ID" --attempts "$MAX_ATTEMPTS" --readiness-grace-attempts "$READINESS_GRACE_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "$BUILD_ID"
+          previous_instance=()
+          [[ -n "${PREVIOUS_INSTANCE_ID:-}" ]] && previous_instance=(--previous-instance-id "$PREVIOUS_INSTANCE_ID")
+          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$GITHUB_SHA" --expected-build-id "$BUILD_ID" "${previous_instance[@]}" --attempts "$MAX_ATTEMPTS" --readiness-grace-attempts "$READINESS_GRACE_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "$BUILD_ID"
           [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
           [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:$GITHUB_SHA-$BUILD_ID" --query digest -o tsv)" == "$IMAGE_DIGEST" ]]
           settings_after="$(az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json | jq -cS 'sort_by(.name)|map({name,value,slotSetting:(.slotSetting//false)})' | sha256sum | awk '{print $1}')"
@@ -267,14 +490,31 @@ jobs:
           az acr import -n "$ACR" --source "$IMAGE_REFERENCE" --image "$IMAGE_REPOSITORY:latest" --force
           [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:latest" --query digest -o tsv)" == "$IMAGE_DIGEST" ]]
           [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
-      - name: Confirm promoted release and monitoring
+      - name: Confirm promoted release
         shell: bash
         run: |
           set -euo pipefail
           node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$GITHUB_SHA" --expected-build-id "$BUILD_ID" --attempts 12 --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "promoted-$BUILD_ID"
           [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
           [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:latest" --query digest -o tsv)" == "$IMAGE_DIGEST" ]]
-          npm run deploy:monitor-check -- --phase postdeploy --resource-group "$RG" --webapp "$WEBAPP"
+      - name: Diagnostic - post-deploy monitoring resources
+        id: postdeploy-monitoring
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: monitoring-precheck
+          category: monitoring-precheck
+          phase: pre-activation
+          report: evidence/postdeploy-monitoring.txt
+          report-format: text
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+          run: |
+            set -o pipefail
+            mkdir -p evidence
+            npm run deploy:monitor-check -- --phase postdeploy --resource-group "$RG" --webapp "$WEBAPP" 2>&1 | tee evidence/postdeploy-monitoring.txt
+      - name: Record activated release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
           jq -n \
             --arg contract "$DEPLOYMENT_CONTRACT_VERSION" \
             --arg profile "$DEPLOYMENT_PROFILE" \
@@ -282,10 +522,35 @@ jobs:
             --arg buildId "$BUILD_ID" \
             --arg image "$IMAGE_REFERENCE" \
             --arg previous "$PREVIOUS_REF" \
+            --arg sourceDependencyAudit "${{ steps.source-dependency-audit.outputs.status }}" \
+            --arg sourceSbom "${{ steps.source-sbom.outputs.status }}" \
+            --arg migrationPrecheck "${{ steps.migration-precheck.outputs.status }}" \
+            --arg monitoringPrecheck "${{ steps.monitoring-precheck.outputs.status }}" \
+            --arg protectedConfigurationPrecheck "${{ steps.protected-configuration-precheck.outputs.status }}" \
+            --arg readinessPrecheck "${{ steps.readiness-precheck.outputs.status }}" \
+            --arg recoveryPrecheck "${{ steps.recovery-precheck.outputs.status }}" \
+            --arg imageSbom "${{ steps.image-sbom-record.outputs.status }}" \
+            --arg imageVulnerabilityScan "${{ steps.image-vulnerability-record.outputs.status }}" \
+            --arg signatureVerification "${{ steps.signature-verification.outputs.status }}" \
+            --arg provenanceVerification "${{ steps.provenance-verification.outputs.status }}" \
+            --arg sbomAttestationCreation "${{ steps.sbom-attestation.outcome }}" \
+            --arg sbomAttestationVerification "${{ steps.sbom-attestation-verification.outputs.status }}" \
+            --arg postdeployMonitoring "${{ steps.postdeploy-monitoring.outputs.status }}" \
             '{contract:$contract,profile:$profile,sha:$sha,buildId:$buildId,image:$image,
               previousImage:$previous,confirmations:3,settingsUnchanged:true,
-              siteInvariantsUnchanged:true,signatureVerified:true,provenanceVerified:true,
-              sbomAttestationVerified:true,rollbackPerformed:false}' > evidence/deployment.json
+              siteInvariantsUnchanged:true,rollbackPerformed:false,
+              diagnostics:{
+                sourceDependencyAudit:$sourceDependencyAudit,sourceSbom:$sourceSbom,
+                migrationPrecheck:$migrationPrecheck,monitoringPrecheck:$monitoringPrecheck,
+                protectedConfigurationPrecheck:$protectedConfigurationPrecheck,
+                readinessPrecheck:$readinessPrecheck,recoveryPrecheck:$recoveryPrecheck,
+                imageSbom:$imageSbom,imageVulnerabilityScan:$imageVulnerabilityScan,
+                signatureVerification:$signatureVerification,
+                provenanceVerification:$provenanceVerification,
+                sbomAttestationCreation:$sbomAttestationCreation,
+                sbomAttestationVerification:$sbomAttestationVerification,
+                postdeployMonitoring:$postdeployMonitoring
+              }}' > evidence/deployment.json
       - name: Roll back failed candidate
         if: ${{ always() && (failure() || cancelled()) && env.DEPLOYMENT_MUTATED == 'true' }}
         timeout-minutes: 45
@@ -312,8 +577,38 @@ jobs:
             '{rollbackPerformed:true,restoredImage:$image,restoredSha:$sha,restoredBuildId:$buildId,
               confirmations:3,settingsUnchanged:true,siteInvariantsUnchanged:true,monitoringChecked:true}' \
             > evidence/rollback.json
-      - name: Upload nonsecret deployment evidence
+      - name: Aggregate deployment diagnostics
         if: ${{ always() }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: aggregate
+          category: nested-checker
+          phase: pre-activation
+          mode: aggregate
+          records: ${{ env.DIAGNOSTIC_RECORDS }}
+      - name: Upload diagnostic evidence
+        id: upload-diagnostic-evidence
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: deployment-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            deployment-diagnostics/
+            evidence/
+          if-no-files-found: warn
+          retention-days: 30
+          include-hidden-files: false
+      - name: Warn when diagnostic evidence upload fails
+        if: ${{ always() && steps.upload-diagnostic-evidence.outcome != 'success' }}
+        shell: bash
+        run: |
+          echo "::warning title=Deployment diagnostics upload::Diagnostic evidence could not be uploaded; findings remain visible in workflow annotations and the job summary."
+          printf '\n> **Diagnostic evidence upload - execution-failure.** Artifact upload failed; annotations and the job summary remain available.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload nonsecret deployment evidence
+        id: upload-deployment-evidence
+        if: ${{ always() }}
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: deployment-evidence-${{ github.run_id }}-${{ github.run_attempt }}
@@ -321,3 +616,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
           include-hidden-files: false
+      - name: Warn when deployment evidence upload fails
+        if: ${{ always() && steps.upload-deployment-evidence.outcome != 'success' }}
+        shell: bash
+        run: |
+          echo "::warning title=Deployment evidence upload::Nonsecret deployment evidence could not be uploaded; the deployment result is unchanged."
+          printf '\n> **Deployment evidence upload - execution-failure.** Artifact upload failed; the deployment result is unchanged.\n' >> "$GITHUB_STEP_SUMMARY"

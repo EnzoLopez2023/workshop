@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { validateMonitor } from '../scripts/check-deployment-monitor.mjs';
 import {
   checkMigrationCompatibility,
@@ -12,6 +15,10 @@ import {
   parseArgs as parseVerifierArgs,
   verifyDeployment,
 } from '../scripts/verify-deployment.mjs';
+import {
+  CONTRACT_VERSION as diagnosticsContractVersion,
+  parseReport as parseDiagnosticReport,
+} from '../scripts/deployment-diagnostic.mjs';
 import { loadDeploymentInfo } from '../deployment-info.js';
 
 const readSource = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
@@ -21,6 +28,17 @@ const compose = readSource('docker-compose.yml');
 const localDeploy = readSource('deploy.ps1');
 const packageManifest = JSON.parse(readSource('package.json'));
 const server = readSource('server.js');
+const diagnosticAction = readSource('.github/actions/deployment-diagnostic/action.yml');
+const diagnosticHelper = readSource('scripts/deployment-diagnostic.mjs');
+const diagnosticHelperPath = fileURLToPath(new URL('../scripts/deployment-diagnostic.mjs', import.meta.url));
+const sha256 = value => createHash('sha256').update(value).digest('hex');
+const namedWorkflowStep = name => {
+  const marker = `      - name: ${name}\n`;
+  const start = workflow.indexOf(marker);
+  assert.notEqual(start, -1, `missing workflow step: ${name}`);
+  const end = workflow.indexOf('\n      - ', start + marker.length);
+  return workflow.slice(start, end === -1 ? workflow.length : end);
+};
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
   headers: {
@@ -29,7 +47,7 @@ const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), 
   },
 });
 
-test('P1-11 workflow has bounded source, audit, SBOM, and signed provenance gates', () => {
+test('P1-11 workflow retains bounded source, audit, SBOM, signing, and provenance controls', () => {
   assert.match(workflow, /timeout-minutes: 110/);
   assert.match(workflow, /npm ci --no-audit --no-fund/);
   assert.match(workflow, /npm run ci:deploy/);
@@ -43,6 +61,133 @@ test('P1-11 workflow has bounded source, audit, SBOM, and signed provenance gate
   assert.match(workflow, /cosign attest --yes --predicate evidence\/provenance\.slsa\.json --type slsaprovenance1/);
   assert.match(workflow, /cosign attest --yes --predicate evidence\/image-sbom\.spdx\.json --type spdxjson/);
   assert.match(workflow, /runDetails:[\s\S]*builder:/);
+});
+
+test('deployment-diagnostics-v1 templates match the reviewed azure-infra PR head exactly', () => {
+  assert.equal(diagnosticsContractVersion, 'deployment-diagnostics-v1');
+  assert.equal(
+    sha256(diagnosticHelper),
+    'e7d034aad68a1af22aff10d65e0db4966ff7193ad8fd9a5db62e98abe0a9aa61',
+  );
+  assert.equal(
+    sha256(diagnosticAction),
+    'cb7961a8e99a96c9f3b9f2c194cbc258ce5d5912c5f356229dafcdf20e678f6f',
+  );
+});
+
+test('all applicable deployment checks are observable with retained structured evidence', () => {
+  const checks = [
+    'source-dependency-audit',
+    'source-sbom',
+    'image-sbom',
+    'image-vulnerability-scan',
+    'signature-verification',
+    'provenance-attestation-verification',
+    'migration-compatibility-precheck',
+    'recovery-precondition-precheck',
+    'readiness-precondition-precheck',
+    'monitoring-precheck',
+    'protected-configuration-precheck',
+  ];
+  for (const check of checks) {
+    assert.match(workflow, new RegExp(`check-id: ${check}`), `missing observable check ${check}`);
+  }
+  assert.match(workflow, /DIAGNOSTIC_RECORDS: deployment-diagnostics\/records\.jsonl/);
+  assert.match(workflow, /DIAGNOSTIC_CANDIDATE_DIGEST=\$DIGEST/);
+  assert.doesNotMatch(workflow, /^\s+needs:/m);
+
+  const imageSbom = namedWorkflowStep('Generate exact-image SPDX SBOM');
+  assert.match(imageSbom, /continue-on-error: true/);
+  assert.match(imageSbom, /anchore\/sbom-action@e22c389904149dbc22b58101806040fa8d37a610/);
+  const imageScan = namedWorkflowStep('Scan exact image for HIGH and CRITICAL vulnerabilities');
+  assert.match(imageScan, /continue-on-error: true/);
+  assert.match(imageScan, /aquasecurity\/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25/);
+  assert.match(imageScan, /exit-code: '0'/);
+  assert.match(imageScan, /ignore-unfixed: false/);
+  assert.match(imageScan, /severity: HIGH,CRITICAL/);
+  assert.match(imageScan, /scanners: vuln/);
+  assert.match(imageScan, /timeout: 10m/);
+
+  const aggregate = namedWorkflowStep('Aggregate deployment diagnostics');
+  assert.match(aggregate, /if: \$\{\{ always\(\) \}\}/);
+  assert.match(aggregate, /mode: aggregate/);
+  const upload = namedWorkflowStep('Upload diagnostic evidence');
+  assert.match(upload, /if: \$\{\{ always\(\) \}\}/);
+  assert.match(upload, /continue-on-error: true/);
+  assert.match(upload, /deployment-diagnostics\//);
+  assert.match(upload, /evidence\//);
+  assert.match(upload, /retention-days: 30/);
+  assert.match(namedWorkflowStep('Warn when diagnostic evidence upload fails'), /::warning title=Deployment diagnostics upload/);
+
+  assert.doesNotMatch(workflow, /signatureVerified:true/);
+  assert.doesNotMatch(workflow, /provenanceVerified:true/);
+  assert.doesNotMatch(workflow, /sbomAttestationVerified:true/);
+  assert.match(workflow, /diagnostics:\{/);
+});
+
+test('required deployment operations and post-activation recovery remain blocking', () => {
+  for (const name of [
+    'Install exact dependencies and prove source',
+    'Capture prior release and rollback state',
+    'Build and inspect run-unique immutable candidate',
+    'Keylessly sign and create provenance attestation',
+    'Stop, prove absence, pin, and start SQLite candidate',
+    'Verify candidate runtime invariants',
+    'Promote verified digest',
+    'Confirm promoted release',
+    'Roll back failed candidate',
+  ]) {
+    assert.doesNotMatch(namedWorkflowStep(name), /continue-on-error:/, `${name} must remain blocking`);
+  }
+  assert.doesNotMatch(namedWorkflowStep('Azure login with OIDC'), /continue-on-error:/);
+  assert.match(namedWorkflowStep('Roll back failed candidate'), /failure\(\) \|\| cancelled\(\)/);
+});
+
+test('diagnostic report parsing rejects missing or malformed checker output', () => {
+  for (const [format, report] of [
+    ['npm-audit-json', ''],
+    ['npm-audit-json', '{"metadata":{}}'],
+    ['cyclonedx-json', '{"bomFormat":"Other","components":[]}'],
+    ['spdx-json', '{"packages":[]}'],
+    ['trivy-json', '{"Results":"not-an-array"}'],
+    ['generic-json', 'not-json'],
+  ]) {
+    assert.equal(parseDiagnosticReport(format, report).ok, false, `${format} must reject malformed output`);
+  }
+});
+
+test('missing checker output emits a warning, summary row, and execution-failure JSONL record', t => {
+  const root = mkdtempSync(join(tmpdir(), 'workshop-deployment-diagnostic-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const records = join(root, 'records.jsonl');
+  const summary = join(root, 'summary.md');
+  const result = spawnSync(process.execPath, [
+    diagnosticHelperPath,
+    'record',
+    '--check', 'image-sbom',
+    '--category', 'sbom',
+    '--phase', 'pre-activation',
+    '--records', records,
+    '--report', join(root, 'missing.spdx.json'),
+    '--report-format', 'spdx-json',
+    '--exit-code', '0',
+  ], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GITHUB_REPOSITORY: 'EnzoLopez2023/workshop',
+      GITHUB_SHA: 'a'.repeat(40),
+      GITHUB_RUN_ID: '123',
+      GITHUB_RUN_ATTEMPT: '4',
+      GITHUB_STEP_SUMMARY: summary,
+    },
+  });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /::warning title=Deployment diagnostics: image-sbom \(execution-failure\)/);
+  assert.match(readFileSync(summary, 'utf8'), /\| `image-sbom` \| pre-activation \| \*\*execution-failure\*\*/);
+  const record = JSON.parse(readFileSync(records, 'utf8').trim());
+  assert.equal(record.status, 'execution-failure');
+  assert.match(record.execution_error, /could not be read/);
 });
 
 test('workflow uses a run-attempt candidate and proves the exact inspected digest', () => {
