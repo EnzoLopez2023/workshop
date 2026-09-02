@@ -154,6 +154,20 @@ test('required deployment operations and post-activation recovery remain blockin
   assert.match(namedWorkflowStep('Roll back failed candidate'), /failure\(\) \|\| cancelled\(\)/);
 });
 
+test('Node diagnostic timeouts supervise the checker directly and normalize forced termination', () => {
+  for (const [name, script] of [
+    ['Diagnostic - migration compatibility precondition', 'check-migration-compatibility.mjs'],
+    ['Diagnostic - monitoring resource precondition', 'check-deployment-monitor.mjs'],
+    ['Diagnostic - post-deploy monitoring resources', 'check-deployment-monitor.mjs'],
+  ]) {
+    const step = namedWorkflowStep(name);
+    assert.match(step, new RegExp(`timeout --kill-after=10s 14m node scripts/${script}`));
+    assert.doesNotMatch(step, /timeout [^\n]* npm run/);
+    assert.match(step, /\[\[ "\$checker_status" -eq 137 \]\] && checker_status=124/);
+    assert.match(step, /exit "\$checker_status"/);
+  }
+});
+
 test('diagnostic report parsing rejects missing or malformed checker output', () => {
   for (const [format, report] of [
     ['npm-audit-json', ''],

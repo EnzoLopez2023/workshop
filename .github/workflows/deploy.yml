@@ -105,7 +105,11 @@ jobs:
           run: |
             set -o pipefail
             mkdir -p evidence
-            timeout --kill-after=10s 14m npm run deploy:migration-check -- --profile "$DEPLOYMENT_PROFILE" 2>&1 | tee evidence/migration-precheck.txt
+            checker_status=0
+            timeout --kill-after=10s 14m node scripts/check-migration-compatibility.mjs \
+              --profile "$DEPLOYMENT_PROFILE" 2>&1 | tee evidence/migration-precheck.txt || checker_status=$?
+            [[ "$checker_status" -eq 137 ]] && checker_status=124
+            exit "$checker_status"
       - name: Diagnostic - monitoring resource precondition
         id: monitoring-precheck
         uses: ./.github/actions/deployment-diagnostic
@@ -119,7 +123,11 @@ jobs:
           run: |
             set -o pipefail
             mkdir -p evidence
-            timeout --kill-after=10s 14m npm run deploy:monitor-check -- --phase predeploy --resource-group "$RG" --webapp "$WEBAPP" 2>&1 | tee evidence/monitoring-precheck.txt
+            checker_status=0
+            timeout --kill-after=10s 14m node scripts/check-deployment-monitor.mjs \
+              --phase predeploy --resource-group "$RG" --webapp "$WEBAPP" 2>&1 | tee evidence/monitoring-precheck.txt || checker_status=$?
+            [[ "$checker_status" -eq 137 ]] && checker_status=124
+            exit "$checker_status"
       - name: Capture prior release and rollback state
         shell: bash
         run: |
@@ -529,7 +537,11 @@ jobs:
           run: |
             set -o pipefail
             mkdir -p evidence
-            timeout --kill-after=10s 14m npm run deploy:monitor-check -- --phase postdeploy --resource-group "$RG" --webapp "$WEBAPP" 2>&1 | tee evidence/postdeploy-monitoring.txt
+            checker_status=0
+            timeout --kill-after=10s 14m node scripts/check-deployment-monitor.mjs \
+              --phase postdeploy --resource-group "$RG" --webapp "$WEBAPP" 2>&1 | tee evidence/postdeploy-monitoring.txt || checker_status=$?
+            [[ "$checker_status" -eq 137 ]] && checker_status=124
+            exit "$checker_status"
       - name: Record activated release evidence
         shell: bash
         run: |
