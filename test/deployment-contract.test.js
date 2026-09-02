@@ -107,6 +107,14 @@ test('all applicable deployment checks are observable with retained structured e
   assert.match(imageScan, /severity: HIGH,CRITICAL/);
   assert.match(imageScan, /scanners: vuln/);
   assert.match(imageScan, /timeout: 10m/);
+  const trivyValidation = namedWorkflowStep('Validate Trivy diagnostic report shape');
+  assert.match(trivyValidation, /continue-on-error: true/);
+  assert.match(trivyValidation, /non-array Vulnerabilities value/);
+  assert.match(trivyValidation, /trivy-image\.validated\.json/);
+  const trivyRecord = namedWorkflowStep('Diagnostic - record exact-image vulnerability scan');
+  assert.match(trivyRecord, /validate-trivy-report\.outcome == 'success'/);
+  assert.match(trivyRecord, /report: evidence\/trivy-image\.validated\.json/);
+  assert.match(trivyRecord, /evidence: evidence\/trivy-image\.json/);
 
   const aggregate = namedWorkflowStep('Aggregate deployment diagnostics');
   assert.match(aggregate, /if: \$\{\{ always\(\) \}\}/);
@@ -140,6 +148,9 @@ test('required deployment operations and post-activation recovery remain blockin
     assert.doesNotMatch(namedWorkflowStep(name), /continue-on-error:/, `${name} must remain blocking`);
   }
   assert.doesNotMatch(namedWorkflowStep('Azure login with OIDC'), /continue-on-error:/);
+  const candidateVerification = namedWorkflowStep('Verify candidate runtime invariants');
+  assert.match(candidateVerification, /\[\[ -n "\$PREVIOUS_INSTANCE_ID" \]\]/);
+  assert.match(candidateVerification, /--previous-instance-id "\$PREVIOUS_INSTANCE_ID"/);
   assert.match(namedWorkflowStep('Roll back failed candidate'), /failure\(\) \|\| cancelled\(\)/);
 });
 
