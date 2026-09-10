@@ -32,7 +32,6 @@ import { jwtVerify, createLocalJWKSet, createRemoteJWKSet, importPKCS8, SignJWT 
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { fileTypeFromFile } from 'file-type';
 import { createBackupBundle, resolveStorageConfig } from './recovery.js';
-import { startOffhostExportSchedule } from './offhost-export.js';
 import { loadDeploymentInfo } from './deployment-info.js';
 
 dotenv.config();
@@ -52,6 +51,7 @@ const {
   backupRoot: BACKUP_ROOT,
 } = storageConfig;
 const THINGIVERSE_APP_TOKEN = process.env.THINGIVERSE_APP_TOKEN || '';
+const OFFHOST_EXPORT_STATUS = 'retired';
 
 mkdirSync(UPLOADS_PATH, { recursive: true });
 
@@ -680,8 +680,6 @@ let recoveryCaptureActive = false;
 let recoveryBackupPromise = null;
 let recoveryInitialTimer = null;
 let recoveryIntervalTimer = null;
-let offhostExportSchedule = null;
-let offhostExporterFallbackHealth = 'not_started';
 
 const userDbPath = (userKey) => join(USERS_DIR, `${userKey}.db`);
 
@@ -1021,12 +1019,7 @@ async function waitForStorageQuiescence(timeoutMs) {
   }
 }
 
-function requestOffhostExportAfterBackup() {
-  return offhostExportSchedule?.runAfterBackup()
-    ?? Promise.resolve({ status: 'unavailable', trigger: 'backup' });
-}
-
-function runRecoveryBackup({ onVerified = requestOffhostExportAfterBackup } = {}) {
+function runRecoveryBackup({ onVerified = () => undefined } = {}) {
   if (recoveryBackupPromise) return recoveryBackupPromise;
   if (typeof onVerified !== 'function') {
     throw new TypeError('onVerified must be a function');
@@ -1088,30 +1081,6 @@ function stopRecoverySchedule() {
   if (recoveryIntervalTimer) clearInterval(recoveryIntervalTimer);
   recoveryInitialTimer = null;
   recoveryIntervalTimer = null;
-}
-
-function startOffhostSchedule() {
-  if (offhostExportSchedule) return;
-  offhostExporterFallbackHealth = 'starting';
-  try {
-    offhostExportSchedule = startOffhostExportSchedule({
-      backupRoot: BACKUP_ROOT,
-      appDir: __dirname,
-    });
-  } catch (error) {
-    offhostExporterFallbackHealth = 'error';
-    console.error(JSON.stringify({
-      component: 'offhost-backup',
-      event: 'schedule_start_failed',
-      code: typeof error?.code === 'string' ? error.code : 'OFFHOST_EXPORT_FAILED',
-    }));
-  }
-}
-
-function stopOffhostSchedule() {
-  offhostExportSchedule?.stop();
-  offhostExportSchedule = null;
-  offhostExporterFallbackHealth = 'stopped';
 }
 
 async function serializeAccountDeletion(operation) {
@@ -3163,7 +3132,7 @@ app.get('/api/health', (_req, res) => {
     instance: deploymentInstance,
     buildId: deploymentInfo.buildId,
     db: DB_PATH,
-    exporter: offhostExportSchedule?.health().status ?? offhostExporterFallbackHealth,
+    exporter: OFFHOST_EXPORT_STATUS,
   });
 });
 
@@ -3196,20 +3165,6 @@ app.get('/api/ready', (_req, res) => {
     const databasePath = readinessDatabasePath();
     database = new Database(databasePath, { readonly: true, fileMustExist: true });
     database.prepare('SELECT 1').get();
-    const exporter = offhostExportSchedule?.health().status ?? offhostExporterFallbackHealth;
-    if (exporter !== 'healthy') {
-      return res.status(503).json({
-        status: 'unavailable',
-        sha: deploymentInfo.sha,
-        version: deploymentInfo.version,
-        buildId: deploymentInfo.buildId,
-        instanceId: deploymentInstance,
-        db: DB_PATH,
-        dbRoot: USERS_DIR,
-        database: { status: 'ready' },
-        exporter,
-      });
-    }
     return res.json({
       status: 'ok',
       sha: deploymentInfo.sha,
@@ -3219,7 +3174,7 @@ app.get('/api/ready', (_req, res) => {
       db: DB_PATH,
       dbRoot: USERS_DIR,
       database: { status: 'ready' },
-      exporter,
+      exporter: OFFHOST_EXPORT_STATUS,
     });
   } catch (error) {
     console.error(JSON.stringify({
@@ -3236,7 +3191,7 @@ app.get('/api/ready', (_req, res) => {
       db: DB_PATH,
       dbRoot: USERS_DIR,
       database: { status: 'unavailable' },
-      exporter: offhostExportSchedule?.health().status ?? offhostExporterFallbackHealth,
+      exporter: OFFHOST_EXPORT_STATUS,
     });
   } finally {
     database?.close();
@@ -4486,7 +4441,6 @@ app.get('/{*path}', (_req, res) => {
 
 function closeAllDatabases() {
   stopRecoverySchedule();
-  stopOffhostSchedule();
   for (const { db } of dbHandles.values()) {
     if (db.open) db.close();
   }
@@ -4501,7 +4455,6 @@ if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`Workshop API listening on http://localhost:${PORT}`);
     startRecoverySchedule();
-    startOffhostSchedule();
   });
 }
 

@@ -23,6 +23,7 @@ services:
       DATA_ROOT: /home/data
       DB_PATH: /home/data/workshop.db
       UPLOADS_PATH: /home/data/uploads
+      OFFHOST_BACKUP_ENABLED: "false"
       AZURE_HOME_TENANT_ID: ${AZURE_HOME_TENANT_ID}
       API_AUDIENCE: ${API_AUDIENCE}
       ALLOWED_OID: ${ALLOWED_OID}

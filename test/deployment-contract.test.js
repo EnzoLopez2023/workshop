@@ -19,6 +19,7 @@ const workflow = readSource('.github/workflows/deploy.yml');
 const dockerfile = readSource('Dockerfile');
 const compose = readSource('docker-compose.yml');
 const localDeploy = readSource('deploy.ps1');
+const verifierSource = readSource('scripts/verify-deployment.mjs');
 const packageManifest = JSON.parse(readSource('package.json'));
 const server = readSource('server.js');
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), {
@@ -73,15 +74,16 @@ test('workflow preserves Workshop SQLite activation, fingerprints, and rollback'
   assert.match(workflow, /state" == Stopped/);
   assert.match(workflow, /--container-image-name "\$IMAGE_REFERENCE"/);
   assert.match(workflow, /ROLLBACK_MAX_ATTEMPTS: '120'/);
-  assert.match(workflow, /READINESS_GRACE_ATTEMPTS: '360'/);
-  assert.match(workflow, /ROLLBACK_READINESS_GRACE_ATTEMPTS: '360'/);
-  assert.match(workflow, /--readiness-grace-attempts "\$READINESS_GRACE_ATTEMPTS"/);
-  assert.match(workflow, /--readiness-grace-attempts "\$ROLLBACK_READINESS_GRACE_ATTEMPTS"/);
+  assert.doesNotMatch(workflow, /readiness-grace-attempts/);
   assert.match(workflow, /timeout-minutes: 45/);
   assert.match(workflow, /failure\(\) \|\| cancelled\(\)/);
   assert.match(workflow, /--allow-legacy-build-id/);
+  assert.match(workflow, /--allow-health-readiness/);
   assert.match(workflow, /--ready-path "\$PLATFORM_HEALTH_PATH"/);
   assert.match(workflow, /b45c028e33a1b2cdb961870858d1374c7dbe5e6e/);
+  assert.match(workflow, /\$s\.OFFHOST_BACKUP_ENABLED == "false"/);
+  assert.doesNotMatch(workflow, /OFFHOST_BACKUP_ACCOUNT/);
+  assert.doesNotMatch(workflow, /OFFHOST_BACKUP_CONTAINER/);
   for (const setting of [
     'APPLE_BUNDLE_ID',
     'APPLE_TEAM_ID',
@@ -95,7 +97,7 @@ test('workflow preserves Workshop SQLite activation, fingerprints, and rollback'
   assert.match(workflow, /retention-days: 30/);
 });
 
-test('runtime has distinct public no-store liveness and SQLite/exporter readiness', () => {
+test('runtime has public liveness and SQLite-only readiness with export retired', () => {
   assert.match(server, /app\.get\('\/api\/live'/);
   assert.match(server, /app\.get\('\/api\/ready'/);
   assert.match(server, /readdirSync\(USERS_DIR, \{ withFileTypes: true \}\)/);
@@ -110,6 +112,11 @@ test('runtime has distinct public no-store liveness and SQLite/exporter readines
   );
   assert.match(server, /buildId: deploymentInfo\.buildId/);
   assert.match(server, /Cache-Control', 'no-store'/);
+  assert.match(server, /const OFFHOST_EXPORT_STATUS = 'retired'/);
+  assert.doesNotMatch(server, /startOffhostExportSchedule|runAfterBackup/);
+  assert.doesNotMatch(verifierSource, /ready\.exporter/);
+  assert.match(dockerfile, /ENV OFFHOST_BACKUP_ENABLED=false/);
+  assert.match(compose, /OFFHOST_BACKUP_ENABLED: "false"/);
 });
 
 test('image embeds build identity without an App Service storage volume', () => {
@@ -159,7 +166,7 @@ test('verifier requires three stable, distinct live and ready identity rounds', 
           db: '/home/data/workshop.db',
           dbRoot: '/home/data/users',
           database: { status: 'ready' },
-          exporter: 'healthy',
+          exporter: 'retired',
         };
     return jsonResponse(body);
   };
@@ -175,7 +182,7 @@ test('verifier requires three stable, distinct live and ready identity rounds', 
 test('verifier permits no build ID only for the explicitly requested legacy rollback', async () => {
   const fetchImpl = async url => jsonResponse(url.includes('/api/live')
     ? { status: 'ok', sha: 'b'.repeat(40), instanceId: 'legacy' }
-    : { status: 'ok', sha: 'b'.repeat(40), instanceId: 'legacy', db: '/home/data/workshop.db', exporter: 'healthy' });
+    : { status: 'ok', sha: 'b'.repeat(40), instanceId: 'legacy', db: '/home/data/workshop.db', exporter: 'disabled' });
   await assert.rejects(() => verifyDeployment({
     baseUrl: 'https://example.test', livePath: '/api/live', readyPath: '/api/ready',
     profile: 'sqlite-one-worker', expectedSha: 'b'.repeat(40), expectedBuildId: 'legacy',
@@ -184,112 +191,39 @@ test('verifier permits no build ID only for the explicitly requested legacy roll
   const result = await verifyDeployment({
     baseUrl: 'https://example.test', livePath: '/api/live', readyPath: '/api/ready',
     profile: 'sqlite-one-worker', expectedSha: 'b'.repeat(40), expectedBuildId: 'legacy',
-    allowLegacyBuildId: true, attempts: 1, confirmations: 1, intervalMs: 0, requestTimeoutMs: 100,
+    allowLegacyBuildId: true, allowHealthReadiness: true,
+    attempts: 1, confirmations: 1, intervalMs: 0, requestTimeoutMs: 100,
   }, { fetchImpl });
   assert.equal(result.instanceId, 'legacy');
 });
 
-test('verifier extends only while the expected process waits for exporter readiness', async () => {
-  let readyCalls = 0;
+test('verifier accepts predecessor health shape only for explicit rollback compatibility', async () => {
   const fetchImpl = async url => {
     const common = {
       sha: 'a'.repeat(40),
       buildId: '12-3',
       instanceId: 'fresh',
+      status: 'ok',
     };
-    if (url.includes('/api/live')) return jsonResponse({ ...common, status: 'ok' });
-    readyCalls += 1;
-    if (readyCalls === 1) {
-      return jsonResponse({
-        ...common,
-        status: 'unavailable',
-        db: '/home/data/workshop.db',
-        dbRoot: '/home/data/users',
-        database: { status: 'ready' },
-        exporter: 'checking',
-      }, 503);
-    }
+    if (url.includes('/api/live')) return jsonResponse(common);
     return jsonResponse({
       ...common,
-      status: 'ok',
       db: '/home/data/workshop.db',
-      dbRoot: '/home/data/users',
-      database: { status: 'ready' },
-      exporter: 'healthy',
+      exporter: 'disabled',
     });
   };
-  const messages = [];
+  await assert.rejects(() => verifyDeployment({
+    baseUrl: 'https://example.test', livePath: '/api/live', readyPath: '/api/health',
+    profile: 'sqlite-one-worker', expectedSha: 'a'.repeat(40), expectedBuildId: '12-3',
+    attempts: 1, confirmations: 1, intervalMs: 0, requestTimeoutMs: 100,
+  }, { fetchImpl }), /SQLite readiness mismatch/);
   const result = await verifyDeployment({
-    baseUrl: 'https://example.test', livePath: '/api/live', readyPath: '/api/ready',
+    baseUrl: 'https://example.test', livePath: '/api/live', readyPath: '/api/health',
     profile: 'sqlite-one-worker', expectedSha: 'a'.repeat(40), expectedBuildId: '12-3',
-    attempts: 1, readinessGraceAttempts: 3, confirmations: 3, intervalMs: 0,
-    requestTimeoutMs: 100,
-  }, {
-    fetchImpl,
-    logger: { info: message => messages.push(message) },
-    sleep: async () => {},
-  });
-  assert.equal(result.confirmations, 3);
-  assert.equal(readyCalls, 4);
-  assert.equal(messages.length, 1);
-});
-
-test('verifier does not extend readiness grace for an exporter error', async () => {
-  let call = 0;
-  const fetchImpl = async url => {
-    call += 1;
-    const common = {
-      sha: 'a'.repeat(40),
-      buildId: '12-3',
-      instanceId: 'fresh',
-    };
-    return url.includes('/api/live')
-      ? jsonResponse({ ...common, status: 'ok' })
-      : jsonResponse({
-          ...common,
-          status: 'unavailable',
-          db: '/home/data/workshop.db',
-          dbRoot: '/home/data/users',
-          database: { status: 'ready' },
-          exporter: 'error',
-        }, 503);
-  };
-  await assert.rejects(() => verifyDeployment({
-    baseUrl: 'https://example.test', livePath: '/api/live', readyPath: '/api/ready',
-    profile: 'sqlite-one-worker', expectedSha: 'a'.repeat(40), expectedBuildId: '12-3',
-    attempts: 1, readinessGraceAttempts: 3, confirmations: 3, intervalMs: 0,
-    requestTimeoutMs: 100,
-  }, { fetchImpl, sleep: async () => {} }), /readiness mismatch/);
-  assert.equal(call, 2);
-});
-
-test('verifier does not spend readiness grace on a late healthy response', async () => {
-  let call = 0;
-  const fetchImpl = async url => {
-    call += 1;
-    const common = {
-      sha: 'a'.repeat(40),
-      buildId: '12-3',
-      instanceId: 'fresh',
-      status: 'ok',
-    };
-    return url.includes('/api/live')
-      ? jsonResponse(common)
-      : jsonResponse({
-          ...common,
-          db: '/home/data/workshop.db',
-          dbRoot: '/home/data/users',
-          database: { status: 'ready' },
-          exporter: 'healthy',
-        });
-  };
-  await assert.rejects(() => verifyDeployment({
-    baseUrl: 'https://example.test', livePath: '/api/live', readyPath: '/api/ready',
-    profile: 'sqlite-one-worker', expectedSha: 'a'.repeat(40), expectedBuildId: '12-3',
-    attempts: 1, readinessGraceAttempts: 3, confirmations: 3, intervalMs: 0,
-    requestTimeoutMs: 100,
-  }, { fetchImpl, sleep: async () => {} }), /after 1 attempts/);
-  assert.equal(call, 2);
+    allowHealthReadiness: true,
+    attempts: 1, confirmations: 1, intervalMs: 0, requestTimeoutMs: 100,
+  }, { fetchImpl });
+  assert.equal(result.instanceId, 'fresh');
 });
 
 test('monitor checker rejects missing retained controls and the wrong app', () => {
@@ -347,12 +281,11 @@ test('deployment verifier CLI enforces profile and three-round confirmation cont
     '--profile', 'sqlite-one-worker',
   ];
   assert.equal(parseVerifierArgs(required).confirmations, 3);
-  assert.equal(parseVerifierArgs(required).readinessGraceAttempts, 0);
-  assert.throws(() => parseVerifierArgs([...required, '--confirmations', '2']), /at least 3/);
-  assert.throws(
-    () => parseVerifierArgs([...required, '--readiness-grace-attempts', '-1']),
-    /non-negative integer/,
+  assert.equal(
+    parseVerifierArgs([...required, '--allow-health-readiness']).allowHealthReadiness,
+    true,
   );
+  assert.throws(() => parseVerifierArgs([...required, '--confirmations', '2']), /at least 3/);
   const wrongProfile = required.map(value => value === 'sqlite-one-worker' ? 'external-worker' : value);
   assert.throws(() => parseVerifierArgs(wrongProfile), /sqlite-one-worker/);
 });

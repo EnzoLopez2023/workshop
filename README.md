@@ -313,8 +313,8 @@ Production creates atomic, checksummed bundles containing every isolated SQLite
 database and every upload. Capture pauses API traffic, uses SQLite's online
 backup API for WAL safety, validates DB/file references, and retains complete
 bundles only. See [the recovery runbook](RECOVERY.md) for configuration,
-verification, restore drills, account-deletion implications, and the
-managed-identity off-host exporter.
+verification, restore drills, account-deletion implications, and the retirement
+of the managed-identity off-host archive. Local bundles remain enabled.
 
 ---
 
@@ -516,11 +516,11 @@ docker compose logs -f workshop
 
 The SQLite databases, uploaded files, and local recovery bundles live in a named Docker volume (`workshop-data`) mounted at `/home/data` — they survive rebuilds. Same-volume bundles are not disaster recovery; see [`RECOVERY.md`](RECOVERY.md).
 
-Production is deployed by `.github/workflows/deploy.yml` to Azure App Service. The workflow builds only `workshop:<full-git-sha>`, pulls and inspects its exact digest, rejects image volumes below `/home`, locks the SHA tag, and pins `app-workshop-prod-lwxhu7jxlrbtu` to that digest. It then requires three consecutive health responses from one replacement process with the image-baked SHA/version before checking demo, auth, exporter, worker, Always On, and unchanged App Service settings; only then is `latest` promoted to the verified digest. A failed candidate restores the prior exact App Service and `latest` digests. Do not use `deploy.ps1` for production.
+Production is deployed by `.github/workflows/deploy.yml` to Azure App Service. The workflow builds only `workshop:<full-git-sha>`, pulls and inspects its exact digest, rejects image volumes below `/home`, locks the SHA tag, and pins `app-workshop-prod-lwxhu7jxlrbtu` to that digest. It requires `OFFHOST_BACKUP_ENABLED=false`, then requires three consecutive health responses from one replacement process with the image-baked SHA/version before checking demo, auth, SQLite readiness, worker, Always On, and unchanged App Service settings; only then is `latest` promoted to the verified digest. A failed candidate restores the prior exact App Service and `latest` digests. Do not use `deploy.ps1` for production.
 
 ### Environment variables in Docker
 
-Pass secrets via the `.env` file (excluded from the image by `.dockerignore`). The compose file forwards the required auth/AI settings explicitly; `THINGIVERSE_APP_TOKEN` is an optional server-wide connection, while `PROVIDER_TOKEN_ENCRYPTION_KEY` is an optional dedicated per-user token key and otherwise derives from `SESSION_SECRET`. Never use a personal browser cookie. Off-host recovery uses only nonsecret `OFFHOST_BACKUP_*` settings plus the production App Service's system-assigned managed identity.
+Pass secrets via the `.env` file (excluded from the image by `.dockerignore`). The compose file forwards the required auth/AI settings explicitly; `THINGIVERSE_APP_TOKEN` is an optional server-wide connection, while `PROVIDER_TOKEN_ENCRYPTION_KEY` is an optional dedicated per-user token key and otherwise derives from `SESSION_SECRET`. Never use a personal browser cookie. `OFFHOST_BACKUP_ENABLED` is fixed to `false`; off-host export is retired independently of local recovery bundles.
 
 ---
 

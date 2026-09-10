@@ -2,7 +2,6 @@ const DEFAULTS = {
   attempts: 120,
   confirmations: 3,
   intervalMs: 5_000,
-  readinessGraceAttempts: 0,
   requestTimeoutMs: 8_000,
 };
 
@@ -12,6 +11,10 @@ function parseArgs(args) {
     const key = args[index];
     if (key === '--allow-legacy-build-id') {
       values.allowLegacyBuildId = true;
+      continue;
+    }
+    if (key === '--allow-health-readiness') {
+      values.allowHealthReadiness = true;
       continue;
     }
     if (!key?.startsWith('--') || args[index + 1] === undefined) {
@@ -28,18 +31,12 @@ function parseArgs(args) {
     attempts: Number(values.attempts ?? DEFAULTS.attempts),
     confirmations: Number(values.confirmations ?? DEFAULTS.confirmations),
     intervalMs: Number(values.intervalMs ?? DEFAULTS.intervalMs),
-    readinessGraceAttempts: Number(
-      values.readinessGraceAttempts ?? DEFAULTS.readinessGraceAttempts,
-    ),
     requestTimeoutMs: Number(values.requestTimeoutMs ?? DEFAULTS.requestTimeoutMs),
   };
   if (parsed.profile !== 'sqlite-one-worker') throw new Error('only the sqlite-one-worker profile is supported');
   if (!Number.isInteger(parsed.attempts) || parsed.attempts < 1) throw new Error('--attempts must be a positive integer');
   if (!Number.isInteger(parsed.confirmations) || parsed.confirmations < 3) throw new Error('--confirmations must be at least 3');
   if (!Number.isFinite(parsed.intervalMs) || parsed.intervalMs < 0) throw new Error('--interval-ms must be non-negative');
-  if (!Number.isInteger(parsed.readinessGraceAttempts) || parsed.readinessGraceAttempts < 0) {
-    throw new Error('--readiness-grace-attempts must be a non-negative integer');
-  }
   if (!Number.isFinite(parsed.requestTimeoutMs) || parsed.requestTimeoutMs < 1) throw new Error('--request-timeout-ms must be positive');
   return parsed;
 }
@@ -48,14 +45,14 @@ function identity(body) {
   return body?.instanceId ?? body?.instance ?? body?.runtimeId;
 }
 
-async function requestJson(url, timeoutMs, fetchImpl, { allowUnavailable = false } = {}) {
+async function requestJson(url, timeoutMs, fetchImpl) {
   const response = await fetchImpl(url, {
     headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
     cache: 'no-store',
     signal: AbortSignal.timeout(timeoutMs),
   });
   const path = new URL(url).pathname;
-  if (!response.ok && !(allowUnavailable && response.status === 503)) {
+  if (!response.ok) {
     throw new Error(`HTTP ${response.status} from ${path}`);
   }
   if (!String(response.headers.get('cache-control') ?? '').toLowerCase().includes('no-store')) {
@@ -66,20 +63,14 @@ async function requestJson(url, timeoutMs, fetchImpl, { allowUnavailable = false
 
 export async function verifyDeployment(options, {
   fetchImpl = fetch,
-  logger = console,
   sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
 } = {}) {
   const expected = { ...DEFAULTS, ...options };
-  const maximumAttempts = expected.attempts + expected.readinessGraceAttempts;
   let consecutive = 0;
   let candidateInstance = null;
   let lastError = 'no successful probe';
-  let readinessGraceArmed = false;
-  let attemptsUsed = 0;
-  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
-    attemptsUsed = attempt;
+  for (let attempt = 1; attempt <= expected.attempts; attempt += 1) {
     const nonce = `${expected.runToken ?? 'deploy'}-${attempt}-${Date.now()}`;
-    let readinessTransition = false;
     try {
       const separator = expected.baseUrl.includes('?') ? '&' : '?';
       const { body: live } = await requestJson(
@@ -91,11 +82,10 @@ export async function verifyDeployment(options, {
         `${expected.baseUrl}${expected.readyPath}${separator}nonce=${encodeURIComponent(nonce)}`,
         expected.requestTimeoutMs,
         fetchImpl,
-        { allowUnavailable: true },
       );
       const liveInstance = identity(live);
       const readyInstance = identity(ready);
-      const databaseReady = expected.allowLegacyBuildId
+      const databaseReady = expected.allowHealthReadiness
         ? ready.db === '/home/data/workshop.db'
         : ready.dbRoot === '/home/data/users' && ready.database?.status === 'ready';
       const expectedIdentity = live.sha === expected.expectedSha
@@ -111,20 +101,9 @@ export async function verifyDeployment(options, {
         && ready.status === 'ok'
         && expectedIdentity
         && ready.db === '/home/data/workshop.db'
-        && databaseReady
-        && ready.exporter === 'healthy';
-      readinessTransition = readyStatus === 503
-        && live.status === 'ok'
-        && ready.status === 'unavailable'
-        && expectedIdentity
-        && ready.db === '/home/data/workshop.db'
-        && databaseReady
-        && ['starting', 'checking'].includes(ready.exporter);
+        && databaseReady;
       if (!valid) {
-        if (readinessTransition) {
-          throw new Error(`${expected.readyPath} is waiting for exporter=${ready.exporter}`);
-        }
-        throw new Error('identity, process, SQLite, or exporter readiness mismatch');
+        throw new Error('identity, process, or SQLite readiness mismatch');
       }
       if (candidateInstance && candidateInstance !== readyInstance) consecutive = 0;
       candidateInstance = readyInstance;
@@ -135,27 +114,10 @@ export async function verifyDeployment(options, {
       candidateInstance = null;
       lastError = error.message;
     }
-    if (
-      attempt === expected.attempts
-      && readinessTransition
-      && expected.readinessGraceAttempts > 0
-    ) {
-      readinessGraceArmed = true;
-      logger.info(
-        `candidate identity and SQLite are ready; allowing up to `
-        + `${expected.readinessGraceAttempts} additional exporter-readiness attempts`,
-      );
-    }
-    if (attempt >= expected.attempts && !readinessGraceArmed) break;
-    if (attempt > expected.attempts && !readinessTransition && consecutive === 0) break;
-    if (attempt < maximumAttempts) await sleep(expected.intervalMs);
+    if (attempt < expected.attempts) await sleep(expected.intervalMs);
   }
-  const graceSummary = readinessGraceArmed
-    ? ` plus ${attemptsUsed - expected.attempts} exporter-readiness attempts`
-    : '';
   throw new Error(
-    `deployment verification failed after ${Math.min(attemptsUsed, expected.attempts)} attempts`
-    + `${graceSummary}: ${lastError}`,
+    `deployment verification failed after ${expected.attempts} attempts: ${lastError}`,
   );
 }
 

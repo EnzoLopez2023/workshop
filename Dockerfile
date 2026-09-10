@@ -43,6 +43,7 @@ COPY --from=deps    /app/node_modules ./node_modules
 COPY --from=builder /app/dist         ./dist
 COPY server.js      ./
 COPY recovery.js    ./
+# Retained for the guarded one-shot compatibility CLI; server.js does not load it.
 COPY offhost-export.js ./
 COPY deployment-info.js ./
 COPY scripts/recovery.mjs ./scripts/recovery.mjs
@@ -60,6 +61,7 @@ ENV PORT=3006
 ENV DATA_ROOT=/home/data
 ENV DB_PATH=/home/data/workshop.db
 ENV UPLOADS_PATH=/home/data/uploads
+ENV OFFHOST_BACKUP_ENABLED=false
 
 ARG BUILD_SHA
 ARG APP_VERSION
