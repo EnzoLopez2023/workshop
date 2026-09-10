@@ -3,6 +3,7 @@ const DEFAULTS = {
   confirmations: 3,
   intervalMs: 5_000,
   requestTimeoutMs: 8_000,
+  maxDurationMs: 600_000,
 };
 
 function parseArgs(args) {
@@ -32,12 +33,14 @@ function parseArgs(args) {
     confirmations: Number(values.confirmations ?? DEFAULTS.confirmations),
     intervalMs: Number(values.intervalMs ?? DEFAULTS.intervalMs),
     requestTimeoutMs: Number(values.requestTimeoutMs ?? DEFAULTS.requestTimeoutMs),
+    maxDurationMs: Number(values.maxDurationMs ?? DEFAULTS.maxDurationMs),
   };
   if (parsed.profile !== 'sqlite-one-worker') throw new Error('only the sqlite-one-worker profile is supported');
   if (!Number.isInteger(parsed.attempts) || parsed.attempts < 1) throw new Error('--attempts must be a positive integer');
   if (!Number.isInteger(parsed.confirmations) || parsed.confirmations < 3) throw new Error('--confirmations must be at least 3');
   if (!Number.isFinite(parsed.intervalMs) || parsed.intervalMs < 0) throw new Error('--interval-ms must be non-negative');
   if (!Number.isFinite(parsed.requestTimeoutMs) || parsed.requestTimeoutMs < 1) throw new Error('--request-timeout-ms must be positive');
+  if (!Number.isInteger(parsed.maxDurationMs) || parsed.maxDurationMs < 1) throw new Error('--max-duration-ms must be a positive integer');
   return parsed;
 }
 
@@ -64,25 +67,35 @@ async function requestJson(url, timeoutMs, fetchImpl) {
 export async function verifyDeployment(options, {
   fetchImpl = fetch,
   sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
+  now = () => performance.now(),
 } = {}) {
   const expected = { ...DEFAULTS, ...options };
+  const deadline = now() + expected.maxDurationMs;
+  const requestBudget = () => {
+    const remaining = Math.floor(deadline - now());
+    if (remaining < 1) throw new Error('verification wall-clock deadline exhausted');
+    return Math.min(expected.requestTimeoutMs, remaining);
+  };
   let consecutive = 0;
   let candidateInstance = null;
   let lastError = 'no successful probe';
-  for (let attempt = 1; attempt <= expected.attempts; attempt += 1) {
+  let attemptsMade = 0;
+  for (let attempt = 1; attempt <= expected.attempts && now() < deadline; attempt += 1) {
+    attemptsMade = attempt;
     const nonce = `${expected.runToken ?? 'deploy'}-${attempt}-${Date.now()}`;
     try {
       const separator = expected.baseUrl.includes('?') ? '&' : '?';
       const { body: live } = await requestJson(
         `${expected.baseUrl}${expected.livePath}${separator}nonce=${encodeURIComponent(nonce)}`,
-        expected.requestTimeoutMs,
+        requestBudget(),
         fetchImpl,
       );
       const { body: ready, status: readyStatus } = await requestJson(
         `${expected.baseUrl}${expected.readyPath}${separator}nonce=${encodeURIComponent(nonce)}`,
-        expected.requestTimeoutMs,
+        requestBudget(),
         fetchImpl,
       );
+      if (now() >= deadline) throw new Error('verification wall-clock deadline exhausted');
       const liveInstance = identity(live);
       const readyInstance = identity(ready);
       const databaseReady = expected.allowHealthReadiness
@@ -114,10 +127,13 @@ export async function verifyDeployment(options, {
       candidateInstance = null;
       lastError = error.message;
     }
-    if (attempt < expected.attempts) await sleep(expected.intervalMs);
+    const remaining = deadline - now();
+    if (attempt < expected.attempts && remaining > 0) {
+      await sleep(Math.min(expected.intervalMs, remaining));
+    }
   }
   throw new Error(
-    `deployment verification failed after ${expected.attempts} attempts: ${lastError}`,
+    `deployment verification failed after ${attemptsMade} attempts${now() >= deadline ? ` (wall-clock limit ${expected.maxDurationMs}ms)` : ''}: ${lastError}`,
   );
 }
 

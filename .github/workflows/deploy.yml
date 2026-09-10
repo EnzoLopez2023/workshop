@@ -1,4 +1,4 @@
-name: Build, attest, and deploy Workshop to Azure
+name: Build and deploy Workshop to Azure
 
 on:
   push:
@@ -6,16 +6,13 @@ on:
     paths-ignore: ['**/*.md', 'azure-infra/**', '.gitignore']
   workflow_dispatch:
 
-concurrency:
-  group: deploy-workshop
-  cancel-in-progress: false
-
 permissions:
   contents: read
   id-token: write
 
 env:
   DEPLOYMENT_CONTRACT_VERSION: p1-11-v1
+  DEPLOYMENT_DIAGNOSTICS_CONTRACT_VERSION: deployment-diagnostics-v1
   DEPLOYMENT_PROFILE: sqlite-one-worker
   RG: rg-personal-apps-prod
   ACR: acrenzolopez01
@@ -42,45 +39,216 @@ env:
   VITE_TABLOOM_CLIENT_ID: b30f09b9-e100-4aa5-af22-ce359ff13fba
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 110
+    timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.image.outputs.digest }}
+      ref: ${{ steps.image.outputs.ref }}
+      build-id: ${{ steps.metadata.outputs.build-id }}
+      started-on: ${{ steps.metadata.outputs.started-on }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with: { fetch-depth: 0 }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22, cache: npm }
-      - name: Prove source, dependencies, and SBOM
+      - name: Install exact dependencies and run source tests
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p evidence
           npm ci --no-audit --no-fund
-          npm run ci:deploy
-          set +e
-          npm audit --omit=dev --audit-level=high --json > evidence/npm-audit.json
-          audit_status=$?
-          set -e
-          jq -e 'type == "object"' evidence/npm-audit.json >/dev/null
-          (( audit_status == 0 ))
-          npm sbom --sbom-format=cyclonedx > evidence/source-sbom.cdx.json
-          jq -e 'type == "object"' evidence/source-sbom.cdx.json >/dev/null
+          npm test
+          # Docker runs the remaining ci:deploy command (icons, TypeScript,
+          # and Vite) once, with the actual production build arguments.
       - name: Azure login with OIDC
         uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-      - name: Prove migration and monitor preconditions
+      - name: Authenticate registry
+        run: az acr login -n "$ACR"
+      - name: Set up cached runner build
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Define run-unique candidate
+        id: metadata
         shell: bash
         run: |
           set -euo pipefail
-          npm run deploy:migration-check -- --profile "$DEPLOYMENT_PROFILE"
-          npm run deploy:monitor-check -- --phase predeploy --resource-group "$RG" --webapp "$WEBAPP"
+          APP_VERSION="$(jq -er '"\(.major).\(.minor).\(.patch)+build.\(.build)"' version.json)"
+          [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+build\.[0-9]+$ ]]
+          BUILD_ID="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          candidate="$IMAGE_REPOSITORY:$GITHUB_SHA-$BUILD_ID"
+          {
+            echo "version=$APP_VERSION"
+            echo "build-id=$BUILD_ID"
+            echo "started-on=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "tag=$ACR_LOGIN_SERVER/$candidate"
+          } >> "$GITHUB_OUTPUT"
+      - name: Build and push candidate once on the runner
+        id: candidate
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          pull: true
+          tags: ${{ steps.metadata.outputs.tag }}
+          cache-from: type=gha,scope=workshop
+          cache-to: type=gha,mode=max,scope=workshop
+          # Refresh patched runtime packages; retain dependency/frontend caches.
+          no-cache-filters: runner
+          # The existing explicit Cosign attestations run in image diagnostics.
+          provenance: false
+          sbom: false
+          build-args: |
+            VITE_AZURE_CLIENT_ID=${{ env.VITE_AZURE_CLIENT_ID }}
+            VITE_AZURE_AUTHORITY_TENANT_ID=${{ env.VITE_AZURE_AUTHORITY_TENANT_ID }}
+            VITE_AZURE_HOME_TENANT_ID=${{ env.VITE_AZURE_HOME_TENANT_ID }}
+            VITE_TABLOOM_API_BASE_URL=${{ env.VITE_TABLOOM_API_BASE_URL }}
+            VITE_TABLOOM_CLIENT_ID=${{ env.VITE_TABLOOM_CLIENT_ID }}
+            BUILD_SHA=${{ github.sha }}
+            APP_VERSION=${{ steps.metadata.outputs.version }}
+            BUILD_ID=${{ steps.metadata.outputs.build-id }}
+      - name: Resolve, inspect, and lock exact candidate digest
+        id: image
+        shell: bash
+        env:
+          BUILT_DIGEST: ${{ steps.candidate.outputs.digest }}
+          BUILD_ID: ${{ steps.metadata.outputs.build-id }}
+          APP_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          candidate="$IMAGE_REPOSITORY:$GITHUB_SHA-$BUILD_ID"
+          DIGEST="$(az acr repository show -n "$ACR" --image "$candidate" --query digest -o tsv)"
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ && "$DIGEST" == "$BUILT_DIGEST" ]]
+          IMAGE_REFERENCE="$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$DIGEST"
+          docker pull "$IMAGE_REFERENCE"
+          docker image inspect "$IMAGE_REFERENCE" --format '{{json .RepoDigests}}' | jq -e --arg ref "$IMAGE_REFERENCE" 'index($ref) != null' >/dev/null
+          docker image inspect "$IMAGE_REFERENCE" --format '{{json .Config.Volumes}}' | jq -e '[((.//{})|keys[])|select(.=="/home" or startswith("/home/"))]|length == 0' >/dev/null
+          [[ "$(docker image inspect "$IMAGE_REFERENCE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$GITHUB_SHA" ]]
+          [[ "$(docker image inspect "$IMAGE_REFERENCE" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" == "$BUILD_ID" ]]
+          [[ "$(docker image inspect "$IMAGE_REFERENCE" --format '{{index .Config.Labels "com.workshop.app-version"}}')" == "$APP_VERSION" ]]
+          az acr repository update -n "$ACR" --image "$candidate" --write-enabled false --delete-enabled false >/dev/null
+          attributes="$(az acr repository show -n "$ACR" --image "$candidate" --query changeableAttributes -o json)"
+          jq -e '.writeEnabled == false and .deleteEnabled == false' <<<"$attributes" >/dev/null
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "ref=$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
+  source-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        id: checkout
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - name: Diagnose production dependency advisories
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: source-dependency-audit
+          category: source-audit
+          phase: pre-build
+          report: evidence/npm-audit.json
+          report-format: npm-audit-json
+          run: |
+            set -euo pipefail
+            mkdir -p evidence
+            npm ci --no-audit --no-fund
+            npm audit --omit=dev --audit-level=high --json > evidence/npm-audit.json
+      - name: Diagnose source SBOM
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: source-sbom
+          category: sbom
+          phase: pre-build
+          report: evidence/source-sbom.cdx.json
+          report-format: cyclonedx-json
+          run: |
+            set -euo pipefail
+            mkdir -p evidence
+            npm sbom --sbom-format=cyclonedx > evidence/source-sbom.cdx.json
+      - name: Diagnose migration compatibility
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: migration-compatibility-precheck
+          category: migration-precondition
+          phase: pre-activation
+          run: npm run deploy:migration-check -- --profile "$DEPLOYMENT_PROFILE"
+      - name: Azure login for read-only diagnostics
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - name: Diagnose retired monitoring policy
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: monitoring-precheck
+          category: monitoring-precheck
+          phase: pre-activation
+          report: evidence/monitor-predeploy.json
+          report-format: generic-json
+          run: |
+            set -euo pipefail
+            mkdir -p evidence
+            npm run --silent deploy:monitor-check -- --phase predeploy --resource-group "$RG" --webapp "$WEBAPP" > evidence/monitor-predeploy.json
+      - name: Summarize source diagnostics
+        if: ${{ always() }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: source-diagnostics
+          category: nested-checker
+          phase: pre-build
+          mode: aggregate
+      - name: Retain source diagnostics
+        id: evidence
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: deployment-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-source
+          path: |
+            deployment-diagnostics/
+            evidence/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Report source evidence upload failure
+        if: ${{ always() && steps.evidence.outcome == 'failure' }}
+        run: echo "::warning::Source diagnostics evidence upload failed; see the individual check annotations and job summary."
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: deploy-workshop
+      cancel-in-progress: false
+      queue: max
+    env:
+      IMAGE_DIGEST: ${{ needs.build.outputs.digest }}
+      IMAGE_REFERENCE: ${{ needs.build.outputs.ref }}
+      BUILD_ID: ${{ needs.build.outputs.build-id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22 }
+      - name: Azure login with OIDC
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
       - name: Capture prior release and protected configuration
+        timeout-minutes: 3
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p evidence
           sha256_stream() { sha256sum | awk '{print $1}'; }
           config="$(az webapp config show -g "$RG" -n "$WEBAPP" --output json)"
           site="$(az webapp show -g "$RG" -n "$WEBAPP" --output json)"
@@ -142,88 +310,44 @@ jobs:
             echo "SITE_INVARIANTS_FINGERPRINT=$SITE_INVARIANTS_FINGERPRINT"
             echo "DEPLOYMENT_MUTATED=false"
           } >> "$GITHUB_ENV"
-      - name: Build and inspect run-unique immutable candidate
-        id: image
+      - name: Reject superseded source and arm rollback
+        timeout-minutes: 2
         shell: bash
         run: |
           set -euo pipefail
-          APP_VERSION="$(jq -er '"\(.major).\(.minor).\(.patch)+build.\(.build)"' version.json)"
-          [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+build\.[0-9]+$ ]]
-          BUILD_ID="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          candidate="$IMAGE_REPOSITORY:$GITHUB_SHA-$BUILD_ID"
-          az acr build --registry "$ACR" --image "$candidate" \
-            --build-arg "VITE_AZURE_CLIENT_ID=$VITE_AZURE_CLIENT_ID" \
-            --build-arg "VITE_AZURE_AUTHORITY_TENANT_ID=$VITE_AZURE_AUTHORITY_TENANT_ID" \
-            --build-arg "VITE_AZURE_HOME_TENANT_ID=$VITE_AZURE_HOME_TENANT_ID" \
-            --build-arg "VITE_TABLOOM_API_BASE_URL=$VITE_TABLOOM_API_BASE_URL" \
-            --build-arg "VITE_TABLOOM_CLIENT_ID=$VITE_TABLOOM_CLIENT_ID" \
-            --build-arg "BUILD_SHA=$GITHUB_SHA" --build-arg "APP_VERSION=$APP_VERSION" --build-arg "BUILD_ID=$BUILD_ID" .
-          DIGEST="$(az acr repository show -n "$ACR" --image "$candidate" --query digest -o tsv)"
-          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          IMAGE_REFERENCE="$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$DIGEST"
-          az acr login -n "$ACR"; docker pull "$IMAGE_REFERENCE"
-          docker image inspect "$IMAGE_REFERENCE" --format '{{json .RepoDigests}}' | jq -e --arg ref "$IMAGE_REFERENCE" 'index($ref) != null' >/dev/null
-          docker image inspect "$IMAGE_REFERENCE" --format '{{json .Config.Volumes}}' | jq -e '[((.//{})|keys[])|select(.=="/home" or startswith("/home/"))]|length == 0' >/dev/null
-          [[ "$(docker image inspect "$IMAGE_REFERENCE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$GITHUB_SHA" ]]
-          [[ "$(docker image inspect "$IMAGE_REFERENCE" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" == "$BUILD_ID" ]]
-          [[ "$(docker image inspect "$IMAGE_REFERENCE" --format '{{index .Config.Labels "com.workshop.app-version"}}')" == "$APP_VERSION" ]]
-          attributes="$(az acr repository show -n "$ACR" --image "$candidate" --query changeableAttributes -o json)"
-          if ! jq -e '.writeEnabled == false and .deleteEnabled == false' <<<"$attributes" >/dev/null; then
-            az acr repository update -n "$ACR" --image "$candidate" --write-enabled false --delete-enabled false >/dev/null
+          git fetch --no-tags origin refs/heads/main
+          current_sha="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+          [[ "$current_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid main commit identity."; exit 1; }
+          superseded=false
+          if [[ "$current_sha" != "$GITHUB_SHA" ]]; then
+            if git merge-base --is-ancestor "$GITHUB_SHA" "$current_sha"; then
+              # Match on.push.paths-ignore exactly, including code deleted by
+              # a rename into an ignored path. Never swallow Git query errors.
+              if git diff --quiet --no-renames "$GITHUB_SHA" "$current_sha" -- . \
+                ':(top,glob,exclude)**/*.md' ':(top,glob,exclude)azure-infra/**' ':(top,literal,exclude).gitignore'; then
+                echo "::notice::Later main commits only affect ignored paths; candidate $GITHUB_SHA remains eligible."
+              else
+                status=$?
+                if (( status != 1 )); then echo "::error::Could not compare candidate with main."; exit "$status"; fi
+                superseded=true
+              fi
+            else
+              status=$?
+              if (( status != 1 )); then echo "::error::Could not establish candidate ancestry."; exit "$status"; fi
+              superseded=true
+            fi
           fi
-          attributes="$(az acr repository show -n "$ACR" --image "$candidate" --query changeableAttributes -o json)"
-          jq -e '.writeEnabled == false and .deleteEnabled == false' <<<"$attributes" >/dev/null
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"; echo "ref=$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
-          echo "IMAGE_DIGEST=$DIGEST" >> "$GITHUB_ENV"; echo "IMAGE_REFERENCE=$IMAGE_REFERENCE" >> "$GITHUB_ENV"; echo "BUILD_ID=$BUILD_ID" >> "$GITHUB_ENV"
-      - name: Generate exact-image SPDX SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.20.8
-        with: { image: '${{ steps.image.outputs.ref }}', format: spdx-json, output-file: evidence/image-sbom.spdx.json, upload-artifact: false, upload-release-assets: false }
-      - name: Scan exact image for HIGH and CRITICAL vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.33.1
-        with:
-          image-ref: ${{ steps.image.outputs.ref }}
-          format: json
-          output: evidence/trivy-image.json
-          exit-code: '1'
-          ignore-unfixed: false
-          severity: HIGH,CRITICAL
-          scanners: vuln
-          timeout: 10m
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v3.8.1
-      - name: Keylessly sign and attest the exact digest
-        shell: bash
-        run: |
-          set -euo pipefail
-          workflow_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/deploy.yml@$GITHUB_REF"
-          started_on="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          jq -n \
-            --arg buildType "https://github.com/EnzoLopez2023/azure-infra/blob/091710dfc73094583ce683e6a560fc5522e74c85/DEPLOYMENT_RUNBOOK.md#p1-11-v1" \
-            --arg repository "git+https://github.com/$GITHUB_REPOSITORY" \
-            --arg sha "$GITHUB_SHA" \
-            --arg workflow "$workflow_identity" \
-            --arg invocation "$BUILD_ID" \
-            --arg started "$started_on" \
-            '{
-              buildDefinition: {
-                buildType: $buildType,
-                externalParameters: {repository: $repository, ref: env.GITHUB_REF},
-                internalParameters: {invocationId: $invocation},
-                resolvedDependencies: [{uri: $repository, digest: {gitCommit: $sha}}]
-              },
-              runDetails: {
-                builder: {id: $workflow},
-                metadata: {invocationId: $invocation, startedOn: $started}
-              }
-            }' > evidence/provenance.slsa.json
-          cosign sign --yes "$IMAGE_REFERENCE"
-          cosign attest --yes --predicate evidence/provenance.slsa.json --type slsaprovenance1 "$IMAGE_REFERENCE"
-          cosign attest --yes --predicate evidence/image-sbom.spdx.json --type spdxjson "$IMAGE_REFERENCE"
-          cosign verify --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-signature.json
-          cosign verify-attestation --type slsaprovenance1 --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-provenance.json
-          cosign verify-attestation --type spdxjson --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-sbom.json
-      - name: Arm rollback before production mutation
-        run: echo "DEPLOYMENT_MUTATED=true" >> "$GITHUB_ENV"
+          if [[ "$superseded" == true ]]; then
+            echo "::notice::Skipping superseded candidate $GITHUB_SHA; main is now $current_sha."
+            echo "No production mutation: candidate $GITHUB_SHA was superseded by $current_sha." >> "$GITHUB_STEP_SUMMARY"
+            jq -n --arg sha "$GITHUB_SHA" --arg current "$current_sha" \
+              '{status:"superseded",sha:$sha,currentSha:$current,productionMutated:false}' > evidence/deployment.json
+            exit 0
+          fi
+          echo "DEPLOYMENT_MUTATED=true" >> "$GITHUB_ENV"
       - name: Stop, prove absence, pin, and start SQLite candidate
+        if: ${{ env.DEPLOYMENT_MUTATED == 'true' }}
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
@@ -235,20 +359,22 @@ jobs:
             if [[ "$state" == Stopped && ! "$status" =~ ^2 ]]; then absent=$((absent+1)); [[ "$absent" -ge 3 ]] && break; else absent=0; fi
             sleep 2
           done
-          [[ "$absent" -ge 3 ]]
+          [[ "$absent" -ge 3 ]] || { echo "::error::Old SQLite writer was not proven stopped."; exit 1; }
           az webapp config container set -g "$RG" -n "$WEBAPP" --container-image-name "$IMAGE_REFERENCE" --container-registry-url "https://$ACR_LOGIN_SERVER" --output none
-          [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
+          [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]] || { echo "::error::Candidate digest was not pinned."; exit 1; }
           az webapp start -g "$RG" -n "$WEBAPP" --output none
       - name: Verify candidate runtime invariants
+        if: ${{ env.DEPLOYMENT_MUTATED == 'true' }}
+        timeout-minutes: 10
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$GITHUB_SHA" --expected-build-id "$BUILD_ID" --previous-instance-id "$PREVIOUS_INSTANCE_ID" --attempts "$MAX_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "$BUILD_ID"
+          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$GITHUB_SHA" --expected-build-id "$BUILD_ID" --previous-instance-id "$PREVIOUS_INSTANCE_ID" --attempts "$MAX_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --max-duration-ms 540000 --run-token "$BUILD_ID"
           [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
           [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:$GITHUB_SHA-$BUILD_ID" --query digest -o tsv)" == "$IMAGE_DIGEST" ]]
           settings_after="$(az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json | jq -cS 'sort_by(.name)|map({name,value,slotSetting:(.slotSetting//false)})' | sha256sum | awk '{print $1}')"
           site_after="$(az webapp show -g "$RG" -n "$WEBAPP" -o json | jq -cS '{identity,httpsOnly,publicNetworkAccess,virtualNetworkSubnetId,outboundVnetRouting,clientCertEnabled,siteConfig:{acrUseManagedIdentityCreds:.siteConfig.acrUseManagedIdentityCreds,alwaysOn:.siteConfig.alwaysOn,healthCheckPath:.siteConfig.healthCheckPath,http20Enabled:.siteConfig.http20Enabled,numberOfWorkers:.siteConfig.numberOfWorkers,vnetRouteAllEnabled:.siteConfig.vnetRouteAllEnabled,ipSecurityRestrictions:(.siteConfig.ipSecurityRestrictions//[]|sort_by(.priority,.name)),scmIpSecurityRestrictions:(.siteConfig.scmIpSecurityRestrictions//[]|sort_by(.priority,.name))}}' | sha256sum | awk '{print $1}')"
-          [[ "$settings_after" == "$APP_SETTINGS_FINGERPRINT" && "$site_after" == "$SITE_INVARIANTS_FINGERPRINT" ]]
+          [[ "$settings_after" == "$APP_SETTINGS_FINGERPRINT" && "$site_after" == "$SITE_INVARIANTS_FINGERPRINT" ]] || { echo "::error::Protected configuration changed during activation."; exit 1; }
           demo_body="$(mktemp)"; auth_body="$(mktemp)"
           trap 'rm -f "$demo_body" "$auth_body"' EXIT
           demo_status="$(curl -sS --max-time "$HTTP_TIMEOUT_SECONDS" -H 'X-Demo: 1' -o "$demo_body" -w '%{http_code}' "$PRODUCTION_URL/api/projects")"
@@ -257,20 +383,23 @@ jobs:
           jq -e 'type == "array"' "$demo_body" >/dev/null
           jq -e '.error == "missing token"' "$auth_body" >/dev/null
       - name: Promote verified digest
+        if: ${{ env.DEPLOYMENT_MUTATED == 'true' }}
+        timeout-minutes: 2
         shell: bash
         run: |
           set -euo pipefail
           az acr import -n "$ACR" --source "$IMAGE_REFERENCE" --image "$IMAGE_REPOSITORY:latest" --force
           [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:latest" --query digest -o tsv)" == "$IMAGE_DIGEST" ]]
           [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
-      - name: Confirm promoted release and monitoring
+      - name: Confirm promoted release
+        if: ${{ env.DEPLOYMENT_MUTATED == 'true' }}
+        timeout-minutes: 2
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$GITHUB_SHA" --expected-build-id "$BUILD_ID" --attempts 12 --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "promoted-$BUILD_ID"
+          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$GITHUB_SHA" --expected-build-id "$BUILD_ID" --attempts 12 --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --max-duration-ms 60000 --run-token "promoted-$BUILD_ID"
           [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$IMAGE_REFERENCE" ]]
           [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:latest" --query digest -o tsv)" == "$IMAGE_DIGEST" ]]
-          npm run deploy:monitor-check -- --phase postdeploy --resource-group "$RG" --webapp "$WEBAPP"
           jq -n \
             --arg contract "$DEPLOYMENT_CONTRACT_VERSION" \
             --arg profile "$DEPLOYMENT_PROFILE" \
@@ -278,38 +407,60 @@ jobs:
             --arg buildId "$BUILD_ID" \
             --arg image "$IMAGE_REFERENCE" \
             --arg previous "$PREVIOUS_REF" \
+            --arg diagnostics "$DEPLOYMENT_DIAGNOSTICS_CONTRACT_VERSION" \
+            --arg artifacts "deployment-diagnostics-$GITHUB_RUN_ID-" \
             '{contract:$contract,profile:$profile,sha:$sha,buildId:$buildId,image:$image,
               previousImage:$previous,confirmations:3,settingsUnchanged:true,
-              siteInvariantsUnchanged:true,signatureVerified:true,provenanceVerified:true,
-              sbomAttestationVerified:true,rollbackPerformed:false}' > evidence/deployment.json
+              siteInvariantsUnchanged:true,rollbackPerformed:false,
+              diagnostics:{contract:$diagnostics,artifactPrefix:$artifacts,controlEffect:"observable"}}' > evidence/deployment.json
       - name: Roll back failed candidate
         if: ${{ always() && (failure() || cancelled()) && env.DEPLOYMENT_MUTATED == 'true' }}
-        timeout-minutes: 45
+        timeout-minutes: 4
         shell: bash
         run: |
           set -euo pipefail
-          az webapp stop -g "$RG" -n "$WEBAPP" --output none
-          absent=0; for attempt in $(seq 1 30); do state="$(az webapp show -g "$RG" -n "$WEBAPP" --query state -o tsv)"; status="$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' "$PRODUCTION_URL$LIVE_PATH?rollback-stop=$attempt" 2>/dev/null || true)"; if [[ "$state" == Stopped && ! "$status" =~ ^2 ]]; then absent=$((absent+1)); [[ "$absent" -ge 3 ]] && break; else absent=0; fi; sleep 2; done; [[ "$absent" -ge 3 ]]
-          az webapp config container set -g "$RG" -n "$WEBAPP" --container-image-name "$PREVIOUS_REF" --container-registry-url "https://$ACR_LOGIN_SERVER" --output none
-          az webapp start -g "$RG" -n "$WEBAPP" --output none
-          az acr import -n "$ACR" --source "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$PREVIOUS_LATEST_DIGEST" --image "$IMAGE_REPOSITORY:latest" --force
-          [[ "$(az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$PREVIOUS_REF" ]]
-          [[ "$(az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:latest" --query digest -o tsv)" == "$PREVIOUS_LATEST_DIGEST" ]]
+          # One budget includes Azure operations, stop proof, and verification.
+          # Leave five seconds for termination and evidence under the step cap.
+          rollback_deadline="$((SECONDS+235))"
+          within_rollback_budget() {
+            local remaining="$((rollback_deadline-SECONDS))"
+            if (( remaining <= 0 )); then
+              echo "::error::Rollback exceeded its four-minute wall-clock budget." >&2
+              return 1
+            fi
+            timeout --signal=TERM --kill-after=2s "${remaining}s" "$@"
+          }
+          within_rollback_budget az webapp stop -g "$RG" -n "$WEBAPP" --output none
+          absent=0
+          for attempt in $(seq 1 30); do
+            state="$(within_rollback_budget az webapp show -g "$RG" -n "$WEBAPP" --query state -o tsv)"
+            status="$(within_rollback_budget curl -sS --max-time 3 -o /dev/null -w '%{http_code}' "$PRODUCTION_URL$LIVE_PATH?rollback-stop=$attempt" 2>/dev/null || true)"
+            if [[ "$state" == Stopped && ! "$status" =~ ^2 ]]; then absent=$((absent+1)); [[ "$absent" -ge 3 ]] && break; else absent=0; fi
+            within_rollback_budget sleep 2
+          done
+          [[ "$absent" -ge 3 ]] || { echo "::error::Candidate SQLite writer was not proven stopped for rollback."; exit 1; }
+          within_rollback_budget az webapp config container set -g "$RG" -n "$WEBAPP" --container-image-name "$PREVIOUS_REF" --container-registry-url "https://$ACR_LOGIN_SERVER" --output none
+          [[ "$(within_rollback_budget az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$PREVIOUS_REF" ]] || { echo "::error::Prior digest was not pinned for rollback."; exit 1; }
+          within_rollback_budget az webapp start -g "$RG" -n "$WEBAPP" --output none
+          within_rollback_budget az acr import -n "$ACR" --source "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$PREVIOUS_LATEST_DIGEST" --image "$IMAGE_REPOSITORY:latest" --force
+          [[ "$(within_rollback_budget az webapp config show -g "$RG" -n "$WEBAPP" --query linuxFxVersion -o tsv)" == "DOCKER|$PREVIOUS_REF" ]]
+          [[ "$(within_rollback_budget az acr repository show -n "$ACR" --image "$IMAGE_REPOSITORY:latest" --query digest -o tsv)" == "$PREVIOUS_LATEST_DIGEST" ]]
           # The predecessor can report /api/ready unavailable after the live
           # exporter setting was retired, so rollback uses its health shape.
           compatibility=(--allow-health-readiness --ready-path "$PLATFORM_HEALTH_PATH")
           [[ -z "$PREVIOUS_BUILD_ID" ]] && compatibility+=(--allow-legacy-build-id --live-path "$PLATFORM_HEALTH_PATH")
-          node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$PREVIOUS_SHA" --expected-build-id "${PREVIOUS_BUILD_ID:-legacy}" "${compatibility[@]}" --attempts "$ROLLBACK_MAX_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --run-token "rollback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          settings_after="$(az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json | jq -cS 'sort_by(.name)|map({name,value,slotSetting:(.slotSetting//false)})' | sha256sum | awk '{print $1}')"
-          site_after="$(az webapp show -g "$RG" -n "$WEBAPP" -o json | jq -cS '{identity,httpsOnly,publicNetworkAccess,virtualNetworkSubnetId,outboundVnetRouting,clientCertEnabled,siteConfig:{acrUseManagedIdentityCreds:.siteConfig.acrUseManagedIdentityCreds,alwaysOn:.siteConfig.alwaysOn,healthCheckPath:.siteConfig.healthCheckPath,http20Enabled:.siteConfig.http20Enabled,numberOfWorkers:.siteConfig.numberOfWorkers,vnetRouteAllEnabled:.siteConfig.vnetRouteAllEnabled,ipSecurityRestrictions:(.siteConfig.ipSecurityRestrictions//[]|sort_by(.priority,.name)),scmIpSecurityRestrictions:(.siteConfig.scmIpSecurityRestrictions//[]|sort_by(.priority,.name))}}' | sha256sum | awk '{print $1}')"
-          [[ "$settings_after" == "$APP_SETTINGS_FINGERPRINT" && "$site_after" == "$SITE_INVARIANTS_FINGERPRINT" ]]
-          npm run deploy:monitor-check -- --phase rollback --resource-group "$RG" --webapp "$WEBAPP"
+          within_rollback_budget node scripts/verify-deployment.mjs --base-url "$PRODUCTION_URL" --live-path "$LIVE_PATH" --ready-path "$READY_PATH" --profile "$DEPLOYMENT_PROFILE" --expected-sha "$PREVIOUS_SHA" --expected-build-id "${PREVIOUS_BUILD_ID:-legacy}" "${compatibility[@]}" --attempts "$ROLLBACK_MAX_ATTEMPTS" --confirmations "$REQUIRED_CONFIRMATIONS" --interval-ms "$((POLL_INTERVAL_SECONDS*1000))" --request-timeout-ms "$((HTTP_TIMEOUT_SECONDS*1000))" --max-duration-ms "$(((rollback_deadline-SECONDS)*1000))" --run-token "rollback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          settings_after="$(within_rollback_budget az webapp config appsettings list -g "$RG" -n "$WEBAPP" -o json | jq -cS 'sort_by(.name)|map({name,value,slotSetting:(.slotSetting//false)})' | sha256sum | awk '{print $1}')"
+          site_after="$(within_rollback_budget az webapp show -g "$RG" -n "$WEBAPP" -o json | jq -cS '{identity,httpsOnly,publicNetworkAccess,virtualNetworkSubnetId,outboundVnetRouting,clientCertEnabled,siteConfig:{acrUseManagedIdentityCreds:.siteConfig.acrUseManagedIdentityCreds,alwaysOn:.siteConfig.alwaysOn,healthCheckPath:.siteConfig.healthCheckPath,http20Enabled:.siteConfig.http20Enabled,numberOfWorkers:.siteConfig.numberOfWorkers,vnetRouteAllEnabled:.siteConfig.vnetRouteAllEnabled,ipSecurityRestrictions:(.siteConfig.ipSecurityRestrictions//[]|sort_by(.priority,.name)),scmIpSecurityRestrictions:(.siteConfig.scmIpSecurityRestrictions//[]|sort_by(.priority,.name))}}' | sha256sum | awk '{print $1}')"
+          [[ "$settings_after" == "$APP_SETTINGS_FINGERPRINT" && "$site_after" == "$SITE_INVARIANTS_FINGERPRINT" ]] || { echo "::error::Protected configuration changed during rollback."; exit 1; }
           jq -n --arg image "$PREVIOUS_REF" --arg sha "$PREVIOUS_SHA" --arg buildId "$PREVIOUS_BUILD_ID" \
             '{rollbackPerformed:true,restoredImage:$image,restoredSha:$sha,restoredBuildId:$buildId,
-              confirmations:3,settingsUnchanged:true,siteInvariantsUnchanged:true,monitoringChecked:true}' \
+              confirmations:3,settingsUnchanged:true,siteInvariantsUnchanged:true}' \
             > evidence/rollback.json
       - name: Upload nonsecret deployment evidence
+        id: evidence
         if: ${{ always() }}
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: deployment-evidence-${{ github.run_id }}-${{ github.run_attempt }}
@@ -317,3 +468,165 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
           include-hidden-files: false
+      - name: Report deployment evidence upload failure
+        if: ${{ always() && steps.evidence.outcome == 'failure' }}
+        run: echo "::warning::Deployment evidence upload failed; inspect the deployment log before treating the release as evidenced."
+
+  image-diagnostics:
+    needs: build
+    if: ${{ always() && needs.build.outputs.ref != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      IMAGE_REFERENCE: ${{ needs.build.outputs.ref }}
+      BUILD_ID: ${{ needs.build.outputs.build-id }}
+      BUILD_STARTED_ON: ${{ needs.build.outputs.started-on }}
+      DIAGNOSTIC_BUILD_ID: ${{ needs.build.outputs.build-id }}
+      DIAGNOSTIC_CANDIDATE_DIGEST: ${{ needs.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        id: checkout
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22 }
+      - name: Prepare image diagnostic evidence
+        run: mkdir -p evidence
+      - name: Azure login for exact-image diagnostics
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - name: Authenticate diagnostic registry access
+        run: az acr login -n "$ACR"
+      - name: Generate exact-image SPDX SBOM
+        id: sbom
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        continue-on-error: true
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.20.8
+        with: { image: '${{ needs.build.outputs.ref }}', format: spdx-json, output-file: evidence/image-sbom.spdx.json, upload-artifact: false, upload-release-assets: false }
+      - name: Record exact-image SBOM result
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: image-sbom
+          category: sbom
+          phase: pre-activation
+          mode: record
+          execution-error: ${{ steps.sbom.outcome != 'success' && format('Image SBOM action did not complete ({0}); see Generate exact-image SPDX SBOM logs.', steps.sbom.outcome) || '' }}
+          report: evidence/image-sbom.spdx.json
+          report-format: spdx-json
+      - name: Scan exact image for HIGH and CRITICAL vulnerabilities
+        id: scan
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.33.1
+        with:
+          image-ref: ${{ needs.build.outputs.ref }}
+          format: json
+          output: evidence/trivy-image.json
+          exit-code: '0'
+          ignore-unfixed: false
+          severity: HIGH,CRITICAL
+          scanners: vuln
+          timeout: 10m
+      - name: Record image vulnerability findings
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: image-vulnerability-scan
+          category: image-scan
+          phase: pre-activation
+          mode: record
+          execution-error: ${{ steps.scan.outcome != 'success' && format('Trivy action did not complete ({0}); see Scan exact image for HIGH and CRITICAL vulnerabilities logs.', steps.scan.outcome) || '' }}
+          report: evidence/trivy-image.json
+          report-format: trivy-json
+      - name: Install signing diagnostic tool
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        continue-on-error: true
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v3.8.1
+      - name: Sign and verify exact digest
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: signature-verification
+          category: signature-provenance
+          phase: pre-activation
+          report: evidence/cosign-signature.json
+          report-format: generic-json
+          run: |
+            set -euo pipefail
+            workflow_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/deploy.yml@$GITHUB_REF"
+            cosign sign --yes "$IMAGE_REFERENCE"
+            cosign verify --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-signature.json
+      - name: Attest and verify source provenance
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: provenance-attestation-verification
+          category: signature-provenance
+          phase: pre-activation
+          report: evidence/cosign-provenance.json
+          report-format: generic-json
+          evidence: evidence/provenance.slsa.json
+          run: |
+            set -euo pipefail
+            workflow_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/deploy.yml@$GITHUB_REF"
+            started_on="$BUILD_STARTED_ON"
+            jq -n \
+              --arg buildType "https://github.com/EnzoLopez2023/azure-infra/blob/091710dfc73094583ce683e6a560fc5522e74c85/DEPLOYMENT_RUNBOOK.md#p1-11-v1" \
+              --arg repository "git+https://github.com/$GITHUB_REPOSITORY" \
+              --arg sha "$GITHUB_SHA" \
+              --arg workflow "$workflow_identity" \
+              --arg invocation "$BUILD_ID" \
+              --arg started "$started_on" \
+              '{
+                buildDefinition: {
+                  buildType: $buildType,
+                  externalParameters: {repository: $repository, ref: env.GITHUB_REF},
+                  internalParameters: {invocationId: $invocation},
+                  resolvedDependencies: [{uri: $repository, digest: {gitCommit: $sha}}]
+                },
+                runDetails: {
+                  builder: {id: $workflow},
+                  metadata: {invocationId: $invocation, startedOn: $started}
+                }
+              }' > evidence/provenance.slsa.json
+            cosign attest --yes --predicate evidence/provenance.slsa.json --type slsaprovenance1 "$IMAGE_REFERENCE"
+            cosign verify-attestation --type slsaprovenance1 --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-provenance.json
+      - name: Attest and verify exact-image SBOM
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: sbom-attestation-verification
+          category: signature-provenance
+          phase: pre-activation
+          report: evidence/cosign-sbom.json
+          report-format: generic-json
+          run: |
+            set -euo pipefail
+            workflow_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/deploy.yml@$GITHUB_REF"
+            cosign attest --yes --predicate evidence/image-sbom.spdx.json --type spdxjson "$IMAGE_REFERENCE"
+            cosign verify-attestation --type spdxjson --certificate-identity "$workflow_identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE_REFERENCE" > evidence/cosign-sbom.json
+      - name: Summarize image diagnostics
+        if: ${{ always() }}
+        uses: ./.github/actions/deployment-diagnostic
+        with:
+          check-id: image-diagnostics
+          category: nested-checker
+          phase: pre-activation
+          mode: aggregate
+      - name: Retain image diagnostics
+        id: evidence
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: deployment-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-image
+          path: |
+            deployment-diagnostics/
+            evidence/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Report image evidence upload failure
+        if: ${{ always() && steps.evidence.outcome == 'failure' }}
+        run: echo "::warning::Image diagnostics evidence upload failed; see the individual check annotations and job summary."
