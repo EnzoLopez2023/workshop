@@ -6,6 +6,7 @@ import type {
   CutListItem, Material, AnalyzedProject,
   ShaperProject, ShaperProjectPayload, ShaperAnalysisResult,
   BambuAsset, BambuProject, BambuProjectPayload, BambuAnalysisResult, BambuImportResult,
+  HubProjectCompletion,
   MakerWorldBridgeJob, MakerWorldBridgeStart,
   ProviderConnections, ThingiverseConnectionStatus,
   BuildLogEntry, FinishLogEntry, ShoppingListItem, TemplateListItem,
@@ -72,6 +73,21 @@ const json = (method: string, body?: unknown) => ({
   headers: { 'Content-Type': 'application/json' },
   body: body !== undefined ? JSON.stringify(body) : undefined,
 });
+
+const PROJECT_LIBRARY_PATHS = {
+  projects: 'projects',
+  shaper: 'shaper-projects',
+  bambu: 'bambu-projects',
+} as const;
+
+export const saveProjectOrder = (library: keyof typeof PROJECT_LIBRARY_PATHS, ids: number[]) =>
+  request<{ success: boolean }>(`/${PROJECT_LIBRARY_PATHS[library]}/order`, json('PUT', { ids }));
+
+export const updateHubProjectCompletion = (library: 'shaper' | 'bambu', id: number, completed: boolean) =>
+  request<HubProjectCompletion>(
+    `/${PROJECT_LIBRARY_PATHS[library]}/${id}/completion`,
+    json('PUT', { is_completed: completed }),
+  );
 
 // ── Account ───────────────────────────────────────────────────────────────────
 

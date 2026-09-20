@@ -347,6 +347,25 @@ db.exec(`
 const bambuProjectCols = new Set(
   db.prepare(`PRAGMA table_info(bambu_projects)`).all().map(column => column.name)
 );
+for (const table of ['projects', 'shaper_projects', 'bambu_projects']) {
+  const columns = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name));
+  if (!columns.has('sort_order')) {
+    db.transaction(() => {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`);
+      db.exec(`
+        WITH ordered AS (
+          SELECT id, ROW_NUMBER() OVER (ORDER BY updated_at DESC, id DESC) - 1 AS position
+          FROM ${table}
+        )
+        UPDATE ${table}
+        SET sort_order = (SELECT position FROM ordered WHERE ordered.id = ${table}.id)
+      `);
+    })();
+  }
+  if (table !== 'projects' && !columns.has('is_completed')) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN is_completed INTEGER NOT NULL DEFAULT 0 CHECK (is_completed IN (0, 1))`);
+  }
+}
 if (!bambuProjectCols.has('import_warnings')) {
   db.exec(`ALTER TABLE bambu_projects ADD COLUMN import_warnings TEXT NOT NULL DEFAULT '[]'`);
 }
@@ -384,12 +403,17 @@ function buildStmts(db) {
       (SELECT GROUP_CONCAT(m.name, ' ') FROM materials m WHERE m.project_id = p.id) AS material_names
     FROM projects p
     WHERE p.is_template = 0 OR p.is_template IS NULL
-    ORDER BY p.updated_at DESC
+    ORDER BY p.sort_order, p.updated_at DESC, p.id DESC
   `),
+  listProjectOrder: db.prepare(`
+    SELECT id FROM projects WHERE is_template = 0 OR is_template IS NULL
+  `),
+  updateProjectOrder: db.prepare(`UPDATE projects SET sort_order = ? WHERE id = ?`),
   getProject: db.prepare(`SELECT * FROM projects WHERE id = ?`),
   insertProject: db.prepare(`
-    INSERT INTO projects (title, description, source_url, cut_plan_url, status, difficulty, estimated_hours, wood_types, tools_needed)
-    VALUES (@title, @description, @source_url, @cut_plan_url, @status, @difficulty, @estimated_hours, @wood_types, @tools_needed)
+    INSERT INTO projects (title, description, source_url, cut_plan_url, status, difficulty, estimated_hours, wood_types, tools_needed, sort_order)
+    VALUES (@title, @description, @source_url, @cut_plan_url, @status, @difficulty, @estimated_hours, @wood_types, @tools_needed,
+      (SELECT COALESCE(MIN(sort_order), 0) - 1 FROM projects WHERE is_template = 0 OR is_template IS NULL))
   `),
   updateProject: db.prepare(`
     UPDATE projects SET
@@ -446,11 +470,17 @@ function buildStmts(db) {
   listShaperProjects: db.prepare(`
     SELECT s.*,
       (SELECT COUNT(*) FROM cut_list_items c WHERE c.shaper_project_id = s.id) AS part_count
-    FROM shaper_projects s ORDER BY s.updated_at DESC`),
+    FROM shaper_projects s ORDER BY s.sort_order, s.updated_at DESC, s.id DESC`),
+  listShaperProjectOrder: db.prepare(`SELECT id FROM shaper_projects`),
+  updateShaperProjectOrder: db.prepare(`UPDATE shaper_projects SET sort_order = ? WHERE id = ?`),
+  completeShaperProject: db.prepare(`
+    UPDATE shaper_projects SET is_completed = ?, updated_at = datetime('now') WHERE id = ?
+  `),
   getShaperProject:   db.prepare(`SELECT * FROM shaper_projects WHERE id = ?`),
   insertShaperProject: db.prepare(`
-    INSERT INTO shaper_projects (title, shaper_url, description, photo_url, materials, instructions)
-    VALUES (@title, @shaper_url, @description, @photo_url, @materials, @instructions)
+    INSERT INTO shaper_projects (title, shaper_url, description, photo_url, materials, instructions, sort_order)
+    VALUES (@title, @shaper_url, @description, @photo_url, @materials, @instructions,
+      (SELECT COALESCE(MIN(sort_order), 0) - 1 FROM shaper_projects))
   `),
   updateShaperProject: db.prepare(`
     UPDATE shaper_projects SET
@@ -492,16 +522,22 @@ function buildStmts(db) {
         WHERE a.bambu_project_id = b.id AND a.kind = 'image' AND a.file_path IS NOT NULL
         ORDER BY a.sort_order, a.id LIMIT 1) AS hero_asset_id
     FROM bambu_projects b
-    ORDER BY b.updated_at DESC
+    ORDER BY b.sort_order, b.updated_at DESC, b.id DESC
+  `),
+  listBambuProjectOrder: db.prepare(`SELECT id FROM bambu_projects`),
+  updateBambuProjectOrder: db.prepare(`UPDATE bambu_projects SET sort_order = ? WHERE id = ?`),
+  completeBambuProject: db.prepare(`
+    UPDATE bambu_projects SET is_completed = ?, updated_at = datetime('now') WHERE id = ?
   `),
   getBambuProject: db.prepare(`SELECT * FROM bambu_projects WHERE id = ?`),
   insertBambuProject: db.prepare(`
     INSERT INTO bambu_projects (
       title, source_url, source_site, source_model_id,
-      description, creator_name, license_name
+      description, creator_name, license_name, sort_order
     ) VALUES (
       @title, @source_url, @source_site, @source_model_id,
-      @description, @creator_name, @license_name
+      @description, @creator_name, @license_name,
+      (SELECT COALESCE(MIN(sort_order), 0) - 1 FROM bambu_projects)
     )
   `),
   updateBambuProject: db.prepare(`
@@ -2155,6 +2191,14 @@ function bambuAnalysisResponse(inspection) {
   };
 }
 
+function hydrateShaperProject(project) {
+  return {
+    ...project,
+    materials: parseJsonArray(project.materials),
+    is_completed: !!project.is_completed,
+  };
+}
+
 function hydrateBambuProject(stmts, id, includeAssets = true) {
   const project = stmts.getBambuProject.get(id);
   if (!project) return null;
@@ -2162,6 +2206,7 @@ function hydrateBambuProject(stmts, id, includeAssets = true) {
   const images = assets.filter(asset => asset.kind === 'image');
   const result = {
     ...project,
+    is_completed: !!project.is_completed,
     import_warnings: parseJsonArray(project.import_warnings),
     image_count: images.length,
     file_count: assets.length - images.length,
@@ -3243,6 +3288,51 @@ app.get('/api/ready', (_req, res) => {
   }
 });
 
+function reorderProjectLibrary(listKey, updateKey) {
+  return (req, res) => {
+    const ids = req.body?.ids;
+    if (
+      !Array.isArray(ids)
+      || ids.some(id => !Number.isSafeInteger(id) || id <= 0)
+      || new Set(ids).size !== ids.length
+    ) {
+      return res.status(400).json({ error: 'ids must be an array of unique positive project IDs.' });
+    }
+    const saved = req.db.transaction(() => {
+      const currentIds = new Set(req.stmts[listKey].all().map(project => project.id));
+      if (currentIds.size !== ids.length || ids.some(id => !currentIds.has(id))) return false;
+      ids.forEach((id, index) => req.stmts[updateKey].run(index, id));
+      return true;
+    })();
+    if (!saved) {
+      return res.status(409).json({ error: 'The project library changed. Reload it before reordering.' });
+    }
+    return res.json({ success: true });
+  };
+}
+
+function setHubProjectCompletion(getKey, updateKey) {
+  return (req, res) => {
+    const completed = req.body?.is_completed;
+    if (typeof completed !== 'boolean') {
+      return res.status(400).json({ error: 'is_completed must be a boolean.' });
+    }
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0 || !req.stmts[getKey].get(id)) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    req.stmts[updateKey].run(completed ? 1 : 0, id);
+    const project = req.stmts[getKey].get(id);
+    return res.json({ is_completed: !!project.is_completed, updated_at: project.updated_at });
+  };
+}
+
+app.put('/api/projects/order', reorderProjectLibrary('listProjectOrder', 'updateProjectOrder'));
+app.put('/api/shaper-projects/order', reorderProjectLibrary('listShaperProjectOrder', 'updateShaperProjectOrder'));
+app.put('/api/bambu-projects/order', serializeBambuRequest, reorderProjectLibrary('listBambuProjectOrder', 'updateBambuProjectOrder'));
+app.put('/api/shaper-projects/:id/completion', setHubProjectCompletion('getShaperProject', 'completeShaperProject'));
+app.put('/api/bambu-projects/:id/completion', serializeBambuRequest, setHubProjectCompletion('getBambuProject', 'completeBambuProject'));
+
 // ── Projects ──────────────────────────────────────────────────────────────────
 
 app.get('/api/projects', (req, res) => {
@@ -3889,6 +3979,7 @@ app.delete('/api/provider-connections/thingiverse', (req, res) => {
 app.get('/api/bambu-projects', (req, res) => {
   res.json(req.stmts.listBambuProjects.all().map(project => ({
     ...project,
+    is_completed: !!project.is_completed,
     import_warnings: parseJsonArray(project.import_warnings),
     assets: [],
   })));
@@ -4302,7 +4393,7 @@ app.get('/api/shaper-projects', (req, res) => {
   const { db, stmts } = req;
   const rows = stmts.listShaperProjects.all().map(s => {
     const hero = stmts.shaperHeroImage.get(s.id);
-    return { ...s, materials: parseJsonArray(s.materials), hero_image_id: hero ? hero.id : null };
+    return { ...hydrateShaperProject(s), hero_image_id: hero ? hero.id : null };
   });
   res.json(rows);
 });
@@ -4313,7 +4404,7 @@ app.get('/api/shaper-projects/:id', (req, res) => {
   if (!row) return res.status(404).json({ error: 'Not found' });
   const images   = stmts.listShaperImages.all(row.id);
   const cut_list = stmts.listShaperCutList.all(row.id);
-  res.json({ ...row, materials: parseJsonArray(row.materials), images, cut_list });
+  res.json({ ...hydrateShaperProject(row), images, cut_list });
 });
 
 app.post('/api/shaper-projects/analyze-url', async (req, res) => {
@@ -4401,7 +4492,7 @@ app.post('/api/shaper-projects', (req, res) => {
     instructions: b.instructions ?? null,
   });
   const row = stmts.getShaperProject.get(info.lastInsertRowid);
-  res.status(201).json({ ...row, materials: parseJsonArray(row.materials) });
+  res.status(201).json(hydrateShaperProject(row));
 });
 
 app.put('/api/shaper-projects/:id', (req, res) => {
@@ -4420,7 +4511,7 @@ app.put('/api/shaper-projects/:id', (req, res) => {
     instructions: b.instructions !== undefined ? (b.instructions || null) : existing.instructions,
   });
   const row = stmts.getShaperProject.get(id);
-  res.json({ ...row, materials: parseJsonArray(row.materials) });
+  res.json(hydrateShaperProject(row));
 });
 
 app.post('/api/shaper-projects/:id/images', upload.single('file'), async (req, res) => {

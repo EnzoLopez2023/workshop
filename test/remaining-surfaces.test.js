@@ -93,6 +93,7 @@ test('Settings migration keeps storage keys and restores retired accents safely'
   });
   assert.equal(readSettingsValue('{"accentColor":"retired"}').accentColor, 'amber');
   assert.equal(readSettingsValue('{"fontSize":"large"}').fontSize, 'large');
+  assert.equal(readSettingsValue('{"defaultDashboardSort":"manual"}').defaultDashboardSort, 'manual');
   assert.equal(readSettingsValue('{bad json').defaultProjectStatus, 'idea');
 });
 

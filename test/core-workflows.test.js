@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import {
+  applyVisibleProjectOrder,
   buildBambuProjectPayload,
   buildProjectPayload,
   buildShaperProjectPayload,
@@ -11,6 +12,7 @@ import {
   groupShoppingItems,
   selectFocusProject,
   shoppingSummary,
+  sortProjects,
 } from '../src/lib/coreWorkflows.ts';
 import { buildCutPieces, optimizeCuts, parseInches } from '../src/lib/cutPlan.ts';
 
@@ -18,6 +20,7 @@ const readSource = path => readFile(new URL(`../${path}`, import.meta.url), 'utf
 
 const project = (overrides = {}) => ({
   id: 1,
+  sort_order: 0,
   title: 'Walnut bench',
   description: 'Entry bench with shoe shelf',
   source_url: null,
@@ -154,6 +157,24 @@ test('project-type payload builders preserve API field names and normalize edita
   });
 });
 
+test('manual project order preserves hidden positions, data, and the original array', () => {
+  const projects = [
+    project({ id: 1, sort_order: 0, title: 'First' }),
+    project({ id: 2, sort_order: 1, title: 'Hidden' }),
+    project({ id: 3, sort_order: 2, title: 'Third' }),
+    project({ id: 4, sort_order: 3, title: 'Last' }),
+  ];
+  const reordered = applyVisibleProjectOrder(projects, [4, 1, 3]);
+  assert.deepEqual(reordered.map(item => item.id), [4, 2, 1, 3]);
+  assert.deepEqual(reordered.map(item => item.sort_order), [0, 1, 2, 3]);
+  assert.deepEqual(projects.map(item => item.id), [1, 2, 3, 4]);
+  assert.equal(reordered[1].title, 'Hidden');
+  assert.deepEqual(sortProjects([...reordered].reverse(), 'manual'), reordered);
+  assert.deepEqual(applyVisibleProjectOrder(projects, []), projects);
+  assert.throws(() => applyVisibleProjectOrder(projects, [1, 1]), /duplicate/);
+  assert.throws(() => applyVisibleProjectOrder(projects, [999]), /unknown/);
+});
+
 test('shopping grouping preserves item identity, project provenance, filtering, and totals', () => {
   const items = [
     { id: 1, project_id: 7, project_title: 'Bench', name: 'Walnut', qty_label: '2 boards', cost: 80, purchased: false, sort_order: 0 },
@@ -258,4 +279,42 @@ test('create menus, route context, demo blocking, upload ownership, and state co
   assert.match(api, /request<BambuImportResult>\('\/bambu-projects'/);
   assert.match(api, /\/bambu-assets\/\$\{id\}\/image/);
   assert.match(api, /\/provider-connections\/thingiverse/);
+});
+
+test('Bambu image preview wires modal arrow keys to wrapping image-only navigation', async () => {
+  const source = await readSource('src/pages/BambuProjectDetail.tsx');
+  assert.match(source, /const images = assets\.filter\(asset => asset\.kind === 'image'\)/);
+  assert.match(source, /onClick=\{\(\) => setLightbox\(image\)\}/);
+  assert.match(source, /onNavigate=\{direction => setLightbox\(current => \{/);
+  assert.match(source, /if \(!current \|\| images\.length < 2\) return current/);
+  assert.match(source, /images\.findIndex\(image => image\.id === current\.id\)/);
+  assert.match(source, /images\[\(index \+ direction \+ images\.length\) % images\.length\]/);
+  assert.match(source, /aria-keyshortcuts="ArrowLeft ArrowRight Escape"/);
+  assert.match(source, /className="media-lightbox"\s+tabIndex=\{-1\}/);
+  assert.match(source, /!event\.altKey && !event\.ctrlKey && !event\.metaKey && !event\.shiftKey/);
+  assert.match(source, /event\.key === 'ArrowLeft' \|\| event\.key === 'ArrowRight'/);
+  assert.match(source, /event\.preventDefault\(\);\s+onNavigate\(event\.key === 'ArrowLeft' \? -1 : 1\)/);
+  assert.match(source, /if \(event\.key === 'Escape'\) onClose\(\)/);
+  assert.match(source, /if \(event\.key === 'Tab'\) \{\s+event\.preventDefault\(\);\s+closeRef\.current\?\.focus\(\)/);
+  assert.match(source, /return \(\) => previous\?\.focus\(\)/);
+});
+
+test('all libraries share accessible reordering and both hubs expose completion on cards and details', async () => {
+  const [dashboard, grid, completion, bambu, shaper] = await Promise.all([
+    readSource('src/pages/Dashboard.tsx'),
+    readSource('src/components/ProjectLibraryGrid.tsx'),
+    readSource('src/components/HubCompletionButton.tsx'),
+    readSource('src/pages/BambuProjectDetail.tsx'),
+    readSource('src/pages/ShaperProjectDetail.tsx'),
+  ]);
+  assert.equal((dashboard.match(/<ProjectLibraryGrid/g) ?? []).length, 3);
+  assert.equal((dashboard.match(/<HubCompletionButton/g) ?? []).length, 2);
+  assert.match(dashboard, /setSetting\('defaultDashboardSort', 'manual'\)/);
+  assert.match(grid, /useSensor\(KeyboardSensor, \{ coordinateGetter: sortableKeyboardCoordinates \}\)/);
+  assert.match(grid, /Move \$\{title\} earlier/);
+  assert.match(grid, /Move \$\{title\} later/);
+  assert.match(completion, /disabled=\{demo \|\| disabled \|\| saving\}/);
+  assert.match(completion, /aria-pressed=\{project\.is_completed\}/);
+  assert.match(bambu, /<HubCompletionButton\s+library="bambu"/);
+  assert.match(shaper, /<HubCompletionButton\s+library="shaper"/);
 });

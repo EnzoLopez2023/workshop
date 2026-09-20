@@ -34,6 +34,7 @@ import {
 import { Button, PageFrame, StatePanel } from '../components/ui';
 import { WorkflowSection } from '../components/workflows';
 import { ProjectDetailSkeleton } from '../components/Skeleton';
+import HubCompletionButton from '../components/HubCompletionButton';
 
 const MAX_BAMBU_UPLOAD_BYTES = 250 * 1024 * 1024;
 
@@ -245,6 +246,12 @@ export default function BambuProjectDetail() {
             <ArrowLeft size={16} aria-hidden="true" /> Bambu Hub
           </Button>
           <div className="project-detail-actions">
+            <HubCompletionButton
+              library="bambu"
+              project={project}
+              disabled={deleting}
+              onChange={completion => setProject(current => current ? { ...current, ...completion } : current)}
+            />
             <Button variant="ghost" onClick={() => navigate(`/bambu/${projectId}/edit`)}>
               <Pencil size={16} aria-hidden="true" /> Edit
             </Button>
@@ -463,6 +470,11 @@ export default function BambuProjectDetail() {
         <ImageLightbox
           src={bambuAssetUrl(lightbox.id)}
           label={lightbox.filename}
+          onNavigate={direction => setLightbox(current => {
+            if (!current || images.length < 2) return current;
+            const index = images.findIndex(image => image.id === current.id);
+            return images[(index + direction + images.length) % images.length];
+          })}
           onClose={() => setLightbox(null)}
         />
       )}
@@ -490,10 +502,12 @@ function formatBytes(bytes: number) {
 function ImageLightbox({
   src,
   label,
+  onNavigate,
   onClose,
 }: {
   src: string;
   label: string;
+  onNavigate: (direction: -1 | 1) => void;
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -507,11 +521,20 @@ function ImageLightbox({
   return (
     <div
       className="media-lightbox"
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label={label}
+      aria-keyshortcuts="ArrowLeft ArrowRight Escape"
       onClick={onClose}
       onKeyDown={event => {
+        if (
+          !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+          && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+        ) {
+          event.preventDefault();
+          onNavigate(event.key === 'ArrowLeft' ? -1 : 1);
+        }
         if (event.key === 'Escape') onClose();
         if (event.key === 'Tab') {
           event.preventDefault();

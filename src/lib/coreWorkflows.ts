@@ -11,7 +11,7 @@ import type {
 } from '../types/project';
 
 export type ProjectStatusFilter = 'all' | ProjectStatus;
-export type ProjectSort = 'updated' | 'created' | 'title';
+export type ProjectSort = 'manual' | 'updated' | 'created' | 'title';
 
 export interface ShoppingProjectGroup {
   id: number;
@@ -77,10 +77,30 @@ export function sortProjects(
   sort: ProjectSort,
 ): ProjectListItem[] {
   return [...projects].sort((left, right) => {
+    if (sort === 'manual') return left.sort_order - right.sort_order;
     if (sort === 'title') return left.title.localeCompare(right.title);
     const field = sort === 'created' ? 'created_at' : 'updated_at';
     return new Date(right[field]).getTime() - new Date(left[field]).getTime();
   });
+}
+
+export function applyVisibleProjectOrder<T extends { id: number; sort_order: number }>(
+  projects: T[],
+  orderedIds: number[],
+): T[] {
+  const selectedIds = new Set(orderedIds);
+  if (selectedIds.size !== orderedIds.length) throw new Error('Project order contains duplicate IDs.');
+  const byId = new Map(projects.map(project => [project.id, project]));
+  const ordered = orderedIds.map(id => {
+    const project = byId.get(id);
+    if (!project) throw new Error('Project order contains an unknown project.');
+    return project;
+  });
+  let index = 0;
+  return projects.map((project, position) => ({
+    ...(selectedIds.has(project.id) ? ordered[index++] : project),
+    sort_order: position,
+  }));
 }
 
 export function filterShaperProjects(projects: ShaperProject[], query: string): ShaperProject[] {

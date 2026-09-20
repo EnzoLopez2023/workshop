@@ -3,6 +3,7 @@ export type Difficulty = 'Beginner' | 'Intermediate' | 'Advanced';
 
 export interface ProjectListItem {
   id: number;
+  sort_order: number;
   title: string;
   description: string | null;
   source_url: string | null;
@@ -163,6 +164,8 @@ export interface ShaperMaterial {
 
 export interface ShaperProject {
   id: number;
+  sort_order: number;
+  is_completed: boolean;
   title: string;
   shaper_url: string;
   description: string | null;
@@ -215,6 +218,8 @@ export interface BambuAsset {
 
 export interface BambuProject {
   id: number;
+  sort_order: number;
+  is_completed: boolean;
   title: string;
   source_url: string;
   source_site: BambuSourceSite;
@@ -238,6 +243,11 @@ export interface BambuProjectPayload {
   description: string | null;
   creator_name: string | null;
   license_name: string | null;
+}
+
+export interface HubProjectCompletion {
+  is_completed: boolean;
+  updated_at: string;
 }
 
 export interface BambuAnalysisFile {

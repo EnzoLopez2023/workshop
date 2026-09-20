@@ -366,9 +366,22 @@ Successful deletion removes projects, templates, Shaper and Bambu data, download
 | `GET` | `/api/projects` | List all non-template projects (summary with hero image id, cost, parts count) |
 | `GET` | `/api/projects/:id` | Full project detail — includes images, cut list, materials, build log, finish log, links |
 | `POST` | `/api/projects` | Create project |
+| `PUT` | `/api/projects/order` | Save the complete non-template project ID order for the current account |
 | `PUT` | `/api/projects/:id` | Update project fields |
 | `DELETE` | `/api/projects/:id` | Delete project and all related data (cascade) |
 | `POST` | `/api/projects/analyze-url` | AI-analyze a URL and return suggested project fields |
+
+Use **Reorder** in any project library to drag its handles, use the earlier/later
+buttons, or pick up a handle with **Space** and move it with the arrow keys.
+Changes save automatically and separately for Projects, Shaper Hub, and Bambu Hub.
+Filtered reordering leaves hidden projects in their existing positions. New
+projects appear first in manual order. In Projects, reordering selects **Manual order**; the
+**Sort projects** control and Settings retain the date/title alternatives.
+
+Order endpoints accept `{ "ids": [3, 1, 2] }` containing every current project in
+that library exactly once. They return 409 without changing the order if the
+library membership has changed, so reload before retrying. Ordering and hub
+completion writes are account-scoped and unavailable in read-only demo mode.
 
 ### Images
 
@@ -446,12 +459,21 @@ Successful deletion removes projects, templates, Shaper and Bambu data, download
 | `GET` | `/api/shaper-projects/:id` | Full detail including images and cut list |
 | `POST` | `/api/shaper-projects/analyze-url` | AI-analyze a Shaper Hub URL |
 | `POST` | `/api/shaper-projects` | Create Shaper Hub project |
+| `PUT` | `/api/shaper-projects/order` | Save this account's Shaper project order |
+| `PUT` | `/api/shaper-projects/:id/completion` | Set `{ "is_completed": true }` for Created (CNC cut), or false to undo |
 | `PUT` | `/api/shaper-projects/:id` | Update Shaper Hub project |
 | `DELETE` | `/api/shaper-projects/:id` | Delete and clean up image files |
 | `POST` | `/api/shaper-projects/:id/images` | Upload file or register URL as project image |
 | `POST` | `/api/shaper-projects/:id/cut-list` | Add a cut list part |
 
+Shaper cards and project details have a reversible **Created (CNC cut)** marker.
+Completion remains visible without hiding the project or changing its library order.
+
 ### Bambu Hub projects
+
+Open a saved image to enlarge it, then use **Left Arrow** and **Right Arrow** to
+browse the project's images, wrapping around at either end. Press **Escape** or
+click outside the image to close the preview.
 
 | Method | Path | Description |
 |---|---|---|
@@ -459,6 +481,8 @@ Successful deletion removes projects, templates, Shaper and Bambu data, download
 | `GET` | `/api/bambu-projects/:id` | Full metadata, durable import warnings, and locally stored assets |
 | `POST` | `/api/bambu-projects/analyze-url` | Inspect a supported public model URL and return its metadata and file manifest |
 | `POST` | `/api/bambu-projects` | Create the project and stream every accessible public image/model file into per-user storage |
+| `PUT` | `/api/bambu-projects/order` | Save this account's Bambu project order |
+| `PUT` | `/api/bambu-projects/:id/completion` | Set `{ "is_completed": true }` for Printed, or false to undo |
 | `PUT` | `/api/bambu-projects/:id` | Update metadata for the same source model |
 | `DELETE` | `/api/bambu-projects/:id` | Delete the project and locally stored assets |
 | `POST` | `/api/bambu-projects/:id/assets` | Authenticated manual model/CAD/archive upload |
@@ -470,6 +494,9 @@ Successful deletion removes projects, templates, Shaper and Bambu data, download
 | `DELETE` | `/api/provider-connections/thingiverse` | Remove the account’s Thingiverse token |
 
 Printables currently supports anonymous metadata and file links. MakerWorld permits anonymous metadata/images but requires sign-in for original model files; Workshop never stores MakerWorld credentials or cookies, so download those originals and use **Add files**. Thingiverse accepts an official token from Settings, encrypted per user and never returned to a client; optional `THINGIVERSE_APP_TOKEN` remains a server-wide alternative. Workshop persists provider limitations and individual download failures instead of silently omitting them. Imports are capped at 40 MB per image, 250 MB per file, 1 GB per project, and 5 GB per account.
+
+Bambu cards and project details have a reversible **Printed** marker. Like Shaper
+completion, it preserves the project metadata and saved library position.
 
 ### Personal MakerWorld browser bridge
 

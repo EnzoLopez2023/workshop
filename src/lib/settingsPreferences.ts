@@ -1,7 +1,7 @@
 export type AccentColor = 'amber' | 'signal' | 'platform' | 'beacon' | 'violet';
 export type FontSize = 'normal' | 'large';
 export type DefaultProjectStatus = 'idea' | 'planning' | 'in_progress';
-export type DashboardSort = 'updated' | 'created' | 'title';
+export type DashboardSort = 'manual' | 'updated' | 'created' | 'title';
 
 export interface Settings {
   accentColor: AccentColor;

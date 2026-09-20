@@ -350,6 +350,7 @@ export default function Settings() {
               event.target.value as typeof settings.defaultDashboardSort,
             )}
           >
+            <option value="manual">Manual order</option>
             <option value="updated">Last updated</option>
             <option value="created">Date created</option>
             <option value="title">Title (A–Z)</option>

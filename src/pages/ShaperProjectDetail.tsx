@@ -17,6 +17,7 @@ import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import { Button, PageFrame, StatePanel } from '../components/ui';
 import { WorkflowSection } from '../components/workflows';
 import { ProjectDetailSkeleton } from '../components/Skeleton';
+import HubCompletionButton from '../components/HubCompletionButton';
 
 export default function ShaperProjectDetail() {
   const navigate = useNavigate();
@@ -93,6 +94,12 @@ export default function ShaperProjectDetail() {
             <ArrowLeft size={16} aria-hidden="true" /> Shaper Hub
           </Button>
           <div className="project-detail-actions">
+            <HubCompletionButton
+              library="shaper"
+              project={project}
+              disabled={deleting}
+              onChange={completion => setProject(current => current ? { ...current, ...completion } : current)}
+            />
             <Button variant="ghost" onClick={() => navigate(`/shaper/${projectId}/edit`)}>
               <Pencil size={16} aria-hidden="true" /> Edit
             </Button>

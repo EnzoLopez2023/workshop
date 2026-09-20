@@ -1213,6 +1213,88 @@ input[type="checkbox"] {
   gap: 16px;
 }
 
+.project-library-item {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-library-item > .depart-card {
+  height: auto;
+  flex: 1;
+}
+
+.project-library-item.is-dragging {
+  z-index: 2;
+  opacity: 0.75;
+}
+
+.project-library-actions,
+.project-order-buttons,
+.project-sort-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-library-actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.project-library-actions > .hub-completion-button {
+  align-self: flex-start;
+}
+
+.project-order-buttons {
+  margin-left: auto;
+}
+
+.project-drag-handle {
+  min-width: 44px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.project-drag-handle:active {
+  cursor: grabbing;
+}
+
+.hub-completion-button[aria-pressed="true"] {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 42%, var(--color-divider));
+  background: color-mix(in srgb, var(--color-success-fill) 15%, var(--color-surface));
+}
+
+.project-sort-field {
+  width: fit-content;
+  max-width: 100%;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.project-sort-field > span {
+  white-space: nowrap;
+}
+
+.project-sort-field select {
+  min-width: 0;
+}
+
+.library-order-help {
+  margin: 0 0 16px;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-library-item {
+    transition: none !important;
+  }
+}
+
 .dashboard-section {
   margin-top: 46px;
 }

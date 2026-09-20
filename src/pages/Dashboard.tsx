@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import {
+  ArrowUpDown,
   ArrowUpRight,
   Box,
   Boxes,
@@ -21,6 +23,7 @@ import {
   listProjects,
   listShaperProjects,
   listTemplates,
+  saveProjectOrder,
 } from '../services/api';
 import type {
   BambuProject,
@@ -36,6 +39,8 @@ import {
 import ProjectCard from '../components/ProjectCard';
 import BambuProjectCard from '../components/BambuProjectCard';
 import ShaperProjectCard from '../components/ShaperProjectCard';
+import ProjectLibraryGrid from '../components/ProjectLibraryGrid';
+import HubCompletionButton from '../components/HubCompletionButton';
 import StatusBadge from '../components/StatusBadge';
 import { ProjectCardSkeleton } from '../components/Skeleton';
 import {
@@ -48,6 +53,7 @@ import {
 } from '../components/ui';
 import { CreateProjectMenu } from '../components/workflows';
 import {
+  applyVisibleProjectOrder,
   filterProjects,
   filterBambuProjects,
   filterShaperProjects,
@@ -56,8 +62,10 @@ import {
   selectFocusProject,
   sortProjects,
   type ProjectStatusFilter,
+  type ProjectSort,
 } from '../lib/coreWorkflows';
 import { useSettings } from '../contexts/SettingsContext';
+import { isDemoMode } from '../demo/demoMode';
 
 const DASHBOARD_PAGES = [
   { value: 'projects', label: 'Projects' },
@@ -97,7 +105,7 @@ const DIY_SITES = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { settings } = useSettings();
+  const { settings, setSetting } = useSettings();
   const [page, setPageState] = useState<DashboardPage>(() =>
     readDashboardPage(localStorage.getItem(DASHBOARD_PAGE_STORAGE_KEY)),
   );
@@ -113,6 +121,10 @@ export default function Dashboard() {
   const [bambuSearch, setBambuSearch] = useState('');
   const [cloningId, setCloningId] = useState<number | null>(null);
   const [confirmDeleteTemplateId, setConfirmDeleteTemplateId] = useState<number | null>(null);
+  const [reordering, setReordering] = useState(false);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const savingOrderRef = useRef(false);
+  const demo = isDemoMode();
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
@@ -141,6 +153,7 @@ export default function Dashboard() {
   }, [loadDashboard]);
 
   const setPage = (next: DashboardPage) => {
+    setReordering(false);
     setPageState(next);
     localStorage.setItem(DASHBOARD_PAGE_STORAGE_KEY, next);
   };
@@ -175,10 +188,54 @@ export default function Dashboard() {
     }
   };
 
+  async function handleReorder<T extends { id: number; sort_order: number }>(
+    library: DashboardPage,
+    current: T[],
+    setItems: Dispatch<SetStateAction<T[]>>,
+    orderedIds: number[],
+  ) {
+    if (savingOrderRef.current) return;
+    savingOrderRef.current = true;
+    setSavingOrder(true);
+    try {
+      const next = applyVisibleProjectOrder(current, orderedIds);
+      await saveProjectOrder(library, next.map(project => project.id));
+      setItems(latest => applyVisibleProjectOrder(latest, orderedIds));
+      if (library === 'projects') setSetting('defaultDashboardSort', 'manual');
+    } catch (error) {
+      console.error('Project order save failed', error);
+      toast.error('Workshop could not save the project order.', {
+        description: error instanceof Error ? error.message : 'Try again.',
+        action: { label: 'Reload', onClick: () => void loadDashboard() },
+      });
+    } finally {
+      savingOrderRef.current = false;
+      setSavingOrder(false);
+    }
+  }
+
+  const orderButton = (count: number) => (
+    <Button
+      variant="ghost"
+      aria-pressed={reordering}
+      disabled={demo || loading || savingOrder || (!reordering && count < 2)}
+      title={demo ? 'Sign in to reorder projects' : undefined}
+      onClick={() => setReordering(current => !current)}
+    >
+      <ArrowUpDown size={16} aria-hidden="true" />
+      {reordering ? 'Done reordering' : 'Reorder'}
+    </Button>
+  );
+  const orderHelp = (reordering || savingOrder) && (
+    <p className="library-order-help" role="status">
+      {savingOrder ? 'Saving project order…' : 'Drag the handles or use the move buttons. Changes save automatically.'}
+    </p>
+  );
+
   const filteredProjects = useMemo(
     () => sortProjects(
       filterProjects(projects, filter, projectSearch, settings.showCompletedByDefault),
-      settings.defaultDashboardSort,
+      reordering ? 'manual' : settings.defaultDashboardSort,
     ),
     [
       projects,
@@ -186,6 +243,7 @@ export default function Dashboard() {
       projectSearch,
       settings.defaultDashboardSort,
       settings.showCompletedByDefault,
+      reordering,
     ],
   );
   const filteredShaperProjects = useMemo(
@@ -242,13 +300,21 @@ export default function Dashboard() {
             onSearchChange={setProjectSearch}
             filter={filter}
             onFilterChange={setFilter}
+            sort={reordering ? 'manual' : settings.defaultDashboardSort}
+            onSortChange={sort => {
+              setReordering(false);
+              setSetting('defaultDashboardSort', sort);
+            }}
+            disabled={savingOrder}
           />
 
           <section aria-labelledby="project-library-title">
             <SectionRail
               title={<span id="project-library-title"><Boxes size={16} aria-hidden="true" /> Project library</span>}
               count={loading ? '—' : filteredProjects.length}
+              actions={orderButton(filteredProjects.length)}
             />
+            {orderHelp}
             {loading ? (
               <ProjectGridSkeleton />
             ) : filteredProjects.length === 0 ? (
@@ -262,16 +328,19 @@ export default function Dashboard() {
                   : undefined}
               />
             ) : (
-              <div className="project-library-grid">
-                {filteredProjects.map(project => (
+              <ProjectLibraryGrid
+                projects={filteredProjects}
+                reordering={reordering}
+                saving={savingOrder}
+                onReorder={ids => void handleReorder('projects', projects, setProjects, ids)}
+                renderProject={project => (
                   <ProjectCard
-                    key={project.id}
                     project={project}
                     to={`/projects/${project.id}`}
                     onOpen={() => setPage('projects')}
                   />
-                ))}
-              </div>
+                )}
+              />
             )}
           </section>
 
@@ -304,7 +373,9 @@ export default function Dashboard() {
           <SectionRail
             title={<span id="shaper-library-title"><Cpu size={16} aria-hidden="true" /> Shaper Hub library</span>}
             count={loading ? '—' : filteredShaperProjects.length}
+            actions={orderButton(filteredShaperProjects.length)}
           />
+          {orderHelp}
           {loading ? (
             <ProjectGridSkeleton />
           ) : filteredShaperProjects.length === 0 ? (
@@ -318,16 +389,29 @@ export default function Dashboard() {
                 : undefined}
             />
           ) : (
-            <div className="project-library-grid">
-              {filteredShaperProjects.map(project => (
+            <ProjectLibraryGrid
+              projects={filteredShaperProjects}
+              reordering={reordering}
+              saving={savingOrder}
+              onReorder={ids => void handleReorder('shaper', shaperProjects, setShaperProjects, ids)}
+              renderProject={project => (
                 <ShaperProjectCard
-                  key={project.id}
                   project={project}
                   to={`/shaper/${project.id}`}
                   onOpen={() => setPage('shaper')}
                 />
-              ))}
-            </div>
+              )}
+              renderActions={project => (
+                <HubCompletionButton
+                  library="shaper"
+                  project={project}
+                  disabled={savingOrder}
+                  onChange={completion => setShaperProjects(current => current.map(item =>
+                    item.id === project.id ? { ...item, ...completion } : item,
+                  ))}
+                />
+              )}
+            />
           )}
         </section>
       ) : (
@@ -346,7 +430,9 @@ export default function Dashboard() {
           <SectionRail
             title={<span id="bambu-library-title"><Box size={16} aria-hidden="true" /> Bambu Hub library</span>}
             count={loading ? '—' : filteredBambuProjects.length}
+            actions={orderButton(filteredBambuProjects.length)}
           />
+          {orderHelp}
           {loading ? (
             <ProjectGridSkeleton />
           ) : filteredBambuProjects.length === 0 ? (
@@ -360,16 +446,29 @@ export default function Dashboard() {
                 : undefined}
             />
           ) : (
-            <div className="project-library-grid">
-              {filteredBambuProjects.map(project => (
+            <ProjectLibraryGrid
+              projects={filteredBambuProjects}
+              reordering={reordering}
+              saving={savingOrder}
+              onReorder={ids => void handleReorder('bambu', bambuProjects, setBambuProjects, ids)}
+              renderProject={project => (
                 <BambuProjectCard
-                  key={project.id}
                   project={project}
                   to={`/bambu/${project.id}`}
                   onOpen={() => setPage('bambu')}
                 />
-              ))}
-            </div>
+              )}
+              renderActions={project => (
+                <HubCompletionButton
+                  library="bambu"
+                  project={project}
+                  disabled={savingOrder}
+                  onChange={completion => setBambuProjects(current => current.map(item =>
+                    item.id === project.id ? { ...item, ...completion } : item,
+                  ))}
+                />
+              )}
+            />
           )}
         </section>
       )}
@@ -444,11 +543,17 @@ function ProjectTools({
   onSearchChange,
   filter,
   onFilterChange,
+  sort,
+  onSortChange,
+  disabled,
 }: {
   search: string;
   onSearchChange: (value: string) => void;
   filter: ProjectStatusFilter;
   onFilterChange: (filter: ProjectStatusFilter) => void;
+  sort: ProjectSort;
+  onSortChange: (sort: ProjectSort) => void;
+  disabled: boolean;
 }) {
   return (
     <div className="dashboard-tools">
@@ -473,6 +578,19 @@ function ProjectTools({
           </button>
         ))}
       </div>
+      <label className="project-sort-field">
+        <span>Sort projects</span>
+        <select
+          value={sort}
+          disabled={disabled}
+          onChange={event => onSortChange(event.target.value as ProjectSort)}
+        >
+          <option value="manual">Manual order</option>
+          <option value="updated">Last updated</option>
+          <option value="created">Date created</option>
+          <option value="title">Title (A–Z)</option>
+        </select>
+      </label>
     </div>
   );
 }
