@@ -4,13 +4,12 @@ FROM node:22-alpine AS deps
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 
-FROM node:22-alpine AS builder
-RUN apk add --no-cache python3 make g++
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --no-audit --no-fund
+FROM deps AS production-deps
+RUN npm prune --omit=dev --no-audit --no-fund
+
+FROM deps AS builder
 COPY . .
 
 # Vite bakes these into the JS bundle at build time.
@@ -39,10 +38,11 @@ WORKDIR /app
 # references an older base-image package snapshot.
 RUN apk upgrade --no-cache
 
-COPY --from=deps    /app/node_modules ./node_modules
+COPY --from=production-deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist         ./dist
 COPY server.js      ./
 COPY recovery.js    ./
+# Retained for the guarded one-shot compatibility CLI; server.js does not load it.
 COPY offhost-export.js ./
 COPY deployment-info.js ./
 COPY scripts/recovery.mjs ./scripts/recovery.mjs
@@ -60,6 +60,7 @@ ENV PORT=3006
 ENV DATA_ROOT=/home/data
 ENV DB_PATH=/home/data/workshop.db
 ENV UPLOADS_PATH=/home/data/uploads
+ENV OFFHOST_BACKUP_ENABLED=false
 
 ARG BUILD_SHA
 ARG APP_VERSION

@@ -102,7 +102,9 @@ Staging refuses an existing target and refuses the configured live `DATA_ROOT`.
 For an actual incident:
 
 1. Stop the App Service and preserve the current `/home/data` directory.
-2. Download and decrypt the selected off-host bundle.
+2. Select a verified local bundle under `/home/data/backups`. If the mounted
+   storage itself is unavailable, there is no current Workshop-managed off-host
+   archive to restore from.
 3. Run `verify`, `drill`, then `stage` outside `/home/data`.
 4. Rename `/home/data` to a rollback path and rename the staged root to
    `/home/data` while the app remains stopped. Explicit `DB_PATH`,
@@ -119,98 +121,39 @@ quiesce the running Express process:
 npm run recovery -- backup --offline-confirmed
 ```
 
-## Managed-identity off-host export
+## Off-host export retirement
 
-`/home/data/backups` shares the App Service storage failure domain with the live
-databases and uploads. It remains useful for rollback, but it is not disaster
-recovery. Workshop's exporter implements the pinned
-[personal-apps off-host export contract](https://github.com/EnzoLopez2023/azure-infra/blob/78f28d46cfcf04315ad53fb0360bc855fa0a1eb4/recovery/OFFHOST_EXPORT_CONTRACT.md)
-from canonical commit `78f28d46cfcf04315ad53fb0360bc855fa0a1eb4`.
+Managed-identity off-host export was permanently retired on 2026-09-09 after
+the recurring discovery and read-back loop generated millions of Blob reads and
+excessive Log Analytics cost. The live `workshop` container was removed from
+`strecoverywkhiw2g4hwik4`, and Workshop's container-scoped role assignment was
+removed.
 
-The exporter is discovery-only: it never creates a second backup, opens a live
-database, reads `UPLOADS_PATH`, or quiesces APIs. When explicitly enabled it
-first completes the private-DNS/identity capability check, immediately runs one
-startup scan, and then scans hourly. Every newly finalized local bundle also
-requests an immediate scan. If another scan is active, one coalesced follow-up is
-queued so the new bundle cannot be missed; other concurrent triggers join the
-active work. No scans overlap, and each completion is logged as a structured
-result. Each scan verifies complete
-`workshop-backup-*` directories already finalized by the in-process recovery
-scheduler, then uploads the manifest, all normalized databases, and every upload
-including orphans as one artifact. It uses `ManagedIdentityCredential` directly
-in production. Account keys, SAS tokens, connection strings, encryption keys,
-environment files, WAL sidecars, partial staging directories, and live files are
-never exported.
-
-Each source UTC date gets one conditional daily commit and each UTC month gets
-one conditional monthly commit. Upload retries use a new immutable 128-bit
-suffix. `_COMPLETE.json` is written only after a full download, SHA-256
-recalculation, and `recovery -- verify`; `_COMMITTED.json` is then created with
-`If-None-Match: *`. Only that deterministic committed marker defines a recovery
-point. Successful scans re-download and verify fresh daily/monthly recovery
-points before writing new health heartbeats. Azure lifecycle, versioning, soft
-delete, GRS, diagnostics, alerts, and no-delete RBAC are provisioned in
-`azure-infra`; the app never deletes off-host blobs.
-
-Required nonsecret App Service settings:
+The production invariant is:
 
 ```text
 OFFHOST_BACKUP_ENABLED=false
-OFFHOST_BACKUP_ACCOUNT=<offhost-backup-storage deployment output>
-OFFHOST_BACKUP_CONTAINER=workshop
-OFFHOST_BACKUP_SCAN_INTERVAL_MINUTES=60
-OFFHOST_BACKUP_STALE_HOURS=26
-OFFHOST_BACKUP_HEALTH_LOOKBACK_HOURS=2
-OFFHOST_BACKUP_DAILY_HEALTH_MAX_SOURCE_AGE_HOURS=23
-OFFHOST_BACKUP_MONTHLY_STALE_DAYS=35
-OFFHOST_BACKUP_CLOCK_SKEW_MINUTES=5
 ```
 
-Activation is deliberately fail-closed. Leave `OFFHOST_BACKUP_ENABLED=false`
-until all rollout checks pass:
+The deploy workflow rejects any other value. The server does not start the
+off-host schedule or enqueue a scan after creating a local bundle, and API
+health reports the exporter as `retired`. Readiness depends on the authoritative
+SQLite storage only. Do not restore the account/container/scan settings, recreate
+the container or role, or set the flag to `true` without a separately approved
+recovery design that avoids recurring enumeration, read-back, and logging cost.
 
-1. Confirm the App Service still has exactly one worker and Always On.
-2. Review the required Workshop network change with `appSlug=workshop`:
+`offhost-export.js` and the guarded one-shot CLI remain packaged only to minimize
+compatibility risk while the feature is retired. They are not an active
+operational recovery path, and the removed Azure target and RBAC make production
+export non-operational. Do not run `export-offhost` as a substitute for an
+approved replacement design.
 
-   ```bash
-   az deployment group what-if \
-     --resource-group rg-personal-apps-prod \
-     --name offhost-exporter-network-workshop \
-     --template-file recovery/offhost-backup-app-network.bicep \
-     --parameters appSlug=workshop \
-     --result-format FullResourcePayloads
-   ```
+Local capture remains enabled on its existing schedule and retention policy.
+`/home/data/backups` shares the App Service storage failure domain with the live
+databases and uploads, so it is useful for rollback but is not disaster recovery.
 
-3. Apply that `azure-infra` network deployment separately. Integrate only with
-   `vnet-recovery-prod/snet-appservice-recovery`; do not enable route-all.
-4. Re-probe the application. Inside the production container, the canonical Blob
-   hostname must resolve only to private addresses. Workshop's identity must read
-   the `workshop` container properties and receive `403` for the `cairn`
-   cross-container probe.
-5. With the API still on one worker and a complete local bundle present, run the
-   guarded manual scan inside the production container:
-
-   ```bash
-   npm run recovery -- export-offhost --manual-confirmed
-   ```
-
-   The command works while scheduled export is disabled, but still requires
-   `NODE_ENV=production`, the account/container settings, private DNS, and the
-   system-assigned managed identity. It must complete upload, download, hash, and
-   verifier read-back successfully.
-6. Confirm valid daily `_COMMITTED.json`, daily `_HEALTH.json`, and monthly
-   `_HEALTH.json` paths in Blob storage and `StorageBlobLogs`. Then set
-   `OFFHOST_BACKUP_ENABLED=true`, restart, observe the first scan, and only after
-   that add `workshop` to `enabledFreshnessApps` in the infrastructure deployment
-   and test the action group.
-
-The GitHub deploy workflow only builds and restarts the application; it cannot
-reach `/home/data` and is not a backup job. Network integration, RBAC, monitoring
-activation, and the first production read-back are separate live Azure work.
-
-Account deletion waits behind or completes before a capture, so no bundle can
-contain a half-deleted DB/upload set. Historical bundles can legitimately retain
-an account until both local and off-host retention expire. Restoring a bundle
-from before deletion can resurrect that account, so incident recovery must
-reconcile deletions performed after the selected recovery point before reopening
-the service.
+Account deletion waits behind or completes before a local capture, so no bundle
+can contain a half-deleted DB/upload set. Historical local bundles can retain an
+account until retention expires. Restoring a bundle from before deletion can
+resurrect that account, so incident recovery must reconcile deletions performed
+after the selected recovery point before reopening the service.

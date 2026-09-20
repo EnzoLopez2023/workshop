@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run icons:check && tsc -b && vite build",
     "test": "node --test test/*.test.js",
     "ci:deploy": "npm test && npm run build",
     "deploy:migration-check": "node scripts/check-migration-compatibility.mjs",
@@ -16,6 +16,7 @@
     "recovery": "node scripts/recovery.mjs",
     "start:all": "npm run server & npm run dev",
     "icons": "node scripts/gen-icons.mjs",
+    "icons:check": "node scripts/gen-icons.mjs --check",
     "prepare": "node scripts/setup-hooks.mjs || exit 0",
     "bump:patch": "node scripts/version.mjs patch",
     "bump:minor": "node scripts/version.mjs minor",
