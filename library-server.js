@@ -82,6 +82,7 @@ export function initLibrarySchema(db) {
       seconds        REAL,
       grams          REAL,
       plates_json    TEXT NOT NULL DEFAULT '[]',
+      profile_title  TEXT,
       filaments_json TEXT NOT NULL DEFAULT '[]',
       generator      TEXT,
       thumb_hash     TEXT
@@ -134,6 +135,13 @@ export function initLibrarySchema(db) {
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `);
+  migrateLibrarySchema(db);
+}
+
+// Additive migrations for databases created by an earlier Library release.
+function migrateLibrarySchema(db) {
+  const fileCols = new Set(db.prepare(`PRAGMA table_info(library_files)`).all().map((c) => c.name));
+  if (!fileCols.has('profile_title')) db.exec(`ALTER TABLE library_files ADD COLUMN profile_title TEXT`);
 }
 
 export function buildLibraryStmts(db) {
@@ -183,14 +191,14 @@ export function buildLibraryStmts(db) {
     insertFile: db.prepare(`
       INSERT INTO library_files (
         model_id, rel_path, filename, kind, size, sha256, geom_hash, mtime, triangles, bbox_json,
-        is_sliced, printer, seconds, grams, plates_json, filaments_json, generator, thumb_hash
+        is_sliced, printer, seconds, grams, plates_json, profile_title, filaments_json, generator, thumb_hash
       ) VALUES (
         @model_id, @rel_path, @filename, @kind, @size, @sha256, @geom_hash, @mtime, @triangles, @bbox_json,
-        @is_sliced, @printer, @seconds, @grams, @plates_json, @filaments_json, @generator, @thumb_hash
+        @is_sliced, @printer, @seconds, @grams, @plates_json, @profile_title, @filaments_json, @generator, @thumb_hash
       )`),
     listFiles: db.prepare(`SELECT * FROM library_files WHERE model_id = ? ORDER BY kind, filename`),
     allFilesForMatching: db.prepare(`
-      SELECT f.model_id, f.filename, f.grams, f.seconds, f.plates_json
+      SELECT f.model_id, f.filename, f.grams, f.seconds, f.plates_json, f.profile_title
       FROM library_files f JOIN library_models m ON m.id = f.model_id`),
     allModelsForMatching: db.prepare(`SELECT id, title, status FROM library_models`),
     hasThumb: db.prepare(`SELECT 1 FROM library_thumbs WHERE hash = ?`),
@@ -467,6 +475,7 @@ export function upsertSyncedModel(stmts, model, seen) {
       seconds: num(f.seconds),
       grams: num(f.grams),
       plates_json: JSON.stringify((Array.isArray(f.plates) ? f.plates : []).slice(0, 64)),
+      profile_title: text(f.profileTitle, 300),
       filaments_json: JSON.stringify((Array.isArray(f.filaments) ? f.filaments : []).slice(0, 16)),
       generator: text(f.generator, 40),
       thumb_hash: SHA256_RE.test(f.thumb ?? '') ? f.thumb : null,
@@ -517,24 +526,31 @@ export function titleSimilarity(a, b) {
 }
 
 /**
- * Scores every model for a print job. Bambu job titles are the project or
- * plate name, so the job title is compared with model titles, file names and
- * plate names; matching sliced weights nudge the score.
+ * Scores every model for a print job. Bambu job titles are usually the
+ * project or plate name, so the job title is compared with model titles, file
+ * names and plate names; matching sliced weights nudge the score.
+ *
+ * MakerWorld print profiles often name the job after the profile instead
+ * ("0.16mm layer, 2 walls, 15% infill"). Those names are shared by many
+ * models, so a profile-name match is only confident when the job's weight
+ * agrees with the file's; otherwise it is at most a suggestion.
  */
 export function scoreJobAgainstModels(job, models, filesByModel) {
   let best = null;
   let runnerUp = 0;
+  const grams = num(job.grams);
   for (const model of models) {
     const files = filesByModel.get(model.id) ?? [];
     const names = [model.title, ...files.map((f) => f.filename), ...files.flatMap((f) => json(f.plates_json, []).map((p) => p.name).filter(Boolean))];
     let score = Math.max(...names.map((n) => titleSimilarity(job.title, n)));
     // A job may print the whole project or a single plate, so compare with both.
-    const grams = num(job.grams);
     const weights = files.flatMap((f) => [num(f.grams), ...json(f.plates_json, []).map((p) => num(p.grams))]).filter(Boolean);
-    if (grams && weights.length) {
-      const close = weights.some((w) => Math.abs(w - grams) / Math.max(w, grams) <= 0.1);
-      score += close ? 0.1 : -0.05;
-    }
+    const weightKnown = Boolean(grams && weights.length);
+    const weightClose = weightKnown && weights.some((w) => Math.abs(w - grams) / Math.max(w, grams) <= 0.1);
+    if (weightKnown) score += weightClose ? 0.1 : -0.05;
+    const profiles = files.map((f) => f.profile_title).filter(Boolean);
+    const profileSimilarity = profiles.length ? Math.max(...profiles.map((p) => titleSimilarity(job.title, p))) : 0;
+    if (profileSimilarity >= 0.9) score = Math.max(score, weightClose ? 0.97 : weightKnown ? 0.5 : 0.75);
     score = Math.max(0, Math.min(1, score));
     if (!best || score > best.score) {
       runnerUp = best?.score ?? runnerUp;
@@ -544,8 +560,8 @@ export function scoreJobAgainstModels(job, models, filesByModel) {
     }
   }
   if (!best) return null;
-  // Two models equally close is not an automatic match.
-  return { ...best, ambiguous: best.score - runnerUp < 0.05 };
+  // Two models equally close is neither an automatic match nor a useful suggestion.
+  return { ...best, ambiguous: best.score - runnerUp < 0.04 };
 }
 
 /** Re-matches unmatched/suggested ShapePilot jobs; returns counts. */
@@ -563,7 +579,7 @@ export function matchPrintJobs(stmts) {
       stmts.setMatch.run(match.modelId, 'auto', match.score, job.id);
       applyPrintResultToStatus(stmts, match.modelId, job.result);
       counts.auto += 1;
-    } else if (match && match.score >= SUGGEST_MATCH_SCORE) {
+    } else if (match && match.score >= SUGGEST_MATCH_SCORE && !match.ambiguous) {
       stmts.setMatch.run(match.modelId, 'suggested', match.score, job.id);
       counts.suggested += 1;
     } else {
