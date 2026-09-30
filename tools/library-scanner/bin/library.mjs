@@ -2,29 +2,38 @@
 // workshop-library — organizer / scanner CLI for Workshop's Library hub.
 //
 //   scan                      index every root, print totals
-//   plan [--intake]           write _Library/migration-plan.json (nothing moves)
-//   apply <plan> [ids...|--all] [--dry-run]
-//   intake [--dry-run]        auto-file settled downloads into _Inbox/ (or ShapePilot/)
+//   plan [out.json] [--intake] write the reorganization plan (nothing moves)
+//   apply [plan] <ids...|--all> [--dry-run]
+//   intake [--dry-run]        file settled downloads into _Inbox/ (or ShapePilot/)
+//   connect <token> [--url=https://workshop.nintek.com]
+//   sync                      pull app edits, scan, push index + plan to Workshop
+//   run                       intake then sync (what the launchd agent runs)
+//   serve                     local helper for the Workshop web app
+//   install | uninstall       launchd agents (Downloads watcher + helper)
 //   batches                   list logged batches
 //   undo <batch> [--dry-run]  reverse one batch
 //   status                    config + counts
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { loadConfig, CONFIG_PATH } from '../src/config.js'
-import { scanAll, ScanCache } from '../src/scan.js'
-import { buildPlan, applyPlan } from '../src/plan.js'
+import { setTimeout as sleep } from 'node:timers/promises'
+import { CONFIG_PATH, loadConfig, saveConfig } from '../src/config.js'
+import { ScanCache, scanAll } from '../src/scan.js'
+import { applyPlan, buildPlan } from '../src/plan.js'
 import { listBatches, undoBatch } from '../src/fsops.js'
+import { planPath, runIntake, runSync } from '../src/run.js'
+import { createHelper } from '../src/helper.js'
+import { install, uninstall } from '../src/launchd.js'
 
 const [command = 'help', ...rest] = process.argv.slice(2)
 const flags = new Set(rest.filter((a) => a.startsWith('--')))
+const option = (name) => rest.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=')
 const args = rest.filter((a) => !a.startsWith('--'))
-const config = loadConfig()
 const dryRun = flags.has('--dry-run')
+let config = loadConfig()
 
 function scan(roots) {
-  const started = Date.now()
   const cache = new ScanCache(config.cacheDir)
   const result = scanAll(config, {
     cache,
@@ -34,12 +43,7 @@ function scan(roots) {
     },
   })
   if (process.stderr.isTTY) process.stderr.write('\r')
-  result.ms = Date.now() - started
   return result
-}
-
-function planPath() {
-  return join(config.libraryRoot, '_Library', 'migration-plan.json')
 }
 
 function printPlan(plan) {
@@ -54,7 +58,7 @@ function notify(message) {
   try {
     execFileSync('osascript', ['-e', `display notification ${JSON.stringify(message)} with title "Workshop Library"`])
   } catch {
-    // Notifications are best-effort (launchd sessions without a GUI cannot show them).
+    // Best effort: background sessions without a GUI cannot show notifications.
   }
 }
 
@@ -62,11 +66,18 @@ function mb(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+function reportIntake(result) {
+  if (result.filed.length) console.log(`${dryRun ? '[dry run] ' : ''}Intake ${result.batch}: ${result.filed.join(', ')}`)
+  for (const f of result.failed) console.log(`  ✗ ${f.title}: ${f.error}`)
+  if (!dryRun && result.filed.length) notify(`${result.filed.length} new model${result.filed.length === 1 ? '' : 's'} in Inbox`)
+}
+
 switch (command) {
   case 'scan': {
-    const { records, errors, ms } = scan()
+    const started = Date.now()
+    const { records, errors } = scan()
     const by = (key) => records.reduce((acc, r) => ((acc[r[key]] = (acc[r[key]] ?? 0) + 1), acc), {})
-    console.log(`Scanned ${records.length} model files in ${(ms / 1000).toFixed(1)}s`)
+    console.log(`Scanned ${records.length} model files in ${((Date.now() - started) / 1000).toFixed(1)}s`)
     console.log('By root type:', by('rootType'))
     console.log('By kind:', by('kind'))
     const dupes = Object.values(records.reduce((acc, r) => ((acc[r.sha256] ??= []).push(r), acc), {})).filter((g) => g.length > 1)
@@ -78,21 +89,20 @@ switch (command) {
     break
   }
   case 'plan': {
-    const intakeOnly = flags.has('--intake')
     const { records } = scan()
-    const plan = buildPlan(config, records, { intakeOnly })
-    const out = args[0] ?? planPath()
-    mkdirSync(join(out, '..'), { recursive: true })
+    const plan = buildPlan(config, records, { intakeOnly: flags.has('--intake') })
+    const out = args[0] ?? planPath(config)
+    mkdirSync(dirname(out), { recursive: true })
     writeFileSync(out, JSON.stringify(plan, null, 2))
     printPlan(plan)
-    console.log(`\nWrote ${out}\nNothing has been moved. Review it, then: workshop-library apply "${out}" --all`)
+    console.log(`\nWrote ${out}\nNothing has been moved. Review it in Workshop → Library → Organize, or: workshop-library apply "${out}" --all`)
     break
   }
   case 'apply': {
-    const file = args[0] ?? planPath()
+    const file = args[0] && existsSync(args[0]) ? args.shift() : planPath(config)
     if (!existsSync(file)) throw new Error(`No plan at ${file}; run "plan" first`)
     const plan = JSON.parse(readFileSync(file, 'utf8'))
-    const ids = flags.has('--all') ? null : args.slice(1)
+    const ids = flags.has('--all') ? null : args
     if (ids && !ids.length) throw new Error('Pass model ids to apply, or --all')
     const result = applyPlan(config, plan, { ids, dryRun })
     const failed = result.results.filter((r) => !r.ok)
@@ -102,18 +112,60 @@ switch (command) {
     break
   }
   case 'intake': {
-    const roots = [{ path: config.libraryRoot, type: 'library' }, ...config.intakeRoots.map((path) => ({ path, type: 'intake' }))]
-    const { records } = scan(roots)
-    const plan = buildPlan(config, records, { intakeOnly: true })
-    if (!plan.models.length) {
-      console.log('Nothing new in Downloads.')
-      break
+    const result = runIntake(config, { dryRun })
+    if (!result.filed.length && !result.failed.length) console.log(result.waiting ? `Waiting for ${result.waiting} download(s) to finish.` : 'Nothing new in Downloads.')
+    reportIntake(result)
+    break
+  }
+  case 'connect': {
+    if (!args[0]?.startsWith('wl1.')) throw new Error('Usage: connect <device token from Workshop → Library → Settings>')
+    saveConfig({ deviceToken: args[0], ...(option('url') ? { workshopUrl: option('url') } : {}) })
+    console.log(`Saved to ${CONFIG_PATH}. Next: workshop-library sync`)
+    break
+  }
+  case 'sync': {
+    const result = await runSync(config)
+    console.log(`Synced ${result.models} models (${result.thumbsUploaded} new thumbnails, ${result.edits} edits pulled, ${result.missing} missing). Plan: ${result.planModels} models waiting to be organized.`)
+    break
+  }
+  case 'run': {
+    // Downloads can still be arriving when launchd fires; wait for them to settle.
+    const cache = new ScanCache(config.cacheDir)
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const result = runIntake(config, { cache })
+      reportIntake(result)
+      if (!result.waiting) break
+      await sleep((config.settleSeconds + 5) * 1000)
     }
-    const result = applyPlan(config, plan, { dryRun, kind: 'intake' })
-    const filed = result.results.filter((r) => r.ok)
-    console.log(`${dryRun ? '[dry run] ' : ''}Intake batch ${result.batch}: ${filed.map((r) => r.title).join(', ')}`)
-    for (const f of result.results.filter((r) => !r.ok)) console.log(`  ✗ ${f.title}: ${f.error}`)
-    if (!dryRun && filed.length) notify(`${filed.length} new model${filed.length === 1 ? '' : 's'} in Inbox`)
+    if (config.deviceToken) {
+      try {
+        const result = await runSync(config, { cache })
+        console.log(`[${new Date().toISOString()}] synced ${result.models} models`)
+      } catch (err) {
+        console.error(`[${new Date().toISOString()}] sync failed: ${err.message}`)
+        process.exitCode = 1
+      }
+    }
+    break
+  }
+  case 'serve': {
+    const server = createHelper(config, {
+      afterChange: () => {
+        config = loadConfig()
+      },
+    })
+    server.listen(config.helperPort, '127.0.0.1', () => console.log(`Workshop Library helper on http://localhost:${config.helperPort}`))
+    break
+  }
+  case 'install': {
+    const result = install(config)
+    console.log(`Installed ${result.agents.join(', ')}. Logs: ${result.logs}`)
+    console.log('macOS may ask once to allow Node to access Downloads and OneDrive — allow it.')
+    break
+  }
+  case 'uninstall': {
+    uninstall()
+    console.log('Removed launchd agents.')
     break
   }
   case 'batches': {
@@ -132,5 +184,5 @@ switch (command) {
     break
   }
   default:
-    console.log(readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 12).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'))
+    console.log(readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 17).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'))
 }

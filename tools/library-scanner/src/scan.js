@@ -12,7 +12,8 @@ import { renderThumbnail } from './render.js'
 import { cleanFilename, cleanStem, groupKey, isModelFile, modelKind, pickTitle } from './names.js'
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '$RECYCLE.BIN', '_Library', '__MACOSX', '.Trash'])
-const CACHE_VERSION = 3
+const CACHE_VERSION = 4
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 /** Yields absolute paths of model files below `root` (skips hidden and tool folders). */
 export function* walkModels(root, { maxDepth = 12 } = {}) {
@@ -66,7 +67,8 @@ export class ScanCache {
 
   /** Stores a PNG by content hash; returns the hash. */
   putThumb(png) {
-    if (!png) return null
+    // Only real PNGs: Workshop serves thumbnails as image/png, and some slicers embed JPEGs or junk.
+    if (!png || png.length < 16 || !png.subarray(0, 8).equals(PNG_SIGNATURE)) return null
     const hash = createHash('sha256').update(png).digest('hex')
     const path = join(this.thumbDir, `${hash}.png`)
     if (!existsSync(path)) writeFileSync(path, png)
