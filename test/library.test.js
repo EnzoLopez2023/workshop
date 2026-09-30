@@ -226,3 +226,42 @@ test('imported ShapePilot jobs are matched and mark models printed', async () =>
   // Non-owner accounts cannot trigger print-history sync.
   assert.equal((await request('/api/library/print-history/sync', { method: 'POST', token: otherToken })).status, 403);
 });
+
+test('MakerWorld profile names match only with weight agreement, and never on a shared guess', () => {
+  const profile = '0.16mm layer, 2 walls, 15% infill';
+  const models = [
+    { id: 'stand', title: 'Design Headphone Stand' },
+    { id: 'clip', title: 'Bag Clip' },
+    { id: 'drawer', title: 'Stacking Drawer' },
+  ];
+  const files = new Map([
+    ['stand', [{ filename: 'Headphone Stand.3mf', grams: 120, plates_json: '[]', profile_title: profile }]],
+    ['clip', [{ filename: 'Bag Clip.3mf', grams: 9, plates_json: '[]', profile_title: profile }]],
+    ['drawer', [{ filename: 'drawer.3mf', plates_json: '[]', profile_title: '彩色条纹 + 弧形顶面' }]],
+  ]);
+  const byWeight = lib.scoreJobAgainstModels({ title: profile, grams: 118 }, models, files);
+  assert.equal(byWeight.modelId, 'stand');
+  assert.ok(byWeight.score >= lib.AUTO_MATCH_SCORE && !byWeight.ambiguous, JSON.stringify(byWeight));
+
+  const noWeight = lib.scoreJobAgainstModels({ title: profile }, models, files);
+  assert.ok(noWeight.ambiguous, 'two models share the profile name and nothing tells them apart');
+
+  const unique = lib.scoreJobAgainstModels({ title: '彩色条纹 + 弧形顶面' }, models, files);
+  assert.equal(unique.modelId, 'drawer');
+  assert.ok(unique.score >= lib.SUGGEST_MATCH_SCORE && unique.score < lib.AUTO_MATCH_SCORE, String(unique.score));
+});
+
+test('library schema migrates databases from the first release', async () => {
+  const { default: Database } = await import('better-sqlite3');
+  const db = new Database(':memory:');
+  db.exec('CREATE TABLE bambu_projects (id INTEGER PRIMARY KEY)');
+  db.exec(`CREATE TABLE library_files (id INTEGER PRIMARY KEY, model_id TEXT, rel_path TEXT UNIQUE, filename TEXT, kind TEXT,
+    size INTEGER, sha256 TEXT, geom_hash TEXT, mtime TEXT, triangles INTEGER, bbox_json TEXT, is_sliced INTEGER, printer TEXT,
+    seconds REAL, grams REAL, plates_json TEXT, filaments_json TEXT, generator TEXT, thumb_hash TEXT)`);
+  lib.initLibrarySchema(db);
+  lib.initLibrarySchema(db);
+  const cols = db.prepare('PRAGMA table_info(library_files)').all().map((c) => c.name);
+  assert.ok(cols.includes('profile_title'));
+  assert.doesNotThrow(() => lib.buildLibraryStmts(db));
+  db.close();
+});

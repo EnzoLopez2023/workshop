@@ -87,6 +87,7 @@ export function buildSnapshot(config, records) {
         seconds: f.seconds,
         grams: f.grams,
         plates: f.plates,
+        profileTitle: f.meta?.ProfileTitle ?? null,
         filaments: f.filaments,
         generator: f.generator,
         thumb: f.thumb,
