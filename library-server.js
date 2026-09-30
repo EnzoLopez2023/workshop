@@ -198,7 +198,7 @@ export function buildLibraryStmts(db) {
       )`),
     listFiles: db.prepare(`SELECT * FROM library_files WHERE model_id = ? ORDER BY kind, filename`),
     allFilesForMatching: db.prepare(`
-      SELECT f.model_id, f.filename, f.grams, f.seconds, f.plates_json, f.profile_title
+      SELECT f.model_id, f.filename, f.grams, f.seconds, f.plates_json, f.profile_title, f.mtime
       FROM library_files f JOIN library_models m ON m.id = f.model_id`),
     allModelsForMatching: db.prepare(`SELECT id, title, status FROM library_models`),
     hasThumb: db.prepare(`SELECT 1 FROM library_thumbs WHERE hash = ?`),
@@ -536,8 +536,7 @@ export function titleSimilarity(a, b) {
  * agrees with the file's; otherwise it is at most a suggestion.
  */
 export function scoreJobAgainstModels(job, models, filesByModel) {
-  let best = null;
-  let runnerUp = 0;
+  const scored = [];
   const grams = num(job.grams);
   for (const model of models) {
     const files = filesByModel.get(model.id) ?? [];
@@ -552,16 +551,22 @@ export function scoreJobAgainstModels(job, models, filesByModel) {
     const profileSimilarity = profiles.length ? Math.max(...profiles.map((p) => titleSimilarity(job.title, p))) : 0;
     if (profileSimilarity >= 0.9) score = Math.max(score, weightClose ? 0.97 : weightKnown ? 0.5 : 0.75);
     score = Math.max(0, Math.min(1, score));
-    if (!best || score > best.score) {
-      runnerUp = best?.score ?? runnerUp;
-      best = { modelId: model.id, score };
-    } else if (score > runnerUp) {
-      runnerUp = score;
-    }
+    scored.push({ modelId: model.id, score, files });
   }
-  if (!best) return null;
+  if (!scored.length) return null;
+  scored.sort((a, b) => b.score - a.score);
+  const [best] = scored;
+  let tied = scored.filter((s) => best.score - s.score < 0.04);
+  // Copies of the same project (e.g. a later revision re-downloaded) tie on
+  // name. A copy whose every file was written after the print started cannot
+  // be what was printed, so if exactly one tied copy predates the job, it wins.
+  const started = Date.parse(job.started_at ?? '');
+  if (tied.length > 1 && Number.isFinite(started)) {
+    const predates = tied.filter((s) => s.files.some((f) => Date.parse(f.mtime ?? '') <= started));
+    if (predates.length === 1) tied = predates;
+  }
   // Two models equally close is neither an automatic match nor a useful suggestion.
-  return { ...best, ambiguous: best.score - runnerUp < 0.04 };
+  return { modelId: tied[0].modelId, score: tied[0].score, ambiguous: tied.length > 1 };
 }
 
 /** Re-matches unmatched/suggested ShapePilot jobs; returns counts. */

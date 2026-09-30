@@ -251,6 +251,28 @@ test('MakerWorld profile names match only with weight agreement, and never on a 
   assert.ok(unique.score >= lib.SUGGEST_MATCH_SCORE && unique.score < lib.AUTO_MATCH_SCORE, String(unique.score));
 });
 
+test('a same-named copy saved after the print started does not block the match', () => {
+  const models = [
+    { id: 'festool', title: 'Systainer Latch with screw final' },
+    { id: 'inbox', title: 'Systainer Latch with screw final' },
+  ];
+  const file = (mtime) => [{ filename: 'Systainer Latch with screw final.3mf', plates_json: '[]', mtime }];
+  const files = new Map([
+    ['festool', file('2026-09-28T03:53:00.000Z')],
+    ['inbox', file('2026-09-28T17:11:00.000Z')],
+  ]);
+  const job = { title: 'Systainer Latch with screw final', started_at: '2026-09-28T16:14:00.000Z' };
+  const match = lib.scoreJobAgainstModels(job, models, files);
+  assert.equal(match.modelId, 'festool');
+  assert.ok(match.score >= lib.AUTO_MATCH_SCORE && !match.ambiguous, JSON.stringify(match));
+
+  // Both copies predate the print: nothing tells them apart.
+  const later = lib.scoreJobAgainstModels({ ...job, started_at: '2026-09-29T00:00:00.000Z' }, models, files);
+  assert.ok(later.ambiguous);
+  // No start time: unchanged behaviour.
+  assert.ok(lib.scoreJobAgainstModels({ title: job.title }, models, files).ambiguous);
+});
+
 test('library schema migrates databases from the first release', async () => {
   const { default: Database } = await import('better-sqlite3');
   const db = new Database(':memory:');
