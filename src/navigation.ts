@@ -16,7 +16,7 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     compactLabel: 'Projects',
     href: '/',
     exact: true,
-    matchPrefixes: ['/projects', '/shaper', '/bambu'],
+    matchPrefixes: ['/projects', '/shaper', '/bambu', '/library'],
   },
   {
     id: 'shopping',
@@ -59,6 +59,10 @@ export const APP_ROUTE_PATHS = [
   '/bambu/new',
   '/bambu/:id',
   '/bambu/:id/edit',
+  '/library/organize',
+  '/library/inbox',
+  '/library/review',
+  '/library/:id',
   '/conversions',
   '/shopping-list',
   '/notebook',
@@ -77,6 +81,10 @@ export function routeTitleForPath(pathname: string): string {
   if (pathname === '/bambu/new') return 'New Bambu Project · Workshop';
   if (/^\/bambu\/[^/]+\/edit$/.test(pathname)) return 'Edit Bambu Project · Workshop';
   if (/^\/bambu\/[^/]+$/.test(pathname)) return 'Bambu Project · Workshop';
+  if (pathname === '/library/organize') return 'Organize Library · Workshop';
+  if (pathname === '/library/inbox') return 'Library Inbox · Workshop';
+  if (pathname === '/library/review') return 'Library Review · Workshop';
+  if (/^\/library\/[^/]+$/.test(pathname)) return 'Model · Workshop';
   if (pathname === '/conversions') return 'Conversion Tables · Workshop';
   if (pathname === '/shopping-list') return 'Shopping List · Workshop';
   if (pathname === '/notebook') return 'Notebook · Workshop';
@@ -91,17 +99,18 @@ export function isNavigationItemCurrent(item: NavigationItem, pathname: string):
   return item.matchPrefixes.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-export type DashboardPage = 'projects' | 'shaper' | 'bambu';
+export type DashboardPage = 'projects' | 'shaper' | 'bambu' | 'library';
 
 export const DASHBOARD_PAGE_STORAGE_KEY = 'workshop-dashboard-page';
 
 export function readDashboardPage(value: string | null): DashboardPage {
-  return value === 'shaper' || value === 'bambu' ? value : 'projects';
+  return value === 'shaper' || value === 'bambu' || value === 'library' ? value : 'projects';
 }
 
 export function dashboardPageForPath(pathname: string): DashboardPage | null {
   if (pathname === '/shaper' || pathname.startsWith('/shaper/')) return 'shaper';
   if (pathname === '/bambu' || pathname.startsWith('/bambu/')) return 'bambu';
+  if (pathname === '/library' || pathname.startsWith('/library/')) return 'library';
   if (pathname === '/projects' || pathname.startsWith('/projects/')) return 'projects';
   return null;
 }

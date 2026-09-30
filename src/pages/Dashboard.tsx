@@ -40,6 +40,7 @@ import ProjectCard from '../components/ProjectCard';
 import BambuProjectCard from '../components/BambuProjectCard';
 import ShaperProjectCard from '../components/ShaperProjectCard';
 import ProjectLibraryGrid from '../components/ProjectLibraryGrid';
+import LibraryHub from '../components/LibraryHub';
 import HubCompletionButton from '../components/HubCompletionButton';
 import StatusBadge from '../components/StatusBadge';
 import { ProjectCardSkeleton } from '../components/Skeleton';
@@ -71,6 +72,7 @@ const DASHBOARD_PAGES = [
   { value: 'projects', label: 'Projects' },
   { value: 'shaper', label: 'Shaper Hub' },
   { value: 'bambu', label: 'Bambu Hub' },
+  { value: 'library', label: 'Library' },
 ] as const;
 
 const PAGE_HEADERS: Record<DashboardPage, { title: string; description: string }> = {
@@ -85,6 +87,10 @@ const PAGE_HEADERS: Record<DashboardPage, { title: string; description: string }
   bambu: {
     title: 'Bambu Hub',
     description: 'Keep 3D model sources, reference images, and locally saved print files together.',
+  },
+  library: {
+    title: 'Library',
+    description: 'Every STL and 3MF on your Mac, organized, searchable, and tracked from download to printed.',
   },
 };
 
@@ -189,7 +195,7 @@ export default function Dashboard() {
   };
 
   async function handleReorder<T extends { id: number; sort_order: number }>(
-    library: DashboardPage,
+    library: Exclude<DashboardPage, 'library'>,
     current: T[],
     setItems: Dispatch<SetStateAction<T[]>>,
     orderedIds: number[],
@@ -357,6 +363,8 @@ export default function Dashboard() {
 
           <InspirationSection />
         </>
+      ) : page === 'library' ? (
+        <LibraryHub />
       ) : page === 'shaper' ? (
         <section className="shaper-dashboard" aria-labelledby="shaper-library-title">
           <div className="dashboard-tools">

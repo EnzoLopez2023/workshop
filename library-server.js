@@ -201,6 +201,9 @@ export function buildLibraryStmts(db) {
         SELECT thumb_hash FROM library_models WHERE thumb_hash IS NOT NULL
         UNION SELECT thumb_hash FROM library_files WHERE thumb_hash IS NOT NULL
         UNION SELECT value FROM library_models, json_each(library_models.gallery_json)
+        UNION SELECT json_extract(m.value, '$.thumb')
+          FROM library_state, json_each(library_state.value, '$.models') AS m
+          WHERE library_state.key = 'plan' AND json_valid(library_state.value)
       )`),
     listPrints: db.prepare(`
       SELECT * FROM library_prints WHERE model_id = ? AND match_state IN ('manual','auto','confirmed')
@@ -525,11 +528,12 @@ export function scoreJobAgainstModels(job, models, filesByModel) {
     const files = filesByModel.get(model.id) ?? [];
     const names = [model.title, ...files.map((f) => f.filename), ...files.flatMap((f) => json(f.plates_json, []).map((p) => p.name).filter(Boolean))];
     let score = Math.max(...names.map((n) => titleSimilarity(job.title, n)));
+    // A job may print the whole project or a single plate, so compare with both.
     const grams = num(job.grams);
-    const sliced = files.filter((f) => num(f.grams));
-    if (grams && sliced.length) {
-      const close = sliced.some((f) => Math.abs(f.grams - grams) / Math.max(f.grams, grams) <= 0.1);
-      score += close ? 0.1 : -0.1;
+    const weights = files.flatMap((f) => [num(f.grams), ...json(f.plates_json, []).map((p) => num(p.grams))]).filter(Boolean);
+    if (grams && weights.length) {
+      const close = weights.some((w) => Math.abs(w - grams) / Math.max(w, grams) <= 0.1);
+      score += close ? 0.1 : -0.05;
     }
     score = Math.max(0, Math.min(1, score));
     if (!best || score > best.score) {

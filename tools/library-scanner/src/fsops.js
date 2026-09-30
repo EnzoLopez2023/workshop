@@ -96,8 +96,26 @@ export function rewrite(log, path, data) {
   log.record({ op: 'rewrite', to: path, previous })
 }
 
-/** Removes a directory only if it is empty apart from Finder/OneDrive litter. */
+/** Removes empty subfolders below `dir` (deepest first), so a moved-out model leaves no husk. */
+function pruneEmptyChildren(log, dir) {
+  if (!existsSync(dir)) return
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const child = join(dir, entry.name)
+    pruneEmptyChildren(log, child)
+    const left = readdirSync(child).filter((n) => !IGNORABLE.has(n))
+    if (left.length) continue
+    if (!log.dryRun) {
+      for (const n of readdirSync(child)) unlinkSync(join(child, n))
+      rmdirSync(child)
+    }
+    log.record({ op: 'rmdir', from: child })
+  }
+}
+
+/** Removes a directory (and empty folders inside it) only if nothing but Finder/OneDrive litter is left. */
 export function removeIfEmpty(log, dir, stopAt) {
+  if (dir !== stopAt && dir.startsWith(stopAt)) pruneEmptyChildren(log, dir)
   let current = dir
   while (current && current !== stopAt && current.startsWith(stopAt) && existsSync(current)) {
     const entries = readdirSync(current).filter((n) => !IGNORABLE.has(n))

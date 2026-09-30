@@ -56,6 +56,8 @@ test('migration plan files everything, dedupes, and undo restores the original l
     assert.ok(after.includes(expected), `missing ${expected}\n${after.join('\n')}`)
   }
   assert.ok(!after.some((p) => p.startsWith('Review/') || p.startsWith('Printed/')), 'emptied legacy folders are removed')
+  assert.ok(after.includes('X2D/P2S Toolbox/Lid.stl') && after.includes('X2D/P2S Toolbox/Hinge.stl'), after.join('\n'))
+  assert.ok(!existsSync(join(lib, 'X2D stuff')), 'nested empty subfolders are pruned with their parent')
   const latchJson = JSON.parse(readFileSync(join(lib, 'Festool/Systainer Latch/model.json'), 'utf8'))
   assert.equal(latchJson.status, 'printed')
   const fooJson = JSON.parse(readFileSync(join(lib, '_Inbox/foo bar/model.json'), 'utf8'))
@@ -76,7 +78,9 @@ test('migration plan files everything, dedupes, and undo restores the original l
   const [batch] = listBatches(lib)
   assert.equal(batch.batch, result.batch)
   undoBatch(lib, result.batch)
-  assert.deepEqual(tree(lib).filter((p) => !p.startsWith('_Library/')), before.lib)
+  // Finder litter (.DS_Store) inside pruned folders is not restored; macOS recreates it.
+  const noLitter = (paths) => paths.filter((p) => !p.endsWith('.DS_Store'))
+  assert.deepEqual(noLitter(tree(lib).filter((p) => !p.startsWith('_Library/'))), noLitter(before.lib))
   assert.deepEqual(tree(dl), before.dl)
   assert.deepEqual(readdirSync(config.trashDir), [])
 })
@@ -102,4 +106,23 @@ test('dry run logs nothing and moves nothing', () => {
   const result = applyPlan(config, plan, { dryRun: true })
   assert.ok(result.ops > 0)
   assert.deepEqual(tree(lib), before)
+})
+
+test('a download with the same title as a library model stays separate without matching evidence', async () => {
+  const { mkdirSync, writeFileSync, utimesSync } = await import('node:fs')
+  const { fixture: makeFixture, bambuThreeMf, cubeTris } = await import('./helpers.js')
+  const { lib, dl, config } = makeFixture()
+  const old = new Date(Date.now() - 3600_000)
+  const put = (path, data) => {
+    mkdirSync(join(path, '..'), { recursive: true })
+    writeFileSync(path, data)
+    utimesSync(path, old, old)
+  }
+  // Same generic title, different geometry, no MakerWorld id: different things.
+  put(join(lib, 'Review', 'tray a.3mf'), bambuThreeMf({ title: 'Demo Tray', designer: '', tris: cubeTris(21), modelId: null }))
+  put(join(dl, 'tray b.3mf'), bambuThreeMf({ title: 'Demo Tray', designer: '', tris: cubeTris(22), modelId: null }))
+  const plan = buildPlan(config, scanAll(config, { cache: new ScanCache(config.cacheDir) }).records)
+  const trays = plan.models.filter((m) => m.title.startsWith('Demo Tray'))
+  assert.equal(trays.length, 2, JSON.stringify(trays.map((t) => [t.title, t.origin])))
+  assert.notEqual(trays[0].dest, trays[1].dest)
 })

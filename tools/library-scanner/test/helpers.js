@@ -43,7 +43,7 @@ export function asciiStl(tris, name = 'thing') {
 }
 
 /** A Bambu-style 3MF: root model with components pointing at an object file, plates and slice info. */
-export function bambuThreeMf({ title = 'Test Model', designer = 'Maker', sliced = false, tris = cubeTris() } = {}) {
+export function bambuThreeMf({ title = 'Test Model', designer = 'Maker', sliced = false, tris = cubeTris(), modelId = 'US123' } = {}) {
   const verts = []
   const faces = []
   for (let i = 0; i < tris.length; i += 3) verts.push(`<vertex x="${tris[i]}" y="${tris[i + 1]}" z="${tris[i + 2]}"/>`)
@@ -54,7 +54,7 @@ export function bambuThreeMf({ title = 'Test Model', designer = 'Maker', sliced 
  <metadata name="Application">BambuStudio-02.08.02.61</metadata>
  <metadata name="Title">${title}</metadata>
  <metadata name="Designer">${designer}</metadata>
- <metadata name="DesignModelId">US123</metadata>
+ ${modelId ? `<metadata name="DesignModelId">${modelId}</metadata>` : ''}
  <metadata name="License">BY-NC</metadata>
  <metadata name="Description">&amp;lt;p&amp;gt;Nice &amp;amp;amp; useful&amp;lt;/p&amp;gt;</metadata>
  <resources><object id="2" type="model"><components><component p:path="/3D/Objects/object_1.model" objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/></components></object></resources>
@@ -101,6 +101,9 @@ export function fixture() {
   put(join(lib, 'Pictures for source generation', 'ref.stl'), binaryStl(cubeTris(4), 'ref'))
   put(join(lib, 'Reviewed', 'old.stl'), binaryStl(cubeTris(5), 'old'))
   put(join(lib, 'X2D stuff', 'ams thing.3mf'), bambuThreeMf({ title: 'AMS Riser', tris: cubeTris(9) }))
+  put(join(lib, 'X2D stuff', 'P2S+_+Toolbox', 'Main parts', 'lid.stl'), binaryStl(cubeTris(11), 'lid'))
+  put(join(lib, 'X2D stuff', 'P2S+_+Toolbox', 'Main parts', '.DS_Store'), 'x')
+  put(join(lib, 'X2D stuff', 'P2S+_+Toolbox', 'Extras', 'hinge.stl'), binaryStl(cubeTris(13), 'hinge'))
   put(join(lib, 'settings.pdf'), 'pdf')
 
   put(join(dl, 'tray.stl'), binaryStl(cubeTris(6), 'H: Big Tray'))

@@ -106,8 +106,13 @@ test('sync upserts models, stores thumbnails, marks missing, and round-trips edi
   const second = syncedModel({ id: '0b6f7a8e-1111-4c2a-9d7e-000000000002', title: 'Skadis Hook', category: 'Skadis', folder: 'Skadis/Skadis Hook', status: 'inbox', tags: [], thumb: null, files: [{ relPath: 'Skadis/Skadis Hook/hook.stl', filename: 'hook.stl', kind: 'stl', size: 10, sha256: sha('c'), geomHash: sha('geom-a') }] });
   const upsert = await request('/api/library/sync/models', { method: 'POST', device: token, body: { startedAt, models: [syncedModel(), second, { id: '../../etc' }] } });
   assert.deepEqual(await upsert.json(), { accepted: 2, errors: [{ id: '../../etc', error: 'model id is required' }] });
-  const commit = await (await request('/api/library/sync/commit', { method: 'POST', device: token, body: { startedAt, plan: { createdAt: startedAt, summary: { models: 3 }, models: [{ id: 'x' }] } } })).json();
+  // A thumbnail used only by the pending plan must survive the post-sync prune.
+  const PLAN_PNG = Buffer.concat([PNG, Buffer.from('plan-only')]);
+  const PLAN_HASH = sha(PLAN_PNG);
+  await request(`/api/library/sync/thumbs/${PLAN_HASH}`, { method: 'PUT', device: token, headers: { 'Content-Type': 'image/png' }, body: new Uint8Array(PLAN_PNG) });
+  const commit = await (await request('/api/library/sync/commit', { method: 'POST', device: token, body: { startedAt, plan: { createdAt: startedAt, summary: { models: 3 }, models: [{ id: 'x', thumb: PLAN_HASH }] } } })).json();
   assert.equal(commit.missing, 0);
+  assert.equal((await fetch(`${baseUrl}/api/library/thumbs/${PLAN_HASH}?userKey=${userKey}`)).status, 200);
 
   const list = await (await request('/api/library/models?q=latch')).json();
   assert.equal(list.total, 1);
@@ -184,6 +189,9 @@ test('print job matching: exact names auto-link, near names are suggested, ambig
   const exact = lib.scoreJobAgainstModels({ title: 'Systainer_Latch_plate_1', grams: 12.4 }, models, files);
   assert.equal(exact.modelId, 'a');
   assert.ok(exact.score >= lib.AUTO_MATCH_SCORE);
+  // Printing a single plate of a multi-plate project still auto-links on an exact name.
+  const onePlate = lib.scoreJobAgainstModels({ title: 'Systainer Latch', grams: 3 }, models, files);
+  assert.ok(onePlate.score >= lib.AUTO_MATCH_SCORE, String(onePlate.score));
   const near = lib.scoreJobAgainstModels({ title: 'Systainer Latch v2' }, models, files);
   assert.equal(near.modelId, 'a');
   assert.ok(near.score >= lib.SUGGEST_MATCH_SCORE && near.score < lib.AUTO_MATCH_SCORE, String(near.score));

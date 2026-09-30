@@ -186,6 +186,8 @@ export function buildPlan(config, records, { intakeOnly = false, now = Date.now(
     group.sort((a, b) => unitRank(b) - unitRank(a))
     const [keep, ...rest] = group
     for (const other of rest) {
+      // A download joins a library model only with hard evidence, not just a shared title.
+      if (keep.origin !== other.origin && !sameModelEvidence(keep, other)) continue
       keep.files.push(...other.files)
       keep.extras.push(...other.extras)
       for (const d of other.sourceDirs) keep.sourceDirs.add(d)
@@ -310,6 +312,23 @@ function unitTitle(unit) {
 /** Loose files group by cleaned name, except generic names ("Untitled_model (3)") which stay separate. */
 function looseKey(r) {
   return isGenericTitle(r.groupKey) ? `file:${r.path}` : r.groupKey
+}
+
+/** Identical bytes, identical geometry, or the same MakerWorld design. */
+function sameModelEvidence(a, b) {
+  const keys = (unit) => {
+    const set = new Set()
+    for (const f of unit.files) {
+      set.add(`sha:${f.sha256}`)
+      if (f.geomHash) set.add(`geom:${f.geomHash}`)
+      if (f.meta?.DesignModelId) set.add(`mw:${f.meta.DesignModelId}`)
+    }
+    for (const e of unit.zip?.entries ?? []) set.add(`sha:${e.sha256}`)
+    return set
+  }
+  const ka = keys(a)
+  for (const k of keys(b)) if (ka.has(k)) return true
+  return false
 }
 
 const MAKERWORLD_ID = /^US[0-9a-f]{10,}\b/i

@@ -61,6 +61,7 @@ test('organize, sync, edit in Workshop, and pull the edit back to disk', async (
   const first = await runSync(config, { cache })
   assert.equal(first.models, 0)
   assert.ok(first.planModels > 5)
+  assert.ok(first.thumbsUploaded > 0, 'plan thumbnails are uploaded before anything is organized')
   const plan = await app('/api/library/plan')
   assert.equal(plan.models.length, first.planModels)
   assert.ok(plan.models.every((m) => !m.dest || !m.dest.startsWith('/')), 'destinations are library-relative')
@@ -70,7 +71,7 @@ test('organize, sync, edit in Workshop, and pull the edit back to disk', async (
   assert.ok(applied.results.every((r) => r.ok))
   const second = await runSync(config, { cache })
   assert.equal(second.planModels, 0)
-  assert.ok(second.thumbsUploaded > 0)
+  assert.equal(second.thumbsUploaded, 0, 'already-uploaded thumbnails are not sent again')
 
   const list = await app('/api/library/models?sort=title')
   const titles = list.items.map((m) => m.title)

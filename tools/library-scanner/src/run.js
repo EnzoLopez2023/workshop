@@ -72,7 +72,8 @@ export function applySavedPlan(config, ids) {
 export function listCategories(config) {
   if (!existsSync(config.libraryRoot)) return []
   return readdirSync(config.libraryRoot, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== '_Library')
+    // Legacy status folders (Review, Want to Print…) are migration sources, not categories.
+    .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== '_Library' && !config.legacyFolders[e.name])
     .map((e) => e.name)
     .sort((a, b) => a.localeCompare(b))
 }

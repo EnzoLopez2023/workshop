@@ -6,6 +6,7 @@ import {
   Cable,
   Download,
   KeyRound,
+  Laptop,
   LogIn,
   LogOut,
   Monitor,
@@ -28,13 +29,16 @@ import { useTheme, type Theme } from '../contexts/ThemeContext';
 import { ACCENT_PRESETS, useSettings, type AccentColor } from '../contexts/SettingsContext';
 import { exitDemoMode, isDemoMode } from '../demo/demoMode';
 import {
+  createLibraryDevice,
   deleteAccount,
   disconnectThingiverse,
   getProviderConnections,
+  listLibraryDevices,
   listProjects,
+  revokeLibraryDevice,
   saveThingiverseToken,
 } from '../services/api';
-import type { ThingiverseConnectionStatus } from '../types/project';
+import type { LibraryDevice, ThingiverseConnectionStatus } from '../types/project';
 
 const THEME_OPTIONS = [
   { value: 'light', label: 'Light' },
@@ -321,6 +325,8 @@ export default function Settings() {
         </SettingsGroup>
       )}
 
+      {!demo && <LibraryDevicesGroup />}
+
       <SettingsGroup
         icon={<Settings2 size={18} aria-hidden="true" />}
         title="Project defaults"
@@ -554,6 +560,84 @@ function SettingsRow({
         <p>{description}</p>
       </div>
       <div className="settings-row-control">{children}</div>
+    </div>
+  );
+}
+
+function LibraryDevicesGroup() {
+  const [devices, setDevices] = useState<LibraryDevice[] | null>(null);
+  const [name, setName] = useState('Mac');
+  const [token, setToken] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    listLibraryDevices().then(setDevices).catch(() => setError('Workshop could not load connected Macs.'));
+  }, []);
+
+  const create = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const created = await createLibraryDevice(name.trim() || 'Mac');
+      setToken(created.token);
+      setDevices(await listLibraryDevices());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create a device token.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const revoke = async (id: number) => {
+    if (!window.confirm('Disconnect this Mac? It will stop syncing until you connect it again.')) return;
+    await revokeLibraryDevice(id);
+    setDevices(await listLibraryDevices());
+  };
+
+  const active = devices?.filter(d => !d.revoked_at) ?? [];
+  return (
+    <div id="library">
+      <SettingsGroup
+        icon={<Laptop size={18} aria-hidden="true" />}
+        title="Library"
+        description="Connect the Mac that holds your STL and 3MF files. The token only lets it sync the library index; it cannot read anything else."
+      >
+        {active.map(device => (
+          <SettingsRow
+            key={device.id}
+            label={device.name}
+            description={device.last_seen_at
+              ? `Last synced ${new Date(device.last_seen_at).toLocaleString()}`
+              : 'Created, never synced yet'}
+          >
+            <Button variant="ghost" onClick={() => void revoke(device.id)}>
+              <Unplug size={16} aria-hidden="true" /> Disconnect
+            </Button>
+          </SettingsRow>
+        ))}
+        <SettingsRow
+          label="Connect a Mac"
+          description="Creates a device token. It is shown once; paste it into the command below on the Mac."
+        >
+          <div className="settings-token-entry">
+            <input value={name} onChange={event => setName(event.target.value)} aria-label="Device name" placeholder="Device name" />
+            <Button onClick={() => void create()} disabled={saving}>
+              <KeyRound size={16} aria-hidden="true" /> {saving ? 'Creating…' : 'Create token'}
+            </Button>
+          </div>
+        </SettingsRow>
+        {token && (
+          <div className="library-token" role="status">
+            <p>Run these in the Workshop repository on your Mac:</p>
+            <pre>{`npm run library -- connect ${token}\nnpm run library -- install`}</pre>
+            <Button variant="ghost" onClick={() => void navigator.clipboard.writeText(`npm run library -- connect ${token}`)}>
+              <Check size={16} aria-hidden="true" /> Copy connect command
+            </Button>
+          </div>
+        )}
+        {error && <p className="settings-connection-error" role="alert">{error}</p>}
+      </SettingsGroup>
     </div>
   );
 }
