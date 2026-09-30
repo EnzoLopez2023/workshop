@@ -42,6 +42,7 @@ COPY --from=production-deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist         ./dist
 COPY server.js      ./
 COPY recovery.js    ./
+COPY library-server.js ./
 # Retained for the guarded one-shot compatibility CLI; server.js does not load it.
 COPY offhost-export.js ./
 COPY deployment-info.js ./

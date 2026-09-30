@@ -1,0 +1,20 @@
+{
+  "name": "workshop-library-scanner",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Indexes, organizes and syncs the local 3D print library for Workshop's Library hub.",
+  "type": "module",
+  "bin": {
+    "workshop-library": "./bin/library.mjs"
+  },
+  "scripts": {
+    "library": "node bin/library.mjs",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.2"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  }
+}

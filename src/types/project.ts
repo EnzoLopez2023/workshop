@@ -316,3 +316,212 @@ export const STATUS_LABELS: Record<ProjectStatus, string> = {
 
 // Notebook types removed: Workshop's notebook view is now sourced from
 // Tabloom. See src/services/tabloomApi.ts for the active types.
+
+// ── Library hub (3D model files indexed from the owner's Mac) ─────────────────
+
+export type LibraryStatus = 'inbox' | 'want' | 'queued' | 'printed' | 'failed' | 'skip';
+
+export const LIBRARY_STATUS_LABELS: Record<LibraryStatus, string> = {
+  inbox: 'Inbox',
+  want: 'Want to print',
+  queued: 'Queued',
+  printed: 'Printed',
+  failed: 'Failed',
+  skip: 'Skipped',
+};
+
+export interface LibraryFilament {
+  type: string | null;
+  color: string | null;
+  profile?: string | null;
+  grams?: number | null;
+}
+
+export interface LibraryModel {
+  id: string;
+  title: string;
+  category: string;
+  folder: string | null;
+  status: LibraryStatus;
+  tags: string[];
+  notes: string;
+  favorite: boolean;
+  designer: string | null;
+  license: string | null;
+  description: string | null;
+  source_site: string | null;
+  source_url: string | null;
+  source_model_id: string | null;
+  thumb_hash: string | null;
+  gallery: string[];
+  formats: string[];
+  file_count: number;
+  total_bytes: number;
+  plate_count: number;
+  printer: string | null;
+  filaments: LibraryFilament[];
+  est_seconds: number | null;
+  est_grams: number | null;
+  is_sliced: boolean;
+  bbox: [number, number, number] | null;
+  bambu_project_id: number | null;
+  state: 'present' | 'missing';
+  first_seen_at: string;
+  last_seen_at: string;
+  updated_at: string;
+  printed_count: number;
+  failed_count: number;
+  last_printed_at: string | null;
+}
+
+export interface LibraryPlate {
+  index: number;
+  name: string | null;
+  objects?: string[];
+  seconds?: number | null;
+  grams?: number | null;
+}
+
+export interface LibraryFile {
+  id: number;
+  rel_path: string;
+  filename: string;
+  kind: 'stl' | '3mf' | 'obj' | 'step' | 'other';
+  size: number;
+  sha256: string;
+  geom_hash: string | null;
+  mtime: string | null;
+  triangles: number | null;
+  bbox: [number, number, number] | null;
+  is_sliced: boolean;
+  printer: string | null;
+  seconds: number | null;
+  grams: number | null;
+  plates: LibraryPlate[];
+  filaments: LibraryFilament[];
+  generator: string | null;
+  thumb_hash: string | null;
+}
+
+export interface LibraryPrint {
+  id: number;
+  model_id: string | null;
+  source: 'manual' | 'shapepilot';
+  title: string | null;
+  result: 'completed' | 'failed' | 'active' | 'unknown';
+  started_at: string | null;
+  ended_at: string | null;
+  seconds: number | null;
+  grams: number | null;
+  printer: string | null;
+  notes: string;
+  match_state: 'manual' | 'auto' | 'confirmed' | 'suggested' | 'unmatched' | 'rejected';
+  match_score: number | null;
+  model_title?: string | null;
+  model_thumb?: string | null;
+}
+
+export interface LibraryModelDetail extends LibraryModel {
+  files: LibraryFile[];
+  prints: LibraryPrint[];
+}
+
+export interface LibraryModelPage {
+  total: number;
+  items: LibraryModel[];
+}
+
+export interface LibraryBatch {
+  batch: string;
+  at: string;
+  ops: number;
+  undone: boolean;
+  kind: string | null;
+}
+
+export interface LibraryDevice {
+  id: number;
+  name: string;
+  created_at: string;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface LibraryOverview {
+  byStatus: Partial<Record<LibraryStatus, number>>;
+  byCategory: { category: string; count: number }[];
+  missing: number;
+  suggestions: number;
+  duplicateGroups: number;
+  lastSync: { at: string; device: string; stats: { models: number; files: number } | null } | null;
+  planSummary: { createdAt: string; pending: number; summary: LibraryPlanSummary } | null;
+  batches: LibraryBatch[];
+  devices: LibraryDevice[];
+  printHistory: { available: boolean; lastSync: string | null };
+}
+
+export interface LibraryPlanSummary {
+  models: number;
+  moves: number;
+  extracts: number;
+  trash: number;
+  trashBytes: number;
+  alreadyOrganized: number;
+  byCategory: Record<string, number>;
+}
+
+export interface LibraryPlanModel {
+  id: string;
+  title: string;
+  origin: 'library' | 'intake';
+  sourceLabel: string;
+  category: string;
+  suggestedCategory: string | null;
+  status: LibraryStatus;
+  dest: string | null;
+  thumb: string | null;
+  designer: string | null;
+  moves: { from: string; to: string }[];
+  moveCount: number;
+  extractCount: number;
+  trash: { path: string; reason: string }[];
+  trashCount: number;
+}
+
+export interface LibraryPlan {
+  createdAt: string;
+  intakeOnly: boolean;
+  summary: LibraryPlanSummary;
+  skipped: number;
+  models: LibraryPlanModel[];
+}
+
+export interface LibraryDuplicateGroup {
+  geom_hash: string;
+  files: {
+    id: number;
+    model_id: string;
+    rel_path: string;
+    filename: string;
+    kind: string;
+    size: number;
+    thumb_hash: string | null;
+    title: string;
+    category: string;
+    status: LibraryStatus;
+    model_thumb: string | null;
+  }[];
+}
+
+export interface LibraryModelQuery {
+  q?: string;
+  status?: string;
+  category?: string;
+  format?: string;
+  tag?: string;
+  state?: 'present' | 'missing';
+  favorite?: boolean;
+  sort?: 'recent' | 'title' | 'updated' | 'printed' | 'size';
+  limit?: number;
+  offset?: number;
+}

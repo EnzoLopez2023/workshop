@@ -10,10 +10,12 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   Search, LayoutDashboard, Plus, ShoppingCart, Ruler,
-  BookOpen, Settings, Hammer, Cpu, Box,
+  BookOpen, Settings, Hammer, Cpu, Box, Library, Inbox, FolderInput,
 } from 'lucide-react';
-import { listProjects } from '../services/api';
-import type { ProjectListItem } from '../types/project';
+import { listLibraryModels, listProjects } from '../services/api';
+import type { LibraryModel, ProjectListItem } from '../types/project';
+import { DASHBOARD_PAGE_STORAGE_KEY } from '../navigation';
+import { categoryLabel } from '../lib/library';
 
 interface Props {
   open: boolean;
@@ -25,6 +27,7 @@ export default function CommandPalette({ open, onClose, returnFocusTo }: Props) 
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion() ?? false;
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
+  const [models, setModels] = useState<LibraryModel[]>([]);
   const [loaded, setLoaded] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -34,6 +37,9 @@ export default function CommandPalette({ open, onClose, returnFocusTo }: Props) 
     listProjects()
       .then(p => { setProjects(p); setLoaded(true); })
       .catch(() => setLoaded(true));
+    listLibraryModels({ sort: 'title', limit: 200 })
+      .then(page => setModels(page.items))
+      .catch(() => undefined);
   }, [open, loaded]);
 
   const go = useCallback((path: string) => {
@@ -150,6 +156,16 @@ export default function CommandPalette({ open, onClose, returnFocusTo }: Props) 
                   <PaletteItem icon={<BookOpen size={15} />} label="Notebook" onSelect={() => go('/notebook')} />
                   <PaletteItem icon={<Cpu size={15} />} label="Add Shaper Hub Project" onSelect={() => go('/shaper/new')} />
                   <PaletteItem icon={<Box size={15} />} label="Add Bambu Hub Project" onSelect={() => go('/bambu/new')} />
+                  <PaletteItem
+                    icon={<Library size={15} />}
+                    label="Library"
+                    onSelect={() => {
+                      localStorage.setItem(DASHBOARD_PAGE_STORAGE_KEY, 'library');
+                      go('/');
+                    }}
+                  />
+                  <PaletteItem icon={<Inbox size={15} />} label="Triage Library Inbox" onSelect={() => go('/library/inbox')} />
+                  <PaletteItem icon={<FolderInput size={15} />} label="Organize Library" onSelect={() => go('/library/organize')} />
                   <PaletteItem icon={<Settings size={15} />} label="Settings" onSelect={() => go('/settings')} />
                 </PaletteGroup>
 
@@ -163,6 +179,19 @@ export default function CommandPalette({ open, onClose, returnFocusTo }: Props) 
                         label={p.title}
                         sub={p.status.replace('_', ' ')}
                         onSelect={() => go(`/projects/${p.id}`)}
+                      />
+                    ))}
+                  </PaletteGroup>
+                )}
+                {models.length > 0 && (
+                  <PaletteGroup heading="Models">
+                    {models.map(m => (
+                      <PaletteItem
+                        key={m.id}
+                        icon={<Box size={15} />}
+                        label={m.title}
+                        sub={categoryLabel(m.category)}
+                        onSelect={() => go(`/library/${m.id}`)}
                       />
                     ))}
                   </PaletteGroup>
