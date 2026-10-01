@@ -129,6 +129,25 @@ export function initLibrarySchema(db) {
       revoked_at   TEXT
     );
 
+    -- Collections live only here (not in model.json). Manual ones list models;
+    -- smart ones are saved hub filters evaluated on read.
+    CREATE TABLE IF NOT EXISTS library_collections (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL,
+      kind       TEXT NOT NULL CHECK (kind IN ('manual','smart')),
+      query_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS library_collection_models (
+      collection_id INTEGER NOT NULL REFERENCES library_collections(id) ON DELETE CASCADE,
+      model_id      TEXT NOT NULL REFERENCES library_models(id) ON DELETE CASCADE,
+      added_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY (collection_id, model_id)
+    );
+    CREATE INDEX IF NOT EXISTS library_collection_models_model ON library_collection_models(model_id);
+
     CREATE TABLE IF NOT EXISTS library_state (
       key        TEXT PRIMARY KEY,
       value      TEXT NOT NULL,
@@ -261,6 +280,24 @@ export function buildLibraryStmts(db) {
     countsByStatus: db.prepare(`SELECT status, COUNT(*) AS n FROM library_models WHERE state = 'present' GROUP BY status`),
     countsByCategory: db.prepare(`SELECT category, COUNT(*) AS n FROM library_models WHERE state = 'present' GROUP BY category ORDER BY category`),
     countMissing: db.prepare(`SELECT COUNT(*) AS n FROM library_models WHERE state = 'missing'`),
+    listCollections: db.prepare(`SELECT * FROM library_collections ORDER BY name COLLATE NOCASE, id`),
+    getCollection: db.prepare(`SELECT * FROM library_collections WHERE id = ?`),
+    collectionByName: db.prepare(`SELECT * FROM library_collections WHERE name = ? COLLATE NOCASE`),
+    insertCollection: db.prepare(`INSERT INTO library_collections (name, kind, query_json) VALUES (?, ?, ?)`),
+    updateCollection: db.prepare(`
+      UPDATE library_collections SET name = ?, query_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id = ?`),
+    deleteCollection: db.prepare(`DELETE FROM library_collections WHERE id = ?`),
+    collectionModelIds: db.prepare(`SELECT model_id FROM library_collection_models WHERE collection_id = ?`),
+    collectionsForModel: db.prepare(`
+      SELECT collection_id FROM library_collection_models WHERE model_id = ? ORDER BY collection_id`),
+    addToCollection: db.prepare(`
+      INSERT OR IGNORE INTO library_collection_models (collection_id, model_id) VALUES (?, ?)`),
+    removeFromCollection: db.prepare(`DELETE FROM library_collection_models WHERE collection_id = ? AND model_id = ?`),
+    manualCollectionCounts: db.prepare(`
+      SELECT cm.collection_id, COUNT(*) AS n
+      FROM library_collection_models cm JOIN library_models m ON m.id = cm.model_id AND m.state = 'present'
+      GROUP BY cm.collection_id`),
     geomDuplicates: db.prepare(`
       SELECT geom_hash, COUNT(DISTINCT model_id) AS models
       FROM library_files f JOIN library_models m ON m.id = f.model_id AND m.state = 'present'
@@ -782,23 +819,20 @@ export function registerLibraryRoutes(app, { isPrimaryUser, shapePilot, resolveR
     });
   });
 
-  /** Applies the Library hub's filters and sort; shared by the grid and model-to-model navigation. */
-  function queryModels(req) {
-    const l = lib(req);
-    const q = String(req.query.q ?? '').trim().toLowerCase();
-    const status = String(req.query.status ?? '');
-    const category = String(req.query.category ?? '');
-    const format = String(req.query.format ?? '');
-    const tag = String(req.query.tag ?? '').toLowerCase();
-    const state = req.query.state === 'missing' ? 'missing' : 'present';
-    const sort = String(req.query.sort ?? 'recent');
-    const stats = printStatsMap(l);
-    let rows = req.db.prepare(`SELECT * FROM library_models WHERE state = ?`).all(state);
+  const SORTS = ['recent', 'title', 'updated', 'printed', 'size'];
+
+  /** Hub filters (search, status, category, format, tag, favorite) applied to model rows. */
+  function filterRows(req, rows, params) {
+    const q = String(params.q ?? '').trim().toLowerCase();
+    const status = String(params.status ?? '');
+    const category = String(params.category ?? '');
+    const format = String(params.format ?? '');
+    const tag = String(params.tag ?? '').toLowerCase();
     if (status) rows = rows.filter((r) => status.split(',').includes(r.status));
     if (category) rows = rows.filter((r) => r.category === category);
     if (format) rows = rows.filter((r) => json(r.formats_json, []).includes(format));
     if (tag) rows = rows.filter((r) => json(r.tags_json, []).some((t) => t.toLowerCase() === tag));
-    if (req.query.favorite === '1') rows = rows.filter((r) => r.favorite);
+    if (params.favorite === '1' || params.favorite === true) rows = rows.filter((r) => r.favorite);
     if (q) {
       const fileNames = new Map();
       for (const f of req.db.prepare(`SELECT model_id, filename FROM library_files`).all()) {
@@ -809,6 +843,27 @@ export function registerLibraryRoutes(app, { isPrimaryUser, shapePilot, resolveR
         const hay = [r.title, r.designer, r.category, r.notes, r.tags_json, r.printer, r.filaments_json, fileNames.get(r.id)].join(' ').toLowerCase();
         return terms.every((t) => hay.includes(t));
       });
+    }
+    return rows;
+  }
+
+  /** Narrows rows to a collection: a manual one by membership, a smart one by its saved filters. */
+  function inCollection(req, rows, collection) {
+    if (collection.kind === 'smart') return filterRows(req, rows, json(collection.query_json, {}));
+    const members = new Set(lib(req).collectionModelIds.all(collection.id).map((r) => r.model_id));
+    return rows.filter((r) => members.has(r.id));
+  }
+
+  /** Applies the Library hub's filters and sort; shared by the grid and model-to-model navigation. */
+  function queryModels(req) {
+    const l = lib(req);
+    const state = req.query.state === 'missing' ? 'missing' : 'present';
+    const sort = String(req.query.sort ?? 'recent');
+    const stats = printStatsMap(l);
+    let rows = filterRows(req, req.db.prepare(`SELECT * FROM library_models WHERE state = ?`).all(state), req.query);
+    if (req.query.collection) {
+      const collection = l.getCollection.get(Number(req.query.collection));
+      rows = collection ? inCollection(req, rows, collection) : [];
     }
     const sorters = {
       recent: (a, b) => b.first_seen_at.localeCompare(a.first_seen_at),
@@ -842,6 +897,7 @@ export function registerLibraryRoutes(app, { isPrimaryUser, shapePilot, resolveR
       ...model,
       files: l.listFiles.all(row.id).map(hydrateFile),
       prints: l.listPrints.all(row.id).map((p) => ({ ...p, materials: json(p.materials_json, []) })),
+      collection_ids: l.collectionsForModel.all(row.id).map((r) => r.collection_id),
     });
   });
 
@@ -928,6 +984,107 @@ export function registerLibraryRoutes(app, { isPrimaryUser, shapePilot, resolveR
     } catch (err) {
       res.status(Number.isInteger(err.status) ? err.status : 502).json({ error: err.message });
     }
+  });
+
+  // ── Collections ──
+
+  /** Saved filters for a smart collection; only the hub's own filter keys are kept. */
+  function cleanSmartQuery(raw) {
+    const q = raw && typeof raw === 'object' ? raw : {};
+    const out = {};
+    const str = (value, max) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
+    if (str(q.q, 200)) out.q = str(q.q, 200);
+    if (LIBRARY_STATUSES.includes(q.status)) out.status = q.status;
+    if (str(q.category, EDITABLE_TEXT.category)) out.category = str(q.category, EDITABLE_TEXT.category);
+    if (str(q.format, 20)) out.format = str(q.format, 20);
+    if (str(q.tag, 40)) out.tag = str(q.tag, 40);
+    if (q.favorite === true) out.favorite = true;
+    if (SORTS.includes(q.sort)) out.sort = q.sort;
+    return out;
+  }
+
+  function cleanCollectionName(raw) {
+    return typeof raw === 'string' ? raw.trim().replace(/\s+/g, ' ').slice(0, 80) : '';
+  }
+
+  function hydrateCollection(req, row, manualCounts) {
+    const query = row.kind === 'smart' ? json(row.query_json, {}) : null;
+    const count = row.kind === 'smart'
+      ? filterRows(req, req.db.prepare(`SELECT * FROM library_models WHERE state = 'present'`).all(), query).length
+      : manualCounts.get(row.id) ?? 0;
+    return { id: row.id, name: row.name, kind: row.kind, query, count, created_at: row.created_at, updated_at: row.updated_at };
+  }
+
+  const manualCountsMap = (l) => new Map(l.manualCollectionCounts.all().map((r) => [r.collection_id, r.n]));
+
+  app.get('/api/library/collections', (req, res) => {
+    const l = lib(req);
+    const counts = manualCountsMap(l);
+    res.json(l.listCollections.all().map((row) => hydrateCollection(req, row, counts)));
+  });
+
+  app.post('/api/library/collections', (req, res) => {
+    const l = lib(req);
+    const name = cleanCollectionName(req.body?.name);
+    const kind = req.body?.kind === 'smart' ? 'smart' : 'manual';
+    if (!name) return res.status(400).json({ error: 'Name the collection' });
+    if (l.collectionByName.get(name)) return res.status(409).json({ error: `A collection named "${name}" already exists` });
+    const modelIds = kind === 'manual' && Array.isArray(req.body?.model_ids) ? req.body.model_ids.map(String).slice(0, 5_000) : [];
+    const id = req.db.transaction(() => {
+      const created = l.insertCollection.run(name, kind, kind === 'smart' ? JSON.stringify(cleanSmartQuery(req.body?.query)) : null).lastInsertRowid;
+      for (const modelId of modelIds) if (l.getModel.get(modelId)) l.addToCollection.run(created, modelId);
+      return created;
+    })();
+    res.status(201).json(hydrateCollection(req, l.getCollection.get(id), manualCountsMap(l)));
+  });
+
+  app.put('/api/library/collections/:id', (req, res) => {
+    const l = lib(req);
+    const row = l.getCollection.get(Number(req.params.id));
+    if (!row) return res.status(404).json({ error: 'collection not found' });
+    const name = req.body?.name !== undefined ? cleanCollectionName(req.body.name) : row.name;
+    if (!name) return res.status(400).json({ error: 'Name the collection' });
+    const other = l.collectionByName.get(name);
+    if (other && other.id !== row.id) return res.status(409).json({ error: `A collection named "${name}" already exists` });
+    const query = row.kind === 'smart' && req.body?.query !== undefined ? JSON.stringify(cleanSmartQuery(req.body.query)) : row.query_json;
+    l.updateCollection.run(name, query, row.id);
+    res.json(hydrateCollection(req, l.getCollection.get(row.id), manualCountsMap(l)));
+  });
+
+  // Deleting a collection never touches its models.
+  app.delete('/api/library/collections/:id', (req, res) => {
+    const changes = lib(req).deleteCollection.run(Number(req.params.id)).changes;
+    if (!changes) return res.status(404).json({ error: 'collection not found' });
+    res.status(204).end();
+  });
+
+  /** The manual collection and model named in the URL, or null after sending the error. */
+  function manualCollectionAndModel(req, res) {
+    const l = lib(req);
+    const collection = l.getCollection.get(Number(req.params.id));
+    let error = null;
+    if (!collection) error = [404, 'collection not found'];
+    else if (collection.kind !== 'manual') error = [400, 'Smart collections fill themselves from their filters'];
+    else if (!l.getModel.get(req.params.modelId)) error = [404, 'model not found'];
+    if (error) {
+      res.status(error[0]).json({ error: error[1] });
+      return null;
+    }
+    return collection;
+  }
+
+  app.put('/api/library/collections/:id/models/:modelId', (req, res) => {
+    const collection = manualCollectionAndModel(req, res);
+    if (!collection) return;
+    lib(req).addToCollection.run(collection.id, req.params.modelId);
+    res.status(204).end();
+  });
+
+  app.delete('/api/library/collections/:id/models/:modelId', (req, res) => {
+    const collection = manualCollectionAndModel(req, res);
+    if (!collection) return;
+    lib(req).removeFromCollection.run(collection.id, req.params.modelId);
+    res.status(204).end();
   });
 
   app.get('/api/library/duplicates', (req, res) => {

@@ -280,6 +280,63 @@ test('a same-named copy saved after the print started does not block the match',
   assert.ok(lib.scoreJobAgainstModels({ title: job.title }, models, files).ambiguous);
 });
 
+test('collections: manual membership, smart saved filters, navigation, isolation, and demo read-only', async () => {
+  const l = api.getUserDb(userKey).stmts.library;
+  const seen = new Date(Date.now() + 60_000).toISOString();
+  const ids = ['0b6f7a8e-2222-4c2a-9d7e-000000000001', '0b6f7a8e-2222-4c2a-9d7e-000000000002', '0b6f7a8e-2222-4c2a-9d7e-000000000003'];
+  lib.upsertSyncedModel(l, syncedModel({ id: ids[0], title: 'Bin A', category: 'Gridfinity', folder: 'Gridfinity/Bin A', status: 'want', tags: [], files: [] }), seen);
+  lib.upsertSyncedModel(l, syncedModel({ id: ids[1], title: 'Bin B', category: 'Gridfinity', folder: 'Gridfinity/Bin B', status: 'printed', tags: [], files: [] }), seen);
+  lib.upsertSyncedModel(l, syncedModel({ id: ids[2], title: 'Gift', category: 'Misc', folder: 'Misc/Gift', status: 'want', tags: [], files: [] }), seen);
+
+  const manual = await request('/api/library/collections', { method: 'POST', body: { name: '  Christmas  gifts ', model_ids: [ids[2], 'nope'] } });
+  assert.equal(manual.status, 201);
+  const gifts = await manual.json();
+  assert.equal(gifts.name, 'Christmas gifts');
+  assert.equal(gifts.kind, 'manual');
+  assert.equal(gifts.count, 1);
+  assert.equal((await request('/api/library/collections', { method: 'POST', body: { name: 'christmas GIFTS' } })).status, 409);
+  assert.equal((await request('/api/library/collections', { method: 'POST', body: { name: '   ' } })).status, 400);
+
+  assert.equal((await request(`/api/library/collections/${gifts.id}/models/${ids[0]}`, { method: 'PUT' })).status, 204);
+  assert.equal((await request(`/api/library/collections/${gifts.id}/models/${ids[0]}`, { method: 'PUT' })).status, 204, 'adding twice is a no-op');
+  assert.equal((await request(`/api/library/collections/${gifts.id}/models/missing-model`, { method: 'PUT' })).status, 404);
+  const inGifts = await (await request(`/api/library/models?collection=${gifts.id}&sort=title`)).json();
+  assert.deepEqual(inGifts.items.map((m) => m.title), ['Bin A', 'Gift']);
+  assert.deepEqual((await (await request(`/api/library/model-ids?collection=${gifts.id}&status=want&sort=title`)).json()).ids, [ids[0], ids[2]]);
+  assert.deepEqual((await (await request(`/api/library/models/${ids[0]}`)).json()).collection_ids, [gifts.id]);
+
+  // Smart collections are saved filters; unknown keys are dropped.
+  const smart = await (await request('/api/library/collections', {
+    method: 'POST', body: { name: 'Gridfinity to print', kind: 'smart', query: { category: 'Gridfinity', status: 'want', sort: 'title', evil: 'x' } },
+  })).json();
+  assert.deepEqual(smart.query, { category: 'Gridfinity', status: 'want', sort: 'title' });
+  assert.equal(smart.count, 1);
+  assert.deepEqual((await (await request(`/api/library/model-ids?collection=${smart.id}`)).json()).ids, [ids[0]]);
+  assert.equal((await request(`/api/library/collections/${smart.id}/models/${ids[1]}`, { method: 'PUT' })).status, 400);
+  const widened = await (await request(`/api/library/collections/${smart.id}`, { method: 'PUT', body: { query: { category: 'Gridfinity' } } })).json();
+  assert.equal(widened.count, 2);
+
+  const list = await (await request('/api/library/collections')).json();
+  assert.deepEqual(list.map((c) => [c.name, c.count]), [['Christmas gifts', 2], ['Gridfinity to print', 2]]);
+
+  // Rename, remove a member, then delete: models are untouched.
+  assert.equal((await request(`/api/library/collections/${gifts.id}`, { method: 'PUT', body: { name: 'Gridfinity to print' } })).status, 409);
+  assert.equal((await (await request(`/api/library/collections/${gifts.id}`, { method: 'PUT', body: { name: 'Gifts' } })).json()).name, 'Gifts');
+  assert.equal((await request(`/api/library/collections/${gifts.id}/models/${ids[2]}`, { method: 'DELETE' })).status, 204);
+  assert.deepEqual((await (await request(`/api/library/model-ids?collection=${gifts.id}`)).json()).ids, [ids[0]]);
+  assert.equal((await request(`/api/library/collections/${gifts.id}`, { method: 'DELETE' })).status, 204);
+  assert.equal((await request(`/api/library/collections/${gifts.id}`, { method: 'DELETE' })).status, 404);
+  assert.ok((await request(`/api/library/models/${ids[0]}`)).ok);
+  assert.deepEqual((await (await request(`/api/library/models/${ids[0]}`)).json()).collection_ids, []);
+  assert.deepEqual((await (await request(`/api/library/models?collection=${gifts.id}`)).json()).items, []);
+
+  // Other accounts see none of it, and demo mode can't write.
+  assert.deepEqual(await (await request('/api/library/collections', { token: otherToken })).json(), []);
+  assert.equal((await request(`/api/library/collections/${smart.id}`, { method: 'DELETE', token: otherToken })).status, 404);
+  const demoWrite = await fetch(`${baseUrl}/api/library/collections`, { method: 'POST', headers: { 'X-Demo': '1', 'Content-Type': 'application/json' }, body: '{"name":"x"}' });
+  assert.equal(demoWrite.status, 403);
+});
+
 test('library schema migrates databases from the first release', async () => {
   const { default: Database } = await import('better-sqlite3');
   const db = new Database(':memory:');

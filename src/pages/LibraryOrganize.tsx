@@ -203,7 +203,7 @@ export default function LibraryOrganize() {
             {batches.slice(0, 20).map(b => (
               <li key={b.batch}>
                 <span>
-                  <strong>{b.kind === 'intake' ? 'Filed downloads' : b.kind === 'migrate' ? 'Organized' : b.kind === 'file' ? 'Moved a model' : b.kind === 'edit' ? 'Saved edits' : b.kind === 'trash' ? 'Trashed a file' : 'Change'}</strong>
+                  <strong>{b.kind === 'intake' ? 'Filed downloads' : b.kind === 'migrate' ? 'Organized' : b.kind === 'file' ? 'Moved a model' : b.kind === 'edit' ? 'Saved edits' : b.kind === 'trash' ? 'Trashed a file' : b.kind === 'category' ? 'Changed a category' : 'Change'}</strong>
                   <small>{relativeDate(b.at)} · {b.ops} operations{b.undone ? ' · undone' : ''}</small>
                 </span>
                 {helper.available && !b.undone && b.kind !== 'edit' && (

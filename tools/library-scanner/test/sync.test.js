@@ -127,6 +127,17 @@ test('organize, sync, edit in Workshop, and pull the edit back to disk', async (
     const undone = await (await call('/undo', { batch: filed.batch })).json()
     assert.ok(undone.reversed >= 2)
     assert.ok(existsSync(join(lib, '_Inbox', 'foo bar', 'Foo Bar.3mf')))
+
+    // Category management goes through the helper too.
+    const cats = await (await call('/categories')).json()
+    assert.ok(cats.details.some((c) => c.name === 'Festool' && c.models > 0))
+    const renamed = await call('/categories/rename', { from: 'Festool', to: 'Festool Systainer' })
+    assert.equal(renamed.status, 200)
+    const moved = JSON.parse(readFileSync(join(lib, 'Festool Systainer', 'Systainer Latch', 'model.json'), 'utf8'))
+    assert.equal(moved.category, 'Festool Systainer')
+    const refused = await call('/categories/rename', { from: '_Inbox', to: 'Inbox' })
+    assert.equal(refused.status, 400)
+    assert.match((await refused.json()).error, /managed by the organizer/)
   } finally {
     helper.close()
   }

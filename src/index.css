@@ -5768,6 +5768,156 @@ tbody td {
   text-align: center;
 }
 
+/* Collections strip (hub) and the Manage page */
+
+.library-collections {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.library-collections > .stat-label {
+  margin-right: 4px;
+}
+
+.library-collection-chip,
+.library-collection-add {
+  min-height: 36px;
+  cursor: pointer;
+}
+
+.library-collection-chip .library-count {
+  color: var(--color-muted);
+  font-weight: 650;
+}
+
+.library-collection-chip[aria-pressed="true"] {
+  border-color: var(--color-action);
+  background: var(--color-surface);
+  color: var(--color-action);
+}
+
+.library-collection-chip > svg {
+  color: var(--color-annotation);
+}
+
+.library-collection-add {
+  border-style: dashed;
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.library-collections-manage {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--color-annotation);
+  font-size: 0.84rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.library-inline-form {
+  display: flex;
+  flex: 1 1 260px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.library-inline-form input,
+.library-inline-form select {
+  flex: 1 1 160px;
+  min-height: 36px;
+}
+
+.library-tags select {
+  flex: 1 1 160px;
+  min-height: 36px;
+}
+
+.library-manage-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.library-manage-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+}
+
+.library-manage-name {
+  display: grid;
+  flex: 1 1 220px;
+  gap: 2px;
+  min-width: 0;
+}
+
+.library-manage-name strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.library-manage-name strong > svg {
+  color: var(--color-annotation);
+}
+
+.library-manage-name small {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}
+
+.library-manage-open {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.library-manage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.library-manage-new {
+  max-width: 520px;
+  margin-top: 4px;
+}
+
+.library-command {
+  display: block;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-compact);
+  background: var(--color-recessed);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+@media (hover: hover) {
+  .library-manage-open:hover strong {
+    color: var(--color-action);
+  }
+}
+
 .library-hint {
   margin: 0;
   color: var(--color-muted);

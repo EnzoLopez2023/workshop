@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, FolderInput, Inbox, Laptop, Library, Link2, Search, Sparkles } from 'lucide-react';
-import { getLibraryOverview, listLibraryModels } from '../services/api';
-import type { LibraryModel, LibraryModelQuery, LibraryOverview, LibraryStatus } from '../types/project';
+import { toast } from 'sonner';
+import { ArrowRight, Filter, FolderInput, Inbox, Laptop, Library, Link2, Plus, Search, Settings2, Sparkles } from 'lucide-react';
+import { createLibraryCollection, getLibraryOverview, listLibraryCollections, listLibraryModels } from '../services/api';
+import type { LibraryCollection, LibraryModel, LibraryModelQuery, LibraryOverview, LibraryStatus } from '../types/project';
 import { LIBRARY_STATUS_LABELS } from '../types/project';
 import { LIBRARY_STATUS_ORDER, categoryLabel, relativeDate } from '../lib/library';
-import { LIBRARY_FORMATS, LIBRARY_SORTS, readLibraryFilters, writeLibraryFilters } from '../lib/libraryFilters';
+import {
+  DEFAULT_LIBRARY_FILTERS, LIBRARY_FORMATS, LIBRARY_SORTS, filtersForCollection, filtersMatchSmart, readLibraryFilters,
+  writeLibraryFilters, type LibraryFilters,
+} from '../lib/libraryFilters';
+import { isDemoMode } from '../demo/demoMode';
 import LibraryModelCard from './LibraryModelCard';
 import { ProjectCardSkeleton } from './Skeleton';
 import { Button, SectionRail, StatePanel } from './ui';
@@ -24,11 +29,41 @@ export default function LibraryHub() {
   const [category, setCategory] = useState(initialFilters.category);
   const [format, setFormat] = useState(initialFilters.format);
   const [sort, setSort] = useState<NonNullable<LibraryModelQuery['sort']>>(initialFilters.sort);
+  const [collection, setCollection] = useState(initialFilters.collection);
   const [debounced, setDebounced] = useState(initialFilters.search.trim());
+  const [collections, setCollections] = useState<LibraryCollection[] | null>(null);
+  const [viewName, setViewName] = useState<string | null>(null);
+  const demo = isDemoMode();
+
+  const filters = useMemo<LibraryFilters>(
+    () => ({ search, status, category, format, sort, collection }),
+    [search, status, category, format, sort, collection],
+  );
 
   useEffect(() => {
-    writeLibraryFilters({ search, status, category, format, sort });
-  }, [search, status, category, format, sort]);
+    writeLibraryFilters(filters);
+  }, [filters]);
+
+  const applyFilters = (next: LibraryFilters) => {
+    setSearch(next.search);
+    setDebounced(next.search.trim());
+    setStatus(next.status);
+    setCategory(next.category);
+    setFormat(next.format);
+    setSort(next.sort);
+    setCollection(next.collection);
+  };
+
+  const loadCollections = useCallback(() => {
+    listLibraryCollections().then(setCollections).catch(() => setCollections([]));
+  }, []);
+
+  useEffect(loadCollections, [loadCollections]);
+
+  // A remembered collection can be deleted from the Manage page.
+  useEffect(() => {
+    if (collection !== null && collections && !collections.some(c => c.id === collection)) setCollection(null);
+  }, [collection, collections]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 200);
@@ -36,8 +71,8 @@ export default function LibraryHub() {
   }, [search]);
 
   const query = useMemo<LibraryModelQuery>(
-    () => ({ q: debounced, status, category, format, sort, limit: PAGE_SIZE }),
-    [debounced, status, category, format, sort],
+    () => ({ q: debounced, status, category, format, sort, collection: collection ?? undefined, limit: PAGE_SIZE }),
+    [debounced, status, category, format, sort, collection],
   );
 
   const load = useCallback(async () => {
@@ -69,6 +104,26 @@ export default function LibraryHub() {
   useEffect(() => {
     if (category && overview && !overview.byCategory.some(c => c.category === category)) setCategory('');
   }, [category, overview]);
+
+  const filtered = Boolean(search.trim() || status || category || format || sort !== 'recent');
+
+  const saveView = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = viewName?.trim();
+    if (!name) return;
+    try {
+      await createLibraryCollection({
+        name,
+        kind: 'smart',
+        query: { q: search.trim() || undefined, status: status || undefined, category: category || undefined, format: format || undefined, sort },
+      });
+      toast.success(`Saved “${name}”`);
+      setViewName(null);
+      loadCollections();
+    } catch (err) {
+      toast.error('Could not save the view', { description: err instanceof Error ? err.message : undefined });
+    }
+  };
 
   const counts = overview?.byStatus ?? {};
   const allCount = Object.values(counts).reduce((n, v) => n + (v ?? 0), 0);
@@ -121,6 +176,56 @@ export default function LibraryHub() {
           <Link2 size={18} aria-hidden="true" />
           <span>Same geometry</span>
           <span className="readout">{overview?.duplicateGroups ?? 0}</span>
+        </Link>
+      </div>
+
+      <div className="library-collections" role="group" aria-label="Collections">
+        <span className="stat-label">Collections</span>
+        {collections?.map(c => {
+          const active = c.kind === 'manual' ? collection === c.id : filtersMatchSmart(filters, c);
+          return (
+            <button
+              key={c.id}
+              type="button"
+              className="chip library-collection-chip"
+              aria-pressed={active}
+              title={c.kind === 'smart' ? 'Smart collection: saved filters' : undefined}
+              onClick={() => {
+                if (!active) applyFilters(filtersForCollection(c));
+                else if (c.kind === 'manual') setCollection(null);
+                else applyFilters(DEFAULT_LIBRARY_FILTERS);
+              }}
+            >
+              {c.kind === 'smart' && <Filter size={12} aria-hidden="true" />}
+              {c.name}
+              <span className="library-count">{c.count}</span>
+            </button>
+          );
+        })}
+        {collections?.length === 0 && <span className="library-hint">None yet. Add models from a model page, or save a filtered view.</span>}
+        {viewName !== null ? (
+          <form className="library-inline-form" onSubmit={event => void saveView(event)}>
+            <input
+              autoFocus
+              value={viewName}
+              maxLength={80}
+              placeholder="Name this view"
+              aria-label="Smart collection name"
+              onChange={event => setViewName(event.target.value)}
+              onKeyDown={event => event.key === 'Escape' && setViewName(null)}
+            />
+            <Button type="submit" disabled={!viewName.trim()}>Save</Button>
+            <Button variant="ghost" onClick={() => setViewName(null)}>Cancel</Button>
+          </form>
+        ) : (
+          filtered && collection === null && !demo && (
+            <button type="button" className="chip library-collection-add" onClick={() => setViewName('')}>
+              <Plus size={12} aria-hidden="true" /> Save this view
+            </button>
+          )
+        )}
+        <Link to="/library/manage" className="library-collections-manage">
+          <Settings2 size={14} aria-hidden="true" /> Manage
         </Link>
       </div>
 

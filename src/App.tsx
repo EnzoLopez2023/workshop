@@ -25,6 +25,7 @@ const LibraryModelDetail = lazy(() => import('./pages/LibraryModelDetail'));
 const LibraryOrganize = lazy(() => import('./pages/LibraryOrganize'));
 const LibraryInbox = lazy(() => import('./pages/LibraryInbox'));
 const LibraryReview = lazy(() => import('./pages/LibraryReview'));
+const LibraryManage = lazy(() => import('./pages/LibraryManage'));
 
 function AppRoutes() {
   const location = useLocation();
@@ -80,6 +81,7 @@ function AppRoutes() {
               <Route path="/library/organize"  element={<LibraryOrganize />} />
               <Route path="/library/inbox"     element={<LibraryInbox />} />
               <Route path="/library/review"    element={<LibraryReview />} />
+              <Route path="/library/manage"    element={<LibraryManage />} />
               <Route path="/library/:id"       element={<LibraryModelDetail />} />
               <Route path="/conversions"       element={<ConversionTables />} />
               <Route path="/shopping-list"     element={<ShoppingList />} />

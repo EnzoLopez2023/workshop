@@ -425,6 +425,30 @@ export interface LibraryPrint {
 export interface LibraryModelDetail extends LibraryModel {
   files: LibraryFile[];
   prints: LibraryPrint[];
+  /** Manual collections this model is in. */
+  collection_ids: number[];
+}
+
+/** The hub filters a smart collection saves. */
+export interface LibrarySmartQuery {
+  q?: string;
+  status?: LibraryStatus;
+  category?: string;
+  format?: string;
+  tag?: string;
+  favorite?: boolean;
+  sort?: LibraryModelQuery['sort'];
+}
+
+export interface LibraryCollection {
+  id: number;
+  name: string;
+  /** Manual collections hold chosen models; smart ones are saved filters. */
+  kind: 'manual' | 'smart';
+  query: LibrarySmartQuery | null;
+  count: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface LibraryModelPage {
@@ -523,6 +547,7 @@ export interface LibraryModelQuery {
   state?: 'present' | 'missing';
   favorite?: boolean;
   sort?: 'recent' | 'title' | 'updated' | 'printed' | 'size';
+  collection?: number;
   limit?: number;
   offset?: number;
 }

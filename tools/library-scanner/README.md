@@ -49,6 +49,21 @@ macOS may ask once whether Node may access Downloads and OneDrive.
 | `batches` / `undo <batch>` | List logged changes / reverse one |
 | `status` | Show the effective configuration |
 
+## Categories
+
+Top-level folders are categories. Workshop → Library → **Manage** creates, renames,
+merges and removes them through the local helper: a rename moves the folder and
+rewrites each model's `model.json`, a merge moves every model folder into the
+target (keeping names unique), and only an empty category can be removed. Each
+change is one logged batch, undoable from the toast or Organize → History.
+`_Inbox`, `_Archive` and `ShapePilot` are filed into by name, so they are
+protected. After updating the organizer, restart the helper so the app sees the
+new endpoints:
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.nintek.workshop-library.helper
+```
+
 Settings live in `~/.workshop-library.json` (library root, intake folders,
 category keywords, legacy folder mapping). Nothing is permanently deleted:
 duplicates go to the macOS Trash, and every change is logged and undoable.

@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   Search, LayoutDashboard, Plus, ShoppingCart, Ruler,
-  BookOpen, Settings, Hammer, Cpu, Box, Library, Inbox, FolderInput,
+  BookOpen, Settings, Hammer, Cpu, Box, Library, Inbox, FolderInput, FolderCog,
 } from 'lucide-react';
 import { listLibraryModels, listProjects } from '../services/api';
 import type { LibraryModel, ProjectListItem } from '../types/project';
@@ -166,6 +166,7 @@ export default function CommandPalette({ open, onClose, returnFocusTo }: Props) 
                   />
                   <PaletteItem icon={<Inbox size={15} />} label="Triage Library Inbox" onSelect={() => go('/library/inbox')} />
                   <PaletteItem icon={<FolderInput size={15} />} label="Organize Library" onSelect={() => go('/library/organize')} />
+                  <PaletteItem icon={<FolderCog size={15} />} label="Library Categories & Collections" onSelect={() => go('/library/manage')} />
                   <PaletteItem icon={<Settings size={15} />} label="Settings" onSelect={() => go('/settings')} />
                 </PaletteGroup>
 
