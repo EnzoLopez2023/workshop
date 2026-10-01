@@ -84,7 +84,7 @@ function modelDir(config, modelId) {
   return dir
 }
 
-function withKind(log, kind) {
+export function withKind(log, kind) {
   const record = log.record.bind(log)
   log.record = (op) => record({ ...op, kind })
   return log

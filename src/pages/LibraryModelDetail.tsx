@@ -6,11 +6,14 @@ import {
   RotateCw, Trash2, XCircle,
 } from 'lucide-react';
 import {
-  deleteLibraryPrint, getLibraryModel, libraryThumbUrl, listBambuProjects, listLibraryModelIds, logLibraryPrint,
+  addToLibraryCollection, createLibraryCollection, deleteLibraryPrint, getLibraryModel, libraryThumbUrl,
+  listBambuProjects, listLibraryCollections, listLibraryModelIds, logLibraryPrint, removeFromLibraryCollection,
   updateLibraryModel,
   type LibraryModelUpdate,
 } from '../services/api';
-import type { BambuProject, LibraryFile, LibraryModelDetail as Detail, LibraryStatus } from '../types/project';
+import type {
+  BambuProject, LibraryCollection, LibraryFile, LibraryModelDetail as Detail, LibraryStatus,
+} from '../types/project';
 import { LIBRARY_STATUS_LABELS } from '../types/project';
 import {
   LIBRARY_STATUS_ORDER, LIBRARY_STATUS_TONE, categoryLabel, formatBytes, formatDimensions, formatDuration,
@@ -106,6 +109,8 @@ function LibraryModelDetail({ id, stepper }: { id: string; stepper: ReactNode })
   const [notes, setNotes] = useState('');
   const [title, setTitle] = useState('');
   const [bambuProjects, setBambuProjects] = useState<BambuProject[]>([]);
+  const [collections, setCollections] = useState<LibraryCollection[]>([]);
+  const [newCollection, setNewCollection] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -134,6 +139,40 @@ function LibraryModelDetail({ id, stepper }: { id: string; stepper: ReactNode })
     if (demo) return;
     listBambuProjects().then(setBambuProjects).catch(() => undefined);
   }, [demo]);
+
+  useEffect(() => {
+    listLibraryCollections().then(list => setCollections(list.filter(c => c.kind === 'manual'))).catch(() => undefined);
+  }, []);
+
+  const setMembership = async (collection: LibraryCollection, member: boolean) => {
+    if (!model) return;
+    try {
+      if (member) await addToLibraryCollection(collection.id, model.id);
+      else await removeFromLibraryCollection(collection.id, model.id);
+      setModel(current => current && {
+        ...current,
+        collection_ids: member
+          ? [...new Set([...current.collection_ids, collection.id])]
+          : current.collection_ids.filter(id => id !== collection.id),
+      });
+    } catch (err) {
+      toast.error('Could not update the collection', { description: err instanceof Error ? err.message : undefined });
+    }
+  };
+
+  const createCollection = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = newCollection?.trim();
+    if (!model || !name) return;
+    try {
+      const created = await createLibraryCollection({ name, kind: 'manual', model_ids: [model.id] });
+      setCollections(current => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setModel(current => current && { ...current, collection_ids: [...current.collection_ids, created.id] });
+      setNewCollection(null);
+    } catch (err) {
+      toast.error('Could not create the collection', { description: err instanceof Error ? err.message : undefined });
+    }
+  };
 
   const save = async (update: LibraryModelUpdate, success?: string) => {
     if (!model) return;
@@ -355,6 +394,58 @@ function LibraryModelDetail({ id, stepper }: { id: string; stepper: ReactNode })
                 <form onSubmit={addTag}>
                   <input value={tagInput} disabled={demo} placeholder="Add tag" aria-label="Add tag" onChange={event => setTagInput(event.target.value)} />
                 </form>
+              </div>
+            </div>
+            <div className="library-field">
+              <span className="stat-label">Collections</span>
+              <div className="library-tags">
+                {collections.filter(c => model.collection_ids.includes(c.id)).map(c => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className="chip library-tag"
+                    disabled={demo}
+                    aria-label={`Remove from ${c.name}`}
+                    onClick={() => void setMembership(c, false)}
+                  >
+                    {c.name} <span aria-hidden="true">×</span>
+                  </button>
+                ))}
+                {newCollection === null ? (
+                  <select
+                    value=""
+                    disabled={demo}
+                    aria-label="Add to collection"
+                    onChange={event => {
+                      const value = event.target.value;
+                      if (value === '__new') setNewCollection('');
+                      else if (value) {
+                        const target = collections.find(c => c.id === Number(value));
+                        if (target) void setMembership(target, true);
+                      }
+                    }}
+                  >
+                    <option value="">Add to collection…</option>
+                    {collections.filter(c => !model.collection_ids.includes(c.id)).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                    <option value="__new">New collection…</option>
+                  </select>
+                ) : (
+                  <form className="library-inline-form" onSubmit={event => void createCollection(event)}>
+                    <input
+                      autoFocus
+                      value={newCollection}
+                      maxLength={80}
+                      placeholder="Collection name"
+                      aria-label="New collection name"
+                      onChange={event => setNewCollection(event.target.value)}
+                      onKeyDown={event => event.key === 'Escape' && setNewCollection(null)}
+                    />
+                    <Button type="submit" disabled={!newCollection.trim()}>Add</Button>
+                    <Button variant="ghost" onClick={() => setNewCollection(null)}>Cancel</Button>
+                  </form>
+                )}
               </div>
             </div>
             <label className="library-field">

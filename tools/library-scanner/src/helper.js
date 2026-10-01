@@ -12,11 +12,12 @@ import { execFile } from 'node:child_process'
 import { basename } from 'node:path'
 import { ScanCache } from './scan.js'
 import { listBatches, undoBatch } from './fsops.js'
+import { createCategory, deleteCategory, listCategoryDetails, mergeCategory, renameCategory } from './categories.js'
 import {
   applySavedPlan, exclusive, fileModel, listCategories, modelFilePath, resolveModelTarget, runSync, trashModelFile,
 } from './run.js'
 
-const VERSION = 1
+const VERSION = 2
 const MAX_BODY = 64 * 1024
 
 export function allowedOrigins(config) {
@@ -73,7 +74,27 @@ export function createHelper(config, { cache = new ScanCache(config.cacheDir), a
 
   const routes = {
     'GET /health': async () => ({ ok: true, version: VERSION, library: basename(config.libraryRoot), connected: Boolean(config.deviceToken) }),
-    'GET /categories': async () => ({ categories: listCategories(config) }),
+    'GET /categories': async () => ({ categories: listCategories(config), details: listCategoryDetails(config) }),
+    'POST /categories/create': async ({ name }) => {
+      const result = await exclusive(() => createCategory(config, String(name ?? '')))
+      resync()
+      return result
+    },
+    'POST /categories/rename': async ({ from, to }) => {
+      const result = await exclusive(() => renameCategory(config, String(from ?? ''), String(to ?? '')))
+      resync()
+      return result
+    },
+    'POST /categories/merge': async ({ from, into }) => {
+      const result = await exclusive(() => mergeCategory(config, String(from ?? ''), String(into ?? '')))
+      resync()
+      return result
+    },
+    'POST /categories/delete': async ({ name }) => {
+      const result = await exclusive(() => deleteCategory(config, String(name ?? '')))
+      resync()
+      return result
+    },
     'GET /batches': async () => ({ batches: listBatches(config.libraryRoot).slice(-50).reverse() }),
     'POST /open': async ({ modelId, relPath }) => {
       const target = resolveModelTarget(config, modelId, relPath)

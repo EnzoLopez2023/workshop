@@ -11,7 +11,7 @@ import type {
   ProviderConnections, ThingiverseConnectionStatus,
   BuildLogEntry, FinishLogEntry, ShoppingListItem, TemplateListItem,
   LibraryDevice, LibraryDuplicateGroup, LibraryModel, LibraryModelDetail, LibraryModelPage,
-  LibraryModelQuery, LibraryOverview, LibraryPlan, LibraryPrint, LibraryStatus,
+  LibraryCollection, LibraryModelQuery, LibraryOverview, LibraryPlan, LibraryPrint, LibrarySmartQuery, LibraryStatus,
 } from '../types/project';
 
 const BASE = '/api';
@@ -470,6 +470,27 @@ export const rejectLibraryMatch = (printId: number) =>
 
 export const syncLibraryPrintHistory = () =>
   request<{ imported: number; auto: number; suggested: number; unmatched: number }>('/library/print-history/sync', json('POST'));
+
+export const listLibraryCollections = () => request<LibraryCollection[]>('/library/collections');
+
+export const createLibraryCollection = (collection: {
+  name: string;
+  kind: LibraryCollection['kind'];
+  query?: LibrarySmartQuery;
+  model_ids?: string[];
+}) => request<LibraryCollection>('/library/collections', json('POST', collection));
+
+export const updateLibraryCollection = (id: number, update: { name?: string; query?: LibrarySmartQuery }) =>
+  request<LibraryCollection>(`/library/collections/${id}`, json('PUT', update));
+
+export const deleteLibraryCollection = (id: number) =>
+  request<void>(`/library/collections/${id}`, { method: 'DELETE' });
+
+export const addToLibraryCollection = (id: number, modelId: string) =>
+  request<void>(`/library/collections/${id}/models/${encodeURIComponent(modelId)}`, { method: 'PUT' });
+
+export const removeFromLibraryCollection = (id: number, modelId: string) =>
+  request<void>(`/library/collections/${id}/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' });
 
 export const listLibraryDuplicates = () => request<LibraryDuplicateGroup[]>('/library/duplicates');
 

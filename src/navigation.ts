@@ -62,6 +62,7 @@ export const APP_ROUTE_PATHS = [
   '/library/organize',
   '/library/inbox',
   '/library/review',
+  '/library/manage',
   '/library/:id',
   '/conversions',
   '/shopping-list',
@@ -84,6 +85,7 @@ export function routeTitleForPath(pathname: string): string {
   if (pathname === '/library/organize') return 'Organize Library · Workshop';
   if (pathname === '/library/inbox') return 'Library Inbox · Workshop';
   if (pathname === '/library/review') return 'Library Review · Workshop';
+  if (pathname === '/library/manage') return 'Library Categories & Collections · Workshop';
   if (/^\/library\/[^/]+$/.test(pathname)) return 'Model · Workshop';
   if (pathname === '/conversions') return 'Conversion Tables · Workshop';
   if (pathname === '/shopping-list') return 'Shopping List · Workshop';

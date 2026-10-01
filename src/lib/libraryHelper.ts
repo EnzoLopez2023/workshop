@@ -15,6 +15,16 @@ export interface HelperHealth {
   connected: boolean;
 }
 
+/** Helper version that added category management (create/rename/merge/delete). */
+export const HELPER_CATEGORY_VERSION = 2;
+
+export interface HelperCategory {
+  name: string;
+  models: number;
+  /** _Inbox, _Archive and ShapePilot: the organizer files into these by name. */
+  protected: boolean;
+}
+
 async function call<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${HELPER}${path}`, {
     method: body === undefined ? 'GET' : 'POST',
@@ -30,7 +40,13 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
 
 export const libraryHelper = {
   health: () => call<HelperHealth>('/health'),
-  categories: () => call<{ categories: string[] }>('/categories'),
+  categories: () => call<{ categories: string[]; details?: HelperCategory[] }>('/categories'),
+  createCategory: (name: string) => call<{ batch: string; name: string }>('/categories/create', { name }),
+  renameCategory: (from: string, to: string) =>
+    call<{ batch: string | null; name: string; models: number }>('/categories/rename', { from, to }),
+  mergeCategory: (from: string, into: string) =>
+    call<{ batch: string; name: string; moved: number }>('/categories/merge', { from, into }),
+  deleteCategory: (name: string) => call<{ batch: string; name: string }>('/categories/delete', { name }),
   batches: () => call<{ batches: LibraryBatch[] }>('/batches'),
   open: (modelId: string, relPath?: string) => call<{ ok: true }>('/open', { modelId, relPath }),
   reveal: (modelId: string, relPath?: string) => call<{ ok: true }>('/reveal', { modelId, relPath }),

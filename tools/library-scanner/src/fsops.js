@@ -10,7 +10,7 @@ import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { uniqueName } from './names.js'
 
-const IGNORABLE = new Set(['.DS_Store', 'Icon\r', 'desktop.ini'])
+export const IGNORABLE = new Set(['.DS_Store', 'Icon\r', 'desktop.ini'])
 
 export class OpLog {
   constructor(libraryRoot, { batch = newBatchId(), dryRun = false } = {}) {
@@ -34,7 +34,8 @@ export function newBatchId() {
   return `${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}-${randomUUID().slice(0, 6)}`
 }
 
-function ensureDir(log, dir) {
+/** Creates `dir` and any missing parents, logging each so undo can remove them again. */
+export function ensureDir(log, dir) {
   if (existsSync(dir)) return
   ensureDir(log, dirname(dir))
   if (!log.dryRun) mkdirSync(dir)

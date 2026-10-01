@@ -1,4 +1,4 @@
-import type { LibraryModelQuery, LibraryStatus } from '../types/project';
+import type { LibraryCollection, LibraryModelQuery, LibraryStatus } from '../types/project';
 import { LIBRARY_STATUS_ORDER } from './library';
 
 export const LIBRARY_SORTS: { value: NonNullable<LibraryModelQuery['sort']>; label: string }[] = [
@@ -27,23 +27,28 @@ export interface LibraryFilters {
   category: string;
   format: string;
   sort: NonNullable<LibraryModelQuery['sort']>;
+  /** A manual collection to show (smart collections apply their filters instead). */
+  collection: number | null;
 }
 
-const DEFAULT_FILTERS: LibraryFilters = { search: '', status: '', category: '', format: '', sort: 'recent' };
+export const DEFAULT_LIBRARY_FILTERS: LibraryFilters = {
+  search: '', status: '', category: '', format: '', sort: 'recent', collection: null,
+};
 
 export function readLibraryFilters(): LibraryFilters {
   try {
     const saved = JSON.parse(sessionStorage.getItem(FILTERS_STORAGE_KEY) ?? 'null') as Partial<LibraryFilters> | null;
-    if (!saved || typeof saved !== 'object') return DEFAULT_FILTERS;
+    if (!saved || typeof saved !== 'object') return DEFAULT_LIBRARY_FILTERS;
     return {
       search: typeof saved.search === 'string' ? saved.search : '',
       status: saved.status && LIBRARY_STATUS_ORDER.includes(saved.status) ? saved.status : '',
       category: typeof saved.category === 'string' ? saved.category : '',
       format: LIBRARY_FORMATS.some(f => f.value === saved.format) ? saved.format! : '',
       sort: LIBRARY_SORTS.find(s => s.value === saved.sort)?.value ?? 'recent',
+      collection: Number.isSafeInteger(saved.collection) && saved.collection! > 0 ? saved.collection! : null,
     };
   } catch {
-    return DEFAULT_FILTERS;
+    return DEFAULT_LIBRARY_FILTERS;
   }
 }
 
@@ -56,6 +61,28 @@ export function writeLibraryFilters(filters: LibraryFilters) {
 }
 
 export function libraryFiltersQuery(filters: LibraryFilters): LibraryModelQuery {
-  const { search, status, category, format, sort } = filters;
-  return { q: search.trim(), status, category, format, sort };
+  const { search, status, category, format, sort, collection } = filters;
+  return { q: search.trim(), status, category, format, sort, collection: collection ?? undefined };
+}
+
+/** The hub view a collection opens: a manual one by membership, a smart one by its saved filters. */
+export function filtersForCollection(collection: LibraryCollection): LibraryFilters {
+  if (collection.kind === 'manual') return { ...DEFAULT_LIBRARY_FILTERS, collection: collection.id };
+  const q = collection.query ?? {};
+  return {
+    search: q.q ?? '',
+    status: q.status ?? '',
+    category: q.category ?? '',
+    format: q.format ?? '',
+    sort: q.sort ?? 'recent',
+    collection: null,
+  };
+}
+
+/** True when the hub is showing exactly what a smart collection saved. */
+export function filtersMatchSmart(filters: LibraryFilters, collection: LibraryCollection) {
+  if (collection.kind !== 'smart' || filters.collection !== null) return false;
+  const saved = filtersForCollection(collection);
+  return saved.search.trim() === filters.search.trim() && saved.status === filters.status
+    && saved.category === filters.category && saved.format === filters.format && saved.sort === filters.sort;
 }
