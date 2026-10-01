@@ -252,6 +252,8 @@ export const createBambuProject = (project: BambuProjectPayload) =>
   request<BambuImportResult>('/bambu-projects', json('POST', project));
 export const updateBambuProject = (id: number, project: BambuProjectPayload) =>
   request<BambuProject>(`/bambu-projects/${id}`, json('PUT', project));
+export const updateBambuProjectNotes = (id: number, notes: string) =>
+  request<Pick<BambuProject, 'notes' | 'updated_at'>>(`/bambu-projects/${id}/notes`, json('PUT', { notes }));
 export const deleteBambuProject = (id: number) =>
   request<{ success: boolean }>(`/bambu-projects/${id}`, { method: 'DELETE' });
 

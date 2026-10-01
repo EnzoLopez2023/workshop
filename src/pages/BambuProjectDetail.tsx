@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useBlocker, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   AlertTriangle,
@@ -12,6 +12,7 @@ import {
   Images,
   Loader,
   Pencil,
+  Save,
   Trash2,
   Upload,
   X,
@@ -23,6 +24,7 @@ import {
   getBambuProject,
   getMakerWorldBridgeJob,
   startMakerWorldBridgeJob,
+  updateBambuProjectNotes,
   uploadBambuAsset,
 } from '../services/api';
 import { isDemoMode } from '../demo/demoMode';
@@ -37,6 +39,7 @@ import { ProjectDetailSkeleton } from '../components/Skeleton';
 import HubCompletionButton from '../components/HubCompletionButton';
 
 const MAX_BAMBU_UPLOAD_BYTES = 250 * 1024 * 1024;
+const MAX_BAMBU_NOTES_LENGTH = 10_000;
 
 export default function BambuProjectDetail() {
   const navigate = useNavigate();
@@ -58,25 +61,75 @@ export default function BambuProjectDetail() {
   const [bridgeImporting, setBridgeImporting] = useState(false);
   const [bridgeStatus, setBridgeStatus] = useState('');
   const [bridgeError, setBridgeError] = useState('');
+  const [notes, setNotes] = useState('');
+  const [savedNotes, setSavedNotes] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesError, setNotesError] = useState('');
+  const [notesStatus, setNotesStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bridgeRunRef = useRef(0);
+  const loadRunRef = useRef(0);
+  const notesProjectRef = useRef<number | null>(null);
   const demo = isDemoMode();
+  const notesDirty = notes !== savedNotes;
+  const protectNotes = notesDirty && project?.id === projectId && !demo && !deleting;
+  const blocker = useBlocker(protectNotes);
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((showLoading = true) => {
+    if (!showLoading && notesProjectRef.current !== projectId) return;
+    const runId = ++loadRunRef.current;
+    if (showLoading) setLoading(true);
     setLoadError(null);
     getBambuProject(projectId)
-      .then(setProject)
+      .then(nextProject => {
+        if (loadRunRef.current !== runId) return;
+        setProject(nextProject);
+        // Refreshing imported files must not replace an in-progress notes draft.
+        if (notesProjectRef.current !== nextProject.id) {
+          notesProjectRef.current = nextProject.id;
+          setNotes(nextProject.notes);
+          setSavedNotes(nextProject.notes);
+          setSavingNotes(false);
+          setNotesError('');
+          setNotesStatus('');
+        }
+      })
       .catch(error => {
         console.error('Bambu project load failed', error);
+        if (loadRunRef.current !== runId) return;
         setLoadError('Workshop could not load this Bambu Hub project. Check the connection and try again.');
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (loadRunRef.current === runId) setLoading(false);
+      });
   }, [projectId]);
 
   useEffect(() => {
     void load();
+    return () => {
+      loadRunRef.current += 1;
+      notesProjectRef.current = null;
+    };
   }, [load]);
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return;
+    const message = savingNotes
+      ? 'Your print notes are still saving. Leave this page?'
+      : 'You have unsaved print notes. Discard them and leave?';
+    if (window.confirm(message)) blocker.proceed();
+    else blocker.reset();
+  }, [blocker, savingNotes]);
+
+  useEffect(() => {
+    if (!protectNotes) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [protectNotes]);
 
   useEffect(() => {
     const unsubscribe = subscribeToMakerWorldBridge(setBridgeVersion);
@@ -96,6 +149,28 @@ export default function BambuProjectDetail() {
       toast.error('Workshop could not delete this Bambu project. Try again.');
       setDeleting(false);
       setConfirmDelete(false);
+    }
+  };
+
+  const handleSaveNotes = async () => {
+    if (demo || savingNotes || deleting || !notesDirty) return;
+    const submittedNotes = notes;
+    setSavingNotes(true);
+    setNotesError('');
+    setNotesStatus('');
+    try {
+      const saved = await updateBambuProjectNotes(projectId, submittedNotes);
+      if (notesProjectRef.current !== projectId) return;
+      setProject(current => current?.id === projectId ? { ...current, ...saved } : current);
+      setSavedNotes(saved.notes);
+      setNotes(current => current === submittedNotes ? saved.notes : current);
+      setNotesStatus('Print notes saved.');
+    } catch (error) {
+      console.error('Bambu print notes save failed', error);
+      if (notesProjectRef.current !== projectId) return;
+      setNotesError(error instanceof Error ? error.message : 'Workshop could not save your print notes. Try again.');
+    } finally {
+      if (notesProjectRef.current === projectId) setSavingNotes(false);
     }
   };
 
@@ -122,7 +197,7 @@ export default function BambuProjectDetail() {
       }
       setUploadProgress(100);
       setUploadStatus(`${selected.length} file${selected.length === 1 ? '' : 's'} added to this project.`);
-      load();
+      load(false);
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : 'Workshop could not upload those files.');
     } finally {
@@ -198,7 +273,7 @@ export default function BambuProjectDetail() {
             : '',
         ].filter(Boolean).join(' · ');
         setBridgeStatus(summary || 'MakerWorld files are already up to date.');
-        load();
+        load(false);
         return;
       }
       throw new Error('The MakerWorld import expired before it completed. Try again.');
@@ -257,7 +332,7 @@ export default function BambuProjectDetail() {
             </Button>
             {confirmDelete ? (
               <span className="inline-confirm" role="group" aria-label="Confirm Bambu project deletion">
-                <span>Delete this project and its saved files?</span>
+                <span>Delete this project, its notes, and saved files?</span>
                 <Button variant="ghost" onClick={() => setConfirmDelete(false)}>Cancel</Button>
                 <Button variant="danger" onClick={() => void handleDelete()} disabled={deleting}>
                   <Trash2 size={16} aria-hidden="true" />
@@ -330,6 +405,66 @@ export default function BambuProjectDetail() {
               </div>
             </div>
           )}
+
+          <WorkflowSection
+            id="bambu-notes"
+            title="Print notes"
+            description="Record filament, slicer settings, and how your print turned out."
+          >
+            <form
+              className="form-section-fields"
+              aria-busy={savingNotes}
+              onSubmit={event => {
+                event.preventDefault();
+                void handleSaveNotes();
+              }}
+            >
+              <div className="form-field">
+                <textarea
+                  aria-labelledby="bambu-notes-title"
+                  aria-describedby="bambu-notes-help"
+                  value={notes}
+                  onChange={event => {
+                    setNotes(event.target.value);
+                    setNotesError('');
+                    setNotesStatus('');
+                  }}
+                  rows={6}
+                  maxLength={MAX_BAMBU_NOTES_LENGTH}
+                  readOnly={demo || savingNotes || deleting}
+                  placeholder={demo ? 'No print notes yet.' : 'Filament, layer height, supports, plate settings, or changes for the next print…'}
+                />
+                <small id="bambu-notes-help">
+                  {demo ? 'Sign in to add or edit print notes.' : 'Your notes stay separate from the imported description. Up to 10,000 characters.'}
+                </small>
+              </div>
+              {!demo && (
+                <div className="workflow-section-actions">
+                  <Button type="submit" variant="primary" disabled={!notesDirty || savingNotes || deleting}>
+                    {savingNotes ? <Loader size={16} className="spinner" aria-hidden="true" /> : <Save size={16} aria-hidden="true" />}
+                    {savingNotes ? 'Saving…' : 'Save notes'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={!notesDirty || savingNotes || deleting}
+                    onClick={() => {
+                      setNotes(savedNotes);
+                      setNotesError('');
+                      setNotesStatus('');
+                    }}
+                  >
+                    Discard changes
+                  </Button>
+                </div>
+              )}
+              {notesError && <p className="danger-text" role="alert">{notesError}</p>}
+              {!demo && (notesDirty || notesStatus || savingNotes) && (
+                <p className="section-description" role="status">
+                  {savingNotes ? 'Saving print notes…' : notesDirty ? 'Unsaved changes' : notesStatus}
+                </p>
+              )}
+            </form>
+          </WorkflowSection>
 
           {images.length > 0 && (
             <WorkflowSection

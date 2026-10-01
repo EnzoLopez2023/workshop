@@ -136,6 +136,117 @@ test('additive library migrations retain old order and data and are idempotent',
   }
 });
 
+test('Bambu print notes migrate existing projects without changing their source data', () => {
+  const db = new Database(':memory:');
+  try {
+    api.initSchema(db);
+    db.exec(`
+      ALTER TABLE bambu_projects DROP COLUMN notes;
+      INSERT INTO bambu_projects (id, title, source_url, source_site, description, is_completed, sort_order)
+      VALUES (1, 'Existing print', 'https://www.printables.com/model/1', 'printables', 'Source description', 1, 7)
+    `);
+    api.initSchema(db);
+    const project = db.prepare('SELECT * FROM bambu_projects WHERE id = 1').get();
+    assert.equal(project.notes, '');
+    assert.equal(project.description, 'Source description');
+    assert.equal(project.is_completed, 1);
+    assert.equal(project.sort_order, 7);
+    db.prepare('UPDATE bambu_projects SET notes = ? WHERE id = 1').run('PLA, 0.2 mm layers');
+    api.initSchema(db);
+    assert.equal(db.prepare('SELECT notes FROM bambu_projects WHERE id = 1').get().notes, 'PLA, 0.2 mm layers');
+    assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
+  } finally {
+    db.close();
+  }
+});
+
+test('Bambu print notes round-trip exactly, persist, clear, and leave metadata and completion intact', async () => {
+  const library = libraries.find(library => library.resource === 'bambu-projects');
+  const id = insertProject(library, 'Print with notes');
+  const otherId = insertProject(library, 'Other account', USER_B);
+  api.getUserDb(USER_A).stmts.completeBambuProject.run(1, id);
+  api.getUserDb(USER_A).db.prepare("UPDATE bambu_projects SET updated_at = '2020-01-01 00:00:00' WHERE id = ?").run(id);
+  const before = api.getUserDb(USER_A).stmts.getBambuProject.get(id);
+  const notes = 'Filament: PLA\nNozzle: 220 \u00b0C\n\n  Supports: "tree"\nKeep <script> as plain text.\n';
+  const response = await request(`/api/bambu-projects/${id}/notes`, {
+    method: 'PUT',
+    body: { notes, description: 'Do not overwrite the source', is_completed: false, sort_order: 999 },
+  });
+  assert.equal(response.status, 200);
+  const saved = await response.json();
+  assert.equal(saved.notes, notes);
+  assert.equal(typeof saved.updated_at, 'string');
+  assert.notEqual(saved.updated_at, before.updated_at);
+  const after = api.getUserDb(USER_A).stmts.getBambuProject.get(id);
+  assert.deepEqual({ ...after, notes: before.notes, updated_at: before.updated_at }, before);
+  assert.equal(api.getUserDb(USER_B).stmts.getBambuProject.get(otherId).notes, '');
+
+  const list = await request('/api/bambu-projects');
+  assert.equal((await list.json()).find(project => project.id === id).notes, notes);
+  api.closeAllDatabases();
+  const reloaded = await request(`/api/bambu-projects/${id}`);
+  assert.equal((await reloaded.json()).notes, notes);
+
+  const edited = await request(`/api/bambu-projects/${id}`, {
+    method: 'PUT',
+    body: {
+      title: 'Renamed print',
+      description: before.description,
+      creator_name: before.creator_name,
+      license_name: before.license_name,
+    },
+  });
+  assert.equal(edited.status, 200);
+  assert.equal((await edited.json()).notes, notes);
+  await request(`/api/bambu-projects/${id}/completion`, {
+    method: 'PUT', body: { is_completed: false },
+  });
+  const detail = await request(`/api/bambu-projects/${id}`);
+  assert.equal((await detail.json()).notes, notes);
+
+  const cleared = await request(`/api/bambu-projects/${id}/notes`, {
+    method: 'PUT', body: { notes: '' },
+  });
+  assert.equal(cleared.status, 200);
+  assert.equal((await cleared.json()).notes, '');
+  assert.equal(api.getUserDb(USER_A).stmts.getBambuProject.get(id).notes, '');
+});
+
+test('Bambu print notes validate the exact text limit and reject unauthorized and demo writes', async () => {
+  const library = libraries.find(library => library.resource === 'bambu-projects');
+  const id = insertProject(library, 'Notes validation');
+  const path = `/api/bambu-projects/${id}/notes`;
+  const maximumNotes = 'x'.repeat(10_000);
+  const maximum = await request(path, { method: 'PUT', body: { notes: maximumNotes } });
+  assert.equal(maximum.status, 200);
+  assert.equal((await maximum.json()).notes, maximumNotes);
+  for (const notes of [undefined, null, 1, false, [], {}, 'x'.repeat(10_001)]) {
+    const response = await request(path, { method: 'PUT', body: { notes } });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /Print notes must be/);
+    assert.equal(api.getUserDb(USER_A).stmts.getBambuProject.get(id).notes, maximumNotes);
+  }
+  const unauthenticated = await request(path, {
+    user: null, method: 'PUT', body: { notes: 'Unauthorized' },
+  });
+  assert.equal(unauthenticated.status, 401);
+  const demo = await request(path, {
+    user: null, method: 'PUT', headers: { 'X-Demo': '1' }, body: { notes: 'Demo write' },
+  });
+  assert.equal(demo.status, 403);
+  const otherAccount = await request(path, {
+    user: USER_B, method: 'PUT', body: { notes: 'Another account' },
+  });
+  assert.equal(otherAccount.status, 404);
+  for (const missingId of ['999999', 'not-a-number', '1.5', '0']) {
+    const missing = await request(`/api/bambu-projects/${missingId}/notes`, {
+      method: 'PUT', body: { notes: 'Missing print' },
+    });
+    assert.equal(missing.status, 404);
+  }
+  assert.equal(api.getUserDb(USER_A).stmts.getBambuProject.get(id).notes, maximumNotes);
+});
+
 for (const library of libraries) {
   const { resource, table } = library;
 
