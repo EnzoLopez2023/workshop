@@ -318,3 +318,21 @@ test('all libraries share accessible reordering and both hubs expose completion 
   assert.match(bambu, /<HubCompletionButton\s+library="bambu"/);
   assert.match(shaper, /<HubCompletionButton\s+library="shaper"/);
 });
+
+test('Bambu print notes retain drafts during file refreshes and guard unsaved navigation', async () => {
+  const [detail, api] = await Promise.all([
+    readSource('src/pages/BambuProjectDetail.tsx'),
+    readSource('src/services/api.ts'),
+  ]);
+  assert.match(detail, /title="Print notes"/);
+  assert.match(detail, /aria-labelledby="bambu-notes-title"/);
+  assert.match(detail, /MAX_BAMBU_NOTES_LENGTH = 10_000/);
+  assert.match(detail, /maxLength=\{MAX_BAMBU_NOTES_LENGTH\}/);
+  assert.match(detail, /readOnly=\{demo \|\| savingNotes \|\| deleting\}/);
+  assert.match(detail, /notesProjectRef\.current !== nextProject\.id/);
+  assert.match(detail, /setSavedNotes\(saved\.notes\)/);
+  assert.match(detail, /useBlocker\(protectNotes\)/);
+  assert.match(detail, /addEventListener\('beforeunload'/);
+  assert.match(detail, /setNotes\(savedNotes\)/);
+  assert.match(api, /\/bambu-projects\/\$\{id\}\/notes`, json\('PUT', \{ notes \}\)/);
+});

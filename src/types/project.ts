@@ -225,6 +225,7 @@ export interface BambuProject {
   source_site: BambuSourceSite;
   source_model_id: string | null;
   description: string | null;
+  notes: string;
   creator_name: string | null;
   license_name: string | null;
   import_warnings: string[];

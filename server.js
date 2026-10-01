@@ -268,6 +268,7 @@ db.exec(`
     source_site     TEXT NOT NULL,
     source_model_id TEXT,
     description     TEXT,
+    notes           TEXT NOT NULL DEFAULT '',
     creator_name    TEXT,
     license_name    TEXT,
     import_warnings TEXT NOT NULL DEFAULT '[]',
@@ -375,6 +376,9 @@ for (const table of ['projects', 'shaper_projects', 'bambu_projects']) {
 }
 if (!bambuProjectCols.has('import_warnings')) {
   db.exec(`ALTER TABLE bambu_projects ADD COLUMN import_warnings TEXT NOT NULL DEFAULT '[]'`);
+}
+if (!bambuProjectCols.has('notes')) {
+  db.exec(`ALTER TABLE bambu_projects ADD COLUMN notes TEXT NOT NULL DEFAULT ''`);
 }
 const bambuAssetCols = new Set(
   db.prepare(`PRAGMA table_info(bambu_assets)`).all().map(column => column.name)
@@ -537,6 +541,9 @@ function buildStmts(db) {
   updateBambuProjectOrder: db.prepare(`UPDATE bambu_projects SET sort_order = ? WHERE id = ?`),
   completeBambuProject: db.prepare(`
     UPDATE bambu_projects SET is_completed = ?, updated_at = datetime('now') WHERE id = ?
+  `),
+  updateBambuProjectNotes: db.prepare(`
+    UPDATE bambu_projects SET notes = @notes, updated_at = datetime('now') WHERE id = @id
   `),
   getBambuProject: db.prepare(`SELECT * FROM bambu_projects WHERE id = ?`),
   insertBambuProject: db.prepare(`
@@ -4284,6 +4291,23 @@ app.post(
     return res.status(201).json({ project, warnings: warnings.slice(0, 100) });
   }
 );
+
+app.put('/api/bambu-projects/:id/notes', serializeBambuRequest, (req, res) => {
+  const notes = req.body?.notes;
+  if (typeof notes !== 'string') {
+    return res.status(400).json({ error: 'Print notes must be text.' });
+  }
+  if (notes.length > 10_000) {
+    return res.status(400).json({ error: 'Print notes must be 10,000 characters or fewer.' });
+  }
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0 || !req.stmts.getBambuProject.get(id)) {
+    return res.status(404).json({ error: 'Bambu project not found' });
+  }
+  req.stmts.updateBambuProjectNotes.run({ id, notes });
+  const project = req.stmts.getBambuProject.get(id);
+  return res.json({ notes: project.notes, updated_at: project.updated_at });
+});
 
 app.put('/api/bambu-projects/:id', serializeBambuRequest, (req, res) => {
   const { stmts } = req;

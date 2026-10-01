@@ -483,6 +483,7 @@ click outside the image to close the preview.
 | `POST` | `/api/bambu-projects` | Create the project and stream every accessible public image/model file into per-user storage |
 | `PUT` | `/api/bambu-projects/order` | Save this account's Bambu project order |
 | `PUT` | `/api/bambu-projects/:id/completion` | Set `{ "is_completed": true }` for Printed, or false to undo |
+| `PUT` | `/api/bambu-projects/:id/notes` | Save `{ "notes": "..." }` as plain text, up to 10,000 characters; an empty string clears the notes |
 | `PUT` | `/api/bambu-projects/:id` | Update metadata for the same source model |
 | `DELETE` | `/api/bambu-projects/:id` | Delete the project and locally stored assets |
 | `POST` | `/api/bambu-projects/:id/assets` | Authenticated manual model/CAD/archive upload |
@@ -497,6 +498,12 @@ Printables currently supports anonymous metadata and file links. MakerWorld perm
 
 Bambu cards and project details have a reversible **Printed** marker. Like Shaper
 completion, it preserves the project metadata and saved library position.
+
+Each Bambu project also has a **Print notes** section for filament, slicer settings,
+and print results. Use **Save notes** to keep changes or **Discard changes** to
+restore the last saved text. Notes are separate from the imported description,
+stay intact when files or metadata change, and are read-only in demo mode.
+Leaving the page with unsaved notes prompts before discarding them.
 
 ### Personal MakerWorld browser bridge
 

@@ -225,6 +225,8 @@ test('manual Bambu file upload is private, downloadable with auth, and deletable
     creator_name: null,
     license_name: null,
   }).lastInsertRowid);
+  const notes = 'PLA, 0.2 mm layers. Keep these print notes.';
+  entry.stmts.updateBambuProjectNotes.run({ id: projectId, notes });
   const form = new FormData();
   form.append('file', new Blob(['solid private-model\nendsolid private-model'], {
     type: 'model/stl',
@@ -239,6 +241,7 @@ test('manual Bambu file upload is private, downloadable with auth, and deletable
   assert.equal(asset.filename, 'private-model.stl');
   assert.equal(asset.kind, 'model');
   assert.equal('file_path' in asset, false);
+  assert.equal(entry.stmts.getBambuProject.get(projectId).notes, notes);
 
   const stored = entry.stmts.getBambuAsset.get(asset.id);
   assert.equal(existsSync(join(process.env.UPLOADS_PATH, stored.file_path)), true);
@@ -260,6 +263,7 @@ test('manual Bambu file upload is private, downloadable with auth, and deletable
   assert.equal(remove.status, 200);
   assert.equal(entry.stmts.getBambuAsset.get(asset.id), undefined);
   assert.equal(existsSync(join(process.env.UPLOADS_PATH, stored.file_path)), false);
+  assert.equal(entry.stmts.getBambuProject.get(projectId).notes, notes);
 });
 
 test('parallel Bambu uploads serialize quota checks per account', async () => {
