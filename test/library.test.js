@@ -132,6 +132,13 @@ test('sync upserts models, stores thumbnails, marks missing, and round-trips edi
   // Other accounts see nothing.
   assert.equal((await (await request('/api/library/models', { token: otherToken })).json()).total, 0);
 
+  // Model-to-model navigation gets every filtered id in grid order, unpaged.
+  const byTitle = (await (await request('/api/library/models?sort=title')).json()).items.map((m) => m.id);
+  assert.ok(byTitle.length > 1);
+  assert.deepEqual((await (await request('/api/library/model-ids?sort=title&limit=1')).json()).ids, byTitle);
+  assert.deepEqual((await (await request('/api/library/model-ids?q=latch')).json()).ids, [card.id]);
+  assert.deepEqual((await (await request('/api/library/model-ids', { token: otherToken })).json()).ids, []);
+
   // Same geometry in two models is reported as a duplicate group.
   const dupes = await (await request('/api/library/duplicates')).json();
   assert.equal(dupes.length, 1);

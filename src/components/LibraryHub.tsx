@@ -5,57 +5,15 @@ import { getLibraryOverview, listLibraryModels } from '../services/api';
 import type { LibraryModel, LibraryModelQuery, LibraryOverview, LibraryStatus } from '../types/project';
 import { LIBRARY_STATUS_LABELS } from '../types/project';
 import { LIBRARY_STATUS_ORDER, categoryLabel, relativeDate } from '../lib/library';
+import { LIBRARY_FORMATS, LIBRARY_SORTS, readLibraryFilters, writeLibraryFilters } from '../lib/libraryFilters';
 import LibraryModelCard from './LibraryModelCard';
 import { ProjectCardSkeleton } from './Skeleton';
 import { Button, SectionRail, StatePanel } from './ui';
 
 const PAGE_SIZE = 60;
-const SORTS: { value: NonNullable<LibraryModelQuery['sort']>; label: string }[] = [
-  { value: 'recent', label: 'Newest first' },
-  { value: 'title', label: 'Title A–Z' },
-  { value: 'printed', label: 'Recently printed' },
-  { value: 'updated', label: 'Recently edited' },
-  { value: 'size', label: 'Largest' },
-];
-const FORMATS = [
-  { value: '', label: 'Any format' },
-  { value: '3mf', label: '3MF' },
-  { value: 'stl', label: 'STL' },
-  { value: 'sliced', label: 'Sliced' },
-  { value: 'step', label: 'STEP' },
-];
-
-// Filters survive opening a model and coming back (per browser tab).
-const FILTERS_STORAGE_KEY = 'workshop.library.filters';
-
-interface LibraryFilters {
-  search: string;
-  status: LibraryStatus | '';
-  category: string;
-  format: string;
-  sort: NonNullable<LibraryModelQuery['sort']>;
-}
-
-const DEFAULT_FILTERS: LibraryFilters = { search: '', status: '', category: '', format: '', sort: 'recent' };
-
-function readFilters(): LibraryFilters {
-  try {
-    const saved = JSON.parse(sessionStorage.getItem(FILTERS_STORAGE_KEY) ?? 'null') as Partial<LibraryFilters> | null;
-    if (!saved || typeof saved !== 'object') return DEFAULT_FILTERS;
-    return {
-      search: typeof saved.search === 'string' ? saved.search : '',
-      status: saved.status && LIBRARY_STATUS_ORDER.includes(saved.status) ? saved.status : '',
-      category: typeof saved.category === 'string' ? saved.category : '',
-      format: FORMATS.some(f => f.value === saved.format) ? saved.format! : '',
-      sort: SORTS.find(s => s.value === saved.sort)?.value ?? 'recent',
-    };
-  } catch {
-    return DEFAULT_FILTERS;
-  }
-}
 
 export default function LibraryHub() {
-  const [initialFilters] = useState(readFilters);
+  const [initialFilters] = useState(readLibraryFilters);
   const [overview, setOverview] = useState<LibraryOverview | null>(null);
   const [models, setModels] = useState<LibraryModel[]>([]);
   const [total, setTotal] = useState(0);
@@ -69,11 +27,7 @@ export default function LibraryHub() {
   const [debounced, setDebounced] = useState(initialFilters.search.trim());
 
   useEffect(() => {
-    try {
-      sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify({ search, status, category, format, sort }));
-    } catch {
-      // Storage unavailable (private mode): filters just reset on return.
-    }
+    writeLibraryFilters({ search, status, category, format, sort });
   }, [search, status, category, format, sort]);
 
   useEffect(() => {
@@ -203,13 +157,13 @@ export default function LibraryHub() {
           <label>
             <span className="stat-label">Format</span>
             <select value={format} onChange={event => setFormat(event.target.value)}>
-              {FORMATS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              {LIBRARY_FORMATS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
             </select>
           </label>
           <label>
             <span className="stat-label">Sort</span>
             <select value={sort} onChange={event => setSort(event.target.value as typeof sort)}>
-              {SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              {LIBRARY_SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
           </label>
         </div>

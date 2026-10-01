@@ -420,15 +420,22 @@ export const libraryThumbUrl = (hash: string) => {
 
 export const getLibraryOverview = () => request<LibraryOverview>('/library/overview');
 
-export const listLibraryModels = (query: LibraryModelQuery = {}) => {
+function libraryQueryString(query: LibraryModelQuery) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === '' || value === false) continue;
     params.set(key, value === true ? '1' : String(value));
   }
   const qs = params.toString();
-  return request<LibraryModelPage>(`/library/models${qs ? `?${qs}` : ''}`);
-};
+  return qs ? `?${qs}` : '';
+}
+
+export const listLibraryModels = (query: LibraryModelQuery = {}) =>
+  request<LibraryModelPage>(`/library/models${libraryQueryString(query)}`);
+
+/** Every model id matching the filters, in display order (limit/offset are ignored). */
+export const listLibraryModelIds = (query: LibraryModelQuery = {}) =>
+  request<{ ids: string[] }>(`/library/model-ids${libraryQueryString(query)}`);
 
 export const getLibraryModel = (id: string) =>
   request<LibraryModelDetail>(`/library/models/${encodeURIComponent(id)}`);
