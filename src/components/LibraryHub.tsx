@@ -25,18 +25,56 @@ const FORMATS = [
   { value: 'step', label: 'STEP' },
 ];
 
+// Filters survive opening a model and coming back (per browser tab).
+const FILTERS_STORAGE_KEY = 'workshop.library.filters';
+
+interface LibraryFilters {
+  search: string;
+  status: LibraryStatus | '';
+  category: string;
+  format: string;
+  sort: NonNullable<LibraryModelQuery['sort']>;
+}
+
+const DEFAULT_FILTERS: LibraryFilters = { search: '', status: '', category: '', format: '', sort: 'recent' };
+
+function readFilters(): LibraryFilters {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(FILTERS_STORAGE_KEY) ?? 'null') as Partial<LibraryFilters> | null;
+    if (!saved || typeof saved !== 'object') return DEFAULT_FILTERS;
+    return {
+      search: typeof saved.search === 'string' ? saved.search : '',
+      status: saved.status && LIBRARY_STATUS_ORDER.includes(saved.status) ? saved.status : '',
+      category: typeof saved.category === 'string' ? saved.category : '',
+      format: FORMATS.some(f => f.value === saved.format) ? saved.format! : '',
+      sort: SORTS.find(s => s.value === saved.sort)?.value ?? 'recent',
+    };
+  } catch {
+    return DEFAULT_FILTERS;
+  }
+}
+
 export default function LibraryHub() {
+  const [initialFilters] = useState(readFilters);
   const [overview, setOverview] = useState<LibraryOverview | null>(null);
   const [models, setModels] = useState<LibraryModel[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<LibraryStatus | ''>('');
-  const [category, setCategory] = useState('');
-  const [format, setFormat] = useState('');
-  const [sort, setSort] = useState<NonNullable<LibraryModelQuery['sort']>>('recent');
-  const [debounced, setDebounced] = useState('');
+  const [search, setSearch] = useState(initialFilters.search);
+  const [status, setStatus] = useState<LibraryStatus | ''>(initialFilters.status);
+  const [category, setCategory] = useState(initialFilters.category);
+  const [format, setFormat] = useState(initialFilters.format);
+  const [sort, setSort] = useState<NonNullable<LibraryModelQuery['sort']>>(initialFilters.sort);
+  const [debounced, setDebounced] = useState(initialFilters.search.trim());
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify({ search, status, category, format, sort }));
+    } catch {
+      // Storage unavailable (private mode): filters just reset on return.
+    }
+  }, [search, status, category, format, sort]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 200);
@@ -72,6 +110,11 @@ export default function LibraryHub() {
     const page = await listLibraryModels({ ...query, offset: models.length });
     setModels(current => [...current, ...page.items]);
   };
+
+  // A remembered category can vanish (renamed folder, last model moved out).
+  useEffect(() => {
+    if (category && overview && !overview.byCategory.some(c => c.category === category)) setCategory('');
+  }, [category, overview]);
 
   const counts = overview?.byStatus ?? {};
   const allCount = Object.values(counts).reduce((n, v) => n + (v ?? 0), 0);
