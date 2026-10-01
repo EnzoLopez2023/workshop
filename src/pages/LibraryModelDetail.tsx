@@ -1,12 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { lazy, Suspense, useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ArrowLeft, Box, CheckCircle2, ExternalLink, FileBox, FolderOpen, FolderInput, Heart, Printer,
+  ArrowLeft, Box, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, FileBox, FolderOpen, FolderInput, Heart, Printer,
   RotateCw, Trash2, XCircle,
 } from 'lucide-react';
 import {
-  deleteLibraryPrint, getLibraryModel, libraryThumbUrl, listBambuProjects, logLibraryPrint, updateLibraryModel,
+  deleteLibraryPrint, getLibraryModel, libraryThumbUrl, listBambuProjects, listLibraryModelIds, logLibraryPrint,
+  updateLibraryModel,
   type LibraryModelUpdate,
 } from '../services/api';
 import type { BambuProject, LibraryFile, LibraryModelDetail as Detail, LibraryStatus } from '../types/project';
@@ -15,6 +16,7 @@ import {
   LIBRARY_STATUS_ORDER, LIBRARY_STATUS_TONE, categoryLabel, formatBytes, formatDimensions, formatDuration,
   formatGrams, relativeDate, sourceLabel,
 } from '../lib/library';
+import { libraryFiltersQuery, readLibraryFilters } from '../lib/libraryFilters';
 import { libraryHelper, useLibraryHelper } from '../lib/libraryHelper';
 import { Button, IconButton, PageFrame, SectionRail, StatePanel } from '../components/ui';
 import { isDemoMode } from '../demo/demoMode';
@@ -30,8 +32,66 @@ function primaryFile(files: LibraryFile[]) {
     ?? null;
 }
 
-export default function LibraryModelDetail() {
+/**
+ * Steps through the Library hub's current filtered list with Previous/Next and
+ * the arrow keys. The order is captured once when the page opens, so an edit
+ * that moves this model out of the filter doesn't reshuffle the sequence.
+ */
+export default function LibraryModelDetailRoute() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
+  const [ids, setIds] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listLibraryModelIds(libraryFiltersQuery(readLibraryFilters()))
+      .then(result => { if (!cancelled) setIds(result.ids); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  const index = ids ? ids.indexOf(id) : -1;
+  const prevId = ids && index > 0 ? ids[index - 1] : null;
+  const nextId = ids && index >= 0 && index < ids.length - 1 ? ids[index + 1] : null;
+
+  // Replace, so the browser's Back still returns to the Library rather than through every model.
+  const go = useCallback((target: string | null) => {
+    if (target) navigate(`/library/${encodeURIComponent(target)}`, { replace: true });
+  }, [navigate]);
+
+  useEffect(() => {
+    if (index < 0) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target && (target.isContentEditable || target.closest('input, textarea, select, [role="dialog"]'))) return;
+      const destination = event.key === 'ArrowLeft' ? prevId : nextId;
+      if (!destination) return;
+      event.preventDefault();
+      go(destination);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [index, prevId, nextId, go]);
+
+  const stepper = ids && index >= 0 && ids.length > 1 ? (
+    <nav className="library-stepper" aria-label="Browse filtered models">
+      <IconButton label="Previous model (←)" disabled={!prevId} onClick={() => go(prevId)}>
+        <ChevronLeft size={18} aria-hidden="true" />
+      </IconButton>
+      <span className="library-stepper-count" aria-live="polite">{index + 1} of {ids.length}</span>
+      <IconButton label="Next model (→)" disabled={!nextId} onClick={() => go(nextId)}>
+        <ChevronRight size={18} aria-hidden="true" />
+      </IconButton>
+    </nav>
+  ) : null;
+
+  // Keyed by id so per-model state (images, viewer file, drafts) starts fresh on each step.
+  return <LibraryModelDetail key={id} id={id} stepper={stepper} />;
+}
+
+function LibraryModelDetail({ id, stepper }: { id: string; stepper: ReactNode }) {
   const helper = useLibraryHelper();
   const demo = isDemoMode();
   const [model, setModel] = useState<Detail | null>(null);
@@ -148,7 +208,10 @@ export default function LibraryModelDetail() {
 
   return (
     <PageFrame maxWidth={1100} className="library-detail">
-      <Link to="/" className="library-back"><ArrowLeft size={16} aria-hidden="true" /> Library</Link>
+      <div className="library-detail-nav">
+        <Link to="/" className="library-back"><ArrowLeft size={16} aria-hidden="true" /> Library</Link>
+        {stepper}
+      </div>
 
       <header className="library-detail-head">
         <form

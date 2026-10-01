@@ -782,7 +782,8 @@ export function registerLibraryRoutes(app, { isPrimaryUser, shapePilot, resolveR
     });
   });
 
-  app.get('/api/library/models', (req, res) => {
+  /** Applies the Library hub's filters and sort; shared by the grid and model-to-model navigation. */
+  function queryModels(req) {
     const l = lib(req);
     const q = String(req.query.q ?? '').trim().toLowerCase();
     const status = String(req.query.status ?? '');
@@ -791,8 +792,6 @@ export function registerLibraryRoutes(app, { isPrimaryUser, shapePilot, resolveR
     const tag = String(req.query.tag ?? '').toLowerCase();
     const state = req.query.state === 'missing' ? 'missing' : 'present';
     const sort = String(req.query.sort ?? 'recent');
-    const limit = Math.min(Math.max(Number(req.query.limit) || 60, 1), 200);
-    const offset = Math.max(Number(req.query.offset) || 0, 0);
     const stats = printStatsMap(l);
     let rows = req.db.prepare(`SELECT * FROM library_models WHERE state = ?`).all(state);
     if (status) rows = rows.filter((r) => status.split(',').includes(r.status));
@@ -819,7 +818,19 @@ export function registerLibraryRoutes(app, { isPrimaryUser, shapePilot, resolveR
       size: (a, b) => b.total_bytes - a.total_bytes,
     };
     rows.sort(sorters[sort] ?? sorters.recent);
+    return { rows, stats };
+  }
+
+  app.get('/api/library/models', (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 60, 1), 200);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const { rows, stats } = queryModels(req);
     res.json({ total: rows.length, items: rows.slice(offset, offset + limit).map((r) => hydrateModel(r, stats)) });
+  });
+
+  // Every matching id in order (unpaged), so a model page can step to its neighbours.
+  app.get('/api/library/model-ids', (req, res) => {
+    res.json({ ids: queryModels(req).rows.map((r) => r.id) });
   });
 
   app.get('/api/library/models/:id', (req, res) => {
