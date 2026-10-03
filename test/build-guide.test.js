@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildShelfPlan } from '../src/lib/shelving.ts';
-import { buildGuideSteps, dadoGrooves, guidePrintHtml } from '../src/lib/buildGuide.ts';
+import { buildShelfPlan, formatLength } from '../src/lib/shelving.ts';
+import { buildGuideSteps, dadoGrooves, guidePrintHtml, planGuideSheets, sheetLayoutSvg } from '../src/lib/buildGuide.ts';
 
 const base = {
   thickness: 0.75, bayWidth: 17.5, shelfDepth: 11.25, height: 74, bays: 3, shelvesPerBay: [4, 5, 2],
@@ -14,10 +14,10 @@ const guide = (overrides = {}, units = 'in') => {
 };
 
 test('steps follow the design: dados, dividers, back, and how it is mounted', () => {
-  assert.deepEqual(guide().steps.map(s => s.id), ['overview', 'cut', 'dados', 'case', 'dividers', 'shelves', 'back', 'install', 'finish']);
+  assert.deepEqual(guide().steps.map(s => s.id), ['overview', 'sheets', 'cut', 'dados', 'case', 'dividers', 'shelves', 'back', 'install', 'finish']);
   assert.deepEqual(
     guide({ joinery: 'butt', bays: 1, shelvesPerBay: [3], backPanel: false, mounting: 'wall', frenchCleat: false }).steps.map(s => s.id),
-    ['overview', 'cut', 'case', 'shelves', 'install', 'finish'],
+    ['overview', 'sheets', 'cut', 'case', 'shelves', 'install', 'finish'],
   );
   assert.ok(guide({ mounting: 'wall', frenchCleat: true }).steps.some(s => s.id === 'cleat'));
 });
@@ -25,10 +25,10 @@ test('steps follow the design: dados, dividers, back, and how it is mounted', ()
 test('every scene only refers to solids that exist, and each part is highlighted when it is added', () => {
   const { steps, solids } = guide({ mounting: 'wall', frenchCleat: true });
   const known = new Set(solids.map(s => s.name));
-  for (const step of steps) {
+  for (const step of steps.filter(s => s.scene)) {
     for (const name of [...step.scene.visible, ...step.scene.highlight]) assert.ok(known.has(name), `${step.id}: ${name}`);
   }
-  const highlightedAt = name => steps.find(s => s.id !== 'cut' && s.scene.highlight.includes(name))?.id;
+  const highlightedAt = name => steps.find(s => s.id !== 'cut' && s.scene?.highlight.includes(name))?.id;
   assert.equal(highlightedAt('Left side'), 'case');
   assert.equal(highlightedAt('Divider 1'), 'dividers');
   assert.equal(highlightedAt('Bay 2 shelf 1'), 'shelves');
@@ -57,18 +57,51 @@ test('instructions carry the real measurements in the chosen unit', () => {
   assert.match(text(inch.steps.find(s => s.id === 'cleat')), /top point .* above where the bottom/);
   const metric = guide({ thickness: 18 / 25.4, bayWidth: 400 / 25.4 }, 'mm');
   assert.match(text(metric.steps.find(s => s.id === 'dividers')), /400 mm/);
-  assert.match(text(metric.steps.find(s => s.id === 'overview')), /18 mm thick/);
+  assert.match(text(metric.steps.find(s => s.id === 'overview')), /full sheets of 18 mm \(2440 mm × 1220 mm\)/);
   assert.ok(metric.steps.find(s => s.id === 'cut').parts.every(p => / mm × .* mm$/.test(p.size)));
 });
 
 test('the printable guide has every step, its picture, and escapes text', () => {
   const g = guide();
   const images = new Map([['case', 'data:image/png;base64,AAAA']]);
-  const html = guidePrintHtml(g, images, 'Shelves <for> "Mom"', '4 bays');
-  for (const step of g.steps) assert.ok(html.includes(step.title.replace(/’/g, '’')), step.id);
-  assert.equal((html.match(/class="step"/g) ?? []).length, g.steps.length);
+  const html = guidePrintHtml(g, images, 'Shelves <for> "Mom"', '4 bays', v => formatLength(v, 'in'));
+  for (const step of g.steps) assert.ok(html.includes(step.title), step.id);
+  assert.equal((html.match(/class="step( sheets)?"/g) ?? []).length, g.steps.length);
   assert.match(html, /<img src="data:image\/png;base64,AAAA"/);
-  assert.equal((html.match(/No illustration/g) ?? []).length, g.steps.length - 1);
+  const drawnSteps = g.steps.filter(s => s.scene).length;
+  assert.equal((html.match(/No illustration/g) ?? []).length, drawnSteps - 1);
+  const sheetCount = g.steps.find(s => s.id === 'sheets').sheets.layouts.length;
+  assert.equal((html.match(/<img src="data:image\/svg\+xml/g) ?? []).length, sheetCount);
   assert.match(html, /<title>Shelves &lt;for&gt; &quot;Mom&quot; — Build guide<\/title>/);
   assert.ok(!html.includes('<for>'));
+});
+
+test('the sheet layout places every part and agrees with the overview', () => {
+  const config = { ...base, bays: 4, shelvesPerBay: [6, 7, 2, 5], mounting: 'wall', frenchCleat: true, toeKick: 0 };
+  const plan = buildShelfPlan(config);
+  const sheets = planGuideSheets(plan, config, 'in');
+  const pieces = plan.parts.reduce((n, p) => n + p.qty, 0);
+  assert.equal(sheets.layouts.reduce((n, l) => n + l.placed.length, 0), pieces);
+  assert.deepEqual(sheets.unplaced, []);
+  assert.equal(sheets.sheetSize, '96" × 48"');
+  const g = buildGuideSteps(plan, config, 'in');
+  assert.match(g.steps[0].instructions[0], new RegExp(`^Plywood: ${sheets.layouts.length} full sheets`));
+  // Every placed part stays inside its sheet.
+  for (const l of sheets.layouts) {
+    for (const p of l.placed) assert.ok(p.x >= 0 && p.y >= 0 && p.x + p.length <= l.sheetLength + 1e-6 && p.y + p.width <= l.sheetWidth + 1e-6, p.partName);
+  }
+  const metric = planGuideSheets(plan, config, 'mm');
+  assert.equal(metric.sheetSize, '2440 mm × 1220 mm');
+  assert.equal(metric.kerf, '3.2 mm');
+});
+
+test('sheet drawings are valid SVG with escaped part names', () => {
+  const config = { ...base, bays: 1, shelvesPerBay: [2] };
+  const plan = buildShelfPlan(config);
+  const sheets = planGuideSheets(plan, config, 'in');
+  const layout = { ...sheets.layouts[0], placed: [{ ...sheets.layouts[0].placed[0], partName: 'Side <A&B>' }] };
+  const svg = sheetLayoutSvg(layout, new Map([['Side <A&B>', '#477F97']]), v => formatLength(v, 'in'));
+  assert.match(svg, /^<svg xmlns="http:\/\/www.w3.org\/2000\/svg"/);
+  assert.match(svg, /Side &lt;A&amp;B&gt;/);
+  assert.ok(!svg.includes('<A&B>'));
 });

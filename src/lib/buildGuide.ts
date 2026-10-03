@@ -2,8 +2,11 @@
 // carries its instructions plus a scene description (which parts are shown,
 // which are highlighted, and from where) that the renderer turns into an image.
 
+import { buildColorMap, optimizeCuts, type CutPiece, type SheetLayout } from './cutPlan.ts';
 import {
+  decimalString,
   formatLength,
+  MM_PER_INCH,
   shelfSolids,
   type LengthUnit,
   type ShelfConfig,
@@ -28,6 +31,18 @@ export interface GuidePart {
   size: string;
 }
 
+export interface GuideSheets {
+  layouts: SheetLayout[];
+  /** Part name → fill colour, consistent across sheets. */
+  colors: Map<string, string>;
+  /** e.g. 96" × 48" or 2440 mm × 1220 mm. */
+  sheetSize: string;
+  kerf: string;
+  yieldPercent: number;
+  /** Parts that fit no full sheet. */
+  unplaced: string[];
+}
+
 export interface GuideStep {
   id: string;
   title: string;
@@ -38,7 +53,9 @@ export interface GuideStep {
   tips: string[];
   /** Safety or accuracy notes that matter more than tips. */
   cautions: string[];
-  scene: GuideScene;
+  /** 3D illustration, or null for steps illustrated another way (the sheet layout). */
+  scene: GuideScene | null;
+  sheets?: GuideSheets;
 }
 
 export interface BuildGuide {
@@ -46,8 +63,6 @@ export interface BuildGuide {
   /** Every solid any scene refers to: the unit's parts plus dado grooves. */
   solids: Solid[];
 }
-
-const SHEET_AREA_SQ_IN = 96 * 48;
 
 /** Visual-only boxes marking dado grooves on the inside faces, for the dado step. */
 export function dadoGrooves(plan: ShelfPlan, config: ShelfConfig): Solid[] {
@@ -77,6 +92,74 @@ export function dadoGrooves(plan: ShelfPlan, config: ShelfConfig): Solid[] {
     plan.bays[j + 1].shelfYs.forEach((y, i) => groove(`Groove divider ${j + 1} right ${i + 1}`, on, 1, x + t - d, x + t + lift, y, y + t));
   });
   return grooves;
+}
+
+/** Lays the parts out on full sheets of the design's plywood: 4×8 (or 2440×1220 in mm) and a typical kerf. */
+export function planGuideSheets(plan: ShelfPlan, config: ShelfConfig, units: LengthUnit): GuideSheets {
+  const metric = units === 'mm';
+  const sheetLength = metric ? 2440 / MM_PER_INCH : 96;
+  const sheetWidth = metric ? 1220 / MM_PER_INCH : 48;
+  const kerf = metric ? 3.2 / MM_PER_INCH : 0.125;
+  const thickness = decimalString(config.thickness);
+  const pieces: CutPiece[] = plan.parts.flatMap(part => Array.from({ length: part.qty }, (_, i) => ({
+    id: `${part.name}-${i}`,
+    partName: part.name,
+    length: part.length,
+    width: part.width,
+    material: 'plywood',
+    thickness,
+  })));
+  const result = optimizeCuts(
+    [{ id: 'sheet', length: sheetLength, width: sheetWidth, qty: 999, label: '', thickness }],
+    pieces,
+    kerf,
+  );
+  return {
+    layouts: result.layouts,
+    colors: buildColorMap(result.layouts),
+    sheetSize: `${formatLength(sheetLength, units)} × ${formatLength(sheetWidth, units)}`,
+    kerf: formatLength(kerf, units),
+    yieldPercent: result.overallYieldPercent,
+    unplaced: result.unplacedPieces,
+  };
+}
+
+const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** One sheet as a standalone SVG: parts in their colours, labelled with name and size where they fit. */
+export function sheetLayoutSvg(layout: SheetLayout, colors: Map<string, string>, formatDim: (inches: number) => string): string {
+  const { sheetLength: L, sheetWidth: W } = layout;
+  const font = '-apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif';
+  const pieces = layout.placed.map(p => {
+    const fill = colors.get(p.partName) ?? '#D99724';
+    const short = Math.min(p.length, p.width);
+    const portrait = p.width > p.length;
+    const cx = p.x + p.length / 2;
+    const cy = p.y + p.width / 2;
+    const rotate = portrait ? ` transform="rotate(-90 ${cx} ${cy})"` : '';
+    const run = portrait ? p.width : p.length;
+    const nameSize = Math.min(short * 0.28, 2.6);
+    const dimSize = Math.min(short * 0.2, 1.9);
+    const showName = short >= 2 && run >= 5;
+    const showDims = short >= 4.5 && run >= 10;
+    const maxChars = Math.max(3, Math.floor(run / (nameSize * 0.6)));
+    const label = p.partName.length > maxChars ? `${p.partName.slice(0, maxChars - 1)}…` : p.partName;
+    const offset = showDims ? nameSize * 0.6 : 0;
+    return `<g>
+      <rect x="${p.x}" y="${p.y}" width="${p.length}" height="${p.width}" fill="${fill}" fill-opacity="0.85" stroke="#15332E" stroke-width="0.15"/>
+      ${showName ? `<text x="${cx}" y="${cy - offset}" font-size="${nameSize.toFixed(2)}" font-family="${font}" font-weight="700" fill="#15332E" text-anchor="middle" dominant-baseline="middle"${rotate}>${escapeXml(label)}</text>` : ''}
+      ${showDims ? `<text x="${cx}" y="${cy + offset * 1.4}" font-size="${dimSize.toFixed(2)}" font-family="${font}" fill="#15332E" text-anchor="middle" dominant-baseline="middle"${rotate}>${escapeXml(`${formatDim(p.length)} × ${formatDim(p.width)}`)}</text>` : ''}
+    </g>`;
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 ${L + 1} ${W + 1}" width="${(L + 1) * 10}" height="${(W + 1) * 10}">
+    <rect x="0" y="0" width="${L}" height="${W}" fill="#F1E4CC" stroke="#15332E" stroke-width="0.3"/>
+    ${pieces}
+  </svg>`;
+}
+
+/** The SVG as an <img>-ready data URL. */
+export function sheetLayoutDataUrl(layout: SheetLayout, colors: Map<string, string>, formatDim: (inches: number) => string): string {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(sheetLayoutSvg(layout, colors, formatDim))}`;
 }
 
 function screwFor(thickness: number, units: LengthUnit): string {
@@ -112,8 +195,8 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     return p ? [{ name: p.name, qty: p.qty, size: `${f(p.length)} × ${f(p.width)}` }] : [];
   };
   const backParts = plan.parts.filter(p => p.name.startsWith('Back'));
-  const totalArea = plan.parts.reduce((sum, p) => sum + p.qty * p.length * p.width, 0);
-  const minSheets = Math.ceil(totalArea / SHEET_AREA_SQ_IN);
+  const sheets = planGuideSheets(plan, config, units);
+  const sheetCount = sheets.layouts.length;
   const screw = screwFor(t, units);
   const steps: GuideStep[] = [];
 
@@ -129,7 +212,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     title: 'What you’re building',
     summary: `A ${n}-bay ${wall ? 'wall-mounted' : 'floor-standing'} unit, ${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.sideDepth)} deep.`,
     instructions: [
-      `Plywood: ${f(t)} thick, at least ${minSheets} full sheet${minSheets === 1 ? '' : 's'} (4×8 / 1220×2440) before waste; a sheet layout (cut plan) gives the real count.`,
+      `Plywood: ${sheetCount} full sheet${sheetCount === 1 ? '' : 's'} of ${f(t)} (${sheets.sheetSize}), laid out in step 2. Buy one extra if you want room for a miscut.`,
       `Fasteners: wood glue and ${screw} wood screws${backParts.length ? '; brad nails or short screws for the back' : ''}${cleat ? `; 3″ (75 mm) screws to fix the wall cleat into studs` : ''}.`,
       `Tools: ${tools.join('; ')}.`,
     ],
@@ -139,7 +222,27 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     scene: { view: 'front', visible: everything, highlight: [] },
   });
 
-  // 2 ── Cut the parts
+  // 2 ── Sheet layout
+  steps.push({
+    id: 'sheets',
+    title: 'Lay out your sheets',
+    summary: `${sheetCount} sheet${sheetCount === 1 ? '' : 's'} of ${sheets.sheetSize}, ${sheets.yieldPercent.toFixed(0)}% of the plywood used.`,
+    instructions: [
+      `Mark each part on its sheet as drawn below, leaving a ${sheets.kerf} saw kerf between cuts.`,
+      'Make the long rip cuts first to break each sheet into strips, then crosscut the strips into parts.',
+      'Keep each sheet’s offcuts until the build is done — they make good spacer blocks and test pieces.',
+    ],
+    parts: [],
+    tips: ['Have the yard rip the sheets into strips if you don’t have room to handle full sheets.'],
+    cautions: [
+      ...(sheets.unplaced.length > 0 ? [`These parts are bigger than a full sheet and need a different plan: ${sheets.unplaced.join(', ')}.`] : []),
+      'This assumes full, flat sheets. For your own offcuts or sheet sizes, use the Sheet layout tool.',
+    ],
+    scene: null,
+    sheets,
+  });
+
+  // 3 ── Cut the parts
   steps.push({
     id: 'cut',
     title: 'Cut every part to size',
@@ -312,6 +415,26 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
 
 // ── Printable guide ───────────────────────────────────────────────────────────
 
+function printSheetsStep(step: GuideStep, sheets: GuideSheets, index: number, formatDim: (inches: number) => string): string {
+  const total = sheets.layouts.length;
+  const figures = sheets.layouts.map((layout, i) => `
+      <figure>
+        <img src="${sheetLayoutDataUrl(layout, sheets.colors, formatDim)}" alt="Sheet ${i + 1} layout">
+        <figcaption>Sheet ${i + 1} of ${total} · ${(100 - layout.wastePercent).toFixed(0)}% used</figcaption>
+      </figure>`).join('');
+  return `
+    <section class="step sheets">
+      <div class="body">
+        <h2><span class="num">${index + 1}</span>${escapeHtml(step.title)}</h2>
+        <p class="summary">${escapeHtml(step.summary)}</p>
+        <ol>${step.instructions.map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ol>
+        ${step.cautions.map(c => `<p class="note caution">⚠ ${escapeHtml(c)}</p>`).join('')}
+        ${step.tips.map(t => `<p class="note">Tip: ${escapeHtml(t)}</p>`).join('')}
+        <div class="sheet-grid">${figures}</div>
+      </div>
+    </section>`;
+}
+
 const escapeHtml = (s: string) => s
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -325,11 +448,13 @@ export function guidePrintHtml(
   images: Map<string, string>,
   title: string,
   subtitle: string,
+  formatDim: (inches: number) => string,
 ): string {
   const steps = guide.steps.map((step, i) => {
+    if (step.sheets) return printSheetsStep(step, step.sheets, i, formatDim);
     const img = images.get(step.id);
     const legend = step.id === 'dados' ? 'Dados to cut are marked in red.'
-      : step.scene.highlight.length > 0 && step.id !== 'cut' ? 'Parts added in this step are shown in blue.' : '';
+      : step.scene && step.scene.highlight.length > 0 && step.id !== 'cut' ? 'Parts added in this step are shown in blue.' : '';
     const parts = step.parts.length === 0 ? '' : `
       <table><thead><tr><th>Part</th><th>Qty</th><th>Size</th></tr></thead><tbody>
         ${step.parts.map(p => `<tr><td>${escapeHtml(p.name)}</td><td>${p.qty}</td><td>${escapeHtml(p.size)}</td></tr>`).join('')}
@@ -374,6 +499,11 @@ export function guidePrintHtml(
   table { width: 100%; margin: 4pt 0 6pt; border-collapse: collapse; font-size: 9pt; }
   th, td { padding: 3pt 5pt; border-bottom: 0.5pt solid #C9DAD5; text-align: left; }
   th { color: #58716B; font-size: 8pt; }
+  .step.sheets { grid-template-columns: 1fr; }
+  .sheet-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8pt; margin-top: 6pt; }
+  .sheet-grid figure { margin: 0; break-inside: avoid; }
+  .sheet-grid img { width: 100%; border: 0.75pt solid #C9DAD5; border-radius: 4pt; }
+  .sheet-grid figcaption { color: #58716B; font-size: 8.5pt; }
   .note { margin: 4pt 0 0; padding: 4pt 6pt; border-radius: 4pt; background: #EEF4F2; font-size: 9pt; }
   .caution { background: #FBF0DC; }
   @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }

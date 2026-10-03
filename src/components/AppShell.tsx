@@ -4,6 +4,7 @@ import {
   LogOut,
   Moon,
   Ruler,
+  Rows3,
   Search,
   Settings,
   ShoppingCart,
@@ -27,6 +28,7 @@ import { CreateProjectMenu } from './workflows';
 const NAV_ICONS: Record<NavigationId, ComponentType<{ size?: number; strokeWidth?: number }>> = {
   projects: Hammer,
   shopping: ShoppingCart,
+  shelves: Rows3,
   conversions: Ruler,
   notebook: BookOpen,
   settings: Settings,

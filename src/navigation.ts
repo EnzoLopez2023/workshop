@@ -1,4 +1,4 @@
-export type NavigationId = 'projects' | 'shopping' | 'conversions' | 'notebook' | 'settings';
+export type NavigationId = 'projects' | 'shopping' | 'shelves' | 'conversions' | 'notebook' | 'settings';
 
 export interface NavigationItem {
   id: NavigationId;
@@ -26,11 +26,18 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     matchPrefixes: ['/shopping-list'],
   },
   {
+    id: 'shelves',
+    label: 'Shelf Builder',
+    compactLabel: 'Shelves',
+    href: '/shelves',
+    matchPrefixes: ['/shelves'],
+  },
+  {
     id: 'conversions',
     label: 'Conversion Tables',
     compactLabel: 'Tables',
     href: '/conversions',
-    matchPrefixes: ['/conversions', '/shelves'],
+    matchPrefixes: ['/conversions'],
   },
   {
     id: 'notebook',

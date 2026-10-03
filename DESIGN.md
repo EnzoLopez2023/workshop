@@ -284,7 +284,7 @@ The primary page column is `min(100%, 1200px)`, centered with 16px mobile insets
 
 The active project is the first substantial layer after the page switcher. Below a 680px page container it stacks a minimum 270px photo/plan over the next-action sheet. At 680px and above it becomes a two-column layer with a minimum 430px hero; the action sheet occupies at least 300px / 38%, overlaps the media by 34px, and keeps a 24px inset. Library cards use an adaptive 280px minimum; templates use 240px.
 
-Mobile uses a fixed utility header (`60px` plus top safe area), five-destination bottom navigation (`66px` plus bottom safe area), 44px icon controls, and content clearance of 64px above and 72px below. At 768px the compact shell becomes a persistent 256px sidebar; at 1040px it widens to 272px. A 420px breakpoint reduces page insets to 12px. Container thresholds at 620px and 680px adapt tools and the active project without tying layout to device orientation.
+Mobile uses a fixed utility header (`60px` plus top safe area), six-destination bottom navigation (`66px` plus bottom safe area), 44px icon controls, and content clearance of 64px above and 72px below. At 768px the compact shell becomes a persistent 256px sidebar; at 1040px it widens to 272px. A 420px breakpoint reduces page insets to 12px. Container thresholds at 620px and 680px adapt tools and the active project without tying layout to device orientation.
 
 The 768px shell breakpoint and the page container thresholds solve different problems. At an 820px viewport the sidebar is correctly present, but the remaining content column is only about 564px before page insets; dashboard tools therefore stay stacked and the active-project layer stays single-column. They expand only when the named page container itself reaches 620px and 680px. Do not replace these container queries with viewport queries.
 
@@ -396,7 +396,7 @@ The command palette and media previews are modal dialogs: background content bec
 ### Navigation
 
 - **Wide shell:** A 256–272px frosted sidebar with 46px destinations, 14px radius, icons plus labels, persistent create actions, search shortcut, theme control, and account actions.
-- **Compact shell:** A frosted top utility bar and safe-area bottom navigation. Five labeled destinations stay visible; current state uses spruce text, a faint fill, `aria-current`, and a 3px marker.
+- **Compact shell:** A frosted top utility bar and safe-area bottom navigation. Six labeled destinations stay visible; current state uses spruce text, a faint fill, `aria-current`, and a 3px marker.
 - **Keyboard:** Skip link, command palette, native links, visible focus, and durable routes are mandatory browser behavior.
 
 ### Shared Primitives

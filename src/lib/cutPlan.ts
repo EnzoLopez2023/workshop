@@ -386,3 +386,38 @@ export function explainUnplaced(stocks: StockSheet[], pieces: CutPiece[], layout
   const order: UnplacedReason[] = ['thickness', 'material', 'too-large', 'out-of-stock'];
   return order.flatMap(r => (groups.has(r) ? [groups.get(r)!] : []));
 }
+
+// ── Display helpers (shared by the cut plan view and the build guide) ────────
+
+/* Distinct design-system fills keep repeated parts legible across sheets. */
+export const PALETTE = [
+  '#D99724', '#477F97', '#668E50', '#A95F49', '#7868A2',
+  '#1E7666', '#C75A50', '#3F936D', '#5B9DB8', '#9281BD',
+];
+
+export function buildColorMap(layouts: SheetLayout[]): Map<string, string> {
+  const map = new Map<string, string>();
+  let idx = 0;
+  for (const layout of layouts) {
+    for (const p of layout.placed) {
+      if (!map.has(p.partName)) {
+        map.set(p.partName, PALETTE[idx % PALETTE.length]);
+        idx++;
+      }
+    }
+  }
+  return map;
+}
+
+export function fmtDim(inches: number): string {
+  const whole = Math.floor(inches);
+  const frac = inches - whole;
+  if (frac < 0.01) return `${whole}"`;
+  const FRACS: [number, string][] = [
+    [0.125, '⅛'], [0.25, '¼'], [0.375, '⅜'], [0.5, '½'],
+    [0.625, '⅝'], [0.75, '¾'], [0.875, '⅞'],
+  ];
+  const match = FRACS.find(([v]) => Math.abs(frac - v) < 0.04);
+  if (match) return whole > 0 ? `${whole}${match[1]}"` : `${match[1]}"`;
+  return `${inches.toFixed(2)}"`;
+}

@@ -452,7 +452,8 @@ p {
   inset: auto 0 0;
   z-index: 50;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   min-height: calc(66px + env(safe-area-inset-bottom));
   padding: 5px 4px env(safe-area-inset-bottom);
   border-top: 1px solid color-mix(in srgb, var(--color-divider) 76%, transparent);
@@ -6634,8 +6635,7 @@ tbody td {
   margin-bottom: 22px;
 }
 
-.shelf-page .page-head-actions a.btn,
-.conversion-page .page-head-actions a.btn {
+.shelf-page .page-head-actions a.btn {
   text-decoration: none;
 }
 
@@ -7657,4 +7657,72 @@ tbody td {
 
 .shelf-guide-swatch.is-groove {
   background: #c0552f;
+}
+
+.shelf-guide-step.is-sheets {
+  grid-template-columns: 1fr;
+}
+
+.shelf-guide-sheets {
+  display: grid;
+  gap: 12px;
+}
+
+.shelf-guide-sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 14px;
+}
+
+.shelf-guide-sheet-grid figure {
+  margin: 0;
+}
+
+.shelf-guide-sheet-grid img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-compact);
+  background: #fafcfb;
+}
+
+.shelf-guide-sheet-grid figcaption {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.shelf-guide-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  font-size: 0.8rem;
+  list-style: none;
+}
+
+.shelf-guide-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.shelf-guide-legend span {
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--color-divider-strong);
+  border-radius: 3px;
+}
+
+.shelf-height-mode {
+  display: grid;
+  gap: 6px;
+}
+
+.shelf-height-mode small {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
 }

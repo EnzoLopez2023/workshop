@@ -23,6 +23,8 @@ interface Props {
   units: LengthUnit;
   /** Preselects this project (the one whose design is open) and defaults to replacing its parts. */
   initialProjectId?: number;
+  /** Which height the designer typed, so the design reopens the same way. */
+  heightMode?: 'bay' | 'overall';
   onClose: () => void;
 }
 
@@ -30,7 +32,7 @@ type Load<T> = { state: 'loading' } | { state: 'error'; message: string } | { st
 
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'Something went wrong.');
 
-export default function ShelfAddToProject({ plan, config, units, initialProjectId, onClose }: Props) {
+export default function ShelfAddToProject({ plan, config, units, initialProjectId, heightMode = 'overall', onClose }: Props) {
   const demo = isDemoMode();
   const items = useMemo(() => projectCutItems(plan), [plan]);
   const pieceCount = items.reduce((sum, i) => sum + i.qty, 0);
@@ -122,7 +124,7 @@ export default function ShelfAddToProject({ plan, config, units, initialProjectI
     if (!result.error) {
       // The design itself powers the project page's 3D preview.
       try {
-        await saveShelfDesign(id!, toSavedShelfDesign(config, units));
+        await saveShelfDesign(id!, toSavedShelfDesign(config, units, heightMode));
         text += ' The 3D preview is on the project page.';
       } catch (err) {
         ok = false;

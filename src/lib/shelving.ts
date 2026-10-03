@@ -478,11 +478,13 @@ export const SHELF_DESIGN_VERSION = 1;
 export interface SavedShelfDesign {
   version: 1;
   units: LengthUnit;
+  /** Which height the designer typed; the config always stores the overall height. */
+  heightMode: 'bay' | 'overall';
   config: ShelfConfig;
 }
 
-export function toSavedShelfDesign(config: ShelfConfig, units: LengthUnit): SavedShelfDesign {
-  return { version: SHELF_DESIGN_VERSION, units, config: { ...config, units } };
+export function toSavedShelfDesign(config: ShelfConfig, units: LengthUnit, heightMode: 'bay' | 'overall' = 'overall'): SavedShelfDesign {
+  return { version: SHELF_DESIGN_VERSION, units, heightMode, config: { ...config, units } };
 }
 
 /**
@@ -513,6 +515,8 @@ export function readSavedShelfDesign(raw: unknown): SavedShelfDesign | null {
   return {
     version: SHELF_DESIGN_VERSION,
     units,
+    // Designs saved before bay height existed were all typed as overall height.
+    heightMode: value.heightMode === 'bay' ? 'bay' : 'overall',
     config: {
       thickness, bayWidth, shelfDepth, height,
       bays: Math.floor(bays),
@@ -536,6 +540,11 @@ export interface ShelfDesignFields {
   thickness: string;
   bayWidth: string;
   shelfDepth: string;
+  /** Which of the two height fields drives the design. */
+  heightMode: 'bay' | 'overall';
+  /** Clear height of each bay. */
+  bayHeight: string;
+  /** Overall height of the unit. */
   height: string;
   bays: number;
   shelvesPerBay: number[];
@@ -559,6 +568,8 @@ export function shelfDesignToFields(saved: SavedShelfDesign): ShelfDesignFields 
     thickness: field(config.thickness),
     bayWidth: field(config.bayWidth),
     shelfDepth: field(config.shelfDepth),
+    heightMode: saved.heightMode,
+    bayHeight: field(config.height - heightAllowance(config)),
     height: field(config.height),
     bays: config.bays,
     shelvesPerBay: [...config.shelvesPerBay],
@@ -572,4 +583,28 @@ export function shelfDesignToFields(saved: SavedShelfDesign): ShelfDesignFields 
     frenchCleat: config.frenchCleat,
     cleatHeight: field(config.cleatHeight),
   };
+}
+
+// ── Bay height ↔ overall height ───────────────────────────────────────────────
+
+export type HeightMode = 'bay' | 'overall';
+
+type HeightInputs = Pick<ShelfConfig, 'thickness' | 'topPanel' | 'bottomPanel' | 'mounting' | 'toeKick'>;
+
+/**
+ * What the case adds around the clear bay height: the top and bottom panels,
+ * plus the toe kick (floor units with a bottom only — the same rule buildShelfPlan uses).
+ */
+export function heightAllowance(c: HeightInputs): number {
+  const kick = c.mounting === 'floor' && c.bottomPanel ? Math.max(0, c.toeKick) : 0;
+  return (c.topPanel ? c.thickness : 0) + (c.bottomPanel ? c.thickness : 0) + kick;
+}
+
+/** Overall height for a clear bay height (bottom panel's top face to the top panel's underside). */
+export function overallFromBayHeight(bayHeight: number, c: HeightInputs): number {
+  return bayHeight + heightAllowance(c);
+}
+
+export function bayHeightFromOverall(overall: number, c: HeightInputs): number {
+  return overall - heightAllowance(c);
 }

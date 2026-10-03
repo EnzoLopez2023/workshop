@@ -204,3 +204,33 @@ test('a saved design reopens as form fields that rebuild the same cut list', () 
   }
   assert.equal(shelfDesignToFields(readSavedShelfDesign(toSavedShelfDesign(base, 'in'))).bayWidth, '17 1/2');
 });
+
+test('bay height and overall height convert through the panels and toe kick', async () => {
+  const { bayHeightFromOverall, heightAllowance, overallFromBayHeight } = await import('../src/lib/shelving.ts');
+  const floor = { thickness: 0.75, topPanel: true, bottomPanel: true, mounting: 'floor', toeKick: 3 };
+  assert.equal(heightAllowance(floor), 4.5);
+  assert.equal(overallFromBayHeight(69.5, floor), 74);
+  assert.equal(bayHeightFromOverall(74, floor), 69.5);
+  // The toe kick only counts for floor units with a bottom panel.
+  assert.equal(heightAllowance({ ...floor, mounting: 'wall' }), 1.5);
+  assert.equal(heightAllowance({ ...floor, bottomPanel: false }), 0.75);
+  assert.equal(heightAllowance({ ...floor, topPanel: false, bottomPanel: false }), 0);
+  // It matches the clear height buildShelfPlan actually produces.
+  for (const c of [floor, { ...floor, mounting: 'wall' }, { ...floor, topPanel: false }, { ...floor, bottomPanel: false }]) {
+    const plan = buildShelfPlan({ ...base, ...c, height: overallFromBayHeight(60, c) });
+    assert.ok(Math.abs(plan.interiorTop - plan.interiorBottom - 60) < 1e-9, JSON.stringify(c));
+  }
+});
+
+test('saved designs remember the height mode and reopen with both heights filled in', () => {
+  const config = { ...base, toeKick: 3 }; // 74" overall, 3/4" top and bottom, 3" kick
+  const bay = readSavedShelfDesign(JSON.parse(JSON.stringify(toSavedShelfDesign(config, 'in', 'bay'))));
+  assert.equal(bay.heightMode, 'bay');
+  const fields = shelfDesignToFields(bay);
+  assert.equal(fields.heightMode, 'bay');
+  assert.equal(fields.bayHeight, '69 1/2');
+  assert.equal(fields.height, '74');
+  // Designs saved before bay height existed reopen as overall height.
+  const legacy = readSavedShelfDesign({ version: 1, units: 'in', config });
+  assert.equal(legacy.heightMode, 'overall');
+});

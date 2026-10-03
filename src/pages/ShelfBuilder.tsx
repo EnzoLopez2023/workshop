@@ -14,6 +14,9 @@ import {
   formatLength,
   lengthToField,
   parseLength,
+  bayHeightFromOverall,
+  heightAllowance,
+  overallFromBayHeight,
   readSavedShelfDesign,
   shelfDesignToFields,
   type ShelfDesignFields,
@@ -40,6 +43,8 @@ const DEFAULT_FORM: FormState = {
   thickness: '3/4',
   bayWidth: '17 1/2',
   shelfDepth: '11 1/4',
+  heightMode: 'bay',
+  bayHeight: '69 1/2', // 74" overall with 3/4" top and bottom and a 3" toe kick
   height: '74',
   bays: 4,
   shelvesPerBay: [6, 7, 2, 5],
@@ -65,7 +70,12 @@ const UNIT_OPTIONS = [
   { value: 'mm', label: 'Millimeters' },
 ] as const;
 
-const LENGTH_FIELDS = ['thickness', 'bayWidth', 'shelfDepth', 'height', 'dadoDepth', 'toeKick', 'cleatHeight'] as const;
+const LENGTH_FIELDS = ['thickness', 'bayWidth', 'shelfDepth', 'bayHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight'] as const;
+
+const HEIGHT_MODE_OPTIONS = [
+  { value: 'bay', label: 'Bay height' },
+  { value: 'overall', label: 'Overall height' },
+] as const;
 
 /** Rewrites every size field into the other unit; values that don't parse are left as typed. */
 function convertForm(form: FormState, units: LengthUnit): FormState {
@@ -111,6 +121,8 @@ function readStoredForm(): FormState {
     if (!raw) return DEFAULT_FORM;
     const parsed = JSON.parse(raw) as Partial<FormState>;
     const merged = { ...DEFAULT_FORM, ...parsed };
+    // Designs from before bay height existed typed the overall height; keep that meaning.
+    if (parsed.heightMode !== 'bay' && parsed.heightMode !== 'overall') merged.heightMode = 'overall';
     if (merged.units !== 'mm') merged.units = 'in';
     if (!Array.isArray(merged.shelvesPerBay)) merged.shelvesPerBay = DEFAULT_FORM.shelvesPerBay;
     return merged;
@@ -137,9 +149,12 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
   const thickness = num('thickness');
   const bayWidth = num('bayWidth');
   const shelfDepth = num('shelfDepth');
-  const height = num('height');
   const dadoDepth = form.joinery === 'dado' ? num('dadoDepth') : 0;
   const toeKick = form.mounting === 'floor' && form.bottomPanel ? num('toeKick', { allowZero: true }) : 0;
+  // In bay mode the overall height follows the bay height plus top, bottom and toe kick.
+  const height = form.heightMode === 'bay'
+    ? overallFromBayHeight(num('bayHeight'), { thickness, topPanel: form.topPanel, bottomPanel: form.bottomPanel, mounting: form.mounting, toeKick })
+    : num('height');
   const cleatHeight = form.mounting === 'wall' && form.frenchCleat ? num('cleatHeight') : 3;
   if (Object.keys(fieldErrors).length > 0) return { config: null, fieldErrors };
   return {
@@ -279,6 +294,17 @@ export default function ShelfBuilder() {
     setForm(prev => ({ ...prev, ...patch }));
   };
 
+  // Switching fills the newly active height from the current design, so nothing changes size.
+  const setHeightMode = (heightMode: FormState['heightMode']) => {
+    if (heightMode === form.heightMode) return;
+    const patch: Partial<FormState> = { heightMode };
+    if (config) {
+      if (heightMode === 'bay') patch.bayHeight = lengthToField(bayHeightFromOverall(config.height, config), units);
+      else patch.height = lengthToField(config.height, units);
+    }
+    update(patch);
+  };
+
   const setBays = (bays: number) => {
     const next = Math.min(MAX_BAYS, Math.max(1, bays));
     setForm(prev => {
@@ -399,10 +425,36 @@ export default function ShelfBuilder() {
 
           <fieldset className="shelf-group">
             <legend>Bays</legend>
+            <div className="shelf-height-mode">
+              <SegmentedControl label="Set the height by" value={form.heightMode} options={HEIGHT_MODE_OPTIONS} onChange={setHeightMode} />
+              <small>
+                {form.heightMode === 'bay'
+                  ? 'The clear opening inside each bay. The overall height adds the top, bottom and toe kick.'
+                  : 'The total height of the unit. The bay height is whatever is left inside.'}
+              </small>
+            </div>
             <div className="shelf-field-grid">
               <LengthField unit={units} label="Bay width (clear)" value={form.bayWidth} error={fieldErrors.bayWidth} onChange={bayWidth => update({ bayWidth })} />
               <LengthField unit={units} label="Shelf depth" value={form.shelfDepth} error={fieldErrors.shelfDepth} onChange={shelfDepth => update({ shelfDepth })} />
-              <LengthField unit={units} label="Overall height" value={form.height} error={fieldErrors.height} onChange={height => update({ height })} />
+              {form.heightMode === 'bay' ? (
+                <LengthField
+                  unit={units}
+                  label="Bay height (clear)"
+                  value={form.bayHeight}
+                  error={fieldErrors.bayHeight}
+                  hint={config ? `Overall ${fmt(config.height)}` : undefined}
+                  onChange={bayHeight => update({ bayHeight })}
+                />
+              ) : (
+                <LengthField
+                  unit={units}
+                  label="Overall height"
+                  value={form.height}
+                  error={fieldErrors.height}
+                  hint={config ? `Bays ${fmt(config.height - heightAllowance(config))} clear` : undefined}
+                  onChange={height => update({ height })}
+                />
+              )}
               <div className="form-field">
                 <span className="form-field-label" id="bay-count-label">Number of bays</span>
                 <Stepper
@@ -613,6 +665,7 @@ export default function ShelfBuilder() {
                   config={config!}
                   units={units}
                   initialProjectId={source?.id}
+                  heightMode={form.heightMode}
                   onClose={() => setAddingToProject(false)}
                 />
               </div>
