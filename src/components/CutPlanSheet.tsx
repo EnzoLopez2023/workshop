@@ -39,9 +39,11 @@ interface Props {
   totalSheets: number;
   colorMap: Map<string, string>;
   stockLabel?: string;
+  /** Formats an inch value for display; defaults to fractional inches. */
+  formatDim?: (inches: number) => string;
 }
 
-export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMap, stockLabel }: Props) {
+export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMap, stockLabel, formatDim = fmtDim }: Props) {
   const { sheetLength, sheetWidth, placed, wastePercent } = layout;
 
   const maxPx = 740;
@@ -51,7 +53,7 @@ export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMa
 
   const headerParts = [
     `Sheet ${sheetNumber} of ${totalSheets}`,
-    `${fmtDim(sheetLength)} × ${fmtDim(sheetWidth)}`,
+    `${formatDim(sheetLength)} × ${formatDim(sheetWidth)}`,
     `Yield: ${(100 - wastePercent).toFixed(1)}%`,
   ];
   if (stockLabel) headerParts.push(stockLabel);
@@ -93,7 +95,7 @@ export default function CutPlanSheet({ layout, sheetNumber, totalSheets, colorMa
           const textAvailPx = isPortrait ? pxH : pxW;
           const maxChars = Math.max(3, Math.floor(textAvailPx / 6.5));
           const label = p.partName.length > maxChars ? p.partName.slice(0, maxChars - 1) + '…' : p.partName;
-          const dimLabel = `${fmtDim(p.length)} × ${fmtDim(p.width)}`;
+          const dimLabel = `${formatDim(p.length)} × ${formatDim(p.width)}`;
 
           const showDims = Math.max(pxW, pxH) >= 40 && Math.min(pxW, pxH) >= 18;
 

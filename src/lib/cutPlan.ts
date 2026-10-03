@@ -329,3 +329,60 @@ function placePiece(sheet: OpenSheet, rectIdx: number, piece: CutPiece, kerf: nu
   const newRects = guillotineSplit(rect, pl, pw, kerf);
   sheet.freeRects.splice(rectIdx, 1, ...newRects);
 }
+
+// ── Why pieces were left off ──────────────────────────────────────────────────
+
+export type UnplacedReason = 'thickness' | 'material' | 'too-large' | 'out-of-stock';
+
+export interface UnplacedGroup {
+  reason: UnplacedReason;
+  /** Part names in this group, in cut-list order. */
+  parts: string[];
+  /** Number of individual pieces left off. */
+  count: number;
+  /** Distinct piece thicknesses / materials / largest sizes involved, for the message. */
+  thicknesses: string[];
+  materials: string[];
+  largest: { length: number; width: number } | null;
+}
+
+function fitsStock(piece: CutPiece, stock: StockSheet): boolean {
+  return (piece.length <= stock.length && piece.width <= stock.width)
+    || (piece.width <= stock.length && piece.length <= stock.width);
+}
+
+/**
+ * Groups every piece the optimizer could not place by the first rule that
+ * excludes it: no sheet of that thickness, no sheet whose label matches its
+ * material, bigger than every matching sheet, or simply not enough sheets.
+ */
+export function explainUnplaced(stocks: StockSheet[], pieces: CutPiece[], layouts: SheetLayout[]): UnplacedGroup[] {
+  const placed = new Set(layouts.flatMap(l => l.placed.map(p => p.pieceId)));
+  const groups = new Map<UnplacedReason, UnplacedGroup>();
+
+  for (const piece of pieces) {
+    if (placed.has(piece.id)) continue;
+    const sameThickness = stocks.filter(s => thicknessMatches(s.thickness, piece.thickness));
+    const sameMaterial = sameThickness.filter(s => matchesMaterial(piece, s));
+    const reason: UnplacedReason = sameThickness.length === 0 ? 'thickness'
+      : sameMaterial.length === 0 ? 'material'
+      : !sameMaterial.some(s => fitsStock(piece, s)) ? 'too-large'
+      : 'out-of-stock';
+
+    let group = groups.get(reason);
+    if (!group) {
+      group = { reason, parts: [], count: 0, thicknesses: [], materials: [], largest: null };
+      groups.set(reason, group);
+    }
+    group.count += 1;
+    if (!group.parts.includes(piece.partName)) group.parts.push(piece.partName);
+    if (piece.thickness && !group.thicknesses.includes(piece.thickness)) group.thicknesses.push(piece.thickness);
+    if (piece.material && !group.materials.includes(piece.material)) group.materials.push(piece.material);
+    if (!group.largest || piece.length * piece.width > group.largest.length * group.largest.width) {
+      group.largest = { length: piece.length, width: piece.width };
+    }
+  }
+
+  const order: UnplacedReason[] = ['thickness', 'material', 'too-large', 'out-of-stock'];
+  return order.flatMap(r => (groups.has(r) ? [groups.get(r)!] : []));
+}
