@@ -1,9 +1,9 @@
 import { lazy, Suspense, useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, Clock, Layers, DollarSign, Gauge, Trash2, ExternalLink, FileText, X, Scissors,
-  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate, Printer, Download, Check, Hammer, Box,
+  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate, Printer, Download, Check, Hammer, Box, Rows3,
 } from 'lucide-react';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import {
@@ -776,7 +776,16 @@ function ProjectShelfPreview({ projectId }: { projectId: number }) {
   const mounting = config.mounting === 'wall' ? (config.frenchCleat ? 'wall mount, French cleat' : 'wall mount') : 'floor unit';
 
   return (
-    <Section title="3D Preview" icon={<Box size={13} />}>
+    <Section
+      title="3D Preview"
+      icon={<Box size={13} />}
+      right={(
+        <Link to={`/shelves?project=${projectId}`} className="btn btn-ghost">
+          <Rows3 size={13} aria-hidden="true" />
+          <span>Open in Shelf Builder</span>
+        </Link>
+      )}
+    >
       <p className="project-shelf-summary">
         {summary} · {plan.bays.length} bay{plan.bays.length === 1 ? '' : 's'} · {f(config.thickness)} plywood · {mounting}
       </p>

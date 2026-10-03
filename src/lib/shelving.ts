@@ -298,10 +298,14 @@ function splitBack(height: number, dividerXs: number[], t: number, overallWidth:
 // Visible extents of each part (dado tongues are hidden inside their housings,
 // so they are not modeled). x → right, y → up, z → back from the front edge.
 
-export type SolidKind = 'case' | 'shelf' | 'back' | 'cleat' | 'wall-cleat';
+export type SolidKind = 'case' | 'shelf' | 'back' | 'cleat' | 'wall-cleat' | 'groove';
 
 export type Solid =
-  | { name: string; kind: SolidKind; shape: 'box'; min: [number, number, number]; max: [number, number, number] }
+  | {
+    name: string; kind: SolidKind; shape: 'box'; min: [number, number, number]; max: [number, number, number];
+    /** For grooves: the part they are cut into, and which way its grooved face points along x. */
+    on?: string; face?: 1 | -1;
+  }
   /** A profile in the (z, y) plane extruded from x0 to x1 — used for beveled cleats. */
   | { name: string; kind: SolidKind; shape: 'prism'; x0: number; x1: number; profile: [number, number][] };
 
@@ -524,5 +528,48 @@ export function readSavedShelfDesign(raw: unknown): SavedShelfDesign | null {
       cleatHeight: num('cleatHeight', 0.5, 24) ?? 3,
       units,
     },
+  };
+}
+
+export interface ShelfDesignFields {
+  units: LengthUnit;
+  thickness: string;
+  bayWidth: string;
+  shelfDepth: string;
+  height: string;
+  bays: number;
+  shelvesPerBay: number[];
+  topPanel: boolean;
+  bottomPanel: boolean;
+  backPanel: boolean;
+  joinery: Joinery;
+  dadoDepth: string;
+  mounting: Mounting;
+  toeKick: string;
+  frenchCleat: boolean;
+  cleatHeight: string;
+}
+
+/** Turns a saved design back into Shelf Builder form fields, in the unit it was designed in. */
+export function shelfDesignToFields(saved: SavedShelfDesign): ShelfDesignFields {
+  const { config, units } = saved;
+  const field = (inches: number) => lengthToField(inches, units);
+  return {
+    units,
+    thickness: field(config.thickness),
+    bayWidth: field(config.bayWidth),
+    shelfDepth: field(config.shelfDepth),
+    height: field(config.height),
+    bays: config.bays,
+    shelvesPerBay: [...config.shelvesPerBay],
+    topPanel: config.topPanel,
+    bottomPanel: config.bottomPanel,
+    backPanel: config.backPanel,
+    joinery: config.joinery,
+    dadoDepth: config.dadoDepth > 0 ? field(config.dadoDepth) : (units === 'mm' ? '6' : '1/4'),
+    mounting: config.mounting,
+    toeKick: config.toeKick > 0 ? field(config.toeKick) : '0',
+    frenchCleat: config.frenchCleat,
+    cleatHeight: field(config.cleatHeight),
   };
 }

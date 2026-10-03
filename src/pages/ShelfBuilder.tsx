@@ -1,21 +1,24 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, Check, Clipboard, FolderPlus, Minus, Plus, Printer, RotateCcw,
+  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, FolderPlus, Minus, Plus, Printer, RotateCcw,
 } from 'lucide-react';
 import { Button, IconButton, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import ShelfAddToProject from '../components/ShelfAddToProject';
+import ShelfBuildGuide from '../components/ShelfBuildGuide';
+import { getProject, getShelfDesign } from '../services/api';
 import {
   buildShelfPlan,
   decimalString,
   formatLength,
   lengthToField,
   parseLength,
+  readSavedShelfDesign,
+  shelfDesignToFields,
+  type ShelfDesignFields,
   shelfSolids,
-  type Joinery,
   type LengthUnit,
-  type Mounting,
   type ShelfConfig,
   type ShelfPlan,
 } from '../lib/shelving';
@@ -25,27 +28,12 @@ const ShelfViewer3D = lazy(() => import('../components/ShelfViewer3D'));
 
 const STORAGE_KEY = 'workshop-shelf-builder';
 const VIEW_STORAGE_KEY = 'workshop-shelf-builder-view';
+/** The design that was in the builder before a project's design was opened over it. */
+const PREVIOUS_STORAGE_KEY = 'workshop-shelf-builder-previous';
 const MAX_BAYS = 12;
 const MAX_SHELVES = 20;
 
-interface FormState {
-  units: LengthUnit;
-  thickness: string;
-  bayWidth: string;
-  shelfDepth: string;
-  height: string;
-  bays: number;
-  shelvesPerBay: number[];
-  topPanel: boolean;
-  bottomPanel: boolean;
-  backPanel: boolean;
-  joinery: Joinery;
-  dadoDepth: string;
-  mounting: Mounting;
-  toeKick: string;
-  frenchCleat: boolean;
-  cleatHeight: string;
-}
+type FormState = ShelfDesignFields;
 
 const DEFAULT_FORM: FormState = {
   units: 'in',
@@ -194,6 +182,72 @@ export default function ShelfBuilder() {
   const [copyStatus, setCopyStatus] = useState('');
   const [view, setView] = useState<PreviewMode>(readStoredView);
   const [addingToProject, setAddingToProject] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [source, setSource] = useState<{ id: number; title: string } | null>(null);
+  const [loadNotice, setLoadNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
+  const [hasPrevious, setHasPrevious] = useState(false);
+  const formRef = useRef(form);
+  formRef.current = form;
+
+  // ?project=<id> opens that project's saved design (from its 3D preview).
+  const projectParam = searchParams.get('project');
+  useEffect(() => {
+    if (projectParam == null) return;
+    const id = Number(projectParam);
+    let cancelled = false;
+    const finish = () => setSearchParams(prev => { prev.delete('project'); return prev; }, { replace: true });
+    if (!Number.isInteger(id) || id <= 0) {
+      setLoadNotice({ tone: 'error', text: `“${projectParam}” isn’t a project number, so nothing was opened.` });
+      finish();
+      return;
+    }
+    setLoadNotice({ tone: 'info', text: 'Opening the project’s design…' });
+    Promise.all([getProject(id), getShelfDesign(id)])
+      .then(([project, { design }]) => {
+        if (cancelled) return;
+        const saved = design == null ? null : readSavedShelfDesign(design);
+        if (!saved) {
+          setLoadNotice({
+            tone: 'error',
+            text: design == null
+              ? `“${project.title}” has no Shelf Builder design saved, so your current design was kept.`
+              : `The design saved on “${project.title}” couldn’t be read, so your current design was kept.`,
+          });
+          return;
+        }
+        try {
+          localStorage.setItem(PREVIOUS_STORAGE_KEY, JSON.stringify(formRef.current));
+          setHasPrevious(true);
+        } catch {
+          setHasPrevious(false);
+        }
+        setForm(shelfDesignToFields(saved));
+        setSource({ id, title: project.title });
+        setLoadNotice(null);
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.error('Opening project design failed', err);
+        const reason = err instanceof Error && err.message ? err.message : 'the request failed';
+        setLoadNotice({ tone: 'error', text: `Project ${id}’s design couldn’t be opened (${reason}), so your current design was kept.` });
+      })
+      .finally(() => !cancelled && finish());
+    return () => { cancelled = true; };
+  }, [projectParam, setSearchParams]);
+
+  const restorePrevious = () => {
+    try {
+      const raw = localStorage.getItem(PREVIOUS_STORAGE_KEY);
+      if (raw) setForm({ ...DEFAULT_FORM, ...(JSON.parse(raw) as Partial<FormState>) });
+      localStorage.removeItem(PREVIOUS_STORAGE_KEY);
+    } catch {
+      setLoadNotice({ tone: 'error', text: 'Your previous design couldn’t be restored from this browser.' });
+    }
+    setHasPrevious(false);
+    setSource(null);
+    setAddingToProject(false);
+  };
   const units = form.units;
   const fmt = (inches: number) => formatLength(inches, units);
   const otherUnit = (inches: number) => formatLength(inches, units === 'mm' ? 'in' : 'mm');
@@ -275,6 +329,32 @@ export default function ShelfBuilder() {
           </Button>
         )}
       />
+
+      {loadNotice && (
+        <p className={`shelf-source-banner ${loadNotice.tone === 'error' ? 'is-error' : ''}`} role={loadNotice.tone === 'error' ? 'alert' : 'status'}>
+          {loadNotice.tone === 'error' && <AlertCircle size={16} aria-hidden="true" />}
+          <span>{loadNotice.text}</span>
+        </p>
+      )}
+      {source && (
+        <div className="shelf-source-banner" role="status">
+          <FolderOpen size={16} aria-hidden="true" />
+          <span>
+            Editing the design from <Link to={`/projects/${source.id}`}>“{source.title}”</Link>. Changes stay here until
+            you save them back with <strong>Add to project → Replace them</strong>.
+          </span>
+          <span className="shelf-source-actions">
+            <Button variant="ghost" onClick={() => setAddingToProject(true)}>
+              <FolderPlus size={16} aria-hidden="true" /> Save back to project
+            </Button>
+            {hasPrevious && (
+              <Button variant="ghost" onClick={restorePrevious}>
+                <RotateCcw size={16} aria-hidden="true" /> Restore previous design
+              </Button>
+            )}
+          </span>
+        </div>
+      )}
 
       <div className="shelf-layout">
         <section className="shelf-config" aria-labelledby="shelf-config-title">
@@ -528,7 +608,13 @@ export default function ShelfBuilder() {
             </div>
             {addingToProject && (
               <div id="shelf-add-project">
-                <ShelfAddToProject plan={plan} config={config!} units={units} onClose={() => setAddingToProject(false)} />
+                <ShelfAddToProject
+                  plan={plan}
+                  config={config!}
+                  units={units}
+                  initialProjectId={source?.id}
+                  onClose={() => setAddingToProject(false)}
+                />
               </div>
             )}
           </section>
@@ -552,6 +638,30 @@ export default function ShelfBuilder() {
                 </li>
               ))}
             </ul>
+          </section>
+
+          <section className="shelf-section" aria-labelledby="shelf-guide-title">
+            <header className="shelf-section-head">
+              <div>
+                <h2 id="shelf-guide-title">Build guide</h2>
+                <p>Step-by-step instructions with an illustration of every stage, using this design’s measurements.</p>
+              </div>
+              <div className="shelf-section-actions">
+                <Button
+                  variant={showGuide ? 'secondary' : 'primary'}
+                  onClick={() => setShowGuide(open => !open)}
+                  aria-expanded={showGuide}
+                  aria-controls="shelf-guide"
+                >
+                  <BookOpen size={16} aria-hidden="true" /> {showGuide ? 'Hide guide' : 'Show build guide'}
+                </Button>
+              </div>
+            </header>
+            {showGuide && (
+              <div id="shelf-guide">
+                <ShelfBuildGuide plan={plan} config={config!} units={units} />
+              </div>
+            )}
           </section>
 
           <section className="shelf-section shelf-optimizer" aria-labelledby="shelf-optimizer-title">

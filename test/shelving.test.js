@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildShelfPlan, fmt, formatLength, lengthToField, parseLength, projectCutItems, readSavedShelfDesign, shelfProjectTitle, shelfSolids, sidePanelDepth, toSavedShelfDesign } from '../src/lib/shelving.ts';
+import { buildShelfPlan, fmt, formatLength, lengthToField, parseLength, projectCutItems, readSavedShelfDesign, shelfDesignToFields, shelfProjectTitle, shelfSolids, sidePanelDepth, toSavedShelfDesign } from '../src/lib/shelving.ts';
 
 const base = {
   thickness: 0.75,
@@ -178,4 +178,29 @@ test('saved designs round-trip and bad ones are rejected rather than guessed', (
   assert.equal(readSavedShelfDesign({ version: 1, config: { ...config, bays: 40 } }), null);
   const padded = readSavedShelfDesign({ version: 1, config: { ...config, bays: 3, shelvesPerBay: [2] } });
   assert.deepEqual(padded.config.shelvesPerBay, [2, 0, 0]);
+});
+
+test('a saved design reopens as form fields that rebuild the same cut list', () => {
+  for (const [config, units] of [
+    [{ ...base, joinery: 'dado', toeKick: 3 }, 'in'],
+    [{ ...base, thickness: 18 / 25.4, bayWidth: 400 / 25.4, mounting: 'wall', frenchCleat: true }, 'mm'],
+  ]) {
+    const saved = readSavedShelfDesign(JSON.parse(JSON.stringify(toSavedShelfDesign(config, units))));
+    const fields = shelfDesignToFields(saved);
+    assert.equal(fields.units, units);
+    const reparsed = {
+      ...saved.config,
+      thickness: parseLength(fields.thickness, units),
+      bayWidth: parseLength(fields.bayWidth, units),
+      shelfDepth: parseLength(fields.shelfDepth, units),
+      height: parseLength(fields.height, units),
+    };
+    const a = buildShelfPlan(saved.config).parts;
+    const b = buildShelfPlan(reparsed).parts;
+    a.forEach((p, i) => {
+      assert.equal(b[i].name, p.name);
+      assert.ok(Math.abs(b[i].length - p.length) < 0.001 && Math.abs(b[i].width - p.width) < 0.001, p.name);
+    });
+  }
+  assert.equal(shelfDesignToFields(readSavedShelfDesign(toSavedShelfDesign(base, 'in'))).bayWidth, '17 1/2');
 });

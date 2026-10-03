@@ -7395,3 +7395,280 @@ tbody td {
   font-size: 0.88rem;
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Shelf Builder: design opened from a project ───────────────────────────── */
+
+.shelf-source-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-annotation) 40%, var(--color-divider));
+  border-radius: var(--radius-default);
+  background: color-mix(in srgb, var(--color-annotation-fill) 10%, var(--color-surface));
+  color: var(--color-ink);
+  font-size: 0.9rem;
+}
+
+.shelf-source-banner > svg {
+  flex: 0 0 16px;
+  color: var(--color-annotation);
+}
+
+.shelf-source-banner > span:not(.shelf-source-actions) {
+  flex: 1 1 320px;
+}
+
+.shelf-source-banner a {
+  color: var(--color-annotation-strong);
+  font-weight: 650;
+}
+
+.shelf-source-banner.is-error {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-divider));
+  background: color-mix(in srgb, var(--color-danger-fill) 8%, var(--color-surface));
+}
+
+.shelf-source-banner.is-error > svg {
+  color: var(--color-danger);
+}
+
+.shelf-source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.workflow-section .rail-actions a.btn {
+  text-decoration: none;
+}
+
+@media print {
+  .shelf-source-banner {
+    display: none !important;
+  }
+}
+
+/* ── Shelf Builder: build guide ────────────────────────────────────────────── */
+
+.shelf-guide {
+  display: grid;
+  gap: 16px;
+}
+
+.shelf-guide-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.shelf-guide-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 0.84rem;
+}
+
+.shelf-guide-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.9rem;
+}
+
+.shelf-guide-steps {
+  display: grid;
+  gap: 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shelf-guide-step {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-default);
+  background: var(--color-surface);
+}
+
+.shelf-guide-figure {
+  margin: 0;
+}
+
+.shelf-guide-figure img,
+.shelf-guide-placeholder {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-compact);
+  background:
+    linear-gradient(color-mix(in srgb, var(--color-divider) 45%, transparent) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, color-mix(in srgb, var(--color-divider) 45%, transparent) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(180deg, #fafcfb, #e6eeeb);
+  object-fit: contain;
+}
+
+.shelf-guide-placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--color-muted);
+  font-size: 0.84rem;
+}
+
+.shelf-guide-placeholder .skeleton {
+  width: 60%;
+  height: 60%;
+  border-radius: var(--radius-compact);
+}
+
+.shelf-guide-figure figcaption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.shelf-guide-swatch {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #15332e;
+  border-radius: 3px;
+  background: #6fb0d4;
+}
+
+.shelf-guide-body {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.shelf-guide-body h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-family: var(--font-rounded);
+  font-size: 1.15rem;
+}
+
+.shelf-guide-number {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.shelf-guide-summary {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.92rem;
+}
+
+.shelf-guide-instructions {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+.shelf-guide-parts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.shelf-guide-parts th,
+.shelf-guide-parts td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-divider);
+  text-align: left;
+}
+
+.shelf-guide-parts thead th {
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.shelf-guide-parts tbody th {
+  font-weight: 650;
+}
+
+.shelf-guide-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-compact);
+  background: var(--color-recessed);
+  font-size: 0.86rem;
+}
+
+.shelf-guide-note svg {
+  flex: 0 0 15px;
+  margin-top: 2px;
+  color: var(--color-annotation);
+}
+
+.shelf-guide-note.is-caution {
+  background: color-mix(in srgb, var(--color-warning-fill) 14%, var(--color-surface));
+}
+
+.shelf-guide-note.is-caution svg {
+  color: var(--color-warning);
+}
+
+@container page (min-width: 820px) {
+  .shelf-guide-step {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+@media print {
+  body.print-shelf-guide .shelf-page > *:not(.shelf-section),
+  body.print-shelf-guide .shelf-section:not(:has(#shelf-guide)),
+  body.print-shelf-guide .shelf-guide-toolbar,
+  body.print-shelf-guide .shelf-section-actions {
+    display: none !important;
+  }
+
+  body.print-shelf-guide .shelf-guide-step {
+    grid-template-columns: 1fr 1fr;
+    break-inside: avoid;
+    border-color: #c9dad5;
+  }
+
+  .shelf-guide-figure img {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
+
+.shelf-guide-swatch.is-groove {
+  background: #c0552f;
+}

@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RotateCcw } from 'lucide-react';
 import type { Solid, SolidKind } from '../lib/shelving';
+import { SOLID_COLORS as COLORS, solidGeometry } from '../lib/shelfRender';
 
 interface Props {
   solids: Solid[];
@@ -17,14 +18,6 @@ interface Props {
   label: string;
 }
 
-// Plywood face tones; edges get a drafting-ink outline so parts read at any angle.
-const COLORS: Record<SolidKind, number> = {
-  case: 0xd8b98c,
-  shelf: 0xe3c79d,
-  back: 0xc9a979,
-  cleat: 0x9fbccb,
-  'wall-cleat': 0x7fa3b5,
-};
 
 interface Stage {
   renderer: THREE.WebGLRenderer;
@@ -226,22 +219,6 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
   );
 }
 
-function solidGeometry(solid: Solid): THREE.BufferGeometry {
-  if (solid.shape === 'box') {
-    const [x0, y0, z0] = solid.min;
-    const [x1, y1, z1] = solid.max;
-    const geometry = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0);
-    // Depth runs back from the front edge, so flip z into three's toward-camera axis.
-    geometry.translate((x0 + x1) / 2, (y0 + y1) / 2, -(z0 + z1) / 2);
-    return geometry;
-  }
-  // Profile is (z, y); draw it in the shape's (x, y) plane, then extrude along x.
-  const shape = new THREE.Shape(solid.profile.map(([z, y]) => new THREE.Vector2(z, y)));
-  const geometry = new THREE.ExtrudeGeometry(shape, { depth: solid.x1 - solid.x0, bevelEnabled: false });
-  geometry.rotateY(Math.PI / 2); // (x, y, z) → (z, y, −x): extrusion runs along +x, depth flips to −z
-  geometry.translate(solid.x0, 0, 0);
-  return geometry;
-}
 
 function frameCamera(stage: Stage, width: number, height: number, depth: number) {
   const { camera, controls } = stage;

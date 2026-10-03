@@ -21,6 +21,8 @@ interface Props {
   plan: ShelfPlan;
   config: ShelfConfig;
   units: LengthUnit;
+  /** Preselects this project (the one whose design is open) and defaults to replacing its parts. */
+  initialProjectId?: number;
   onClose: () => void;
 }
 
@@ -28,16 +30,17 @@ type Load<T> = { state: 'loading' } | { state: 'error'; message: string } | { st
 
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'Something went wrong.');
 
-export default function ShelfAddToProject({ plan, config, units, onClose }: Props) {
+export default function ShelfAddToProject({ plan, config, units, initialProjectId, onClose }: Props) {
   const demo = isDemoMode();
   const items = useMemo(() => projectCutItems(plan), [plan]);
   const pieceCount = items.reduce((sum, i) => sum + i.qty, 0);
 
   const [target, setTarget] = useState<Target>('existing');
   const [projects, setProjects] = useState<Load<ProjectListItem[]>>({ state: 'loading' });
-  const [projectId, setProjectId] = useState<number | null>(null);
+  const [projectId, setProjectId] = useState<number | null>(initialProjectId ?? null);
   const [existing, setExisting] = useState<Load<CutListItem[]> | null>(null);
-  const [mode, setMode] = useState<SaveMode>('append');
+  // Saving an opened design back should swap its parts, not duplicate them.
+  const [mode, setMode] = useState<SaveMode>(initialProjectId != null ? 'replace' : 'append');
   const [title, setTitle] = useState(() => shelfProjectTitle(plan, units));
   const [saving, setSaving] = useState(false);
   const [outcome, setOutcome] = useState<{ ok: boolean; text: string; projectId: number | null } | null>(null);
