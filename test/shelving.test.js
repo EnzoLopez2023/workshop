@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildShelfPlan, fmt, formatLength, lengthToField, parseLength, shelfSolids, sidePanelDepth } from '../src/lib/shelving.ts';
+import { buildShelfPlan, fmt, formatLength, lengthToField, parseLength, projectCutItems, shelfProjectTitle, shelfSolids, sidePanelDepth } from '../src/lib/shelving.ts';
 
 const base = {
   thickness: 0.75,
@@ -145,4 +145,22 @@ test('fractions survive a round trip through millimeters', () => {
     assert.equal(lengthToField(parseLength(mm, 'mm'), 'in'), frac, `${frac} → ${mm} mm`);
   }
   assert.equal(lengthToField(18 / 25.4, 'in'), '0.7087', 'a true metric size stays decimal');
+});
+
+test('project cut items are written in inches that the project sheet layout can read', async () => {
+  const { parseInches } = await import('../src/lib/cutPlan.ts');
+  const metric = buildShelfPlan({ ...base, units: 'mm', thickness: 18 / 25.4, bayWidth: 400 / 25.4 });
+  const items = projectCutItems(metric);
+  assert.equal(items.length, metric.parts.length);
+  const shelf = items.find(i => i.part_name === 'Shelf');
+  assert.equal(shelf.qty, 20);
+  assert.equal(shelf.material, 'Plywood');
+  for (const item of items) {
+    const part = metric.parts.find(p => p.name === item.part_name);
+    assert.ok(Math.abs(parseInches(item.length) - part.length) < 1e-4, item.part_name);
+    assert.ok(Math.abs(parseInches(item.width) - part.width) < 1e-4, item.part_name);
+    assert.ok(!/mm/.test(item.length + item.width + item.thickness));
+  }
+  assert.equal(projectCutItems(buildShelfPlan(base)).find(i => i.part_name === 'Shelf').length, '17 1/2');
+  assert.equal(shelfProjectTitle(buildShelfPlan(base), 'in'), 'Shelving unit 73 3/4" × 74"');
 });

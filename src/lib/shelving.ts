@@ -434,3 +434,35 @@ export function lengthToField(inches: number, unit: LengthUnit): string {
 export function decimalString(inches: number): string {
   return String(Number(inches.toFixed(4)));
 }
+
+// ── Project cut list export ───────────────────────────────────────────────────
+
+export interface ProjectCutItemInput {
+  part_name: string;
+  qty: number;
+  length: string;
+  width: string;
+  thickness: string;
+  material: string;
+}
+
+/**
+ * Project cut lists are read as inches everywhere (detail page, sheet layout),
+ * so parts are written in inches: exact fractions where possible, otherwise a
+ * 4-place decimal — never millimeters, which those readers would misparse.
+ */
+export function projectCutItems(plan: ShelfPlan, material = 'Plywood'): ProjectCutItemInput[] {
+  return plan.parts.map(part => ({
+    part_name: part.name,
+    qty: part.qty,
+    length: lengthToField(part.length, 'in'),
+    width: lengthToField(part.width, 'in'),
+    thickness: lengthToField(part.thickness, 'in'),
+    material,
+  }));
+}
+
+/** A default title for a new project, e.g. "Shelving unit 73 3/4\" × 74\"". */
+export function shelfProjectTitle(plan: ShelfPlan, units: LengthUnit): string {
+  return `Shelving unit ${formatLength(plan.overallWidth, units)} × ${formatLength(plan.overallHeight, units)}`;
+}

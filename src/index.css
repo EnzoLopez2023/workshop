@@ -7269,3 +7269,122 @@ tbody td {
   margin: 4px 0 0;
   padding-left: 18px;
 }
+
+/* ── Shelf Builder: add to project ─────────────────────────────────────────── */
+
+.shelf-add-project {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-default);
+  background: var(--color-surface);
+}
+
+.shelf-add-project h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.shelf-add-project header p {
+  max-width: 72ch;
+  margin: 5px 0 0;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+}
+
+.shelf-add-project .segmented-control {
+  justify-self: start;
+  grid-auto-columns: minmax(140px, 1fr);
+}
+
+.shelf-add-project-fields {
+  display: grid;
+  gap: 12px;
+  max-width: 520px;
+}
+
+.shelf-add-project-fields p {
+  margin: 0;
+}
+
+.shelf-add-project-mode {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.shelf-add-project-mode legend {
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+.shelf-add-project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.shelf-add-project-hint {
+  font-size: 0.84rem;
+}
+
+.shelf-add-project .is-muted {
+  color: var(--color-muted);
+}
+
+.shelf-add-project-ok,
+.shelf-add-project-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.shelf-add-project-ok {
+  color: var(--color-success);
+}
+
+.shelf-add-project-error {
+  color: var(--color-danger);
+}
+
+.shelf-add-project-ok svg,
+.shelf-add-project-error svg {
+  flex: 0 0 16px;
+  margin-top: 3px;
+}
+
+.shelf-add-project-ok a,
+.shelf-add-project-error a,
+.shelf-link-button {
+  color: var(--color-annotation-strong);
+  font-weight: 650;
+}
+
+.shelf-link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.spin {
+  animation: shelf-spin 0.9s linear infinite;
+}
+
+@keyframes shelf-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media print {
+  .shelf-add-project {
+    display: none !important;
+  }
+}

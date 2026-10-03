@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, Check, Clipboard, Minus, Plus, Printer, RotateCcw,
+  AlertCircle, AlertTriangle, ArrowLeft, Check, Clipboard, FolderPlus, Minus, Plus, Printer, RotateCcw,
 } from 'lucide-react';
 import { Button, IconButton, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
+import ShelfAddToProject from '../components/ShelfAddToProject';
 import {
   buildShelfPlan,
   decimalString,
@@ -192,6 +193,7 @@ export default function ShelfBuilder() {
   const [form, setForm] = useState<FormState>(readStoredForm);
   const [copyStatus, setCopyStatus] = useState('');
   const [view, setView] = useState<PreviewMode>(readStoredView);
+  const [addingToProject, setAddingToProject] = useState(false);
   const units = form.units;
   const fmt = (inches: number) => formatLength(inches, units);
   const otherUnit = (inches: number) => formatLength(inches, units === 'mm' ? 'in' : 'mm');
@@ -480,6 +482,14 @@ export default function ShelfBuilder() {
                 </p>
               </div>
               <div className="shelf-section-actions">
+                <Button
+                  variant={addingToProject ? 'secondary' : 'ghost'}
+                  onClick={() => setAddingToProject(open => !open)}
+                  aria-expanded={addingToProject}
+                  aria-controls="shelf-add-project"
+                >
+                  <FolderPlus size={16} aria-hidden="true" /> Add to project
+                </Button>
                 <Button variant="ghost" onClick={() => void copyCutList()}>
                   {copyStatus === 'Cut list copied.' ? <Check size={16} aria-hidden="true" /> : <Clipboard size={16} aria-hidden="true" />}
                   Copy
@@ -516,6 +526,11 @@ export default function ShelfBuilder() {
                 </tbody>
               </table>
             </div>
+            {addingToProject && (
+              <div id="shelf-add-project">
+                <ShelfAddToProject plan={plan} units={units} onClose={() => setAddingToProject(false)} />
+              </div>
+            )}
           </section>
 
           <section className="shelf-section" aria-labelledby="shelf-marks-title">
