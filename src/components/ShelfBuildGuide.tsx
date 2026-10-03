@@ -64,7 +64,8 @@ export default function ShelfBuildGuide({ plan, config, units, title = 'Shelving
   const printGuide = () => {
     const f = (inches: number) => formatLength(inches, units);
     const subtitle = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.sideDepth)} deep · `
-      + `${plan.bays.length} bay${plan.bays.length === 1 ? '' : 's'} · ${f(config.thickness)} plywood`;
+      + `${plan.bays.length} bay${plan.bays.length === 1 ? '' : 's'}, each ${f(config.bayWidth)} × ${f(plan.interiorTop - plan.interiorBottom)} clear`
+      + ` · ${f(config.thickness)} plywood`;
     const html = guidePrintHtml(guide, images.state === 'ready' ? images.urls : new Map(), title, subtitle, f);
     const win = window.open('', '_blank');
     if (!win) {

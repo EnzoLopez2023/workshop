@@ -105,3 +105,19 @@ test('sheet drawings are valid SVG with escaped part names', () => {
   assert.match(svg, /Side &lt;A&amp;B&gt;/);
   assert.ok(!svg.includes('<A&B>'));
 });
+
+test('the guide states the bay height and asks for it to be checked during assembly', () => {
+  // 74" overall, 3/4" top and bottom, 3" toe kick → 69 1/2" clear bays.
+  const g = guide();
+  const text = id => { const s = g.steps.find(x => x.id === id); return [s.summary, ...s.instructions].join(' '); };
+  assert.match(text('overview'), /Each bay is 17 1\/2" wide × 69 1\/2" clear\./);
+  assert.match(text('case'), /clear height between the bottom and the top is 69 1\/2"/);
+  assert.match(text('dividers'), /Each bay should end up 17 1\/2" wide × 69 1\/2" clear/);
+  // Without a top panel there's nothing to measure between, so the case check is left out.
+  const open = guide({ topPanel: false });
+  assert.ok(!open.steps.find(s => s.id === 'case').instructions.some(l => l.includes('clear height between')));
+  assert.match(open.steps[0].summary, /× 70 1\/4" clear/);
+  // Millimeters too.
+  const metric = guide({ thickness: 18 / 25.4, bayWidth: 400 / 25.4, height: (1800 + 36 + 76.2) / 25.4 }, 'mm');
+  assert.match(metric.steps[0].summary, /Each bay is 400 mm wide × 1800 mm clear/);
+});

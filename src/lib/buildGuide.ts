@@ -196,6 +196,9 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
   };
   const backParts = plan.parts.filter(p => p.name.startsWith('Back'));
   const sheets = planGuideSheets(plan, config, units);
+  /** Clear height inside each bay: bottom panel's top face to the top panel's underside. */
+  const bayHeight = plan.interiorTop - plan.interiorBottom;
+  const baySize = `${f(config.bayWidth)} wide × ${f(bayHeight)} clear`;
   const sheetCount = sheets.layouts.length;
   const screw = screwFor(t, units);
   const steps: GuideStep[] = [];
@@ -210,7 +213,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
   steps.push({
     id: 'overview',
     title: 'What you’re building',
-    summary: `A ${n}-bay ${wall ? 'wall-mounted' : 'floor-standing'} unit, ${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.sideDepth)} deep.`,
+    summary: `A ${n}-bay ${wall ? 'wall-mounted' : 'floor-standing'} unit, ${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.sideDepth)} deep. Each bay is ${baySize}.`,
     instructions: [
       `Plywood: ${sheetCount} full sheet${sheetCount === 1 ? '' : 's'} of ${f(t)} (${sheets.sheetSize}), laid out in step 2. Buy one extra if you want room for a miscut.`,
       `Fasteners: wood glue and ${screw} wood screws${backParts.length ? '; brad nails or short screws for the back' : ''}${cleat ? `; 3″ (75 mm) screws to fix the wall cleat into studs` : ''}.`,
@@ -293,6 +296,9 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     instructions: [
       dado ? 'Glue the top and bottom dados, set the panels in, and clamp across the sides.' : `Glue the joints and drive three ${screw} screws through each side into the top and bottom (pre-drill and countersink).`,
       plan.kick > 0 ? `Fit the toe kick under the bottom, between the sides, ${f(plan.kick)} tall.` : null,
+      config.topPanel && config.bottomPanel
+        ? `Check the clear height between the bottom and the top is ${f(bayHeight)} at both sides — that is the bay height every divider has to fit.`
+        : null,
       'Measure both diagonals; nudge the case until they match, then let the glue set.',
     ].filter((x): x is string => x !== null),
     parts: caseParts,
@@ -312,6 +318,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
           ? 'Glue and slide each divider into its top and bottom dados.'
           : `Set each divider and screw through the top and bottom into its edge with ${screw} screws.`,
         `Cut a spacer block exactly ${f(config.bayWidth)} long and use it to set every bay to the same width.`,
+        `Each bay should end up ${baySize}; measure every one before the glue sets.`,
       ],
       parts: guidePart('Divider'),
       tips: ['Check each divider is square to the bottom before the glue grabs.'],
