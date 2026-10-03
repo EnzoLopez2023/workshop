@@ -659,7 +659,7 @@ export default function ShelfBuilder() {
             </header>
             {showGuide && (
               <div id="shelf-guide">
-                <ShelfBuildGuide plan={plan} config={config!} units={units} />
+                <ShelfBuildGuide plan={plan} config={config!} units={units} title={source?.title} />
               </div>
             )}
           </section>

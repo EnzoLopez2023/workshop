@@ -129,7 +129,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     title: 'What you’re building',
     summary: `A ${n}-bay ${wall ? 'wall-mounted' : 'floor-standing'} unit, ${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.sideDepth)} deep.`,
     instructions: [
-      `Plywood: ${f(t)} thick, at least ${minSheets} full sheet${minSheets === 1 ? '' : 's'} (4×8 / 1220×2440) before waste — run the Sheet layout below for the real count.`,
+      `Plywood: ${f(t)} thick, at least ${minSheets} full sheet${minSheets === 1 ? '' : 's'} (4×8 / 1220×2440) before waste; a sheet layout (cut plan) gives the real count.`,
       `Fasteners: wood glue and ${screw} wood screws${backParts.length ? '; brad nails or short screws for the back' : ''}${cleat ? `; 3″ (75 mm) screws to fix the wall cleat into studs` : ''}.`,
       `Tools: ${tools.join('; ')}.`,
     ],
@@ -308,4 +308,78 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
   });
 
   return { steps, solids };
+}
+
+// ── Printable guide ───────────────────────────────────────────────────────────
+
+const escapeHtml = (s: string) => s
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+/**
+ * A standalone page for printing or saving as PDF: one block per step with its
+ * illustration (a data URL, if drawn), instructions, parts, and notes.
+ */
+export function guidePrintHtml(
+  guide: BuildGuide,
+  images: Map<string, string>,
+  title: string,
+  subtitle: string,
+): string {
+  const steps = guide.steps.map((step, i) => {
+    const img = images.get(step.id);
+    const legend = step.id === 'dados' ? 'Dados to cut are marked in red.'
+      : step.scene.highlight.length > 0 && step.id !== 'cut' ? 'Parts added in this step are shown in blue.' : '';
+    const parts = step.parts.length === 0 ? '' : `
+      <table><thead><tr><th>Part</th><th>Qty</th><th>Size</th></tr></thead><tbody>
+        ${step.parts.map(p => `<tr><td>${escapeHtml(p.name)}</td><td>${p.qty}</td><td>${escapeHtml(p.size)}</td></tr>`).join('')}
+      </tbody></table>`;
+    const notes = [
+      ...step.cautions.map(c => `<p class="note caution">⚠ ${escapeHtml(c)}</p>`),
+      ...step.tips.map(t => `<p class="note">Tip: ${escapeHtml(t)}</p>`),
+    ].join('');
+    return `
+    <section class="step">
+      <div class="figure">
+        ${img ? `<img src="${img}" alt="Step ${i + 1} illustration">` : '<div class="noimg">No illustration</div>'}
+        ${legend ? `<p class="legend">${legend}</p>` : ''}
+      </div>
+      <div class="body">
+        <h2><span class="num">${i + 1}</span>${escapeHtml(step.title)}</h2>
+        <p class="summary">${escapeHtml(step.summary)}</p>
+        ${step.instructions.length ? `<ol>${step.instructions.map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ol>` : ''}
+        ${parts}
+        ${notes}
+      </div>
+    </section>`;
+  }).join('');
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)} — Build guide</title>
+<style>
+  @page { margin: 0.5in; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: #15332E; font: 10.5pt/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+  header { margin-bottom: 14pt; padding-bottom: 8pt; border-bottom: 1.5pt solid #15332E; }
+  header h1 { margin: 0; font-size: 18pt; }
+  header p { margin: 3pt 0 0; color: #58716B; }
+  .step { display: grid; grid-template-columns: 46% 1fr; gap: 14pt; padding: 12pt 0; border-bottom: 0.75pt solid #C9DAD5; break-inside: avoid; }
+  .figure img, .noimg { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border: 0.75pt solid #C9DAD5; border-radius: 6pt; background: #F4F8F6; }
+  .noimg { display: grid; place-items: center; color: #58716B; }
+  .legend { margin: 4pt 0 0; color: #58716B; font-size: 8.5pt; }
+  h2 { display: flex; align-items: center; gap: 8pt; margin: 0 0 4pt; font-size: 13pt; }
+  .num { display: inline-grid; width: 20pt; height: 20pt; place-items: center; border-radius: 50%; background: #125447; color: #fff; font-size: 10pt; }
+  .summary { margin: 0 0 6pt; color: #58716B; }
+  ol { margin: 0 0 6pt; padding-left: 16pt; }
+  li { margin-bottom: 3pt; }
+  table { width: 100%; margin: 4pt 0 6pt; border-collapse: collapse; font-size: 9pt; }
+  th, td { padding: 3pt 5pt; border-bottom: 0.5pt solid #C9DAD5; text-align: left; }
+  th { color: #58716B; font-size: 8pt; }
+  .note { margin: 4pt 0 0; padding: 4pt 6pt; border-radius: 4pt; background: #EEF4F2; font-size: 9pt; }
+  .caution { background: #FBF0DC; }
+  @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+</style></head><body>
+<header><h1>${escapeHtml(title)}</h1><p>${escapeHtml(subtitle)}</p></header>
+${steps}
+<script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 300); });<\/script>
+</body></html>`;
 }

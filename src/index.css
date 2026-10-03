@@ -7650,22 +7650,8 @@ tbody td {
 }
 
 @media print {
-  body.print-shelf-guide .shelf-page > *:not(.shelf-section),
-  body.print-shelf-guide .shelf-section:not(:has(#shelf-guide)),
-  body.print-shelf-guide .shelf-guide-toolbar,
-  body.print-shelf-guide .shelf-section-actions {
-    display: none !important;
-  }
-
-  body.print-shelf-guide .shelf-guide-step {
-    grid-template-columns: 1fr 1fr;
+  .shelf-guide-step {
     break-inside: avoid;
-    border-color: #c9dad5;
-  }
-
-  .shelf-guide-figure img {
-    print-color-adjust: exact;
-    -webkit-print-color-adjust: exact;
   }
 }
 

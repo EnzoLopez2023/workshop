@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Lightbulb, Loader2, Printer, RefreshCw } from 'lucide-react';
 import { Button } from './ui';
-import { buildGuideSteps } from '../lib/buildGuide';
-import type { LengthUnit, ShelfConfig, ShelfPlan } from '../lib/shelving';
+import { toast } from 'sonner';
+import { buildGuideSteps, guidePrintHtml } from '../lib/buildGuide';
+import { formatLength, type LengthUnit, type ShelfConfig, type ShelfPlan } from '../lib/shelving';
 
 interface Props {
   plan: ShelfPlan;
   config: ShelfConfig;
   units: LengthUnit;
+  /** Heading for the printed guide, e.g. the project name. */
+  title?: string;
 }
 
 // Images are keyed by step id so a redraw in progress never shows a picture under the wrong step.
@@ -16,7 +19,7 @@ type Images = { state: 'idle' } | { state: 'drawing'; done: number; total: numbe
 /** Redraw this long after the last design change, so typing doesn't redraw on every key. */
 const REDRAW_DELAY_MS = 700;
 
-export default function ShelfBuildGuide({ plan, config, units }: Props) {
+export default function ShelfBuildGuide({ plan, config, units, title = 'Shelving unit' }: Props) {
   const guide = useMemo(() => buildGuideSteps(plan, config, units), [plan, config, units]);
   const [images, setImages] = useState<Images>({ state: 'idle' });
   const [attempt, setAttempt] = useState(0);
@@ -56,14 +59,19 @@ export default function ShelfBuildGuide({ plan, config, units }: Props) {
     };
   }, [guide, plan, config.mounting, attempt]);
 
+  // A clean window with only the guide, like the sheet layout's "Print or save PDF".
   const printGuide = () => {
-    document.body.classList.add('print-shelf-guide');
-    const done = () => {
-      document.body.classList.remove('print-shelf-guide');
-      window.removeEventListener('afterprint', done);
-    };
-    window.addEventListener('afterprint', done);
-    window.print();
+    const f = (inches: number) => formatLength(inches, units);
+    const subtitle = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.sideDepth)} deep · `
+      + `${plan.bays.length} bay${plan.bays.length === 1 ? '' : 's'} · ${f(config.thickness)} plywood`;
+    const html = guidePrintHtml(guide, images.state === 'ready' ? images.urls : new Map(), title, subtitle);
+    const win = window.open('', '_blank');
+    if (!win) {
+      toast.error('Pop-up blocked — allow pop-ups for Workshop and try again.');
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
   };
 
   return (

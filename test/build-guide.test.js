@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildShelfPlan } from '../src/lib/shelving.ts';
-import { buildGuideSteps, dadoGrooves } from '../src/lib/buildGuide.ts';
+import { buildGuideSteps, dadoGrooves, guidePrintHtml } from '../src/lib/buildGuide.ts';
 
 const base = {
   thickness: 0.75, bayWidth: 17.5, shelfDepth: 11.25, height: 74, bays: 3, shelvesPerBay: [4, 5, 2],
@@ -59,4 +59,16 @@ test('instructions carry the real measurements in the chosen unit', () => {
   assert.match(text(metric.steps.find(s => s.id === 'dividers')), /400 mm/);
   assert.match(text(metric.steps.find(s => s.id === 'overview')), /18 mm thick/);
   assert.ok(metric.steps.find(s => s.id === 'cut').parts.every(p => / mm × .* mm$/.test(p.size)));
+});
+
+test('the printable guide has every step, its picture, and escapes text', () => {
+  const g = guide();
+  const images = new Map([['case', 'data:image/png;base64,AAAA']]);
+  const html = guidePrintHtml(g, images, 'Shelves <for> "Mom"', '4 bays');
+  for (const step of g.steps) assert.ok(html.includes(step.title.replace(/’/g, '’')), step.id);
+  assert.equal((html.match(/class="step"/g) ?? []).length, g.steps.length);
+  assert.match(html, /<img src="data:image\/png;base64,AAAA"/);
+  assert.equal((html.match(/No illustration/g) ?? []).length, g.steps.length - 1);
+  assert.match(html, /<title>Shelves &lt;for&gt; &quot;Mom&quot; — Build guide<\/title>/);
+  assert.ok(!html.includes('<for>'));
 });

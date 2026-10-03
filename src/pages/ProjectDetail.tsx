@@ -17,6 +17,7 @@ import {
 import { buildShelfPlan, formatLength, readSavedShelfDesign, shelfSolids, type SavedShelfDesign } from '../lib/shelving';
 
 const ShelfViewer3D = lazy(() => import('../components/ShelfViewer3D'));
+const ShelfBuildGuide = lazy(() => import('../components/ShelfBuildGuide'));
 import type {
   ProjectDetail as Project, FinishLogEntry, ProjectListItem,
 } from '../types/project';
@@ -425,7 +426,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
         )}
 
         {/* Shelf Builder 3D preview (only for projects that carry a design) */}
-        <ProjectShelfPreview projectId={projectId} />
+        <ProjectShelfPreview projectId={projectId} projectTitle={project.title} />
 
         {/* Cut List */}
         {project.cut_list.length > 0 && (
@@ -745,8 +746,9 @@ function ChipGroup({ label, items }: { label: string; items: string[] }) {
   );
 }
 
-function ProjectShelfPreview({ projectId }: { projectId: number }) {
+function ProjectShelfPreview({ projectId, projectTitle }: { projectId: number; projectTitle: string }) {
   const [design, setDesign] = useState<SavedShelfDesign | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -776,6 +778,7 @@ function ProjectShelfPreview({ projectId }: { projectId: number }) {
   const mounting = config.mounting === 'wall' ? (config.frenchCleat ? 'wall mount, French cleat' : 'wall mount') : 'floor unit';
 
   return (
+    <>
     <Section
       title="3D Preview"
       icon={<Box size={13} />}
@@ -800,6 +803,33 @@ function ProjectShelfPreview({ projectId }: { projectId: number }) {
         />
       </Suspense>
     </Section>
+
+    <Section
+      title="Build Guide"
+      icon={<BookOpen size={13} />}
+      right={(
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => setShowGuide(open => !open)}
+          aria-expanded={showGuide}
+          aria-controls="project-build-guide"
+        >
+          {showGuide ? 'Hide' : 'Show guide'}
+        </button>
+      )}
+    >
+      {showGuide ? (
+        <div id="project-build-guide">
+          <Suspense fallback={<p className="project-shelf-summary" role="status">Loading the build guide…</p>}>
+            <ShelfBuildGuide plan={plan} config={config} units={units} title={projectTitle} />
+          </Suspense>
+        </div>
+      ) : (
+        <p className="project-shelf-summary">Illustrated step-by-step instructions for building this unit, with its measurements.</p>
+      )}
+    </Section>
+    </>
   );
 }
 
