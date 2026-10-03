@@ -126,7 +126,7 @@ export interface ProjectDetail {
 export interface StoredShelfDesign {
   version: 1;
   units: 'in' | 'mm';
-  heightMode?: 'bay' | 'overall';
+  heightMode?: 'opening' | 'overall';
   config: object;
 }
 

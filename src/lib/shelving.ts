@@ -479,11 +479,11 @@ export interface SavedShelfDesign {
   version: 1;
   units: LengthUnit;
   /** Which height the designer typed; the config always stores the overall height. */
-  heightMode: 'bay' | 'overall';
+  heightMode: HeightMode;
   config: ShelfConfig;
 }
 
-export function toSavedShelfDesign(config: ShelfConfig, units: LengthUnit, heightMode: 'bay' | 'overall' = 'overall'): SavedShelfDesign {
+export function toSavedShelfDesign(config: ShelfConfig, units: LengthUnit, heightMode: HeightMode = 'overall'): SavedShelfDesign {
   return { version: SHELF_DESIGN_VERSION, units, heightMode, config: { ...config, units } };
 }
 
@@ -515,8 +515,9 @@ export function readSavedShelfDesign(raw: unknown): SavedShelfDesign | null {
   return {
     version: SHELF_DESIGN_VERSION,
     units,
-    // Designs saved before bay height existed were all typed as overall height.
-    heightMode: value.heightMode === 'bay' ? 'bay' : 'overall',
+    // Designs saved before opening height existed were typed as overall height.
+    // ('bay' was a short-lived total-clear-height mode; reopen those as opening height.)
+    heightMode: value.heightMode === 'opening' || value.heightMode === 'bay' ? 'opening' : 'overall',
     config: {
       thickness, bayWidth, shelfDepth, height,
       bays: Math.floor(bays),
@@ -541,9 +542,9 @@ export interface ShelfDesignFields {
   bayWidth: string;
   shelfDepth: string;
   /** Which of the two height fields drives the design. */
-  heightMode: 'bay' | 'overall';
-  /** Clear height of each bay. */
-  bayHeight: string;
+  heightMode: HeightMode;
+  /** Clear height of each shelf opening (in the bay with the most shelves). */
+  openingHeight: string;
   /** Overall height of the unit. */
   height: string;
   bays: number;
@@ -569,7 +570,7 @@ export function shelfDesignToFields(saved: SavedShelfDesign): ShelfDesignFields 
     bayWidth: field(config.bayWidth),
     shelfDepth: field(config.shelfDepth),
     heightMode: saved.heightMode,
-    bayHeight: field(config.height - heightAllowance(config)),
+    openingHeight: field(openingHeightFromOverall(config.height, config.shelvesPerBay, config)),
     height: field(config.height),
     bays: config.bays,
     shelvesPerBay: [...config.shelvesPerBay],
@@ -585,9 +586,14 @@ export function shelfDesignToFields(saved: SavedShelfDesign): ShelfDesignFields 
   };
 }
 
-// ── Bay height ↔ overall height ───────────────────────────────────────────────
+// ── Opening height ↔ overall height ───────────────────────────────────────────
 
-export type HeightMode = 'bay' | 'overall';
+/**
+ * 'opening': the designer gives the clear height of each shelf opening and the
+ * overall height is built up from it. 'overall': the designer gives the overall
+ * height and the openings divide whatever is inside.
+ */
+export type HeightMode = 'opening' | 'overall';
 
 type HeightInputs = Pick<ShelfConfig, 'thickness' | 'topPanel' | 'bottomPanel' | 'mounting' | 'toeKick'>;
 
@@ -600,11 +606,23 @@ export function heightAllowance(c: HeightInputs): number {
   return (c.topPanel ? c.thickness : 0) + (c.bottomPanel ? c.thickness : 0) + kick;
 }
 
-/** Overall height for a clear bay height (bottom panel's top face to the top panel's underside). */
-export function overallFromBayHeight(bayHeight: number, c: HeightInputs): number {
-  return bayHeight + heightAllowance(c);
+/** The bay with the most shelves sets the height; the others get taller openings. */
+function mostShelves(shelvesPerBay: number[]): number {
+  return Math.max(0, ...shelvesPerBay.map(n => Math.max(0, Math.floor(n))));
 }
 
-export function bayHeightFromOverall(overall: number, c: HeightInputs): number {
-  return overall - heightAllowance(c);
+/**
+ * Overall height when every opening in the fullest bay is `openingHeight` clear:
+ * openings × height + the shelves between them + top, bottom and toe kick.
+ * e.g. 2 openings of 3" in 1/2" plywood: 2×3 + 1×½ (shelf) + ½ + ½ = 7½".
+ */
+export function overallFromOpeningHeight(openingHeight: number, shelvesPerBay: number[], c: HeightInputs): number {
+  const shelves = mostShelves(shelvesPerBay);
+  return (shelves + 1) * openingHeight + shelves * c.thickness + heightAllowance(c);
+}
+
+/** Opening height in the fullest bay for a given overall height. */
+export function openingHeightFromOverall(overall: number, shelvesPerBay: number[], c: HeightInputs): number {
+  const shelves = mostShelves(shelvesPerBay);
+  return (overall - heightAllowance(c) - shelves * c.thickness) / (shelves + 1);
 }

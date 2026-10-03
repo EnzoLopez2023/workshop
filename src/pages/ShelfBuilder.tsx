@@ -14,9 +14,9 @@ import {
   formatLength,
   lengthToField,
   parseLength,
-  bayHeightFromOverall,
   heightAllowance,
-  overallFromBayHeight,
+  openingHeightFromOverall,
+  overallFromOpeningHeight,
   readSavedShelfDesign,
   shelfDesignToFields,
   type ShelfDesignFields,
@@ -43,8 +43,8 @@ const DEFAULT_FORM: FormState = {
   thickness: '3/4',
   bayWidth: '17 1/2',
   shelfDepth: '11 1/4',
-  heightMode: 'bay',
-  bayHeight: '69 1/2', // 74" overall with 3/4" top and bottom and a 3" toe kick
+  heightMode: 'opening',
+  openingHeight: '8',
   height: '74',
   bays: 4,
   shelvesPerBay: [6, 7, 2, 5],
@@ -70,10 +70,10 @@ const UNIT_OPTIONS = [
   { value: 'mm', label: 'Millimeters' },
 ] as const;
 
-const LENGTH_FIELDS = ['thickness', 'bayWidth', 'shelfDepth', 'bayHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight'] as const;
+const LENGTH_FIELDS = ['thickness', 'bayWidth', 'shelfDepth', 'openingHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight'] as const;
 
 const HEIGHT_MODE_OPTIONS = [
-  { value: 'bay', label: 'Bay height' },
+  { value: 'opening', label: 'Opening height' },
   { value: 'overall', label: 'Overall height' },
 ] as const;
 
@@ -119,11 +119,27 @@ function readStoredForm(): FormState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_FORM;
-    const parsed = JSON.parse(raw) as Partial<FormState>;
-    const merged = { ...DEFAULT_FORM, ...parsed };
-    // Designs from before bay height existed typed the overall height; keep that meaning.
-    if (parsed.heightMode !== 'bay' && parsed.heightMode !== 'overall') merged.heightMode = 'overall';
+    const parsed = JSON.parse(raw) as Omit<Partial<FormState>, 'heightMode'> & { heightMode?: string; bayHeight?: string };
+    const merged: FormState = { ...DEFAULT_FORM, ...parsed } as FormState;
     if (merged.units !== 'mm') merged.units = 'in';
+    if (parsed.heightMode === 'bay') {
+      // A short-lived mode where the height field meant the bay's total clear height.
+      // Turn it into the overall height it produced so the design keeps its size.
+      const unit = merged.units;
+      const bay = parseLength(parsed.bayHeight ?? '', unit);
+      const thickness = parseLength(merged.thickness, unit) ?? 0;
+      const kick = parseLength(merged.toeKick, unit) ?? 0;
+      if (bay !== null) {
+        merged.height = lengthToField(bay + heightAllowance({
+          thickness, topPanel: merged.topPanel, bottomPanel: merged.bottomPanel, mounting: merged.mounting, toeKick: kick,
+        }), unit);
+      }
+      merged.heightMode = 'overall';
+    } else if (parsed.heightMode !== 'opening' && parsed.heightMode !== 'overall') {
+      // Designs from before opening height existed typed the overall height; keep that meaning.
+      merged.heightMode = 'overall';
+    }
+    delete (merged as { bayHeight?: string }).bayHeight;
     if (!Array.isArray(merged.shelvesPerBay)) merged.shelvesPerBay = DEFAULT_FORM.shelvesPerBay;
     return merged;
   } catch {
@@ -151,9 +167,11 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
   const shelfDepth = num('shelfDepth');
   const dadoDepth = form.joinery === 'dado' ? num('dadoDepth') : 0;
   const toeKick = form.mounting === 'floor' && form.bottomPanel ? num('toeKick', { allowZero: true }) : 0;
-  // In bay mode the overall height follows the bay height plus top, bottom and toe kick.
-  const height = form.heightMode === 'bay'
-    ? overallFromBayHeight(num('bayHeight'), { thickness, topPanel: form.topPanel, bottomPanel: form.bottomPanel, mounting: form.mounting, toeKick })
+  // In opening mode the overall height is built up from the openings, shelves, panels and toe kick.
+  const height = form.heightMode === 'opening'
+    ? overallFromOpeningHeight(num('openingHeight'), form.shelvesPerBay, {
+      thickness, topPanel: form.topPanel, bottomPanel: form.bottomPanel, mounting: form.mounting, toeKick,
+    })
     : num('height');
   const cleatHeight = form.mounting === 'wall' && form.frenchCleat ? num('cleatHeight') : 3;
   if (Object.keys(fieldErrors).length > 0) return { config: null, fieldErrors };
@@ -299,7 +317,7 @@ export default function ShelfBuilder() {
     if (heightMode === form.heightMode) return;
     const patch: Partial<FormState> = { heightMode };
     if (config) {
-      if (heightMode === 'bay') patch.bayHeight = lengthToField(bayHeightFromOverall(config.height, config), units);
+      if (heightMode === 'opening') patch.openingHeight = lengthToField(openingHeightFromOverall(config.height, config.shelvesPerBay, config), units);
       else patch.height = lengthToField(config.height, units);
     }
     update(patch);
@@ -428,22 +446,22 @@ export default function ShelfBuilder() {
             <div className="shelf-height-mode">
               <SegmentedControl label="Set the height by" value={form.heightMode} options={HEIGHT_MODE_OPTIONS} onChange={setHeightMode} />
               <small>
-                {form.heightMode === 'bay'
-                  ? 'The clear opening inside each bay. The overall height adds the top, bottom and toe kick.'
-                  : 'The total height of the unit. The bay height is whatever is left inside.'}
+                {form.heightMode === 'opening'
+                  ? 'The clear height of each shelf opening. The overall height adds up the openings, the shelves between them, the top, bottom and toe kick — it grows as you add openings.'
+                  : 'The total height of the unit. The openings share whatever space is inside.'}
               </small>
             </div>
             <div className="shelf-field-grid">
               <LengthField unit={units} label="Bay width (clear)" value={form.bayWidth} error={fieldErrors.bayWidth} onChange={bayWidth => update({ bayWidth })} />
               <LengthField unit={units} label="Shelf depth" value={form.shelfDepth} error={fieldErrors.shelfDepth} onChange={shelfDepth => update({ shelfDepth })} />
-              {form.heightMode === 'bay' ? (
+              {form.heightMode === 'opening' ? (
                 <LengthField
                   unit={units}
-                  label="Bay height (clear)"
-                  value={form.bayHeight}
-                  error={fieldErrors.bayHeight}
+                  label="Opening height (clear)"
+                  value={form.openingHeight}
+                  error={fieldErrors.openingHeight}
                   hint={config ? `Overall ${fmt(config.height)}` : undefined}
-                  onChange={bayHeight => update({ bayHeight })}
+                  onChange={openingHeight => update({ openingHeight })}
                 />
               ) : (
                 <LengthField
@@ -451,7 +469,7 @@ export default function ShelfBuilder() {
                   label="Overall height"
                   value={form.height}
                   error={fieldErrors.height}
-                  hint={config ? `Bays ${fmt(config.height - heightAllowance(config))} clear` : undefined}
+                  hint={config ? `Openings ${fmt(openingHeightFromOverall(config.height, config.shelvesPerBay, config))} clear` : undefined}
                   onChange={height => update({ height })}
                 />
               )}
@@ -468,20 +486,21 @@ export default function ShelfBuilder() {
               </div>
             </div>
             <div className="shelf-bay-list">
-              <span className="form-field-label">Fixed shelves per bay</span>
+              <span className="form-field-label">Shelf openings per bay</span>
               {form.shelvesPerBay.map((count, i) => (
                 <div className="shelf-bay-row" key={i}>
                   <span id={`bay-${i}-label`}>Bay {i + 1}</span>
+                  {/* Openings = fixed shelves + 1: the bottom and each shelf are a level to put things on. */}
                   <Stepper
                     labelledBy={`bay-${i}-label`}
-                    value={count}
-                    min={0}
-                    max={MAX_SHELVES}
-                    onChange={value => setShelves(i, value)}
-                    noun="shelf"
+                    value={count + 1}
+                    min={1}
+                    max={MAX_SHELVES + 1}
+                    onChange={value => setShelves(i, value - 1)}
+                    noun="opening"
                   />
                   {plan && plan.bays[i] && plan.bays[i].openingHeight > 0 && (
-                    <small>{fmt(plan.bays[i].openingHeight)} openings</small>
+                    <small>{fmt(plan.bays[i].openingHeight)} each · {count} shel{count === 1 ? 'f' : 'ves'}</small>
                   )}
                 </div>
               ))}

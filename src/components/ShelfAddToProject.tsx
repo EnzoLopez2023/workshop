@@ -24,7 +24,7 @@ interface Props {
   /** Preselects this project (the one whose design is open) and defaults to replacing its parts. */
   initialProjectId?: number;
   /** Which height the designer typed, so the design reopens the same way. */
-  heightMode?: 'bay' | 'overall';
+  heightMode?: 'opening' | 'overall';
   onClose: () => void;
 }
 
