@@ -34,7 +34,7 @@ test('append sorts new parts after the existing ones and keeps them', async () =
 test('replace removes the old parts only after every new part saved', async () => {
   const w = fakeWriter();
   const r = await saveCutListToProject(w, 3, items, existing, 'replace');
-  assert.deepEqual(w.added.map(a => a.sort_order), [0, 1, 2]);
+  assert.deepEqual(w.added.map(a => a.sort_order), [1, 2, 3], 'never 0, which the server treats as unset');
   assert.deepEqual(w.removed, [7, 8]);
   assert.match(describeSave(r, 'Garage', 'replace'), /^Replaced the cut list in “Garage” with 3 parts\.$/);
 });

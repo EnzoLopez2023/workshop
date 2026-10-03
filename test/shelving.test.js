@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildShelfPlan, fmt, formatLength, lengthToField, parseLength, projectCutItems, shelfProjectTitle, shelfSolids, sidePanelDepth } from '../src/lib/shelving.ts';
+import { buildShelfPlan, fmt, formatLength, lengthToField, parseLength, projectCutItems, readSavedShelfDesign, shelfProjectTitle, shelfSolids, sidePanelDepth, toSavedShelfDesign } from '../src/lib/shelving.ts';
 
 const base = {
   thickness: 0.75,
@@ -163,4 +163,19 @@ test('project cut items are written in inches that the project sheet layout can 
   }
   assert.equal(projectCutItems(buildShelfPlan(base)).find(i => i.part_name === 'Shelf').length, '17 1/2');
   assert.equal(shelfProjectTitle(buildShelfPlan(base), 'in'), 'Shelving unit 73 3/4" × 74"');
+});
+
+test('saved designs round-trip and bad ones are rejected rather than guessed', () => {
+  const config = { ...base, mounting: 'wall', frenchCleat: true, joinery: 'butt' };
+  const saved = JSON.parse(JSON.stringify(toSavedShelfDesign(config, 'mm')));
+  const read = readSavedShelfDesign(saved);
+  assert.equal(read.units, 'mm');
+  assert.deepEqual(buildShelfPlan(read.config).parts, buildShelfPlan({ ...config, units: 'mm' }).parts);
+
+  assert.equal(readSavedShelfDesign(null), null);
+  assert.equal(readSavedShelfDesign({ version: 2, config }), null);
+  assert.equal(readSavedShelfDesign({ version: 1, config: { ...config, height: 'tall' } }), null);
+  assert.equal(readSavedShelfDesign({ version: 1, config: { ...config, bays: 40 } }), null);
+  const padded = readSavedShelfDesign({ version: 1, config: { ...config, bays: 3, shelvesPerBay: [2] } });
+  assert.deepEqual(padded.config.shelvesPerBay, [2, 0, 0]);
 });

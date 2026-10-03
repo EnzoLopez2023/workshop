@@ -528,7 +528,7 @@ export default function ShelfBuilder() {
             </div>
             {addingToProject && (
               <div id="shelf-add-project">
-                <ShelfAddToProject plan={plan} units={units} onClose={() => setAddingToProject(false)} />
+                <ShelfAddToProject plan={plan} config={config!} units={units} onClose={() => setAddingToProject(false)} />
               </div>
             )}
           </section>

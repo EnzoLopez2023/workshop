@@ -39,9 +39,11 @@ export async function saveCutListToProject<Item>(
 ): Promise<SaveResult> {
   const result: SaveResult = { total: items.length, added: 0, removed: 0, removeFailed: 0, error: null };
   // Appended parts sort after everything already there; replacements start fresh.
+  // Numbering starts at 1: the cut-list POST treats a sort_order of 0 as unset
+  // and substitutes Date.now(), which would push the first part to the end.
   const start = mode === 'append' && existing.length > 0
     ? Math.max(...existing.map(e => Number(e.sort_order) || 0)) + 1
-    : 0;
+    : 1;
 
   for (const [index, item] of items.entries()) {
     try {

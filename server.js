@@ -190,6 +190,11 @@ if (!projectCols.has('cut_plan_config')) {
   db.exec(`ALTER TABLE projects ADD COLUMN cut_plan_config TEXT`);
 }
 
+// Shelf Builder design (JSON) for projects created from it; drives the 3D preview.
+if (!projectCols.has('shelf_design')) {
+  db.exec(`ALTER TABLE projects ADD COLUMN shelf_design TEXT`);
+}
+
 if (!imageCols.has('shaper_project_id')) {
   db.exec(`ALTER TABLE project_images ADD COLUMN shaper_project_id INTEGER REFERENCES shaper_projects(id) ON DELETE CASCADE`);
 }
@@ -639,6 +644,8 @@ function buildStmts(db) {
 
   getCutPlanConfig:  db.prepare(`SELECT cut_plan_config FROM projects WHERE id = ?`),
   saveCutPlanConfig: db.prepare(`UPDATE projects SET cut_plan_config = @config WHERE id = @id`),
+  getShelfDesign:    db.prepare(`SELECT shelf_design FROM projects WHERE id = ?`),
+  saveShelfDesign:   db.prepare(`UPDATE projects SET shelf_design = @design WHERE id = @id`),
 
   // ── Build log ────────────────────────────────────────────────────────────────
   listBuildLog:        db.prepare(`SELECT * FROM build_log_entries WHERE project_id = ? ORDER BY created_at DESC`),
@@ -3427,6 +3434,30 @@ app.put('/api/projects/:id/cut-plan-config', (req, res) => {
   const { db, stmts } = req;
   const id = Number(req.params.id);
   stmts.saveCutPlanConfig.run({ config: JSON.stringify(req.body), id });
+  res.json({ success: true });
+});
+
+app.get('/api/projects/:id/shelf-design', (req, res) => {
+  const { stmts } = req;
+  const row = stmts.getShelfDesign.get(Number(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Project not found' });
+  let design = null;
+  try { design = row.shelf_design ? JSON.parse(row.shelf_design) : null; } catch { design = null; }
+  res.json({ design });
+});
+
+// Body: { design: { version, units, config } } or { design: null } to remove it.
+app.put('/api/projects/:id/shelf-design', (req, res) => {
+  const { stmts } = req;
+  const id = Number(req.params.id);
+  if (!stmts.getShelfDesign.get(id)) return res.status(404).json({ error: 'Project not found' });
+  const design = req.body?.design;
+  if (design !== null && (typeof design !== 'object' || Array.isArray(design) || typeof design.config !== 'object' || design.config === null)) {
+    return res.status(400).json({ error: 'design must be an object with a config, or null' });
+  }
+  const json = design === null ? null : JSON.stringify(design);
+  if (json && json.length > 20_000) return res.status(413).json({ error: 'design is too large' });
+  stmts.saveShelfDesign.run({ design: json, id });
   res.json({ success: true });
 });
 

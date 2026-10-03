@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertCircle, Check, FolderPlus, Loader2 } from 'lucide-react';
 import { Button, SegmentedControl } from './ui';
-import { addCutItem, createProject, deleteCutItem, getProject, listProjects } from '../services/api';
+import { addCutItem, createProject, deleteCutItem, getProject, listProjects, saveShelfDesign } from '../services/api';
 import { isDemoMode } from '../demo/demoMode';
-import { projectCutItems, shelfProjectTitle, type LengthUnit, type ShelfPlan } from '../lib/shelving';
+import {
+  projectCutItems, shelfProjectTitle, toSavedShelfDesign, type LengthUnit, type ShelfConfig, type ShelfPlan,
+} from '../lib/shelving';
 import { describeSave, saveCutListToProject, type SaveMode } from '../lib/projectCutList';
 import type { CutListItem, ProjectListItem } from '../types/project';
 
@@ -17,6 +19,7 @@ const TARGET_OPTIONS = [
 
 interface Props {
   plan: ShelfPlan;
+  config: ShelfConfig;
   units: LengthUnit;
   onClose: () => void;
 }
@@ -25,7 +28,7 @@ type Load<T> = { state: 'loading' } | { state: 'error'; message: string } | { st
 
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'Something went wrong.');
 
-export default function ShelfAddToProject({ plan, units, onClose }: Props) {
+export default function ShelfAddToProject({ plan, config, units, onClose }: Props) {
   const demo = isDemoMode();
   const items = useMemo(() => projectCutItems(plan), [plan]);
   const pieceCount = items.reduce((sum, i) => sum + i.qty, 0);
@@ -111,8 +114,19 @@ export default function ShelfAddToProject({ plan, units, onClose }: Props) {
       target === 'new' ? [] : existingParts,
       saveMode,
     );
-    const ok = !result.error && result.removeFailed === 0;
-    setOutcome({ ok, text: describeSave(result, name, saveMode), projectId: id });
+    let text = describeSave(result, name, saveMode);
+    let ok = !result.error && result.removeFailed === 0;
+    if (!result.error) {
+      // The design itself powers the project page's 3D preview.
+      try {
+        await saveShelfDesign(id!, toSavedShelfDesign(config, units));
+        text += ' The 3D preview is on the project page.';
+      } catch (err) {
+        ok = false;
+        text += ` The parts are saved, but the 3D design couldn’t be: ${errorText(err)} Add it again with “Replace them” to retry.`;
+      }
+    }
+    setOutcome({ ok, text, projectId: id });
     setSaving(false);
     if (target === 'new' && id != null) {
       // The project now exists: switch to it so another click adds to it instead of creating a second one.
@@ -134,7 +148,8 @@ export default function ShelfAddToProject({ plan, units, onClose }: Props) {
         <p>
           Saves {partsLabel} ({pieceCount} pieces) as plywood, in inches
           {units === 'mm' ? ' — project pages and their sheet layout work in inches' : ''}.
-          Part notes such as dado reminders aren’t saved; project parts have no notes field.
+          The design is saved too, for a 3D preview on the project page. Part notes such as dado reminders
+          aren’t saved; project parts have no notes field.
         </p>
       </header>
 

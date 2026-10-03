@@ -466,3 +466,63 @@ export function projectCutItems(plan: ShelfPlan, material = 'Plywood'): ProjectC
 export function shelfProjectTitle(plan: ShelfPlan, units: LengthUnit): string {
   return `Shelving unit ${formatLength(plan.overallWidth, units)} × ${formatLength(plan.overallHeight, units)}`;
 }
+
+// ── Saved designs ─────────────────────────────────────────────────────────────
+
+export const SHELF_DESIGN_VERSION = 1;
+
+export interface SavedShelfDesign {
+  version: 1;
+  units: LengthUnit;
+  config: ShelfConfig;
+}
+
+export function toSavedShelfDesign(config: ShelfConfig, units: LengthUnit): SavedShelfDesign {
+  return { version: SHELF_DESIGN_VERSION, units, config: { ...config, units } };
+}
+
+/**
+ * Reads a design back from storage, rejecting anything that isn't a usable
+ * design (wrong version, missing or out-of-range sizes) rather than guessing.
+ */
+export function readSavedShelfDesign(raw: unknown): SavedShelfDesign | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Record<string, unknown>;
+  if (value.version !== SHELF_DESIGN_VERSION || !value.config || typeof value.config !== 'object') return null;
+  const c = value.config as Record<string, unknown>;
+  const units: LengthUnit = value.units === 'mm' ? 'mm' : 'in';
+  const num = (key: string, min: number, max: number) => {
+    const n = c[key];
+    return typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max ? n : null;
+  };
+  const thickness = num('thickness', 0.05, 3);
+  const bayWidth = num('bayWidth', 1, 200);
+  const shelfDepth = num('shelfDepth', 1, 100);
+  const height = num('height', 1, 200);
+  const bays = num('bays', 1, 12);
+  if (thickness === null || bayWidth === null || shelfDepth === null || height === null || bays === null) return null;
+  const shelves = Array.isArray(c.shelvesPerBay) ? c.shelvesPerBay : [];
+  const shelvesPerBay = Array.from({ length: Math.floor(bays) }, (_, i) => {
+    const n = shelves[i];
+    return typeof n === 'number' && Number.isFinite(n) ? Math.min(20, Math.max(0, Math.floor(n))) : 0;
+  });
+  return {
+    version: SHELF_DESIGN_VERSION,
+    units,
+    config: {
+      thickness, bayWidth, shelfDepth, height,
+      bays: Math.floor(bays),
+      shelvesPerBay,
+      topPanel: c.topPanel !== false,
+      bottomPanel: c.bottomPanel !== false,
+      backPanel: c.backPanel !== false,
+      joinery: c.joinery === 'butt' ? 'butt' : 'dado',
+      dadoDepth: num('dadoDepth', 0, 3) ?? 0,
+      mounting: c.mounting === 'wall' ? 'wall' : 'floor',
+      toeKick: num('toeKick', 0, 24) ?? 0,
+      frenchCleat: c.frenchCleat === true,
+      cleatHeight: num('cleatHeight', 0.5, 24) ?? 3,
+      units,
+    },
+  };
+}

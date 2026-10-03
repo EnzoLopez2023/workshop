@@ -2,7 +2,7 @@ import type { IPublicClientApplication } from '@azure/msal-browser';
 import { getApiToken } from '../auth/getToken';
 import { isDemoMode, notifyDemoBlock, DemoBlockedError } from '../demo/demoMode';
 import type {
-  ProjectListItem, ProjectDetail, ProjectFormPayload,
+  ProjectListItem, ProjectDetail, ProjectFormPayload, StoredShelfDesign,
   CutListItem, Material, AnalyzedProject,
   ShaperProject, ShaperProjectPayload, ShaperAnalysisResult,
   BambuAsset, BambuProject, BambuProjectPayload, BambuAnalysisResult, BambuImportResult,
@@ -176,6 +176,13 @@ export const updateMaterial = (id: number, m: Partial<Material>) =>
   request<{ success: boolean }>(`/materials/${id}`, json('PUT', m));
 export const deleteMaterial = (id: number) =>
   request<{ success: boolean }>(`/materials/${id}`, { method: 'DELETE' });
+
+// ── Shelf Builder design ──────────────────────────────────────────────────────
+
+export const getShelfDesign = (projectId: number) =>
+  request<{ design: unknown }>(`/projects/${projectId}/shelf-design`);
+export const saveShelfDesign = (projectId: number, design: StoredShelfDesign | null) =>
+  request<{ success: boolean }>(`/projects/${projectId}/shelf-design`, json('PUT', { design }));
 
 // ── Cut plan config ───────────────────────────────────────────────────────────
 

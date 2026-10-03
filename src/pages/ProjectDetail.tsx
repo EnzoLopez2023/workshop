@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, Clock, Layers, DollarSign, Gauge, Trash2, ExternalLink, FileText, X, Scissors,
-  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate, Printer, Download, Check, Hammer,
+  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate, Printer, Download, Check, Hammer, Box,
 } from 'lucide-react';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import {
@@ -12,8 +12,11 @@ import {
   addFinishLogEntry, deleteFinishLogEntry,
   addProjectLink, removeProjectLink,
   listProjects, togglePurchased as apiTogglePurchased,
-  saveAsTemplate,
+  saveAsTemplate, getShelfDesign,
 } from '../services/api';
+import { buildShelfPlan, formatLength, readSavedShelfDesign, shelfSolids, type SavedShelfDesign } from '../lib/shelving';
+
+const ShelfViewer3D = lazy(() => import('../components/ShelfViewer3D'));
 import type {
   ProjectDetail as Project, FinishLogEntry, ProjectListItem,
 } from '../types/project';
@@ -78,6 +81,7 @@ export default function ProjectDetail() {
   useEffect(() => {
     void load();
   }, [load]);
+
 
   const togglePurchased = async (matId: number, purchased: boolean) => {
     if (!project) return;
@@ -420,6 +424,9 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
           </Section>
         )}
 
+        {/* Shelf Builder 3D preview (only for projects that carry a design) */}
+        <ProjectShelfPreview projectId={projectId} />
+
         {/* Cut List */}
         {project.cut_list.length > 0 && (
           <Section title="Cut List" right={
@@ -735,6 +742,55 @@ function ChipGroup({ label, items }: { label: string; items: string[] }) {
         {items.map((x, i) => <span key={i} className="chip">{x}</span>)}
       </div>
     </div>
+  );
+}
+
+function ProjectShelfPreview({ projectId }: { projectId: number }) {
+  const [design, setDesign] = useState<SavedShelfDesign | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDesign(null);
+    getShelfDesign(projectId)
+      .then(({ design: raw }) => {
+        if (cancelled || raw == null) return;
+        const saved = readSavedShelfDesign(raw);
+        if (!saved) console.warn('Ignoring a saved shelf design that could not be read', raw);
+        setDesign(saved);
+      })
+      .catch(error => console.error('Shelf design load failed', error));
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  const preview = useMemo(() => {
+    if (!design) return null;
+    const plan = buildShelfPlan(design.config);
+    return plan.errors.length > 0 ? null : { plan, solids: shelfSolids(plan, design.config) };
+  }, [design]);
+
+  if (!design || !preview) return null;
+  const { plan, solids } = preview;
+  const { config, units } = design;
+  const f = (inches: number) => formatLength(inches, units);
+  const summary = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.sideDepth)} deep`;
+  const mounting = config.mounting === 'wall' ? (config.frenchCleat ? 'wall mount, French cleat' : 'wall mount') : 'floor unit';
+
+  return (
+    <Section title="3D Preview" icon={<Box size={13} />}>
+      <p className="project-shelf-summary">
+        {summary} · {plan.bays.length} bay{plan.bays.length === 1 ? '' : 's'} · {f(config.thickness)} plywood · {mounting}
+      </p>
+      <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
+        <ShelfViewer3D
+          solids={solids}
+          width={plan.overallWidth}
+          height={plan.overallHeight}
+          depth={plan.sideDepth}
+          wallMounted={config.mounting === 'wall'}
+          label={`3D view of the shelving unit, ${summary}`}
+        />
+      </Suspense>
+    </Section>
   );
 }
 

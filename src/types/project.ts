@@ -122,6 +122,13 @@ export interface ProjectDetail {
   updated_at: string;
 }
 
+/** A Shelf Builder design saved on a project (all lengths in inches). */
+export interface StoredShelfDesign {
+  version: 1;
+  units: 'in' | 'mm';
+  config: object;
+}
+
 export interface ProjectFormPayload {
   title: string;
   description: string;

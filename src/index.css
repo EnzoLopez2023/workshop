@@ -7388,3 +7388,10 @@ tbody td {
     display: none !important;
   }
 }
+
+.project-shelf-summary {
+  margin: 0 0 12px;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
