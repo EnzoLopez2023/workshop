@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   Search, LayoutDashboard, Plus, ShoppingCart, Ruler,
-  BookOpen, Settings, Hammer, Cpu, Box, Library, Inbox, FolderInput, FolderCog,
+  BookOpen, Settings, Hammer, Cpu, Box, Library, Inbox, FolderInput, FolderCog, Rows3,
 } from 'lucide-react';
 import { listLibraryModels, listProjects } from '../services/api';
 import type { LibraryModel, ProjectListItem } from '../types/project';
@@ -153,6 +153,7 @@ export default function CommandPalette({ open, onClose, returnFocusTo }: Props) 
                   <PaletteItem icon={<Plus size={15} />} label="New Project" onSelect={() => go('/projects/new')} />
                   <PaletteItem icon={<ShoppingCart size={15} />} label="Shopping List" onSelect={() => go('/shopping-list')} />
                   <PaletteItem icon={<Ruler size={15} />} label="Conversions" onSelect={() => go('/conversions')} />
+                  <PaletteItem icon={<Rows3 size={15} />} label="Shelf Builder" onSelect={() => go('/shelves')} />
                   <PaletteItem icon={<BookOpen size={15} />} label="Notebook" onSelect={() => go('/notebook')} />
                   <PaletteItem icon={<Cpu size={15} />} label="Add Shaper Hub Project" onSelect={() => go('/shaper/new')} />
                   <PaletteItem icon={<Box size={15} />} label="Add Bambu Hub Project" onSelect={() => go('/bambu/new')} />

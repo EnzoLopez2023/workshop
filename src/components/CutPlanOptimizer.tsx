@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { Tooltip } from './Tooltip';
 import { Scissors, Plus, Trash2, AlertTriangle, AlertCircle, Download, Save } from 'lucide-react';
 import type { CutListItem } from '../types/project';
-import { parseInches, buildCutPieces, optimizeCuts } from '../lib/cutPlan';
+import { buildCutPieces, explainUnplaced, optimizeCuts, parseInches } from '../lib/cutPlan';
+import type { UnplacedGroup } from '../lib/cutPlan';
+import { decimalString, fmtMm, lengthToField, parseLength, type LengthUnit } from '../lib/shelving';
+import { validateKerf, validateStockRows, type InputIssue, type StockField } from '../lib/cutPlanInput';
 import type { StockSheet, CutPlanResult, SheetLayout } from '../lib/cutPlan';
 import CutPlanSheet, { buildColorMap, fmtDim, PALETTE } from './CutPlanSheet';
 import { getCutPlanConfig, saveCutPlanConfig } from '../services/api';
@@ -21,22 +24,46 @@ interface StockRow {
 interface Props {
   cutList: CutListItem[];
   projectId?: number;
+  /** Unit for stock sizes, kerf, and displayed dimensions. Pieces are always inches. */
+  units?: LengthUnit;
+  /** Thickness (inches) new sheets start with; sheets still on it follow when it changes. */
+  defaultThickness?: number;
 }
 
-const PRESETS = [
-  { label: '+ 4×8 Sheet', length: '96', width: '48' },
-  { label: '+ 4×10 Sheet', length: '120', width: '48' },
-];
+const PRESETS: Record<LengthUnit, { label: string; length: string; width: string }[]> = {
+  in: [
+    { label: '+ 4×8 Sheet', length: '96', width: '48' },
+    { label: '+ 4×10 Sheet', length: '120', width: '48' },
+  ],
+  mm: [
+    { label: '+ 2440×1220 Sheet', length: '2440', width: '1220' },
+    { label: '+ 3050×1220 Sheet', length: '3050', width: '1220' },
+  ],
+};
+
+const DEFAULT_KERF: Record<LengthUnit, string> = { in: '0.125', mm: '3.2' };
+
+function formatterFor(units: LengthUnit): (inches: number) => string {
+  return units === 'mm' ? fmtMm : fmtDim;
+}
+
+/** Converts a typed size to the given unit, leaving text that isn't a length untouched. */
+function convertField(value: string, from: LengthUnit, to: LengthUnit): string {
+  if (value.trim() === '') return value;
+  const inches = parseLength(value, from);
+  return inches === null ? value : lengthToField(inches, to);
+}
 
 function makeRow(overrides?: Partial<StockRow>): StockRow {
   return { id: crypto.randomUUID(), lengthStr: '', widthStr: '', thicknessStr: '', qtyStr: '1', label: '', ...overrides };
 }
 
-function formatStockLabel(row: StockRow | undefined): string | undefined {
+function formatStockLabel(row: StockRow | undefined, units: LengthUnit): string | undefined {
   if (!row) return undefined;
   const t = row.thicknessStr.trim();
   const l = row.label.trim();
-  const thickPart = t ? (/["”“]\s*$/.test(t) ? t : `${t}"`) : '';
+  const parsed = t ? parseLength(t, units) : null;
+  const thickPart = parsed !== null ? formatterFor(units)(parsed) : t;
   const combined = [thickPart, l].filter(Boolean).join(' ');
   return combined || undefined;
 }
@@ -53,6 +80,7 @@ function layoutToSvgBlock(
   sheetNumber: number,
   totalSheets: number,
   stockLabel: string | undefined,
+  fmtDim: (inches: number) => string,
 ): string {
   const { sheetLength, sheetWidth, placed, wastePercent } = layout;
   const maxW = 900;
@@ -115,11 +143,12 @@ function buildPrintHtml(
   result: CutPlanResult,
   colorMap: Map<string, string>,
   stockRows: StockRow[],
+  units: LengthUnit,
 ): string {
-  const stockLabel = (stockId: string) => formatStockLabel(stockRows.find(r => r.id === stockId));
+  const stockLabel = (stockId: string) => formatStockLabel(stockRows.find(r => r.id === stockId), units);
 
   const pages = result.layouts.map(l =>
-    layoutToSvgBlock(l, colorMap, l.sheetIndex + 1, result.totalSheets, stockLabel(l.stockId))
+    layoutToSvgBlock(l, colorMap, l.sheetIndex + 1, result.totalSheets, stockLabel(l.stockId), formatterFor(units))
   ).join('\n');
 
   const legend = [...colorMap.entries()].map(([name, color]) =>
@@ -152,13 +181,16 @@ ${pages}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function CutPlanOptimizer({ cutList, projectId }: Props) {
-  const [stockRows, setStockRows] = useState<StockRow[]>([makeRow()]);
-  const [kerfStr, setKerfStr] = useState('0.125');
+export default function CutPlanOptimizer({ cutList, projectId, units = 'in', defaultThickness }: Props) {
+  const thicknessField = () => (defaultThickness ? lengthToField(defaultThickness, units) : '');
+  const [stockRows, setStockRows] = useState<StockRow[]>(() => [makeRow({ thicknessStr: thicknessField() })]);
+  const [kerfStr, setKerfStr] = useState(DEFAULT_KERF[units]);
   const [result, setResult] = useState<CutPlanResult | null>(null);
   const [colorMap, setColorMap] = useState<Map<string, string>>(new Map());
   const [skipped, setSkipped] = useState<string[]>([]);
   const [inputError, setInputError] = useState<string | null>(null);
+  const [issues, setIssues] = useState<InputIssue[]>([]);
+  const [unplaced, setUnplaced] = useState<{ groups: UnplacedGroup[]; stocks: StockSheet[] }>({ groups: [], stocks: [] });
   const [showAll, setShowAll] = useState(false);
   const [hasSavedConfig, setHasSavedConfig] = useState(false);
 
@@ -181,14 +213,68 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
       });
   }, [projectId]);
 
-  const updateRow = (id: string, patch: Partial<StockRow>) =>
-    setStockRows(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
+  // When the unit changes, rewrite what's already typed so it keeps its meaning.
+  const previousUnits = useRef(units);
+  useEffect(() => {
+    const from = previousUnits.current;
+    if (from === units) return;
+    previousUnits.current = units;
+    setStockRows(prev => prev.map(r => ({
+      ...r,
+      lengthStr: convertField(r.lengthStr, from, units),
+      widthStr: convertField(r.widthStr, from, units),
+      thicknessStr: convertField(r.thicknessStr, from, units),
+    })));
+    setKerfStr(prev => {
+      const value = Number.parseFloat(prev);
+      if (!Number.isFinite(value) || value < 0) return prev;
+      const inches = from === 'mm' ? value / 25.4 : value;
+      return units === 'mm' ? String(Math.round(inches * 25.4 * 100) / 100) : String(Number(inches.toFixed(4)));
+    });
+  }, [units]);
 
-  const removeRow = (id: string) =>
+  // Sheets still showing the old design thickness follow a new one; typed-in ones stay.
+  const previousThickness = useRef(defaultThickness);
+  useEffect(() => {
+    const from = previousThickness.current;
+    previousThickness.current = defaultThickness;
+    if (from === defaultThickness || !defaultThickness) return;
+    setStockRows(prev => prev.map(r => {
+      const text = r.thicknessStr.trim();
+      const current = text ? parseLength(text, units) : null;
+      const followsDesign = text === '' || (from !== undefined && current !== null && Math.abs(current - from) < 1e-4);
+      return followsDesign ? { ...r, thicknessStr: lengthToField(defaultThickness, units) } : r;
+    }));
+    // Only the design thickness drives this; unit changes are converted separately above.
+  }, [defaultThickness]);
+
+  const formatDim = formatterFor(units);
+  const unitLabel = units === 'mm' ? 'mm' : 'in';
+
+  const FIELD_FOR: Record<keyof StockRow, StockField | null> = {
+    id: null, lengthStr: 'length', widthStr: 'width', thicknessStr: 'thickness', qtyStr: 'qty', label: null,
+  };
+
+  const updateRow = (id: string, patch: Partial<StockRow>) => {
+    // Editing a flagged box clears its flag; the rest stay until the next Generate.
+    const index = stockRows.findIndex(r => r.id === id);
+    const edited = Object.keys(patch).map(k => FIELD_FOR[k as keyof StockRow]).filter(Boolean);
+    setIssues(prev => prev.filter(i => !(i.row === index && edited.includes(i.field))));
+    setStockRows(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
+  };
+
+  const hasIssue = (row: number | null, field: StockField) =>
+    issues.some(i => i.row === row && i.field === field);
+  const invalidProps = (row: number | null, field: StockField) =>
+    hasIssue(row, field) ? { 'aria-invalid': true as const, 'aria-describedby': 'cut-plan-issues' } : {};
+
+  const removeRow = (id: string) => {
+    setIssues([]);
     setStockRows(prev => prev.filter(r => r.id !== id));
+  };
 
   const addPreset = (length: string, width: string) =>
-    setStockRows(prev => [...prev, makeRow({ lengthStr: length, widthStr: width })]);
+    setStockRows(prev => [...prev, makeRow({ lengthStr: length, widthStr: width, thicknessStr: thicknessField() })]);
 
   const saveConfig = () => {
     if (projectId == null) return;
@@ -203,23 +289,23 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
   const handleGenerate = () => {
     setInputError(null);
 
-    const stocks: StockSheet[] = [];
-    for (const row of stockRows) {
-      const l = parseInches(row.lengthStr);
-      const w = parseInches(row.widthStr);
-      const qty = parseInt(row.qtyStr, 10);
-      if (l === null || w === null || isNaN(qty) || qty < 1) {
-        setInputError('One or more stock rows have invalid dimensions or quantity.');
-        return;
-      }
-      stocks.push({ id: row.id, length: l, width: w, qty, label: row.label.trim(), thickness: row.thicknessStr.trim() });
-    }
-
-    const kerf = parseFloat(kerfStr);
-    if (isNaN(kerf) || kerf < 0) {
-      setInputError('Kerf must be a non-negative number.');
+    const checked = validateStockRows(stockRows, units);
+    const kerfCheck = validateKerf(kerfStr, units);
+    const found = kerfCheck.issue ? [...checked.issues, kerfCheck.issue] : checked.issues;
+    setIssues(found);
+    if (found.length > 0 || kerfCheck.kerf === null) {
+      setResult(null);
       return;
     }
+    const kerf = kerfCheck.kerf;
+
+    const stocks: StockSheet[] = checked.stocks.map(({ row: index, length, width, qty }) => {
+      const row = stockRows[index];
+      // The optimizer compares thickness in inches, so normalize anything that parses as a length.
+      const thicknessIn = row.thicknessStr.trim() ? parseLength(row.thicknessStr, units) : null;
+      const thickness = thicknessIn !== null ? decimalString(thicknessIn) : row.thicknessStr.trim();
+      return { id: row.id, length, width, qty, label: row.label.trim(), thickness };
+    });
 
     const { pieces, skipped: sk } = buildCutPieces(cutList);
     setSkipped(sk);
@@ -230,6 +316,7 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
     }
 
     const res = optimizeCuts(stocks, pieces, kerf);
+    setUnplaced({ groups: explainUnplaced(stocks, pieces, res.layouts), stocks });
     const cm = buildColorMap(res.layouts);
     setColorMap(cm);
     setResult(res);
@@ -248,7 +335,7 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
 
   const handleDownloadPdf = () => {
     if (!result) return;
-    const html = buildPrintHtml(result, colorMap, stockRows);
+    const html = buildPrintHtml(result, colorMap, stockRows, units);
     const win = window.open('', '_blank');
     if (!win) {
       toast.error('Pop-up blocked — please allow pop-ups and try again.');
@@ -274,9 +361,9 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
 
         <div className="cut-plan-table-wrap">
         <div className="cut-plan-stock-head" aria-hidden="true">
-          <span>LENGTH (in)</span>
+          <span>LENGTH ({unitLabel})</span>
           <span />
-          <span>WIDTH (in)</span>
+          <span>WIDTH ({unitLabel})</span>
           <span />
           <span>THICKNESS</span>
           <span>QTY</span>
@@ -285,26 +372,29 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
         </div>
 
         <div className="cut-plan-stock-rows">
-          {stockRows.map(row => (
+          {stockRows.map((row, index) => (
             <div key={row.id} className="cut-plan-stock-row">
               <input
                 value={row.lengthStr}
                 onChange={e => updateRow(row.id, { lengthStr: e.target.value })}
-                placeholder="96"
-                aria-label="Stock length in inches"
+                placeholder={units === 'mm' ? 'e.g. 2440' : 'e.g. 96'}
+                {...invalidProps(index, 'length')}
+                aria-label={units === 'mm' ? 'Stock length in millimeters' : 'Stock length in inches'}
               />
               <span style={{ textAlign: 'center', color: 'var(--color-muted)', fontWeight: 500 }}>×</span>
               <input
                 value={row.widthStr}
                 onChange={e => updateRow(row.id, { widthStr: e.target.value })}
-                placeholder="48"
-                aria-label="Stock width in inches"
+                placeholder={units === 'mm' ? 'e.g. 1220' : 'e.g. 48'}
+                {...invalidProps(index, 'width')}
+                aria-label={units === 'mm' ? 'Stock width in millimeters' : 'Stock width in inches'}
               />
               <span style={{ textAlign: 'center', color: 'var(--color-muted)', fontWeight: 500 }}>×</span>
               <input
                 value={row.thicknessStr}
                 onChange={e => updateRow(row.id, { thicknessStr: e.target.value })}
-                placeholder="3/4"
+                placeholder={units === 'mm' ? 'any, e.g. 18' : 'any, e.g. 3/4'}
+                {...invalidProps(index, 'thickness')}
                 aria-label="Stock thickness"
               />
               <input
@@ -312,6 +402,7 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
                 value={row.qtyStr}
                 onChange={e => updateRow(row.id, { qtyStr: e.target.value })}
                 placeholder="1"
+                {...invalidProps(index, 'qty')}
                 aria-label="Stock quantity"
               />
               <input
@@ -334,10 +425,10 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
         </div>{/* cut-plan-table-wrap */}
 
         <div className="cut-plan-presets">
-          <Button variant="ghost" onClick={() => setStockRows(prev => [...prev, makeRow()])}>
+          <Button variant="ghost" onClick={() => setStockRows(prev => [...prev, makeRow({ thicknessStr: thicknessField() })])}>
             <Plus size={16} aria-hidden="true" /> Add stock
           </Button>
-          {PRESETS.map(p => (
+          {PRESETS[units].map(p => (
             <Button
               key={p.label}
               variant="secondary"
@@ -355,15 +446,19 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
       {/* Kerf + Generate */}
       <div className="cut-plan-actions">
         <div className="cut-plan-kerf">
-          <Tooltip content="Blade width lost per cut — typically 1/8&quot; for a table saw" placement="top">
+          <Tooltip content={units === 'mm' ? 'Blade width lost per cut — typically 3.2 mm for a table saw' : 'Blade width lost per cut — typically 1/8" for a table saw'} placement="top">
             <label>
               Saw kerf
               <input
-                type="number" min={0} max={0.5} step={0.0625}
+                type="number" min={0} max={units === 'mm' ? 12 : 0.5} step={units === 'mm' ? 0.1 : 0.0625}
                 value={kerfStr}
-                onChange={e => setKerfStr(e.target.value)}
+                onChange={e => {
+                  setKerfStr(e.target.value);
+                  setIssues(prev => prev.filter(i => i.field !== 'kerf'));
+                }}
+                {...invalidProps(null, 'kerf')}
               />
-              <span>inches</span>
+              <span>{units === 'mm' ? 'mm' : 'inches'}</span>
             </label>
           </Tooltip>
         </div>
@@ -386,6 +481,20 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
         </div>
       )}
 
+      {issues.length > 0 && (
+        <div className="inline-error cut-plan-error cut-plan-issues" role="alert" id="cut-plan-issues">
+          <AlertCircle size={16} aria-hidden="true" />
+          <div>
+            <strong>
+              {issues.length === 1 ? 'Fix this before generating:' : `Fix these ${issues.length} things before generating:`}
+            </strong>
+            <ul>
+              {issues.map(issue => <li key={`${issue.row}-${issue.field}`}>{issue.message}</li>)}
+            </ul>
+          </div>
+        </div>
+      )}
+
       {/* Results */}
       {result && (
         <section className="cut-plan-results" aria-labelledby="cut-plan-results-title">
@@ -405,12 +514,11 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
               {[...new Set(skipped)].join(', ')}
             </Banner>
           )}
-          {result.unplacedPieces.length > 0 && (
-            <Banner tone="danger" icon={<AlertCircle size={16} />}>
-              <strong>{result.unplacedPieces.length} piece{result.unplacedPieces.length > 1 ? 's' : ''} could not be placed</strong>{' '}
-              (too large or no matching stock): {result.unplacedPieces.join(', ')}
+          {unplaced.groups.map(group => (
+            <Banner key={group.reason} tone="danger" icon={<AlertCircle size={16} />}>
+              <UnplacedMessage group={group} stocks={unplaced.stocks} formatDim={formatDim} />
             </Banner>
-          )}
+          ))}
 
           {/* Action buttons */}
           <div className="cut-plan-export">
@@ -430,7 +538,8 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
                     sheetNumber={layout.sheetIndex + 1}
                     totalSheets={result.totalSheets}
                     colorMap={colorMap}
-                    stockLabel={formatStockLabel(stockRow)}
+                    stockLabel={formatStockLabel(stockRow, units)}
+                    formatDim={formatDim}
                   />
                 </div>
               );
@@ -464,6 +573,62 @@ export default function CutPlanOptimizer({ cutList, projectId }: Props) {
       )}
     </div>
   );
+}
+
+function UnplacedMessage({
+  group, stocks, formatDim,
+}: {
+  group: UnplacedGroup;
+  stocks: StockSheet[];
+  formatDim: (inches: number) => string;
+}) {
+  const thick = (value: string) => {
+    const inches = parseInches(value);
+    return inches === null ? `"${value}"` : formatDim(inches);
+  };
+  const list = (items: string[]) => items.join(', ');
+  const count = `${group.count} piece${group.count === 1 ? '' : 's'}`;
+  const parts = <> ({list(group.parts)})</>;
+  const sheetThicknesses = [...new Set(stocks.map(s => (s.thickness ? thick(s.thickness) : 'any')))];
+  const labels = [...new Set(stocks.map(s => s.label).filter(Boolean))];
+
+  switch (group.reason) {
+    case 'thickness':
+      return (
+        <>
+          <strong>{count} left off — no sheet is the right thickness.</strong>{' '}
+          These parts are {list(group.thicknesses.map(thick))} thick{parts}, but your sheets are{' '}
+          {list(sheetThicknesses)}. Change the sheet thickness to {list(group.thicknesses.map(thick))}, or leave
+          Thickness blank to use a sheet for any part.
+        </>
+      );
+    case 'material':
+      return (
+        <>
+          <strong>{count} left off — no sheet label matches the material.</strong>{' '}
+          These parts are {list(group.materials.map(m => `"${m}"`))}{parts}, and every word of a sheet's label must
+          appear in a part's material; your labels are {list(labels.map(l => `"${l}"`))}. Clear the label, or use
+          words from the material.
+        </>
+      );
+    case 'too-large': {
+      const sizes = [...new Set(stocks.map(s => `${formatDim(s.length)} × ${formatDim(s.width)}`))];
+      const big = group.largest ? `${formatDim(group.largest.length)} × ${formatDim(group.largest.width)}` : '';
+      return (
+        <>
+          <strong>{count} left off — bigger than every matching sheet.</strong>{' '}
+          The largest is {big}{parts}; your matching sheets are {list(sizes)}. Add a bigger sheet, or split the part.
+        </>
+      );
+    }
+    case 'out-of-stock':
+      return (
+        <>
+          <strong>{count} left off — ran out of sheets.</strong>{' '}
+          Everything else fits, but the sheets you entered are all used{parts}. Raise the QTY or add another sheet.
+        </>
+      );
+  }
 }
 
 function PlanStat({ label, value }: { label: string; value: string }) {

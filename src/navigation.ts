@@ -30,7 +30,7 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     label: 'Conversion Tables',
     compactLabel: 'Tables',
     href: '/conversions',
-    matchPrefixes: ['/conversions'],
+    matchPrefixes: ['/conversions', '/shelves'],
   },
   {
     id: 'notebook',
@@ -65,6 +65,7 @@ export const APP_ROUTE_PATHS = [
   '/library/manage',
   '/library/:id',
   '/conversions',
+  '/shelves',
   '/shopping-list',
   '/notebook',
   '/notebook/:id',
@@ -88,6 +89,7 @@ export function routeTitleForPath(pathname: string): string {
   if (pathname === '/library/manage') return 'Library Categories & Collections · Workshop';
   if (/^\/library\/[^/]+$/.test(pathname)) return 'Model · Workshop';
   if (pathname === '/conversions') return 'Conversion Tables · Workshop';
+  if (pathname === '/shelves') return 'Shelf Builder · Workshop';
   if (pathname === '/shopping-list') return 'Shopping List · Workshop';
   if (pathname === '/notebook') return 'Notebook · Workshop';
   if (pathname === '/notebook/new') return 'New Notebook Page · Workshop';

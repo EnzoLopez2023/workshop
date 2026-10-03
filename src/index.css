@@ -6627,3 +6627,645 @@ tbody td {
     backdrop-filter: none;
   }
 }
+
+/* ── Shelf Builder ─────────────────────────────────────────────────────────── */
+
+.shelf-page > .workflow-back {
+  margin-bottom: 22px;
+}
+
+.shelf-page .page-head-actions a.btn,
+.conversion-page .page-head-actions a.btn {
+  text-decoration: none;
+}
+
+.shelf-layout {
+  display: grid;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.shelf-config {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 8px 20px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-default);
+  background: var(--color-surface);
+}
+
+.shelf-group {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 16px 0 18px;
+  border: 0;
+  border-top: 1px solid var(--color-divider);
+}
+
+.shelf-group:first-of-type {
+  border-top: 0;
+}
+
+.shelf-group > legend {
+  float: left;
+  width: 100%;
+  margin-bottom: 2px;
+  padding: 0;
+  font-family: var(--font-rounded);
+  font-size: 1rem;
+  font-weight: 720;
+  letter-spacing: -0.015em;
+}
+
+.shelf-group > legend + * {
+  clear: both;
+}
+
+.shelf-group .segmented-control {
+  width: 100%;
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+.shelf-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.shelf-inch-input {
+  position: relative;
+  display: block;
+}
+
+.shelf-inch-input input {
+  width: 100%;
+  padding-right: 34px;
+  font-variant-numeric: tabular-nums;
+}
+
+.shelf-inch-input > span {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.shelf-inch-input input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+.form-field small.shelf-field-error {
+  color: var(--color-danger);
+}
+
+.shelf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.shelf-chip {
+  min-height: 44px;
+  padding: 5px 14px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-capsule);
+  background: var(--color-recessed);
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.shelf-chip[aria-pressed="true"] {
+  border-color: var(--color-annotation);
+  background: color-mix(in srgb, var(--color-annotation-fill) 16%, var(--color-surface));
+  color: var(--color-annotation-strong);
+}
+
+.shelf-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: start;
+  padding: 2px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-default);
+  background: var(--color-recessed);
+}
+
+.shelf-stepper output {
+  min-width: 2.2ch;
+  font-family: var(--font-rounded);
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 720;
+  text-align: center;
+}
+
+.shelf-bay-list {
+  display: grid;
+  gap: 6px;
+}
+
+.shelf-bay-row {
+  display: grid;
+  grid-template-columns: 64px auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.shelf-bay-row > span {
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.shelf-bay-row small {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.shelf-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.shelf-toggle input {
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  flex: 0 0 20px;
+  accent-color: var(--color-action-fill);
+}
+
+.shelf-toggle > span {
+  display: grid;
+  gap: 2px;
+}
+
+.shelf-toggle-label {
+  font-weight: 650;
+}
+
+.shelf-toggle small {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.shelf-toggle:has(input:disabled) {
+  cursor: default;
+}
+
+.shelf-preview {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-hero);
+  background:
+    linear-gradient(color-mix(in srgb, var(--color-divider) 45%, transparent) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, color-mix(in srgb, var(--color-divider) 45%, transparent) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--color-glass-strong);
+  box-shadow: var(--shadow-glass);
+}
+
+.shelf-preview > h2 {
+  margin: 0;
+  font-size: 1.22rem;
+}
+
+.shelf-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  border-block: 1px solid var(--color-divider);
+}
+
+.shelf-summary > div {
+  min-width: 0;
+  padding: 12px;
+  border-inline-start: 1px solid var(--color-divider);
+}
+
+.shelf-summary > div:first-child {
+  border-inline-start: 0;
+}
+
+.shelf-summary dt {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.shelf-summary dd {
+  margin: 4px 0 0;
+  font-family: var(--font-rounded);
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 720;
+}
+
+.shelf-summary .is-accent dd {
+  color: var(--color-annotation-strong);
+}
+
+.shelf-drawing {
+  margin: 0;
+}
+
+.shelf-drawing svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 560px;
+}
+
+.shelf-drawing.is-section svg {
+  max-width: 340px;
+  max-height: 300px;
+}
+
+.shelf-drawing figcaption {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.shelf-ply {
+  fill: color-mix(in srgb, var(--color-action-fill) 26%, var(--color-surface));
+  stroke: var(--color-ink);
+  stroke-width: 0.12;
+  vector-effect: non-scaling-stroke;
+}
+
+.shelf-ply.is-shelf {
+  fill: color-mix(in srgb, var(--color-action-fill) 48%, var(--color-surface));
+}
+
+.shelf-ply.is-kick {
+  fill: var(--color-recessed);
+}
+
+.shelf-ply.is-cleat {
+  fill: color-mix(in srgb, var(--color-annotation-fill) 35%, var(--color-surface));
+}
+
+.shelf-side-outline {
+  fill: none;
+  stroke: var(--color-ink);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.shelf-wall {
+  stroke: var(--color-muted);
+  stroke-dasharray: 4 3;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.shelf-dim line {
+  stroke: var(--color-annotation);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.shelf-dim-text {
+  fill: var(--color-annotation-strong);
+  font-family: var(--font-rounded);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.shelf-placeholder {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.shelf-banner {
+  margin-bottom: 16px;
+}
+
+.shelf-warnings {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 24px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, var(--color-divider));
+  border-radius: var(--radius-default);
+  background: color-mix(in srgb, var(--color-warning-fill) 10%, var(--color-surface));
+  color: var(--color-ink);
+  font-size: 0.88rem;
+  list-style: none;
+}
+
+.shelf-warnings li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.shelf-warnings svg {
+  flex: 0 0 16px;
+  margin-top: 2px;
+  color: var(--color-warning);
+}
+
+.shelf-section {
+  margin-bottom: 36px;
+}
+
+.shelf-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.shelf-section-head h2 {
+  margin: 0;
+  font-size: 1.22rem;
+}
+
+.shelf-section-head p {
+  max-width: 68ch;
+  margin: 5px 0 0;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+}
+
+.shelf-section-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.shelf-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-default);
+  background: var(--color-surface);
+}
+
+.shelf-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.shelf-table th,
+.shelf-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--color-divider);
+  text-align: left;
+  vertical-align: top;
+}
+
+.shelf-table thead th {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.015em;
+}
+
+.shelf-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.shelf-table tbody th {
+  font-weight: 680;
+  white-space: nowrap;
+}
+
+.shelf-table td {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.shelf-table td.is-muted {
+  min-width: 220px;
+  color: var(--color-muted);
+  font-size: 0.84rem;
+  white-space: normal;
+}
+
+.shelf-marks {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-default);
+  background: var(--color-surface);
+  list-style: none;
+}
+
+.shelf-marks li {
+  display: grid;
+  gap: 2px 14px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.shelf-marks li:last-child {
+  border-bottom: 0;
+}
+
+.shelf-marks .is-muted {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}
+
+.shelf-mark-values {
+  font-family: var(--font-rounded);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+@container page (min-width: 900px) {
+  .shelf-layout {
+    grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .shelf-preview {
+    position: sticky;
+    top: 24px;
+  }
+
+  .shelf-marks li {
+    grid-template-columns: 120px minmax(160px, 260px) 1fr;
+    align-items: baseline;
+  }
+}
+
+@container page (max-width: 520px) {
+  .shelf-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shelf-summary > div:nth-child(3) {
+    border-inline-start: 0;
+  }
+
+  .shelf-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media print {
+  .shelf-page .workflow-back,
+  .shelf-page .page-head-actions,
+  .shelf-config,
+  .shelf-section-actions,
+  .shelf-optimizer {
+    display: none !important;
+  }
+
+  .shelf-layout {
+    display: block;
+  }
+
+  .shelf-preview {
+    position: static;
+    background: #fff;
+    box-shadow: none;
+    break-inside: avoid;
+  }
+
+  .shelf-section {
+    break-inside: avoid;
+  }
+}
+
+.shelf-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shelf-preview-head h2 {
+  margin: 0;
+  font-size: 1.22rem;
+}
+
+.shelf-preview-head .segmented-control {
+  grid-auto-columns: minmax(84px, 1fr);
+}
+
+.shelf-viewer {
+  position: relative;
+  aspect-ratio: 5 / 4;
+  max-height: 600px;
+  overflow: hidden;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-default);
+  background: linear-gradient(180deg, var(--color-surface), var(--color-recessed));
+}
+
+.shelf-viewer-canvas,
+.shelf-viewer-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.shelf-viewer-canvas canvas:active {
+  cursor: grabbing;
+}
+
+.shelf-viewer-status {
+  position: absolute;
+  inset: auto 12px 12px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-compact);
+  background: var(--color-glass-strong);
+  color: var(--color-muted);
+  font-size: 0.84rem;
+  text-align: center;
+}
+
+.shelf-viewer-reset {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-compact);
+  background: var(--color-glass-strong);
+  color: var(--color-action);
+  cursor: pointer;
+}
+
+@media print {
+  .shelf-preview-head .segmented-control,
+  .shelf-viewer-reset {
+    display: none !important;
+  }
+}
+
+.shelf-group-note {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.shelf-group-note kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--color-divider);
+  border-radius: 6px;
+  background: var(--color-recessed);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.cut-plan-stock-row input::placeholder,
+.cut-plan-kerf input::placeholder {
+  color: color-mix(in srgb, var(--color-muted) 70%, transparent);
+  font-style: italic;
+}
+
+.cut-plan-stock-row input[aria-invalid="true"],
+.cut-plan-kerf input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 1px var(--color-danger);
+}
+
+.cut-plan-issues {
+  align-items: flex-start;
+}
+
+.cut-plan-issues > svg {
+  flex: 0 0 16px;
+  margin-top: 2px;
+}
+
+.cut-plan-issues ul {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding-left: 18px;
+}

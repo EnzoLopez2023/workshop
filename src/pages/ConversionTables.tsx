@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { ArrowLeft, Check, Clipboard, RotateCcw, Ruler } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Check, Clipboard, RotateCcw, Rows3, Ruler } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
 import {
   convertMeasurement,
@@ -66,6 +66,12 @@ export default function ConversionTables() {
       <PageHeader
         title="Unit Conversions"
         description="Exact millimeter and inch references for the dimensions that arrive in either system."
+        actions={(
+          <Link to="/shelves" className="btn btn-ghost">
+            <Rows3 size={16} aria-hidden="true" />
+            Shelf Builder
+          </Link>
+        )}
       />
 
       <section className="conversion-workbench" aria-labelledby="quick-converter-title">
