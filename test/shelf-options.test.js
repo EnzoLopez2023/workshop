@@ -134,3 +134,42 @@ test('the new options survive saving to a project and reopening', async () => {
   assert.deepEqual(bad.config.bayWidths, [12, 17.5, 17.5]);
   assert.equal(bad.config.faceFrame, undefined);
 });
+
+test('edge banding cuts banded parts smaller and tracks how much banding is needed', async () => {
+  const { hardwareList } = await import('../src/lib/shelfEstimate.ts');
+  const { partFaces } = await import('../src/lib/shelfExport.ts');
+  const { buildGuideSteps } = await import('../src/lib/buildGuide.ts');
+  const b = 2 / 25.4; // 2 mm PVC
+  const plain = buildShelfPlan({ ...base, adjustablePerBay: [1, 0, 0], doorsPerBay: [true, false, false] });
+  const config = { ...base, adjustablePerBay: [1, 0, 0], doorsPerBay: [true, false, false], edgeBanding: true, bandingThickness: b };
+  const banded = buildShelfPlan(config);
+  for (const name of ['Side', 'Divider', 'Top', 'Bottom', 'Shelf', 'Adjustable shelf']) {
+    close(part(banded, name).width, part(plain, name).width - b, name);
+    close(part(banded, name).length, part(plain, name).length, `${name} length is unchanged`);
+    assert.match(part(banded, name).note, /band the front edge/);
+  }
+  close(part(banded, 'Door').width, part(plain, 'Door').width - 2 * b);
+  close(part(banded, 'Door').length, part(plain, 'Door').length - 2 * b);
+  close(part(banded, 'Back 1 of 2').width, part(plain, 'Back 1 of 2').width, 'backs are not banded');
+  assert.ok(banded.banding.totalLength > 0);
+  const item = hardwareList(banded, config, 'in').find(i => i.key === 'banding');
+  assert.match(item.name, /PVC/);
+  assert.equal(item.qty, Math.ceil(banded.banding.totalLength * 1.1 / 12));
+  assert.ok(!hardwareList(plain, base, 'in').some(i => i.key === 'banding'), 'no banding unless turned on');
+
+  // With a face frame only the doors are banded.
+  const framed = buildShelfPlan({ ...config, faceFrame: { enabled: true, stileWidth: 1.5, railWidth: 1.5, thickness: 0.75 } });
+  assert.equal(framed.banding.caseFronts, false);
+  assert.deepEqual(framed.banding.runs.map(r => r.part), ['Door']);
+
+  // CNC files measure from the plywood edge: the back rabbet and pin holes move forward by the banding.
+  const rabbetConfig = { ...config, backJoint: 'rabbet' };
+  const rabbetPlan = buildShelfPlan(rabbetConfig);
+  const left = partFaces(rabbetPlan, rabbetConfig).find(f => f.id === 'left-side-inside');
+  close(left.features.find(f => f.label === 'Back rabbet').v, 11.25 - b);
+  close(left.features.find(f => f.label === 'Shelf pin').v, 1.5 - b);
+
+  // The guide bands the edges before assembly.
+  const ids = buildGuideSteps(banded, config, 'in').steps.map(s => s.id);
+  assert.ok(ids.indexOf('banding') > ids.indexOf('cut') && ids.indexOf('banding') < ids.indexOf('case'));
+});

@@ -57,6 +57,19 @@ export interface ShelfConfig {
   /** Which bays get doors. */
   doorsPerBay?: boolean[];
   shelfLoad?: ShelfLoad;
+  /** Band the front edges of the case parts (unless a face frame covers them) and every door edge. */
+  edgeBanding?: boolean;
+  /** Banding thickness; banded parts are cut this much smaller so the finished size is right. */
+  bandingThickness?: number;
+}
+
+export interface BandingRun {
+  part: string;
+  /** Pieces of this part. */
+  qty: number;
+  /** Banding per piece. */
+  length: number;
+  edges: string;
 }
 
 export interface ShelfPart {
@@ -148,6 +161,8 @@ export interface ShelfPlan {
   doors: DoorLayout[];
   /** How far the face frame and doors stand in front of the case. */
   frontDepth: number;
+  /** Edge banding, when turned on. `caseFronts` is false when a face frame covers them. */
+  banding: { thickness: number; caseFronts: boolean; runs: BandingRun[]; totalLength: number } | null;
 }
 
 export const SHEET_LENGTH = 96;
@@ -427,6 +442,28 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     });
   }
 
+  // ── Edge banding: cut banded parts smaller so they finish at size ────────────
+  let banding: ShelfPlan['banding'] = null;
+  if (config.edgeBanding) {
+    const b = Math.max(0, config.bandingThickness ?? 0.02);
+    const caseFronts = !frame;
+    const runs: BandingRun[] = [];
+    const fronted = (name: string) => ['Side', 'Divider', 'Top', 'Bottom'].includes(name) || name.startsWith('Shelf') || name.startsWith('Adjustable shelf');
+    for (const part of parts) {
+      if (caseFronts && fronted(part.name)) {
+        part.width -= b;
+        runs.push({ part: part.name, qty: part.qty, length: part.length, edges: 'front edge' });
+        part.note = [part.note, b > 0 ? `Cut ${fmt(b)} narrower; band the front edge.` : 'Band the front edge.'].filter(Boolean).join(' ');
+      } else if (part.name.startsWith('Door')) {
+        part.length -= 2 * b;
+        part.width -= 2 * b;
+        runs.push({ part: part.name, qty: part.qty, length: 2 * (part.length + part.width) + 8 * b, edges: 'all four edges' });
+        part.note = [part.note, b > 0 ? `Cut ${fmt(2 * b)} smaller each way; band all four edges.` : 'Band all four edges.'].filter(Boolean).join(' ');
+      }
+    }
+    banding = { thickness: b, caseFronts, runs, totalLength: runs.reduce((sum, run) => sum + run.qty * run.length, 0) };
+  }
+
   for (const part of parts) {
     if (part.material !== 'solid' && !fitsSheet(part.length, part.width)) {
       warnings.push(`${part.name} (${fmt(part.length)} × ${fmt(part.width)}) does not fit a ${config.units === 'mm' ? '1220 × 2440 mm' : '4×8'} sheet.`);
@@ -522,6 +559,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     frame,
     doors,
     frontDepth,
+    banding,
   };
 }
 
@@ -832,6 +870,8 @@ export function readSavedShelfDesign(raw: unknown): SavedShelfDesign | null {
       faceFrame: readFaceFrame(c.faceFrame),
       doorsPerBay: Array.from({ length: Math.floor(bays) }, (_, i) => Array.isArray(c.doorsPerBay) && (c.doorsPerBay as unknown[])[i] === true),
       shelfLoad: c.shelfLoad === 'light' || c.shelfLoad === 'heavy' ? c.shelfLoad : 'books',
+      edgeBanding: c.edgeBanding === true,
+      bandingThickness: num('bandingThickness', 0, 0.15) ?? 0.02,
     },
   };
 }
@@ -878,6 +918,9 @@ export interface ShelfDesignFields {
   frameThickness: string;
   doorsPerBay: boolean[];
   shelfLoad: ShelfLoad;
+  edgeBanding: boolean;
+  /** Kept with its unit (e.g. "0.5 mm") so it reads the same in either unit mode. */
+  bandingThickness: string;
 }
 
 /** Turns a saved design back into Shelf Builder form fields, in the unit it was designed in. */
@@ -950,7 +993,7 @@ export function openingHeightFromOverall(overall: number, shelvesPerBay: number[
 
 /** Defaults for the optional design fields (adjustable shelves, frame, doors, …). */
 export function extraFields(config: Partial<ShelfConfig> & Pick<ShelfConfig, 'bays' | 'bayWidth'>, units: LengthUnit): Pick<ShelfDesignFields,
-  'bayWidthMode' | 'bayWidths' | 'adjustablePerBay' | 'pinSystem' | 'backJoint' | 'faceFrame' | 'stileWidth' | 'railWidth' | 'frameThickness' | 'doorsPerBay' | 'shelfLoad'> {
+  'bayWidthMode' | 'bayWidths' | 'adjustablePerBay' | 'pinSystem' | 'backJoint' | 'faceFrame' | 'stileWidth' | 'railWidth' | 'frameThickness' | 'doorsPerBay' | 'shelfLoad' | 'edgeBanding' | 'bandingThickness'> {
   const field = (inches: number) => lengthToField(inches, units);
   const n = Math.max(1, Math.floor(config.bays));
   const widths = bayWidthsOf({ bays: n, bayWidth: config.bayWidth, bayWidths: config.bayWidths });
@@ -969,5 +1012,7 @@ export function extraFields(config: Partial<ShelfConfig> & Pick<ShelfConfig, 'ba
     frameThickness: ff ? field(ff.thickness) : metric ? '19' : '3/4',
     doorsPerBay: Array.from({ length: n }, (_, i) => config.doorsPerBay?.[i] ?? false),
     shelfLoad: config.shelfLoad ?? 'books',
+    edgeBanding: config.edgeBanding ?? false,
+    bandingThickness: `${Math.round((config.bandingThickness ?? 0.02) * MM_PER_INCH * 10) / 10} mm`,
   };
 }

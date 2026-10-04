@@ -170,6 +170,15 @@ function initSchema(db, { acceptLegacySessionTokens = true } = {}) {
     relationship      TEXT NOT NULL DEFAULT 'related',
     UNIQUE(project_id, linked_project_id)
   );
+
+  -- Shelf Builder design library: named designs saved independently of projects.
+  CREATE TABLE IF NOT EXISTS shelf_designs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    design     TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
 `);
 
 // Additive column migrations for existing DBs — keep idempotent.
@@ -645,6 +654,14 @@ function buildStmts(db) {
   getCutPlanConfig:  db.prepare(`SELECT cut_plan_config FROM projects WHERE id = ?`),
   saveCutPlanConfig: db.prepare(`UPDATE projects SET cut_plan_config = @config WHERE id = @id`),
   getShelfDesign:    db.prepare(`SELECT shelf_design FROM projects WHERE id = ?`),
+  listLibraryShelfDesigns:  db.prepare(`SELECT * FROM shelf_designs ORDER BY updated_at DESC, id DESC`),
+  getLibraryShelfDesign:    db.prepare(`SELECT * FROM shelf_designs WHERE id = ?`),
+  insertLibraryShelfDesign: db.prepare(`INSERT INTO shelf_designs (name, design) VALUES (@name, @design)`),
+  updateLibraryShelfDesign: db.prepare(`
+    UPDATE shelf_designs SET name = @name, design = @design, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE id = @id
+  `),
+  deleteLibraryShelfDesign: db.prepare(`DELETE FROM shelf_designs WHERE id = ?`),
   saveShelfDesign:   db.prepare(`UPDATE projects SET shelf_design = @design WHERE id = @id`),
 
   // ── Build log ────────────────────────────────────────────────────────────────
@@ -3444,6 +3461,57 @@ app.get('/api/projects/:id/shelf-design', (req, res) => {
   let design = null;
   try { design = row.shelf_design ? JSON.parse(row.shelf_design) : null; } catch { design = null; }
   res.json({ design });
+});
+
+// ── Shelf design library ──────────────────────────────────────────────────────
+
+const SHELF_DESIGN_MAX = 20_000;
+
+/** Returns an error message, or null when the name and design are acceptable. */
+function checkLibraryDesign(name, design) {
+  if (typeof name !== 'string' || !name.trim()) return 'name is required';
+  if (name.trim().length > 120) return 'name must be 120 characters or fewer';
+  if (typeof design !== 'object' || design === null || Array.isArray(design) || typeof design.config !== 'object' || design.config === null) {
+    return 'design must be an object with a config';
+  }
+  if (JSON.stringify(design).length > SHELF_DESIGN_MAX) return 'design is too large';
+  return null;
+}
+
+const libraryDesignRow = (row) => {
+  let design = null;
+  try { design = JSON.parse(row.design); } catch { design = null; }
+  return { id: row.id, name: row.name, design, created_at: row.created_at, updated_at: row.updated_at };
+};
+
+app.get('/api/shelf-designs', (req, res) => {
+  res.json(req.stmts.listLibraryShelfDesigns.all().map(libraryDesignRow));
+});
+
+app.post('/api/shelf-designs', (req, res) => {
+  const { name, design } = req.body ?? {};
+  const problem = checkLibraryDesign(name, design);
+  if (problem) return res.status(problem === 'design is too large' ? 413 : 400).json({ error: problem });
+  const info = req.stmts.insertLibraryShelfDesign.run({ name: name.trim(), design: JSON.stringify(design) });
+  res.status(201).json(libraryDesignRow(req.stmts.getLibraryShelfDesign.get(info.lastInsertRowid)));
+});
+
+app.put('/api/shelf-designs/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const existing = req.stmts.getLibraryShelfDesign.get(id);
+  if (!existing) return res.status(404).json({ error: 'Design not found' });
+  const name = req.body?.name ?? existing.name;
+  const design = req.body?.design ?? JSON.parse(existing.design);
+  const problem = checkLibraryDesign(name, design);
+  if (problem) return res.status(problem === 'design is too large' ? 413 : 400).json({ error: problem });
+  req.stmts.updateLibraryShelfDesign.run({ id, name: name.trim(), design: JSON.stringify(design) });
+  res.json(libraryDesignRow(req.stmts.getLibraryShelfDesign.get(id)));
+});
+
+app.delete('/api/shelf-designs/:id', (req, res) => {
+  const info = req.stmts.deleteLibraryShelfDesign.run(Number(req.params.id));
+  if (info.changes === 0) return res.status(404).json({ error: 'Design not found' });
+  res.json({ success: true });
 });
 
 // Body: { design: { version, units, config } } or { design: null } to remove it.

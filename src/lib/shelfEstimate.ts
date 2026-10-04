@@ -175,13 +175,13 @@ export function hardwareList(plan: ShelfPlan, config: ShelfConfig, units: Length
     items.push({ key: 'bumpers', name: 'Door bumpers', qty: plan.doors.length * 2, unit: 'ea', priceKey: 'bumper' });
   }
 
-  if (!plan.frame) {
-    // Front edges that show: sides, top, bottom, dividers, every shelf, and door perimeters.
-    let edge = 2 * plan.overallHeight + panels * plan.innerSpan + (n - 1) * (plan.interiorTop - plan.interiorBottom);
-    edge += plan.bays.reduce((sum, b) => sum + (b.shelfYs.length + b.adjustableYs.length) * b.width, 0);
-    edge += plan.doors.reduce((sum, d) => sum + 2 * (d.width + d.height), 0);
-    const feet = Math.ceil(edge * 1.1 / 12);
-    items.push({ key: 'banding', name: 'Iron-on edge banding', qty: feet, unit: 'ft', note: 'Front edges and doors, plus 10%.', priceKey: 'edgeBanding', optional: true });
+  if (plan.banding && plan.banding.totalLength > 0) {
+    const b = plan.banding.thickness;
+    const kind = b <= 0.025 ? 'Iron-on wood veneer edge banding' : 'PVC edge banding';
+    const width = t >= 0.7 ? '7/8″ (22 mm)' : t >= 0.45 ? '5/8″ (16 mm)' : '1/2″ (12 mm)';
+    const feet = Math.ceil(plan.banding.totalLength * 1.1 / 12);
+    const covers = plan.banding.caseFronts ? `Front edges${plan.doors.length ? ' and doors' : ''}` : 'Door edges (the face frame covers the case)';
+    items.push({ key: 'banding', name: `${kind}, ${width} wide`, qty: feet, unit: 'ft', note: `${covers}, plus 10%.`, priceKey: 'edgeBanding' });
   }
 
   // Finish: both faces of every part, two coats, ~100 sq ft per quart per coat.

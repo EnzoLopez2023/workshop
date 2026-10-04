@@ -2,7 +2,7 @@ import type { IPublicClientApplication } from '@azure/msal-browser';
 import { getApiToken } from '../auth/getToken';
 import { isDemoMode, notifyDemoBlock, DemoBlockedError } from '../demo/demoMode';
 import type {
-  ProjectListItem, ProjectDetail, ProjectFormPayload, StoredShelfDesign,
+  ProjectListItem, ProjectDetail, ProjectFormPayload, StoredShelfDesign, LibraryShelfDesign,
   CutListItem, Material, AnalyzedProject,
   ShaperProject, ShaperProjectPayload, ShaperAnalysisResult,
   BambuAsset, BambuProject, BambuProjectPayload, BambuAnalysisResult, BambuImportResult,
@@ -183,6 +183,14 @@ export const getShelfDesign = (projectId: number) =>
   request<{ design: unknown }>(`/projects/${projectId}/shelf-design`);
 export const saveShelfDesign = (projectId: number, design: StoredShelfDesign | null) =>
   request<{ success: boolean }>(`/projects/${projectId}/shelf-design`, json('PUT', { design }));
+
+export const listLibraryShelfDesigns = () => request<LibraryShelfDesign[]>('/shelf-designs');
+export const createLibraryShelfDesign = (name: string, design: StoredShelfDesign) =>
+  request<LibraryShelfDesign>('/shelf-designs', json('POST', { name, design }));
+export const updateLibraryShelfDesign = (id: number, patch: { name?: string; design?: StoredShelfDesign }) =>
+  request<LibraryShelfDesign>(`/shelf-designs/${id}`, json('PUT', patch));
+export const deleteLibraryShelfDesign = (id: number) =>
+  request<{ success: boolean }>(`/shelf-designs/${id}`, { method: 'DELETE' });
 
 // ── Cut plan config ───────────────────────────────────────────────────────────
 

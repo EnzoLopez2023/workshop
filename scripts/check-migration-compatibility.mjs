@@ -123,6 +123,7 @@ export async function checkMigrationCompatibility() {
         'auth_state',
         'apple_credentials',
         'account_deletion_files',
+        'shelf_designs',
       ];
       const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(row => row.name));
       if (!required.every(table => tables.has(table))) throw new Error('candidate schema is missing required tables');

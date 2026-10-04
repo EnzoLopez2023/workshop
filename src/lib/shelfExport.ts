@@ -72,11 +72,13 @@ export function partFaces(plan: ShelfPlan, config: ShelfConfig): PartFace[] {
   const faces: PartFace[] = [];
   const dividerBottom = config.bottomPanel ? plan.interiorBottom - d : 0;
 
-  const dado = (label: string, at: number): Feature => ({ kind: 'pocket', label, u: at, v: 0, length: t, width: D, depth: d });
+  // Banded case parts are cut narrower; their features are measured from the plywood edge, not the banding.
+  const front = plan.banding?.caseFronts ? plan.banding.thickness : 0;
+  const dado = (label: string, at: number): Feature => ({ kind: 'pocket', label, u: at, v: 0, length: t, width: D - front, depth: d });
   const pins = (panel: string, face: 'left' | 'right', origin: number): Feature[] =>
     plan.pinHoles.filter(r => r.panel === panel && r.face === face).flatMap(run =>
       run.ys.flatMap(y => [run.frontInset, run.backInset].map(v => ({
-        kind: 'hole' as const, label: 'Shelf pin', u: y - origin, v, radius: plan.pinDiameter / 2, depth: plan.pinDepth,
+        kind: 'hole' as const, label: 'Shelf pin', u: y - origin, v: v - front, radius: plan.pinDiameter / 2, depth: plan.pinDepth,
       }))));
 
   for (const part of plan.parts) {
@@ -92,7 +94,7 @@ export function partFaces(plan: ShelfPlan, config: ShelfConfig): PartFace[] {
           if (config.topPanel) features.push(dado('Top dado', H - t));
         }
         if (plan.backRabbet > 0) {
-          features.push({ kind: 'pocket', label: plan.cleatGap > 0 ? 'Back groove' : 'Back rabbet', u: 0, v: D, length: H, width: plan.backThickness, depth: plan.backRabbet });
+          features.push({ kind: 'pocket', label: plan.cleatGap > 0 ? 'Back groove' : 'Back rabbet', u: 0, v: D - front, length: H, width: plan.backThickness, depth: plan.backRabbet });
         }
         features.push(...pins(piece, insideFace, 0));
         faces.push({
@@ -130,8 +132,11 @@ export function partFaces(plan: ShelfPlan, config: ShelfConfig): PartFace[] {
       continue;
     }
     if (part.name.startsWith('Door')) {
-      const features: Feature[] = hingePositions(part.length).map((u, i) => ({
-        kind: 'hole', label: `Hinge cup ${i + 1}`, u, v: HINGE_CUP_INSET, radius: HINGE_CUP_RADIUS, depth: HINGE_CUP_DEPTH,
+      // Hinge positions are set from the finished (banded) edges; the file is the cut plywood.
+      const band = plan.banding ? plan.banding.thickness : 0;
+      const finished = part.length + 2 * band;
+      const features: Feature[] = hingePositions(finished).map((u, i) => ({
+        kind: 'hole', label: `Hinge cup ${i + 1}`, u: u - band, v: HINGE_CUP_INSET - band, radius: HINGE_CUP_RADIUS, depth: HINGE_CUP_DEPTH,
       }));
       faces.push({
         ...base, id: slug(part.name), piece: part.name, face: 'inside face', features, rightHanded: true,

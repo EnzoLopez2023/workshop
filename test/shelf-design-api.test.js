@@ -166,3 +166,51 @@ test('cost lines saved as materials show up with their costs and in order', asyn
   assert.equal(project.materials[0].qty_label, '3 sheets');
   assert.ok(Math.abs(project.total_cost - estimate.total) < 0.05, `${project.total_cost} vs ${estimate.total}`);
 });
+
+test('the design library saves, lists newest first, updates, renames and deletes designs', async () => {
+  const save = (name, d = design) => request('/api/shelf-designs', { method: 'POST', body: { name, design: d } });
+  const first = await (await save('  Garage wall  ')).json();
+  assert.equal(first.name, 'Garage wall', 'names are trimmed');
+  assert.deepEqual(first.design, design);
+  const second = await (await save('Pantry')).json();
+  let list = await (await request('/api/shelf-designs')).json();
+  assert.deepEqual(list.slice(0, 2).map(d => d.name), ['Pantry', 'Garage wall']);
+
+  const changed = { ...design, config: { ...design.config, bays: 3, shelvesPerBay: [1, 2, 3] } };
+  const updated = await (await request(`/api/shelf-designs/${first.id}`, { method: 'PUT', body: { design: changed } })).json();
+  assert.equal(updated.name, 'Garage wall', 'a design-only update keeps the name');
+  assert.equal(updated.design.config.bays, 3);
+  const renamed = await (await request(`/api/shelf-designs/${first.id}`, { method: 'PUT', body: { name: 'Garage wall v2' } })).json();
+  assert.equal(renamed.design.config.bays, 3, 'a rename keeps the design');
+  list = await (await request('/api/shelf-designs')).json();
+  assert.equal(list[0].name, 'Garage wall v2', 'the most recently changed design comes first');
+
+  assert.equal((await request(`/api/shelf-designs/${second.id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await request(`/api/shelf-designs/${second.id}`, { method: 'DELETE' })).status, 404);
+  assert.equal((await request('/api/shelf-designs/999999', { method: 'PUT', body: { name: 'x' } })).status, 404);
+});
+
+test('the design library rejects bad input and keeps accounts and demo mode apart', async () => {
+  const post = body => request('/api/shelf-designs', { method: 'POST', body });
+  assert.equal((await post({ name: '', design })).status, 400);
+  assert.equal((await post({ name: 'x'.repeat(121), design })).status, 400);
+  assert.equal((await post({ name: 'No design' })).status, 400);
+  assert.equal((await post({ name: 'Array', design: [] })).status, 400);
+  assert.equal((await post({ name: 'Huge', design: { ...design, config: { ...design.config, note: 'x'.repeat(25_000) } } })).status, 413);
+
+  const mine = await (await post({ name: 'Only mine', design })).json();
+  const theirs = await (await request('/api/shelf-designs', { user: USER_B })).json();
+  assert.ok(!theirs.some(d => d.name === 'Only mine'));
+  assert.equal((await request(`/api/shelf-designs/${mine.id}`, { user: USER_B, method: 'DELETE' })).status, 404);
+
+  // Give demo mode a seed snapshot (the server creates every table when it opens it).
+  const { default: Database } = await import('better-sqlite3');
+  const seed = new Database(process.env.SEED_DB_PATH);
+  api.initSchema(seed);
+  seed.close();
+  const demoList = await request('/api/shelf-designs', { user: null, headers: { 'X-Demo': '1' } });
+  assert.equal(demoList.status, 200);
+  assert.deepEqual(await demoList.json(), []);
+  const demoWrite = await request('/api/shelf-designs', { user: null, method: 'POST', body: { name: 'Demo', design }, headers: { 'X-Demo': '1' } });
+  assert.equal(demoWrite.status, 403);
+});

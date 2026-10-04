@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, FolderPlus, Minus, Plus, Printer, RotateCcw,
+  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, Library, FolderPlus, Minus, Plus, Printer, RotateCcw,
 } from 'lucide-react';
 import { Button, IconButton, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
@@ -9,6 +9,8 @@ import ShelfAddToProject from '../components/ShelfAddToProject';
 import ShelfBuildGuide from '../components/ShelfBuildGuide';
 import { CostTable, HardwareTable, money, useShelfEstimate } from '../components/ShelfEstimate';
 import ShelfExport from '../components/ShelfExport';
+import ShelfLibrary from '../components/ShelfLibrary';
+import type { ShelfTemplate } from '../lib/shelfTemplates';
 import { getProject, getShelfDesign } from '../services/api';
 import { formatSag, SHELF_LOADS, sagCheck, type SagResult } from '../lib/shelfEstimate';
 import {
@@ -72,7 +74,16 @@ const DEFAULT_FORM: FormState = {
   frameThickness: '3/4',
   doorsPerBay: [false, false, false, false],
   shelfLoad: 'books',
+  edgeBanding: false,
+  bandingThickness: '0.5 mm',
 };
+
+// Each carries its unit, so it means the same in inch or millimeter mode.
+const BANDING_PRESETS = [
+  { value: '0.5 mm', label: '0.5 mm veneer' },
+  { value: '1 mm', label: '1 mm PVC' },
+  { value: '2 mm', label: '2 mm PVC' },
+];
 
 const BAY_WIDTH_OPTIONS = [
   { value: 'same', label: 'All the same' },
@@ -250,6 +261,8 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
       faceFrame,
       doorsPerBay: form.doorsPerBay.slice(0, form.bays),
       shelfLoad: form.shelfLoad,
+      edgeBanding: form.edgeBanding,
+      bandingThickness: parseLength(form.bandingThickness, form.units) ?? 0.02,
     },
     fieldErrors,
   };
@@ -278,7 +291,11 @@ export default function ShelfBuilder() {
   const [addingToProject, setAddingToProject] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const [source, setSource] = useState<{ id: number; title: string } | null>(null);
+  /** Where the design on screen came from: a project, a saved library design, or a template. */
+  const [source, setSource] = useState<
+    { kind: 'project' | 'library'; id: number; title: string } | { kind: 'template'; title: string } | null
+  >(null);
+  const [showLibrary, setShowLibrary] = useState(false);
   const [loadNotice, setLoadNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
   const [hasPrevious, setHasPrevious] = useState(false);
   const formRef = useRef(form);
@@ -310,15 +327,7 @@ export default function ShelfBuilder() {
           });
           return;
         }
-        try {
-          localStorage.setItem(PREVIOUS_STORAGE_KEY, JSON.stringify(formRef.current));
-          setHasPrevious(true);
-        } catch {
-          setHasPrevious(false);
-        }
-        setForm(shelfDesignToFields(saved));
-        setSource({ id, title: project.title });
-        setLoadNotice(null);
+        applyDesign(shelfDesignToFields(saved), { kind: 'project', id, title: project.title });
       })
       .catch(err => {
         if (cancelled) return;
@@ -329,6 +338,27 @@ export default function ShelfBuilder() {
       .finally(() => !cancelled && finish());
     return () => { cancelled = true; };
   }, [projectParam, setSearchParams]);
+
+  // Opening anything sets the current design aside first, so it can be restored.
+  function applyDesign(fields: FormState, origin: NonNullable<typeof source>) {
+    try {
+      localStorage.setItem(PREVIOUS_STORAGE_KEY, JSON.stringify(formRef.current));
+      setHasPrevious(true);
+    } catch {
+      setHasPrevious(false);
+    }
+    setForm(normalizeBays(fields));
+    setSource(origin);
+    setLoadNotice(null);
+    setShowLibrary(false);
+    setAddingToProject(false);
+  }
+
+  // Template fields are inches; fill in the defaults for anything they leave out.
+  const templateConfig = useCallback(
+    (template: ShelfTemplate) => toConfig(normalizeBays({ ...DEFAULT_FORM, ...template.fields, units: 'in' })).config,
+    [],
+  );
 
   const restorePrevious = () => {
     try {
@@ -445,11 +475,35 @@ export default function ShelfBuilder() {
         title="Shelf Builder"
         description="Design a plywood shelving unit by bay, then take the exact cut list, shelf positions, and sheet layout to the saw."
         actions={(
-          <Button variant="ghost" onClick={() => setForm(convertForm(DEFAULT_FORM, units))}>
-            <RotateCcw size={16} aria-hidden="true" /> Reset design
-          </Button>
+          <>
+            <Button variant={showLibrary ? 'secondary' : 'ghost'} onClick={() => setShowLibrary(open => !open)} aria-expanded={showLibrary} aria-controls="shelf-library">
+              <Library size={16} aria-hidden="true" /> Library
+            </Button>
+            <Button variant="ghost" onClick={() => setForm(convertForm(DEFAULT_FORM, units))}>
+              <RotateCcw size={16} aria-hidden="true" /> Reset design
+            </Button>
+          </>
         )}
       />
+
+      {showLibrary && (
+        <div id="shelf-library">
+          <ShelfLibrary
+            config={valid ? config : null}
+            units={units}
+            heightMode={form.heightMode}
+            openId={source?.kind === 'library' ? source.id : null}
+            templateConfig={templateConfig}
+            onUseTemplate={template => applyDesign(
+              convertForm(normalizeBays({ ...DEFAULT_FORM, ...template.fields, units: 'in' }), units),
+              { kind: 'template', title: template.name },
+            )}
+            onOpen={({ id, name, saved }) => applyDesign(shelfDesignToFields(saved), { kind: 'library', id, title: name })}
+            onSaved={({ id, name }) => setSource({ kind: 'library', id, title: name })}
+            onClose={() => setShowLibrary(false)}
+          />
+        </div>
+      )}
 
       {loadNotice && (
         <p className={`shelf-source-banner ${loadNotice.tone === 'error' ? 'is-error' : ''}`} role={loadNotice.tone === 'error' ? 'alert' : 'status'}>
@@ -461,13 +515,23 @@ export default function ShelfBuilder() {
         <div className="shelf-source-banner" role="status">
           <FolderOpen size={16} aria-hidden="true" />
           <span>
-            Editing the design from <Link to={`/projects/${source.id}`}>“{source.title}”</Link>. Changes stay here until
-            you save them back with <strong>Add to project → Replace them</strong>.
+            {source.kind === 'project' && (
+              <>Editing the design from <Link to={`/projects/${source.id}`}>“{source.title}”</Link>. Changes stay here until
+              you save them back with <strong>Add to project → Replace them</strong>.</>
+            )}
+            {source.kind === 'library' && <>Editing “{source.title}” from your library. Save your changes in the library.</>}
+            {source.kind === 'template' && <>Started from the “{source.title}” template. Change anything, then save it to your library.</>}
           </span>
           <span className="shelf-source-actions">
-            <Button variant="ghost" onClick={() => setAddingToProject(true)}>
-              <FolderPlus size={16} aria-hidden="true" /> Save back to project
-            </Button>
+            {source.kind === 'project' ? (
+              <Button variant="ghost" onClick={() => setAddingToProject(true)}>
+                <FolderPlus size={16} aria-hidden="true" /> Save back to project
+              </Button>
+            ) : (
+              <Button variant="ghost" onClick={() => setShowLibrary(true)}>
+                <Library size={16} aria-hidden="true" /> {source.kind === 'library' ? 'Save changes' : 'Save to library'}
+              </Button>
+            )}
             {hasPrevious && (
               <Button variant="ghost" onClick={restorePrevious}>
                 <RotateCcw size={16} aria-hidden="true" /> Restore previous design
@@ -676,7 +740,7 @@ export default function ShelfBuilder() {
           </fieldset>
 
           <fieldset className="shelf-group">
-            <legend>Face frame &amp; doors</legend>
+            <legend>Face frame, doors &amp; edges</legend>
             <Toggle
               label="Face frame"
               checked={form.faceFrame}
@@ -688,6 +752,29 @@ export default function ShelfBuilder() {
                 <LengthField unit={units} label="Stile width" value={form.stileWidth} error={fieldErrors.stileWidth} onChange={stileWidth => update({ stileWidth })} />
                 <LengthField unit={units} label="Rail width" value={form.railWidth} error={fieldErrors.railWidth} onChange={railWidth => update({ railWidth })} />
                 <LengthField unit={units} label="Frame thickness" value={form.frameThickness} error={fieldErrors.frameThickness} onChange={frameThickness => update({ frameThickness })} />
+              </div>
+            )}
+            <Toggle
+              label="Edge banding"
+              checked={form.edgeBanding}
+              hint={form.faceFrame
+                ? 'The face frame already covers the case fronts, so only door edges are banded.'
+                : 'Bands the front edges of the sides, top, bottom, dividers and shelves, and every door edge. Parts are cut smaller by the banding so they finish at size.'}
+              onChange={edgeBanding => update({ edgeBanding })}
+            />
+            {form.edgeBanding && (
+              <div className="shelf-chips" role="group" aria-label="Edge banding thickness">
+                {BANDING_PRESETS.map(p => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    className="shelf-chip"
+                    aria-pressed={form.bandingThickness === p.value}
+                    onClick={() => update({ bandingThickness: p.value })}
+                  >
+                    {p.label}
+                  </button>
+                ))}
               </div>
             )}
             <div className="shelf-height-mode">
@@ -866,7 +953,7 @@ export default function ShelfBuilder() {
                   plan={plan}
                   config={config!}
                   units={units}
-                  initialProjectId={source?.id}
+                  initialProjectId={source?.kind === 'project' ? source.id : undefined}
                   heightMode={form.heightMode}
                   costLines={shelfEstimate?.estimate.lines}
                   onClose={() => setAddingToProject(false)}

@@ -130,6 +130,15 @@ export interface StoredShelfDesign {
   config: object;
 }
 
+/** A named design in the Shelf Builder library. */
+export interface LibraryShelfDesign {
+  id: number;
+  name: string;
+  design: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProjectFormPayload {
   title: string;
   description: string;

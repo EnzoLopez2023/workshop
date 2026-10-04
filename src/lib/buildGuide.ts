@@ -285,6 +285,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     plan.pinHoles.length ? `Shelf-pin jig and a ${metricPins ? '5 mm' : '1/4″'} bit with a stop collar` : null,
     plan.frame ? 'Pocket-hole jig for the face frame' : null,
     plan.doors.length && !plan.frame ? '35 mm Forstner bit (or a hinge-boring jig) for the hinge cups' : null,
+    plan.banding ? (plan.banding.thickness <= 0.025 ? 'Household iron and an edge-banding trimmer' : 'Contact cement (or an edge bander) and a flush-trim router bit') : null,
     'Drill/driver, countersink bit, clamps, square, tape measure, pencil',
     wall ? 'Stud finder and a 4-foot level' : 'Level and shims',
   ].filter((x): x is string => x !== null);
@@ -405,6 +406,34 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
         ? ['Dividers drilled from both faces have the second face shifted half a step — otherwise the holes would meet in the middle.']
         : [],
       scene: { view: 'panels', visible: [...sides, ...dividers].filter(name => plan.pinHoles.some(r => r.panel === name)), highlight: pinholes },
+    });
+  }
+
+  // 3c ── Edge banding (before assembly, while every edge is easy to reach)
+  if (plan.banding && plan.banding.runs.length > 0) {
+    const veneer = plan.banding.thickness <= 0.025;
+    const bandedParts = new Set(plan.banding.runs.map(r => r.part));
+    const highlight = names(s => {
+      if (s.kind === 'door') return bandedParts.has('Door') || [...bandedParts].some(p => p.startsWith('Door'));
+      if (!plan.banding!.caseFronts) return false;
+      return ['case', 'shelf', 'adjustable'].includes(s.kind) && s.name !== 'Toe kick';
+    });
+    steps.push({
+      id: 'banding',
+      title: 'Band the edges',
+      summary: `${Math.ceil(plan.banding.totalLength / 12)} ft of ${f(plan.banding.thickness)} ${veneer ? 'wood veneer' : 'PVC'} banding, before assembly.`,
+      instructions: [
+        ...plan.banding.runs.map(r => `${r.part}: ${r.edges}${r.qty > 1 ? ` on all ${r.qty}` : ''}.`),
+        veneer
+          ? 'Iron the banding on with a household iron on the cotton setting, then roll it down hard while it’s hot.'
+          : 'Glue the banding with contact cement on both surfaces (or run it through an edge bander).',
+        'Trim the overhang flush on both faces and ease the corners with fine sandpaper.',
+        plan.banding.thickness > 0 ? `Every banded part was cut ${f(plan.banding.thickness)} smaller per banded edge, so it finishes at size once banded.` : null,
+      ].filter((x): x is string => x !== null),
+      parts: [],
+      tips: ['Band the shelf fronts before installing them — it’s far easier than banding inside the case.'],
+      cautions: [],
+      scene: { view: 'exploded', visible: names(s => !isGroove(s) && s.kind !== 'wall-cleat' && !highlight.includes(s.name)), highlight },
     });
   }
 

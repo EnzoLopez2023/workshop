@@ -37,7 +37,8 @@ test('the sag check flags long spans and suggests a thicker shelf', () => {
 
 test('hardware follows the design', () => {
   const keys = config => hardwareList(buildShelfPlan(config), config, 'in').map(i => i.key);
-  assert.deepEqual(keys(base), ['glue', 'case-screws', 'brads', 'anti-tip', 'banding', 'finish']);
+  assert.deepEqual(keys(base), ['glue', 'case-screws', 'brads', 'anti-tip', 'finish']);
+  assert.ok(keys({ ...base, edgeBanding: true }).includes('banding'), 'edge banding only when it is turned on');
   const fancy = { ...base, mounting: 'wall', adjustablePerBay: [2, 0, 1], doorsPerBay: [true, true, false], faceFrame: { enabled: true, stileWidth: 1.5, railWidth: 1.5, thickness: 0.75 } };
   const list = hardwareList(buildShelfPlan(fancy), fancy, 'in');
   const by = k => list.find(i => i.key === k);
@@ -47,7 +48,7 @@ test('hardware follows the design', () => {
   assert.match(by('hinges').name, /face-frame/);
   assert.ok(by('pocket-screws'));
   assert.ok(by('structural'));
-  assert.ok(!by('banding'), 'a face frame covers the front edges');
+  assert.ok(!by('banding'), 'banding is off unless turned on');
   assert.ok(!by('anti-tip'), 'wall units are screwed to studs instead');
   // Butt joints need more screws than dadoes.
   const butt = hardwareList(buildShelfPlan({ ...base, joinery: 'butt' }), { ...base, joinery: 'butt' }, 'in').find(i => i.key === 'case-screws');
