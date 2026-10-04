@@ -169,6 +169,8 @@ export const SHEET_LENGTH = 96;
 /** Side-to-side clearance for an adjustable shelf, and how far short of the back it stops. */
 export const ADJUSTABLE_CLEARANCE = 1 / 16;
 export const ADJUSTABLE_BACK_CLEARANCE = 1 / 8;
+/** Shelf-pin holes stay this far clear of each fixed shelf (and the bottom/top of each opening). */
+export const PIN_MARGIN = 2;
 /** Bays wider than this get a pair of doors. */
 export const PAIR_DOOR_WIDTH = 24;
 const DOOR_GAP = 1 / 8;
@@ -489,7 +491,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   const pinDiameter = metricPins ? 5 / MM_PER_INCH : 0.25;
   const pinDepth = Math.min(metricPins ? 10 / MM_PER_INCH : 0.375, t * 0.6);
   const pinInset = metricPins ? 37 / MM_PER_INCH : 1.5;
-  const pinMargin = 2; // keep holes this far from the fixed shelves
+  const pinMargin = PIN_MARGIN;
   const pinHoles: PinHoleRun[] = [];
   bays.forEach((bay, i) => {
     if (adjustableCounts[i] === 0) return;

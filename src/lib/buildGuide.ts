@@ -401,7 +401,10 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
         'Drill every panel from the same end (bottom) with the jig against the front edge, so the holes line up across the bay.',
       ],
       parts: [],
-      tips: ['Holes start 2″ clear of each fixed shelf, so the adjustable shelves never collide with them.'],
+      tips: [
+        'Holes start 2″ clear of each fixed shelf, so the adjustable shelves never collide with them.',
+        'The CNC & Shaper export includes a drilling jig: butt it on the shelf below each opening, edge flush with the front, and drill through. Turn it over for the opposite faces.',
+      ],
       cautions: plan.pinHoles.some(r => r.staggered)
         ? ['Dividers drilled from both faces have the second face shifted half a step — otherwise the holes would meet in the middle.']
         : [],

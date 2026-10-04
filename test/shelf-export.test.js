@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildShelfPlan } from '../src/lib/shelving.ts';
 import { planGuideSheets } from '../src/lib/buildGuide.ts';
-import { flipFaces, hingePositions, partDxf, partFaces, partSvg, sheetDxf, sheetSvg } from '../src/lib/shelfExport.ts';
+import { flipFaces, hingePositions, partDxf, partFaces, partSvg, pinJig, pinJigDxf, pinJigSvg, sheetDxf, sheetSvg } from '../src/lib/shelfExport.ts';
 
 const base = {
   thickness: 0.75, bayWidth: 17.5, shelfDepth: 11.25, height: 74, bays: 3, shelvesPerBay: [2, 3, 2],
@@ -104,4 +104,42 @@ test('sheet files place every piece where the sheet layout put it, joinery face-
   assert.equal(outlines, plan.parts.filter(p => p.material !== 'solid').reduce((n, p) => n + p.qty, 0));
   // Dividers drilled on both faces: the second face needs a flip and its own file.
   assert.ok(flipFaces(faces).some(f => f.piece === 'Divider 1'));
+});
+
+test('the shelf-pin jig matches the holes on every face and reads the same flipped over', () => {
+  assert.equal(pinJig(buildShelfPlan(base)), null, 'no adjustable shelves, no jig');
+  const config = { ...base, shelvesPerBay: [1, 2, 1], adjustablePerBay: [1, 1, 1] };
+  const plan = buildShelfPlan(config);
+  const jig = pinJig(plan);
+  close(jig.width, 1.5 + (11.25 - 1.5));
+  close(jig.spacing, 1);
+  // Long enough for the longest group of holes on any face.
+  const longest = Math.max(...plan.pinHoles.flatMap(run => {
+    const groups = [1];
+    for (let i = 1; i < run.ys.length; i++) {
+      if (run.ys[i] - run.ys[i - 1] <= 1.5) groups[groups.length - 1] += 1; else groups.push(1);
+    }
+    return groups;
+  }));
+  assert.equal(jig.holesPerColumn, longest);
+  close(jig.length, 2 * 2 + (longest - 1) * 1);
+  // Symmetric both ways: flipping over (v → width − v) or end-for-end (u → length − u) gives the same holes.
+  const key = h => `${h.u.toFixed(4)},${h.v.toFixed(4)}`;
+  const holes = new Set(jig.holes.map(key));
+  for (const flip of [h => ({ u: h.u, v: jig.width - h.v }), h => ({ u: jig.length - h.u, v: h.v })]) {
+    assert.deepEqual(new Set(jig.holes.map(flip).map(key)), holes);
+  }
+  // Each hole sits where the panels' holes are: the first is 2" from the end, at the panel insets.
+  close(jig.holes[0].u, 2);
+  assert.deepEqual([...new Set(jig.holes.map(h => h.v.toFixed(4)))], [plan.pinHoles[0].frontInset.toFixed(4), plan.pinHoles[0].backInset.toFixed(4)]);
+
+  const svg = pinJigSvg(jig, 'in');
+  assert.match(svg, new RegExp(`width="${jig.length}in" height="${jig.width}in"`));
+  assert.equal((svg.match(/shaper:cutType="inside" shaper:cutDepth="0.500in"/g) ?? []).length, jig.holes.length);
+  assert.match(pinJigDxf(jig, 'in'), /DRILL_0.500in/);
+  // Banded fronts move the columns to the plywood edge.
+  const banded = pinJig(buildShelfPlan({ ...config, edgeBanding: true, bandingThickness: 0.04 }));
+  close(banded.frontInset, 1.5 - 0.04);
+  // 32 mm system.
+  close(pinJig(buildShelfPlan({ ...config, pinSystem: 'metric' })).spacing, 32 / 25.4);
 });

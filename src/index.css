@@ -8186,3 +8186,35 @@ tbody td {
     justify-content: flex-start;
   }
 }
+
+.shelf-export-jig {
+  display: grid;
+  gap: 14px;
+  align-items: start;
+}
+
+.shelf-export-jig img {
+  width: 100%;
+  max-width: 520px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.shelf-export-jig p {
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+}
+
+.shelf-export-steps {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding-left: 20px;
+  font-size: 0.86rem;
+}
+
+@container page (min-width: 820px) {
+  .shelf-export-jig {
+    grid-template-columns: minmax(260px, 1fr) minmax(0, 1.2fr);
+  }
+}

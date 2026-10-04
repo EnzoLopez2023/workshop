@@ -13,7 +13,7 @@
 // DRILL_0.375in) for CAM programs to map to toolpaths.
 
 import type { SheetLayout } from './cutPlan.ts';
-import { MM_PER_INCH, type LengthUnit, type ShelfConfig, type ShelfPlan } from './shelving.ts';
+import { MM_PER_INCH, PIN_MARGIN, type LengthUnit, type ShelfConfig, type ShelfPlan } from './shelving.ts';
 import { hingesPerDoor } from './shelfEstimate.ts';
 
 export type Feature =
@@ -303,4 +303,93 @@ export function flipFaces(faces: PartFace[]): PartFace[] {
 
 export function fileName(base: string, ext: 'svg' | 'dxf'): string {
   return `${slug(base)}.${ext}`;
+}
+
+// ── Shelf-pin drilling jig ────────────────────────────────────────────────────
+
+export interface PinJig {
+  length: number;
+  width: number;
+  thickness: number;
+  /** Hole centres: u along the jig from either end, v across from either long edge. */
+  holes: { u: number; v: number }[];
+  holesPerColumn: number;
+  radius: number;
+  spacing: number;
+  /** Plywood-edge distances of the two columns (they mirror each other). */
+  frontInset: number;
+  backInset: number;
+  staggered: boolean;
+}
+
+/** Jig plate thickness: thin enough to clamp flat, thick enough to guide the bit. */
+export const JIG_THICKNESS = 0.5;
+
+/**
+ * A drilling jig for the shelf-pin holes, symmetric both ways so one jig does
+ * every face: its width is front inset + back inset, so flipping it over gives
+ * the same columns from the panel's front edge (left and right faces are mirror
+ * images), and it has the same margin at both ends, so either end can sit on a
+ * shelf. Null when the design has no adjustable shelves.
+ */
+export function pinJig(plan: ShelfPlan): PinJig | null {
+  if (plan.pinHoles.length === 0) return null;
+  const spacing = plan.pinSpacing;
+  // The longest group of consecutive holes on any face sets the jig length.
+  let longest = 1;
+  for (const run of plan.pinHoles) {
+    let count = 1;
+    for (let i = 1; i < run.ys.length; i++) {
+      count = run.ys[i] - run.ys[i - 1] <= spacing * 1.5 ? count + 1 : 1;
+      longest = Math.max(longest, count);
+    }
+  }
+  const band = plan.banding?.caseFronts ? plan.banding.thickness : 0;
+  const run = plan.pinHoles[0];
+  const frontInset = run.frontInset - band;
+  const backInset = run.backInset - band;
+  const width = frontInset + backInset;
+  const length = 2 * PIN_MARGIN + (longest - 1) * spacing;
+  const holes = Array.from({ length: longest }, (_, k) => PIN_MARGIN + k * spacing)
+    .flatMap(u => [{ u, v: frontInset }, { u, v: backInset }]);
+  return {
+    length, width, thickness: JIG_THICKNESS, holes, holesPerColumn: longest, radius: plan.pinDiameter / 2,
+    spacing, frontInset, backInset, staggered: plan.pinHoles.some(r => r.staggered),
+  };
+}
+
+/** Counting ticks across the jig every 5 holes. */
+function jigTicks(jig: PinJig): number[] {
+  return Array.from({ length: Math.floor(jig.holesPerColumn / 5) }, (_, i) => PIN_MARGIN + (5 * (i + 1) - 1) * jig.spacing);
+}
+
+export function pinJigSvg(jig: PinJig, units: LengthUnit): string {
+  const s = (inches: number) => num(inches, units);
+  const depth = depthLabel(jig.thickness, units);
+  const outline = `<rect x="0" y="0" width="${s(jig.length)}" height="${s(jig.width)}" fill="#000000" stroke="none" `
+    + `shaper:cutType="outside" shaper:cutDepth="${depth}"><title>Shelf-pin jig</title></rect>`;
+  // Through holes: Shaper's interior cut (white fill, black stroke).
+  const holes = jig.holes.map(h => `<circle cx="${s(h.u)}" cy="${s(h.v)}" r="${s(jig.radius)}" fill="#FFFFFF" stroke="#000000" `
+    + `stroke-width="${units === 'mm' ? 0.2 : 0.008}" shaper:cutType="inside" shaper:cutDepth="${depth}"><title>Pin hole</title></circle>`).join('\n    ');
+  const ticks = jigTicks(jig).map(u => `<line x1="${s(u)}" y1="${s(jig.width * 0.35)}" x2="${s(u)}" y2="${s(jig.width * 0.65)}" stroke="#0000FF" `
+    + `stroke-width="${units === 'mm' ? 0.5 : 0.02}" shaper:cutType="guide"><title>Every 5 holes</title></line>`).join('\n    ');
+  return svgDocument(jig.length, jig.width, units, 'Shelf-pin drilling jig', `${outline}\n    ${holes}\n    ${ticks}`);
+}
+
+export function pinJigDxf(jig: PinJig, units: LengthUnit): string {
+  const s = (inches: number) => num(inches, units);
+  const depth = depthLabel(jig.thickness, units);
+  const out: string[] = [];
+  const layer = `OUTSIDE_${depth}`;
+  out.push('0', 'POLYLINE', '8', layer, '66', '1', '70', '1');
+  for (const [x, y] of [[0, 0], [jig.length, 0], [jig.length, jig.width], [0, jig.width]]) {
+    out.push('0', 'VERTEX', '8', layer, '10', s(x), '20', s(y), '30', '0');
+  }
+  out.push('0', 'SEQEND', '8', layer);
+  // Symmetric, so the DXF's y-up flip changes nothing.
+  for (const h of jig.holes) out.push('0', 'CIRCLE', '8', `DRILL_${depth}`, '10', s(h.u), '20', s(h.v), '30', '0', '40', s(jig.radius));
+  for (const u of jigTicks(jig)) {
+    out.push('0', 'LINE', '8', 'GUIDE', '10', s(u), '20', s(jig.width * 0.35), '30', '0', '11', s(u), '21', s(jig.width * 0.65), '31', '0');
+  }
+  return dxfDocument(units, out);
 }
