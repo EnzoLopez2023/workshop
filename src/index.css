@@ -8218,3 +8218,128 @@ tbody td {
     grid-template-columns: minmax(260px, 1fr) minmax(0, 1.2fr);
   }
 }
+
+/* ── Shelf Builder: design bar ─────────────────────────────────────────────── */
+
+.shelf-design-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-default);
+  background: var(--color-surface);
+}
+
+.shelf-design-bar-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.shelf-design-bar-name > svg {
+  color: var(--color-annotation);
+}
+
+.shelf-design-bar-name strong {
+  font-family: var(--font-rounded);
+  font-size: 1.05rem;
+}
+
+.shelf-design-status {
+  padding: 3px 10px;
+  border-radius: var(--radius-capsule);
+  background: var(--color-recessed);
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.shelf-design-status.is-saved {
+  background: color-mix(in srgb, var(--color-success-fill) 16%, var(--color-surface));
+  color: var(--color-success);
+}
+
+.shelf-design-status.is-dirty {
+  background: color-mix(in srgb, var(--color-warning-fill) 18%, var(--color-surface));
+  color: var(--color-warning);
+}
+
+.shelf-design-bar-actions,
+.shelf-design-bar-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.shelf-design-bar-form input {
+  min-width: 220px;
+}
+
+.shelf-design-bar > p {
+  flex-basis: 100%;
+}
+
+.shelf-design-bar .is-muted {
+  color: var(--color-muted);
+  font-size: 0.86rem;
+}
+
+@media print {
+  .shelf-design-bar {
+    display: none !important;
+  }
+}
+
+/* ── Projects page: saved shelf designs ────────────────────────────────────── */
+
+.shelf-designs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.shelf-design-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.shelf-design-card img,
+.shelf-design-card .shelf-library-nothumb {
+  width: 100%;
+  height: 140px;
+  border-radius: var(--radius-compact);
+  background: var(--color-recessed);
+  object-fit: contain;
+}
+
+.shelf-design-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.shelf-design-card p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.shelf-design-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dashboard-section > .is-muted {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}

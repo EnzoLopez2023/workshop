@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, Library, FolderPlus, Minus, Plus, Printer, RotateCcw,
+  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, Library, Loader2, Save, FolderPlus, Minus, Plus, Printer, RotateCcw,
 } from 'lucide-react';
 import { Button, IconButton, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
@@ -11,7 +11,8 @@ import { CostTable, HardwareTable, money, useShelfEstimate } from '../components
 import ShelfExport from '../components/ShelfExport';
 import ShelfLibrary from '../components/ShelfLibrary';
 import type { ShelfTemplate } from '../lib/shelfTemplates';
-import { getProject, getShelfDesign } from '../services/api';
+import { createLibraryShelfDesign, getLibraryShelfDesign, getProject, getShelfDesign, updateLibraryShelfDesign } from '../services/api';
+import { isDemoMode } from '../demo/demoMode';
 import { formatSag, SHELF_LOADS, sagCheck, type SagResult } from '../lib/shelfEstimate';
 import {
   buildShelfPlan,
@@ -24,6 +25,7 @@ import {
   PAIR_DOOR_WIDTH,
   overallFromOpeningHeight,
   readSavedShelfDesign,
+  toSavedShelfDesign,
   shelfDesignToFields,
   type ShelfDesignFields,
   shelfSolids,
@@ -37,6 +39,8 @@ const ShelfViewer3D = lazy(() => import('../components/ShelfViewer3D'));
 
 const STORAGE_KEY = 'workshop-shelf-builder';
 const VIEW_STORAGE_KEY = 'workshop-shelf-builder-view';
+/** Which saved design is open (and its saved state), so returning to the page keeps the link. */
+const SOURCE_STORAGE_KEY = 'workshop-shelf-builder-source';
 /** The design that was in the builder before a project's design was opened over it. */
 const PREVIOUS_STORAGE_KEY = 'workshop-shelf-builder-previous';
 const MAX_BAYS = 12;
@@ -283,6 +287,22 @@ function toCutList(plan: ShelfPlan): CutListItem[] {
   }));
 }
 
+type DesignSource = { kind: 'project' | 'library'; id: number; title: string } | { kind: 'template'; title: string };
+
+function readStoredSource(): { source: DesignSource | null; snapshot: string | null } {
+  try {
+    const raw = localStorage.getItem(SOURCE_STORAGE_KEY);
+    if (!raw) return { source: null, snapshot: null };
+    const parsed = JSON.parse(raw) as { source?: DesignSource; snapshot?: string };
+    // Only a library design is worth remembering: it's the one with "unsaved changes" to track.
+    return parsed.source?.kind === 'library' && typeof parsed.snapshot === 'string'
+      ? { source: parsed.source, snapshot: parsed.snapshot }
+      : { source: null, snapshot: null };
+  } catch {
+    return { source: null, snapshot: null };
+  }
+}
+
 export default function ShelfBuilder() {
   const navigate = useNavigate();
   const [form, setForm] = useState<FormState>(readStoredForm);
@@ -292,14 +312,52 @@ export default function ShelfBuilder() {
   const [showGuide, setShowGuide] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   /** Where the design on screen came from: a project, a saved library design, or a template. */
-  const [source, setSource] = useState<
-    { kind: 'project' | 'library'; id: number; title: string } | { kind: 'template'; title: string } | null
-  >(null);
+  const [storedSource] = useState(readStoredSource);
+  const [source, setSource] = useState<DesignSource | null>(storedSource.source);
+  /** The open library design as last saved (or opened), to tell when there are unsaved changes. */
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(storedSource.snapshot);
+  const pendingSnapshot = useRef(false);
+  const [naming, setNaming] = useState<'new' | null>(null);
+  const [designName, setDesignName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [showLibrary, setShowLibrary] = useState(false);
   const [loadNotice, setLoadNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
   const [hasPrevious, setHasPrevious] = useState(false);
   const formRef = useRef(form);
   formRef.current = form;
+
+  // ?design=<id> opens a saved library design to edit (from the Projects page).
+  const designParam = searchParams.get('design');
+  useEffect(() => {
+    if (designParam == null) return;
+    const id = Number(designParam);
+    let cancelled = false;
+    const finish = () => setSearchParams(prev => { prev.delete('design'); return prev; }, { replace: true });
+    if (!Number.isInteger(id) || id <= 0) {
+      setLoadNotice({ tone: 'error', text: `“${designParam}” isn’t a design number, so nothing was opened.` });
+      finish();
+      return;
+    }
+    setLoadNotice({ tone: 'info', text: 'Opening the saved design…' });
+    getLibraryShelfDesign(id)
+      .then(entry => {
+        if (cancelled) return;
+        const saved = readSavedShelfDesign(entry.design);
+        if (!saved) {
+          setLoadNotice({ tone: 'error', text: `“${entry.name}” couldn’t be read, so your current design was kept.` });
+          return;
+        }
+        applyDesign(shelfDesignToFields(saved), { kind: 'library', id: entry.id, title: entry.name });
+      })
+      .catch(err => {
+        if (cancelled) return;
+        const reason = err instanceof Error && err.message ? err.message : 'the request failed';
+        setLoadNotice({ tone: 'error', text: `That design couldn’t be opened (${reason}), so your current design was kept.` });
+      })
+      .finally(() => !cancelled && finish());
+    return () => { cancelled = true; };
+  }, [designParam, setSearchParams]);
 
   // ?project=<id> opens that project's saved design (from its 3D preview).
   const projectParam = searchParams.get('project');
@@ -349,6 +407,11 @@ export default function ShelfBuilder() {
     }
     setForm(normalizeBays(fields));
     setSource(origin);
+    // A library design's reference copy is taken from the form once it renders (see below).
+    pendingSnapshot.current = origin.kind === 'library';
+    setSavedSnapshot(null);
+    setNaming(null);
+    setSaveMessage(null);
     setLoadNotice(null);
     setShowLibrary(false);
     setAddingToProject(false);
@@ -399,6 +462,75 @@ export default function ShelfBuilder() {
   const solids = useMemo(() => (plan && config && valid ? shelfSolids(plan, config) : []), [plan, config, valid]);
   const shelfEstimate = useShelfEstimate(plan && valid ? plan : null, valid ? config : null, units);
   const sagResults = useMemo(() => (plan && config && valid ? sagCheck(plan, config, form.shelfLoad) : []), [plan, config, valid, form.shelfLoad]);
+
+  // ── Saved design state ─────────────────────────────────────────────────────
+  const demo = isDemoMode();
+  const currentSnapshot = useMemo(
+    () => (config && valid ? JSON.stringify(toSavedShelfDesign(config, units, form.heightMode)) : null),
+    [config, valid, units, form.heightMode],
+  );
+  useEffect(() => {
+    if (pendingSnapshot.current && currentSnapshot) {
+      pendingSnapshot.current = false;
+      setSavedSnapshot(currentSnapshot);
+    }
+  }, [currentSnapshot]);
+  useEffect(() => {
+    try {
+      if (source?.kind === 'library' && savedSnapshot) localStorage.setItem(SOURCE_STORAGE_KEY, JSON.stringify({ source, snapshot: savedSnapshot }));
+      else localStorage.removeItem(SOURCE_STORAGE_KEY);
+    } catch { /* convenience only */ }
+  }, [source, savedSnapshot]);
+  const openDesign = source?.kind === 'library' ? source : null;
+  const dirty = Boolean(openDesign && currentSnapshot && savedSnapshot && currentSnapshot !== savedSnapshot);
+
+  // Leaving with unsaved changes to a saved design asks first (the form itself is kept in this browser).
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  const saveErrorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'the request failed');
+
+  const saveDesignChanges = async () => {
+    if (!openDesign || !config || saving) return;
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const snapshot = currentSnapshot;
+      const entry = await updateLibraryShelfDesign(openDesign.id, { design: toSavedShelfDesign(config, units, form.heightMode) });
+      setSavedSnapshot(snapshot);
+      setSource({ kind: 'library', id: entry.id, title: entry.name });
+      setSaveMessage({ ok: true, text: `Saved “${entry.name}”.` });
+    } catch (err) {
+      setSaveMessage({ ok: false, text: `Your changes weren’t saved: ${saveErrorText(err)}. They’re still here — try again.` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveDesignAsNew = async () => {
+    if (!config || saving) return;
+    const name = designName.trim();
+    if (!name) { setSaveMessage({ ok: false, text: 'Give the design a name first.' }); return; }
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const snapshot = currentSnapshot;
+      const entry = await createLibraryShelfDesign(name, toSavedShelfDesign(config, units, form.heightMode));
+      setSource({ kind: 'library', id: entry.id, title: entry.name });
+      setSavedSnapshot(snapshot);
+      setNaming(null);
+      setDesignName('');
+      setSaveMessage({ ok: true, text: `Saved as “${entry.name}”. Find it on the Projects page or in the Library.` });
+    } catch (err) {
+      setSaveMessage({ ok: false, text: `The design wasn’t saved: ${saveErrorText(err)}` });
+    } finally {
+      setSaving(false);
+    }
+  };
   const sagWarnings = sagResults.filter(r => !r.ok).map(r =>
     `Bay ${r.bay + 1}: ${r.kind === 'adjustable' ? 'adjustable shelves' : 'shelves'} span ${fmt(r.span)} and will sag about ${formatSag(r.sag, units)} under ${SHELF_LOADS[form.shelfLoad].label.split(' —')[0].toLowerCase()} — more than the ${formatSag(r.limit, units)} that looks flat. `
     + (r.thicknessNeeded ? `Use ${fmt(r.thicknessNeeded)} plywood, ` : '')
@@ -499,7 +631,7 @@ export default function ShelfBuilder() {
               { kind: 'template', title: template.name },
             )}
             onOpen={({ id, name, saved }) => applyDesign(shelfDesignToFields(saved), { kind: 'library', id, title: name })}
-            onSaved={({ id, name }) => setSource({ kind: 'library', id, title: name })}
+            onSaved={({ id, name }) => { setSource({ kind: 'library', id, title: name }); setSavedSnapshot(currentSnapshot); }}
             onClose={() => setShowLibrary(false)}
           />
         </div>
@@ -511,7 +643,59 @@ export default function ShelfBuilder() {
           <span>{loadNotice.text}</span>
         </p>
       )}
-      {source && (
+      <div className="shelf-design-bar" role="region" aria-label="Saved design">
+        <div className="shelf-design-bar-name">
+          <Save size={16} aria-hidden="true" />
+          <strong>{openDesign ? openDesign.title : 'Untitled design'}</strong>
+          <span className={`shelf-design-status ${openDesign ? (dirty ? 'is-dirty' : 'is-saved') : ''}`}>
+            {openDesign ? (dirty ? 'Unsaved changes' : 'Saved') : 'Not saved yet'}
+          </span>
+        </div>
+        {demo ? (
+          <span className="is-muted">Demo mode is read-only — sign in to save designs.</span>
+        ) : naming === 'new' ? (
+          <form className="shelf-design-bar-form" onSubmit={e => { e.preventDefault(); void saveDesignAsNew(); }}>
+            <input
+              value={designName}
+              onChange={e => setDesignName(e.target.value)}
+              placeholder="Name this design"
+              aria-label="Design name"
+              maxLength={120}
+              autoFocus
+            />
+            <Button type="submit" variant="primary" disabled={saving || !config}>
+              {saving ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <Save size={16} aria-hidden="true" />} Save
+            </Button>
+            <Button variant="ghost" onClick={() => { setNaming(null); setSaveMessage(null); }}>Cancel</Button>
+          </form>
+        ) : (
+          <span className="shelf-design-bar-actions">
+            {openDesign ? (
+              <Button variant="primary" onClick={() => void saveDesignChanges()} disabled={saving || !dirty || !config}>
+                {saving ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <Save size={16} aria-hidden="true" />} Save
+              </Button>
+            ) : null}
+            <Button
+              variant={openDesign ? 'ghost' : 'primary'}
+              onClick={() => { setNaming('new'); setDesignName(openDesign ? `${openDesign.title} copy` : ''); setSaveMessage(null); }}
+              disabled={!config}
+            >
+              <Save size={16} aria-hidden="true" /> {openDesign ? 'Save as new…' : 'Save design…'}
+            </Button>
+            {openDesign && hasPrevious && (
+              <Button variant="ghost" onClick={restorePrevious}><RotateCcw size={16} aria-hidden="true" /> Restore previous design</Button>
+            )}
+          </span>
+        )}
+        {saveMessage && (
+          <p className={saveMessage.ok ? 'shelf-add-project-ok' : 'shelf-add-project-error'} role="status">
+            {saveMessage.ok ? <Check size={16} aria-hidden="true" /> : <AlertCircle size={16} aria-hidden="true" />}
+            <span>{saveMessage.text}</span>
+          </p>
+        )}
+      </div>
+
+      {source && source.kind !== 'library' && (
         <div className="shelf-source-banner" role="status">
           <FolderOpen size={16} aria-hidden="true" />
           <span>
@@ -519,7 +703,6 @@ export default function ShelfBuilder() {
               <>Editing the design from <Link to={`/projects/${source.id}`}>“{source.title}”</Link>. Changes stay here until
               you save them back with <strong>Add to project → Replace them</strong>.</>
             )}
-            {source.kind === 'library' && <>Editing “{source.title}” from your library. Save your changes in the library.</>}
             {source.kind === 'template' && <>Started from the “{source.title}” template. Change anything, then save it to your library.</>}
           </span>
           <span className="shelf-source-actions">
@@ -528,8 +711,8 @@ export default function ShelfBuilder() {
                 <FolderPlus size={16} aria-hidden="true" /> Save back to project
               </Button>
             ) : (
-              <Button variant="ghost" onClick={() => setShowLibrary(true)}>
-                <Library size={16} aria-hidden="true" /> {source.kind === 'library' ? 'Save changes' : 'Save to library'}
+              <Button variant="ghost" onClick={() => { setNaming('new'); setDesignName(''); }}>
+                <Save size={16} aria-hidden="true" /> Save design…
               </Button>
             )}
             {hasPrevious && (

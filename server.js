@@ -3488,6 +3488,12 @@ app.get('/api/shelf-designs', (req, res) => {
   res.json(req.stmts.listLibraryShelfDesigns.all().map(libraryDesignRow));
 });
 
+app.get('/api/shelf-designs/:id', (req, res) => {
+  const row = req.stmts.getLibraryShelfDesign.get(Number(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Design not found' });
+  res.json(libraryDesignRow(row));
+});
+
 app.post('/api/shelf-designs', (req, res) => {
   const { name, design } = req.body ?? {};
   const problem = checkLibraryDesign(name, design);

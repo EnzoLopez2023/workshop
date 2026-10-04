@@ -185,6 +185,10 @@ test('the design library saves, lists newest first, updates, renames and deletes
   list = await (await request('/api/shelf-designs')).json();
   assert.equal(list[0].name, 'Garage wall v2', 'the most recently changed design comes first');
 
+  const one = await request(`/api/shelf-designs/${first.id}`);
+  assert.equal(one.status, 200);
+  assert.equal((await one.json()).name, 'Garage wall v2');
+  assert.equal((await request('/api/shelf-designs/999999')).status, 404);
   assert.equal((await request(`/api/shelf-designs/${second.id}`, { method: 'DELETE' })).status, 200);
   assert.equal((await request(`/api/shelf-designs/${second.id}`, { method: 'DELETE' })).status, 404);
   assert.equal((await request('/api/shelf-designs/999999', { method: 'PUT', body: { name: 'x' } })).status, 404);

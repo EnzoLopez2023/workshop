@@ -185,6 +185,7 @@ export const saveShelfDesign = (projectId: number, design: StoredShelfDesign | n
   request<{ success: boolean }>(`/projects/${projectId}/shelf-design`, json('PUT', { design }));
 
 export const listLibraryShelfDesigns = () => request<LibraryShelfDesign[]>('/shelf-designs');
+export const getLibraryShelfDesign = (id: number) => request<LibraryShelfDesign>(`/shelf-designs/${id}`);
 export const createLibraryShelfDesign = (name: string, design: StoredShelfDesign) =>
   request<LibraryShelfDesign>('/shelf-designs', json('POST', { name, design }));
 export const updateLibraryShelfDesign = (id: number, patch: { name?: string; design?: StoredShelfDesign }) =>

@@ -53,6 +53,7 @@ import {
   StatePanel,
 } from '../components/ui';
 import { CreateProjectMenu } from '../components/workflows';
+import ShelfDesignsSection from '../components/ShelfDesignsSection';
 import {
   applyVisibleProjectOrder,
   filterProjects,
@@ -349,6 +350,8 @@ export default function Dashboard() {
               />
             )}
           </section>
+
+          <ShelfDesignsSection />
 
           {templates.length > 0 && (
             <TemplatesSection
