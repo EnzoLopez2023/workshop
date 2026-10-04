@@ -182,3 +182,26 @@ test('every color theme defines the full palette in light and dark, and loads be
   }
   assert.match(html, /document\.documentElement\.dataset\.palette = palette/);
 });
+
+test('muted text stays readable (4.5:1) on every light background in every theme', async () => {
+  const css = await readSource('src/index.css');
+  const lum = hex => {
+    const c = hex.slice(1).match(/../g).map(h => parseInt(h, 16) / 255).map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  for (const palette of ['spruce', 'blueprint', 'graphite', 'walnut', 'slate']) {
+    for (const mode of ['light', 'dark']) {
+      const selector = mode === 'light' ? `:root[data-palette="${palette}"]:not([data-theme="dark"]) {` : `:root[data-palette="${palette}"][data-theme="dark"] {`;
+      const start = css.indexOf(selector);
+      const block = css.slice(start, css.indexOf('}', start));
+      const token = name => block.match(new RegExp(`--color-${name}: (#[0-9A-Fa-f]{6});`))[1];
+      for (const bg of ['canvas', 'recessed', 'surface', 'nav']) {
+        for (const fg of ['ink', 'muted']) {
+          const r = ratio(token(fg), token(bg));
+          assert.ok(r >= 4.5, `${palette} ${mode}: ${fg} on ${bg} is ${r.toFixed(2)}:1`);
+        }
+      }
+    }
+  }
+});

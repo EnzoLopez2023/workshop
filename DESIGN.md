@@ -8,7 +8,7 @@ colors:
   glass: "light-dark(rgb(250 252 251 / 0.78), rgb(24 40 35 / 0.78))"
   glass-strong: "light-dark(rgb(250 252 251 / 0.92), rgb(24 40 35 / 0.94))"
   ink: "light-dark(#15332E, #F3F8F6)"
-  muted: "light-dark(#58716B, #9CB2AC)"
+  muted: "light-dark(#546C67, #9CB2AC)"
   divider: "light-dark(#C9DAD5, #2A423C)"
   divider-strong: "light-dark(#AFC7C0, #3C5A52)"
   navigation: "light-dark(#E7F0ED, #172923)"
