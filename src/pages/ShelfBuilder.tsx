@@ -8,6 +8,7 @@ import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import ShelfAddToProject from '../components/ShelfAddToProject';
 import ShelfBuildGuide from '../components/ShelfBuildGuide';
 import { CostTable, HardwareTable, money, useShelfEstimate } from '../components/ShelfEstimate';
+import ShelfExport from '../components/ShelfExport';
 import { getProject, getShelfDesign } from '../services/api';
 import { formatSag, SHELF_LOADS, sagCheck, type SagResult } from '../lib/shelfEstimate';
 import {
@@ -872,6 +873,16 @@ export default function ShelfBuilder() {
                 />
               </div>
             )}
+          </section>
+
+          <section className="shelf-section" aria-labelledby="shelf-export-title">
+            <header className="shelf-section-head">
+              <div>
+                <h2 id="shelf-export-title">CNC &amp; Shaper export</h2>
+                <p>Cut files for every part, with the dados, rabbets, pin holes and hinge cups as pockets.</p>
+              </div>
+            </header>
+            <ShelfExport plan={plan} config={config!} units={units} />
           </section>
 
           {shelfEstimate && (

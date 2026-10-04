@@ -99,7 +99,7 @@ function screwLength(thickness: number): number {
   return thickness < 0.6 ? 1.25 : 1.625;
 }
 
-function hingesPerDoor(height: number): number {
+export function hingesPerDoor(height: number): number {
   return height <= 40 ? 2 : height <= 60 ? 3 : 4;
 }
 

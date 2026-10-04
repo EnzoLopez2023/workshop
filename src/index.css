@@ -7861,3 +7861,151 @@ tbody td {
 .shelf-cost-table td {
   padding-inline: 8px;
 }
+
+/* ── Shelf Builder: CNC / Shaper export ────────────────────────────────────── */
+
+.shelf-export {
+  display: grid;
+  gap: 22px;
+}
+
+.shelf-export-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+  padding: 0;
+  font-size: 0.82rem;
+  list-style: none;
+}
+
+.shelf-export-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shelf-export-legend span {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+.shelf-export-legend .is-outside { background: #000; }
+.shelf-export-legend .is-pocket { background: #7f7f7f; }
+.shelf-export-legend .is-guide { border: 2px solid #00f; }
+
+.shelf-export-group {
+  display: grid;
+  gap: 10px;
+}
+
+.shelf-export-group h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.shelf-export-group h3 small {
+  margin-left: 6px;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.shelf-export-group > p {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.86rem;
+}
+
+.shelf-export-group code {
+  font-size: 0.8rem;
+}
+
+.shelf-export-sheets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shelf-export-sheets li {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-compact);
+  background: var(--color-surface);
+  font-size: 0.86rem;
+}
+
+.shelf-export-sheets img {
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.shelf-export-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.shelf-export-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-compact);
+  background: color-mix(in srgb, var(--color-warning-fill) 14%, var(--color-surface));
+  font-size: 0.86rem;
+}
+
+.shelf-export-note svg {
+  flex: 0 0 15px;
+  margin-top: 2px;
+  color: var(--color-warning);
+}
+
+.shelf-export-part {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.shelf-export-part img {
+  width: 72px;
+  height: 36px;
+  flex: 0 0 72px;
+  border-radius: 4px;
+  background: #fff;
+  object-fit: contain;
+}
+
+.shelf-export-part > span {
+  display: grid;
+  gap: 2px;
+  white-space: normal;
+}
+
+.shelf-export-part small {
+  max-width: 44ch;
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  font-weight: 400;
+}
+
+.shelf-export-table td {
+  vertical-align: middle;
+}
+
+@media print {
+  .shelf-export-buttons {
+    display: none !important;
+  }
+}
