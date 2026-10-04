@@ -14,7 +14,9 @@ export const SOLID_COLORS: Record<SolidKind, number> = {
   cleat: 0x9fbccb,
   'wall-cleat': 0x7fa3b5,
   groove: 0xc0552f,
-  adjustable: 0xefd9b4,
+  // Paler than fixed shelves so adjustable ones stand out; pins in dark metal.
+  adjustable: 0xf7ecd8,
+  pin: 0x4a5056,
   pinhole: 0x2b2118,
   frame: 0xb7895a,
   door: 0xe6cfa6,

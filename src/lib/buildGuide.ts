@@ -241,7 +241,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
   const panels = names(s => s.name === 'Top' || s.name === 'Bottom' || s.name === 'Toe kick');
   const dividers = names(s => s.name.startsWith('Divider'));
   const shelves = names(s => s.kind === 'shelf');
-  const adjustable = names(s => s.kind === 'adjustable');
+  const adjustable = names(s => s.kind === 'adjustable' || s.kind === 'pin');
   const frameSolids = names(s => s.kind === 'frame');
   const doorSolids = names(s => s.kind === 'door');
   const pinholes = names(s => s.kind === 'pinhole');

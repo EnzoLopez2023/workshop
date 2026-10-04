@@ -173,3 +173,21 @@ test('edge banding cuts banded parts smaller and tracks how much banding is need
   const ids = buildGuideSteps(banded, config, 'in').steps.map(s => s.id);
   assert.ok(ids.indexOf('banding') > ids.indexOf('cut') && ids.indexOf('banding') < ids.indexOf('case'));
 });
+
+test('each adjustable shelf rests on four pins, inside its bay and touching it from below', () => {
+  const config = { ...base, shelvesPerBay: [1, 1, 1], adjustablePerBay: [2, 0, 1] };
+  const plan = buildShelfPlan(config);
+  const solids = shelfSolids(plan, config);
+  const shelves = solids.filter(s => s.kind === 'adjustable');
+  assert.equal(shelves.length, 3);
+  for (const shelf of shelves) {
+    const pins = solids.filter(s => s.kind === 'pin' && s.name.startsWith(`${shelf.name} pin`));
+    assert.equal(pins.length, 4, shelf.name);
+    const bay = plan.bays[Number(shelf.name.match(/^Bay (\d+)/)[1]) - 1];
+    for (const pin of pins) {
+      close(pin.max[1], shelf.min[1], 'pin top meets the shelf underside');
+      assert.ok(pin.min[0] >= bay.x - 1e-9 && pin.max[0] <= bay.x + bay.width + 1e-9, 'inside the bay');
+    }
+  }
+  assert.ok(!shelfSolids(buildShelfPlan(base), base).some(s => s.kind === 'pin'), 'no adjustable shelves, no pins');
+});

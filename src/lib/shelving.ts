@@ -600,7 +600,7 @@ function splitBack(height: number, dividerXs: number[], t: number, overallWidth:
 // Visible extents of each part (dado tongues are hidden inside their housings,
 // so they are not modeled). x → right, y → up, z → back from the front edge.
 
-export type SolidKind = 'case' | 'shelf' | 'adjustable' | 'back' | 'cleat' | 'wall-cleat' | 'groove' | 'pinhole' | 'frame' | 'door';
+export type SolidKind = 'case' | 'shelf' | 'adjustable' | 'pin' | 'back' | 'cleat' | 'wall-cleat' | 'groove' | 'pinhole' | 'frame' | 'door';
 
 export type Solid =
   | {
@@ -636,10 +636,21 @@ export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
       solids.push(box(`Bay ${bay.index + 1} shelf ${i + 1}`, 'shelf', [bay.x, y, 0], [bay.x + bay.width, y + t, D]));
     });
   }
+  // Adjustable shelves rest on four shelf pins. They're drawn larger than life —
+  // a real 1/4" pin is a speck at full-unit scale — so the shelves read as loose.
+  const pin = Math.max(plan.pinDiameter, 0.5);
+  const pinReach = 0.75;
+  const pinColumns = plan.pinHoles[0] ? [plan.pinHoles[0].frontInset, plan.pinHoles[0].backInset] : [1.5, D - 1.5];
   for (const bay of plan.bays) {
     bay.adjustableYs.forEach((y, i) => {
       const x0 = bay.x + ADJUSTABLE_CLEARANCE / 2;
-      solids.push(box(`Bay ${bay.index + 1} adjustable shelf ${i + 1}`, 'adjustable', [x0, y, 0], [x0 + bay.width - ADJUSTABLE_CLEARANCE, y + t, D - ADJUSTABLE_BACK_CLEARANCE]));
+      const name = `Bay ${bay.index + 1} adjustable shelf ${i + 1}`;
+      solids.push(box(name, 'adjustable', [x0, y, 0], [x0 + bay.width - ADJUSTABLE_CLEARANCE, y + t, D - ADJUSTABLE_BACK_CLEARANCE]));
+      for (const [side, xa, xb] of [['left', bay.x, bay.x + pinReach], ['right', bay.x + bay.width - pinReach, bay.x + bay.width]] as const) {
+        pinColumns.forEach((z, k) => {
+          solids.push(box(`${name} pin ${side} ${k === 0 ? 'front' : 'back'}`, 'pin', [xa, y - pin, z - pin / 2], [xb, y, z + pin / 2]));
+        });
+      }
     });
   }
   if (plan.backThickness > 0) {

@@ -776,6 +776,15 @@ function ProjectShelfPreview({ projectId, projectTitle }: { projectId: number; p
   const f = (inches: number) => formatLength(inches, units);
   const summary = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.sideDepth)} deep`;
   const mounting = config.mounting === 'wall' ? (config.frenchCleat ? 'wall mount, French cleat' : 'wall mount') : 'floor unit';
+  const fixed = plan.bays.reduce((sum, b) => sum + b.shelfYs.length, 0);
+  const adjustable = plan.bays.reduce((sum, b) => sum + b.adjustableYs.length, 0);
+  const shelfText = adjustable > 0
+    ? `${fixed} fixed + ${adjustable} adjustable shel${adjustable === 1 ? 'f' : 'ves'} (the paler ones, on pins)`
+    : `${fixed} shel${fixed === 1 ? 'f' : 'ves'}`;
+  const extras = [
+    plan.doors.length ? `${plan.doors.length} door${plan.doors.length === 1 ? '' : 's'}` : null,
+    plan.frame ? 'face frame' : null,
+  ].filter(Boolean).join(' · ');
 
   return (
     <>
@@ -790,7 +799,7 @@ function ProjectShelfPreview({ projectId, projectTitle }: { projectId: number; p
       )}
     >
       <p className="project-shelf-summary">
-        {summary} · {plan.bays.length} bay{plan.bays.length === 1 ? '' : 's'} · {f(config.thickness)} plywood · {mounting}
+        {summary} · {plan.bays.length} bay{plan.bays.length === 1 ? '' : 's'} · {shelfText} · {f(config.thickness)} plywood · {mounting}{extras ? ` · ${extras}` : ''}
       </p>
       <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
         <ShelfViewer3D
