@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RotateCcw } from 'lucide-react';
 import type { Solid, SolidKind } from '../lib/shelving';
-import { SOLID_COLORS as COLORS, solidGeometry } from '../lib/shelfRender';
+import { DOOR_OPACITY, SOLID_COLORS as COLORS, solidGeometry } from '../lib/shelfRender';
 
 interface Props {
   solids: Solid[];
@@ -89,7 +89,10 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     const materials = Object.fromEntries(
       Object.entries(COLORS).map(([kind, color]) => [
         kind,
-        new THREE.MeshStandardMaterial({ color, roughness: 0.78, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }),
+        new THREE.MeshStandardMaterial({
+          color, roughness: 0.78, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+          ...(kind === 'door' ? { transparent: true, opacity: DOOR_OPACITY, depthWrite: false } : {}),
+        }),
       ]),
     ) as Record<SolidKind, THREE.MeshStandardMaterial>;
     const edgeMaterial = new THREE.LineBasicMaterial({ color: 0x15332e, transparent: true, opacity: 0.55 });
@@ -168,7 +171,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     for (const solid of solids) {
       const geometry = solidGeometry(solid);
       const mesh = new THREE.Mesh(geometry, materials[solid.kind]);
-      mesh.castShadow = true;
+      mesh.castShadow = solid.kind !== 'door';
       mesh.receiveShadow = true;
       mesh.name = solid.name;
       mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 30), edgeMaterial));

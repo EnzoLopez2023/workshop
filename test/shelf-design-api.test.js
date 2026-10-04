@@ -142,3 +142,27 @@ test('Add to project writes parts the project page reads back, and replace swaps
   rows = await cutList();
   assert.deepEqual(rows.map(r => r.part_name), items.map(i => i.part_name));
 });
+
+test('cost lines saved as materials show up with their costs and in order', async () => {
+  const { buildShelfPlan } = await import('../src/lib/shelving.ts');
+  const { costEstimate, defaultPrices, hardwareList } = await import('../src/lib/shelfEstimate.ts');
+  const config = {
+    thickness: 0.75, bayWidth: 17.5, shelfDepth: 11.25, height: 74, bays: 2, shelvesPerBay: [3, 3],
+    topPanel: true, bottomPanel: true, backPanel: true, joinery: 'dado', dadoDepth: 0.25,
+    mounting: 'floor', toeKick: 3, frenchCleat: false, cleatHeight: 3, doorsPerBay: [true, false],
+  };
+  const plan = buildShelfPlan(config);
+  const estimate = costEstimate(plan, 3, '3/4" plywood', hardwareList(plan, config, 'in'), defaultPrices(0.75));
+  const id = await createProject();
+  // Same calls the Add to project panel makes, numbered from 1.
+  for (const [index, line] of estimate.lines.entries()) {
+    const res = await request(`/api/projects/${id}/materials`, {
+      method: 'POST', body: { name: line.name, qty_label: line.qtyLabel, cost: Math.round(line.total * 100) / 100, sort_order: index + 1 },
+    });
+    assert.equal(res.status, 201);
+  }
+  const project = await (await request(`/api/projects/${id}`)).json();
+  assert.deepEqual(project.materials.map(m => m.name), estimate.lines.map(l => l.name));
+  assert.equal(project.materials[0].qty_label, '3 sheets');
+  assert.ok(Math.abs(project.total_cost - estimate.total) < 0.05, `${project.total_cost} vs ${estimate.total}`);
+});

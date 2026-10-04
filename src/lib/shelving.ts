@@ -14,6 +14,20 @@ import { parseInches } from './cutPlan.ts';
 export type Joinery = 'butt' | 'dado';
 export type LengthUnit = 'in' | 'mm';
 export type Mounting = 'floor' | 'wall';
+/** How the back attaches: inset between the sides, or let into a rabbet (a groove when there's a cleat). */
+export type BackJoint = 'inset' | 'rabbet';
+/** Shelf-pin hole spacing: 1" (imperial) or the 32 mm system. */
+export type PinSystem = 'imperial' | 'metric';
+/** Expected shelf load, for the sag check. */
+export type ShelfLoad = 'light' | 'books' | 'heavy';
+
+export interface FaceFrameConfig {
+  enabled: boolean;
+  stileWidth: number;
+  railWidth: number;
+  /** Solid-wood thickness. */
+  thickness: number;
+}
 
 export interface ShelfConfig {
   thickness: number;
@@ -33,6 +47,16 @@ export interface ShelfConfig {
   cleatHeight: number;
   /** Display unit for notes and warnings. Geometry is always inches. */
   units?: LengthUnit;
+  /** Per-bay clear widths; any missing bay uses `bayWidth`. */
+  bayWidths?: number[];
+  /** Adjustable (loose, on shelf pins) shelves per bay, in addition to the fixed ones. */
+  adjustablePerBay?: number[];
+  pinSystem?: PinSystem;
+  backJoint?: BackJoint;
+  faceFrame?: FaceFrameConfig;
+  /** Which bays get doors. */
+  doorsPerBay?: boolean[];
+  shelfLoad?: ShelfLoad;
 }
 
 export interface ShelfPart {
@@ -42,6 +66,8 @@ export interface ShelfPart {
   width: number;
   thickness: number;
   note?: string;
+  /** Plywood parts come from sheets; solid-wood parts (face frame) are bought as boards. */
+  material?: 'plywood' | 'solid';
 }
 
 export interface BayLayout {
@@ -50,6 +76,42 @@ export interface BayLayout {
   width: number;
   shelfYs: number[];
   openingHeight: number;
+  /** Bottom faces of the adjustable shelves, spread across the bay's openings. */
+  adjustableYs: number[];
+}
+
+/** A run of shelf-pin holes on one face of a side or divider, inside one opening. */
+export interface PinHoleRun {
+  panel: string;
+  face: 'left' | 'right';
+  bay: number;
+  /** Heights of the hole centres, from the floor. */
+  ys: number[];
+  /** Hole columns, measured from the front edge of the panel. */
+  frontInset: number;
+  backInset: number;
+  /** Shifted half a step so holes drilled from both faces of a divider don't meet. */
+  staggered: boolean;
+}
+
+export interface DoorLayout {
+  bay: number;
+  /** Left edge and size, in the front elevation. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface FaceFrameLayout {
+  thickness: number;
+  stileWidth: number;
+  topRail: number;
+  bottomRail: number;
+  /** Centre x of each mullion (over each divider). */
+  mullionXs: number[];
+  /** Clear opening inside the frame for each bay. */
+  openings: { x0: number; x1: number; y0: number; y1: number }[];
 }
 
 export interface PanelMarks {
@@ -76,9 +138,27 @@ export interface ShelfPlan {
   marks: PanelMarks[];
   warnings: string[];
   errors: string[];
+  /** Rabbet/groove width cut into each side for the back (0 when the back is inset). */
+  backRabbet: number;
+  pinHoles: PinHoleRun[];
+  pinSpacing: number;
+  pinDiameter: number;
+  pinDepth: number;
+  frame: FaceFrameLayout | null;
+  doors: DoorLayout[];
+  /** How far the face frame and doors stand in front of the case. */
+  frontDepth: number;
 }
 
 export const SHEET_LENGTH = 96;
+/** Side-to-side clearance for an adjustable shelf, and how far short of the back it stops. */
+export const ADJUSTABLE_CLEARANCE = 1 / 16;
+export const ADJUSTABLE_BACK_CLEARANCE = 1 / 8;
+/** Bays wider than this get a pair of doors. */
+export const PAIR_DOOR_WIDTH = 24;
+const DOOR_GAP = 1 / 8;
+const DOOR_REVEAL = 1 / 16;
+const FRAME_DOOR_OVERLAY = 1 / 2;
 export const SHEET_WIDTH = 48;
 const EPS = 1e-6;
 
@@ -94,6 +174,30 @@ export function sidePanelDepth(config: Pick<ShelfConfig, 'shelfDepth' | 'thickne
   return config.shelfDepth + back + (cleat ? config.thickness : 0);
 }
 
+/** Each bay's clear width: its own value when given, otherwise the shared bay width. */
+export function bayWidthsOf(config: Pick<ShelfConfig, 'bays' | 'bayWidth' | 'bayWidths'>): number[] {
+  const n = Math.max(1, Math.floor(config.bays));
+  return Array.from({ length: n }, (_, i) => {
+    const w = config.bayWidths?.[i];
+    return typeof w === 'number' && w > 0 ? w : config.bayWidth;
+  });
+}
+
+/** Groups bays that share a size, for part names like "Shelf (bays 1, 3)". */
+function groupBySize<T>(items: { bay: number; key: number; value: T }[]): { bays: number[]; key: number; values: T[] }[] {
+  const groups: { bays: number[]; key: number; values: T[] }[] = [];
+  for (const item of items) {
+    const group = groups.find(g => Math.abs(g.key - item.key) < 1e-6);
+    if (group) { group.bays.push(item.bay); group.values.push(item.value); }
+    else groups.push({ bays: [item.bay], key: item.key, values: [item.value] });
+  }
+  return groups;
+}
+
+function bayLabel(bays: number[]): string {
+  return bays.length === 1 ? `bay ${bays[0] + 1}` : `bays ${bays.map(b => b + 1).join(', ')}`;
+}
+
 /** Bottom edges of `count` evenly spaced fixed shelves inside [bottom, top]. */
 export function shelfPositions(bottom: number, top: number, count: number, thickness: number): { ys: number[]; opening: number } {
   const opening = (top - bottom - count * thickness) / (count + 1);
@@ -103,10 +207,10 @@ export function shelfPositions(bottom: number, top: number, count: number, thick
 
 export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   const t = config.thickness;
-  const W = config.bayWidth;
   const D = config.shelfDepth;
   const H = config.height;
   const n = Math.max(1, Math.floor(config.bays));
+  const widths = bayWidthsOf(config);
   const errors: string[] = [];
   const warnings: string[] = [];
   const fmt = (inches: number) => formatLength(inches, config.units ?? 'in');
@@ -116,15 +220,18 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   const dado = config.joinery === 'dado';
   const d = dado ? config.dadoDepth : 0;
   const kick = config.mounting === 'floor' && config.bottomPanel ? Math.max(0, config.toeKick) : 0;
+  const rabbet = hasBack && config.backJoint === 'rabbet' ? t / 2 : 0;
 
   if (dado && d >= t) errors.push('Dado depth must be less than the plywood thickness.');
   else if (dado && d > t / 2 + EPS) warnings.push(`A ${fmt(d)} dado is more than half of ${fmt(t)} plywood; 1/3 of the thickness is typical.`);
+  widths.forEach((w, i) => { if (!(w > 0)) errors.push(`Bay ${i + 1} needs a width.`); });
 
   const backThickness = hasBack ? t : 0;
   const cleatGap = cleat ? t : 0;
   const sideDepth = D + backThickness + cleatGap;
-  const overallWidth = n * W + (n + 1) * t;
-  const innerSpan = n * W + (n - 1) * t;
+  const widthSum = widths.reduce((sum, w) => sum + w, 0);
+  const overallWidth = widthSum + (n + 1) * t;
+  const innerSpan = widthSum + (n - 1) * t;
 
   const interiorBottom = config.bottomPanel ? kick + t : 0;
   const interiorTop = config.topPanel ? H - t : H;
@@ -132,16 +239,42 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   if (clearHeight <= 0) errors.push('The height leaves no room between the top and bottom panels.');
 
   const counts = Array.from({ length: n }, (_, i) => Math.max(0, Math.floor(config.shelvesPerBay[i] ?? 0)));
+  const adjustableCounts = Array.from({ length: n }, (_, i) => Math.max(0, Math.floor(config.adjustablePerBay?.[i] ?? 0)));
+  const xs: number[] = [];
+  widths.reduce((x, w) => { xs.push(x); return x + w + t; }, t);
+
   const bays: BayLayout[] = counts.map((count, index) => {
     const { ys, opening } = shelfPositions(interiorBottom, interiorTop, count, t);
     if (count > 0 && opening <= 0) errors.push(`Bay ${index + 1} has more shelves than its height can hold.`);
-    return { index, x: t + index * (W + t), width: W, shelfYs: ys, openingHeight: opening };
+    // Spread the adjustable shelves over the openings, tallest first, evenly inside each.
+    const bounds = [interiorBottom, ...ys.map(y => y + t)].map((bottom, i) => ({ bottom, top: i < ys.length ? ys[i] : interiorTop }));
+    const perOpening = bounds.map(() => 0);
+    for (let k = 0; k < adjustableCounts[index]; k++) {
+      let best = 0;
+      bounds.forEach((b, i) => {
+        const clear = (b.top - b.bottom - perOpening[i] * t) / (perOpening[i] + 1);
+        const bestClear = (bounds[best].top - bounds[best].bottom - perOpening[best] * t) / (perOpening[best] + 1);
+        if (clear > bestClear + EPS) best = i;
+      });
+      perOpening[best] += 1;
+    }
+    const adjustableYs = bounds.flatMap((b, i) => {
+      const q = perOpening[i];
+      if (q === 0) return [];
+      const gap = (b.top - b.bottom - q * t) / (q + 1);
+      if (gap <= 0) errors.push(`Bay ${index + 1} has more adjustable shelves than its openings can hold.`);
+      return Array.from({ length: q }, (_, r) => b.bottom + (r + 1) * gap + r * t);
+    });
+    return { index, x: xs[index], width: widths[index], shelfYs: ys, openingHeight: opening, adjustableYs };
   });
-  const dividerXs = Array.from({ length: n - 1 }, (_, i) => t + W + i * (W + t));
+  const dividerXs = Array.from({ length: n - 1 }, (_, i) => xs[i] + widths[i]);
 
   // ── Parts ───────────────────────────────────────────────────────────────────
   const parts: ShelfPart[] = [];
   const housed = dado ? ' Housed in dados.' : '';
+  const rabbetNote = rabbet > 0
+    ? `Cut a ${fmt(rabbet)} × ${fmt(t)} ${cleat ? 'groove' : 'rabbet'} for the back, ${fmt(D)} from the front edge.`
+    : '';
 
   parts.push({
     name: 'Side',
@@ -150,7 +283,8 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     width: sideDepth,
     thickness: t,
     note: [
-      hasBack ? `Back sits ${fmt(D)} from the front edge.` : '',
+      hasBack && !rabbet ? `Back sits ${fmt(D)} from the front edge.` : '',
+      rabbetNote,
       cleat ? `Extends ${fmt(cleatGap)} past the back for the cleat.` : '',
     ].filter(Boolean).join(' ') || undefined,
   });
@@ -172,14 +306,33 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   if (config.topPanel) parts.push({ name: 'Top', qty: 1, length: panelLength, width: D, thickness: t, note: housed.trim() || undefined });
   if (config.bottomPanel) parts.push({ name: 'Bottom', qty: 1, length: panelLength, width: D, thickness: t, note: housed.trim() || undefined });
 
-  const shelfCount = counts.reduce((sum, c) => sum + c, 0);
-  if (shelfCount > 0) {
-    parts.push({ name: 'Shelf', qty: shelfCount, length: W + 2 * d, width: D, thickness: t, note: housed.trim() || undefined });
+  // Fixed shelves, one part per distinct bay width.
+  const fixedGroups = groupBySize(bays.filter(b => counts[b.index] > 0).map(b => ({ bay: b.index, key: b.width, value: counts[b.index] })));
+  for (const g of fixedGroups) {
+    parts.push({
+      name: fixedGroups.length === 1 ? 'Shelf' : `Shelf (${bayLabel(g.bays)})`,
+      qty: g.values.reduce((a, c) => a + c, 0),
+      length: g.key + 2 * d,
+      width: D,
+      thickness: t,
+      note: housed.trim() || undefined,
+    });
+  }
+  const adjustableGroups = groupBySize(bays.filter(b => adjustableCounts[b.index] > 0).map(b => ({ bay: b.index, key: b.width, value: adjustableCounts[b.index] })));
+  for (const g of adjustableGroups) {
+    parts.push({
+      name: adjustableGroups.length === 1 ? 'Adjustable shelf' : `Adjustable shelf (${bayLabel(g.bays)})`,
+      qty: g.values.reduce((a, c) => a + c, 0),
+      length: g.key - ADJUSTABLE_CLEARANCE,
+      width: D - ADJUSTABLE_BACK_CLEARANCE,
+      thickness: t,
+      note: `Sits on shelf pins; ${fmt(ADJUSTABLE_CLEARANCE)} narrower than the bay so it lifts out.`,
+    });
   }
 
   if (hasBack) {
     const backHeight = H - kick;
-    for (const piece of splitBack(backHeight, dividerXs, t, overallWidth)) {
+    for (const piece of splitBack(backHeight, dividerXs, t, overallWidth, rabbet)) {
       parts.push({
         name: piece.name,
         qty: 1,
@@ -203,8 +356,79 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     if (h > clearHeight / 3) warnings.push('The cleat is tall relative to the cabinet; check it clears the top shelf opening.');
   }
 
+  // ── Face frame ──────────────────────────────────────────────────────────────
+  let frame: FaceFrameLayout | null = null;
+  const ff = config.faceFrame;
+  if (ff?.enabled) {
+    const sw = ff.stileWidth;
+    const bottomRail = Math.max(ff.railWidth, interiorBottom);
+    const topRail = Math.max(ff.railWidth, H - interiorTop);
+    const mullionXs = dividerXs.map(x => x + t / 2);
+    const openings = bays.map((_, i) => ({
+      x0: i === 0 ? sw : mullionXs[i - 1] + sw / 2,
+      x1: i === n - 1 ? overallWidth - sw : mullionXs[i] - sw / 2,
+      y0: bottomRail,
+      y1: H - topRail,
+    }));
+    openings.forEach((o, i) => {
+      if (o.x1 - o.x0 <= 0 || o.y1 - o.y0 <= 0) errors.push(`The face frame closes off bay ${i + 1}; use narrower stiles and rails.`);
+    });
+    frame = { thickness: ff.thickness, stileWidth: sw, topRail, bottomRail, mullionXs, openings };
+    const solid = { thickness: ff.thickness, material: 'solid' as const };
+    parts.push({ name: 'Face frame stile', qty: 2, length: H, width: sw, ...solid, note: 'Flush with the outside of each side.' });
+    const railLength = overallWidth - 2 * sw;
+    if (Math.abs(topRail - bottomRail) < EPS) {
+      parts.push({ name: 'Face frame rail', qty: 2, length: railLength, width: topRail, ...solid, note: 'Top and bottom, between the stiles.' });
+    } else {
+      parts.push({ name: 'Face frame top rail', qty: 1, length: railLength, width: topRail, ...solid, note: 'Between the stiles.' });
+      parts.push({ name: 'Face frame bottom rail', qty: 1, length: railLength, width: bottomRail, ...solid, note: 'Between the stiles; covers the bottom edge.' });
+    }
+    if (n > 1) {
+      parts.push({ name: 'Face frame mullion', qty: n - 1, length: H - topRail - bottomRail, width: sw, ...solid, note: 'Between the rails, centred on each divider.' });
+    }
+  }
+
+  // ── Doors ───────────────────────────────────────────────────────────────────
+  const doors: DoorLayout[] = [];
+  const doorBays = (config.doorsPerBay ?? []).slice(0, n);
+  bays.forEach((bay, i) => {
+    if (!doorBays[i]) return;
+    let x0: number; let x1: number; let y0: number; let y1: number;
+    if (frame) {
+      const o = frame.openings[i];
+      x0 = o.x0 - FRAME_DOOR_OVERLAY; x1 = o.x1 + FRAME_DOOR_OVERLAY;
+      y0 = o.y0 - FRAME_DOOR_OVERLAY; y1 = o.y1 + FRAME_DOOR_OVERLAY;
+    } else {
+      // Full overlay: cover the outer sides, and half of each divider.
+      x0 = i === 0 ? DOOR_REVEAL : dividerXs[i - 1] + t / 2 + DOOR_GAP / 2;
+      x1 = i === n - 1 ? overallWidth - DOOR_REVEAL : dividerXs[i] + t / 2 - DOOR_GAP / 2;
+      y0 = kick + DOOR_REVEAL;
+      y1 = H - DOOR_REVEAL;
+    }
+    const span = x1 - x0;
+    if (bay.width > PAIR_DOOR_WIDTH) {
+      const w = (span - DOOR_GAP) / 2;
+      doors.push({ bay: i, x: x0, y: y0, width: w, height: y1 - y0 });
+      doors.push({ bay: i, x: x0 + w + DOOR_GAP, y: y0, width: w, height: y1 - y0 });
+    } else {
+      doors.push({ bay: i, x: x0, y: y0, width: span, height: y1 - y0 });
+    }
+  });
+  const doorGroups = groupBySize(doors.map(dr => ({ bay: dr.bay, key: Math.round(dr.width * 1e4) * 1e5 + Math.round(dr.height * 1e4), value: dr })));
+  for (const g of doorGroups) {
+    const first = g.values[0];
+    parts.push({
+      name: doorGroups.length === 1 ? 'Door' : `Door (${bayLabel([...new Set(g.bays)])})`,
+      qty: g.values.length,
+      length: first.height,
+      width: first.width,
+      thickness: t,
+      note: frame ? `${fmt(FRAME_DOOR_OVERLAY)} overlay on the face frame.` : 'Full overlay on the case.',
+    });
+  }
+
   for (const part of parts) {
-    if (!fitsSheet(part.length, part.width)) {
+    if (part.material !== 'solid' && !fitsSheet(part.length, part.width)) {
       warnings.push(`${part.name} (${fmt(part.length)} × ${fmt(part.width)}) does not fit a ${config.units === 'mm' ? '1220 × 2440 mm' : '4×8'} sheet.`);
     }
   }
@@ -221,6 +445,32 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
       }
     }
   }
+
+  // ── Shelf-pin holes ─────────────────────────────────────────────────────────
+  const metricPins = config.pinSystem === 'metric';
+  const pinSpacing = metricPins ? 32 / MM_PER_INCH : 1;
+  const pinDiameter = metricPins ? 5 / MM_PER_INCH : 0.25;
+  const pinDepth = Math.min(metricPins ? 10 / MM_PER_INCH : 0.375, t * 0.6);
+  const pinInset = metricPins ? 37 / MM_PER_INCH : 1.5;
+  const pinMargin = 2; // keep holes this far from the fixed shelves
+  const pinHoles: PinHoleRun[] = [];
+  bays.forEach((bay, i) => {
+    if (adjustableCounts[i] === 0) return;
+    const bounds = [interiorBottom, ...bay.shelfYs.map(y => y + t)].map((bottom, k) => ({ bottom, top: k < bay.shelfYs.length ? bay.shelfYs[k] : interiorTop }));
+    const ysFor = (offset: number) => bounds.flatMap(b => {
+      const from = b.bottom + pinMargin + offset;
+      const to = b.top - pinMargin;
+      const out: number[] = [];
+      for (let y = from; y <= to + EPS; y += pinSpacing) out.push(y);
+      return out;
+    });
+    const leftPanel = i === 0 ? 'Left side' : `Divider ${i}`;
+    const rightPanel = i === n - 1 ? 'Right side' : `Divider ${i + 1}`;
+    // A divider drilled from both faces gets the second face shifted half a step.
+    const leftStagger = i > 0 && adjustableCounts[i - 1] > 0 && 2 * pinDepth >= t - EPS;
+    pinHoles.push({ panel: leftPanel, face: 'right', bay: i, ys: ysFor(leftStagger ? pinSpacing / 2 : 0), frontInset: pinInset, backInset: D - pinInset, staggered: leftStagger });
+    pinHoles.push({ panel: rightPanel, face: 'left', bay: i, ys: ysFor(0), frontInset: pinInset, backInset: D - pinInset, staggered: false });
+  });
 
   // ── Layout marks (bottom edge of each shelf/dado, from the part's end) ─────
   const marks: PanelMarks[] = [];
@@ -244,10 +494,12 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     if (config.bottomPanel) marks.push({ part: 'Bottom', reference: 'divider left edge, from the left end, top face', positions: fromEnd });
   }
 
+  const frontDepth = (frame ? frame.thickness : 0) + (doors.length > 0 ? t : 0);
+
   return {
     overallWidth,
     overallHeight: H,
-    overallDepth: sideDepth,
+    overallDepth: sideDepth + frontDepth,
     innerSpan,
     sideDepth,
     backThickness,
@@ -262,18 +514,28 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     marks: marks.filter(m => m.positions.length > 0),
     warnings,
     errors,
+    backRabbet: rabbet,
+    pinHoles,
+    pinSpacing,
+    pinDiameter,
+    pinDepth,
+    frame,
+    doors,
+    frontDepth,
   };
 }
 
 /**
  * One back panel when it fits a sheet; otherwise split it into the fewest
- * runs of whole bays, with seams centered on dividers.
+ * runs of whole bays, with seams centered on dividers. A rabbeted back
+ * reaches `rabbet` into each side.
  */
-function splitBack(height: number, dividerXs: number[], t: number, overallWidth: number) {
-  const left = t;
-  const right = overallWidth - t;
+function splitBack(height: number, dividerXs: number[], t: number, overallWidth: number, rabbet: number) {
+  const left = t - rabbet;
+  const right = overallWidth - t + rabbet;
+  const where = rabbet > 0 ? 'Let into the rabbets in the sides, behind the shelves.' : 'Inset between the sides, behind the shelves.';
   if (fitsSheet(height, right - left) || dividerXs.length === 0) {
-    return [{ name: 'Back', width: right - left, note: 'Inset between the sides, behind the shelves.' }];
+    return [{ name: 'Back', width: right - left, note: where }];
   }
   const seams = dividerXs.map(x => x + t / 2);
   const edges = [left, ...seams, right];
@@ -298,7 +560,7 @@ function splitBack(height: number, dividerXs: number[], t: number, overallWidth:
 // Visible extents of each part (dado tongues are hidden inside their housings,
 // so they are not modeled). x → right, y → up, z → back from the front edge.
 
-export type SolidKind = 'case' | 'shelf' | 'back' | 'cleat' | 'wall-cleat' | 'groove';
+export type SolidKind = 'case' | 'shelf' | 'adjustable' | 'back' | 'cleat' | 'wall-cleat' | 'groove' | 'pinhole' | 'frame' | 'door';
 
 export type Solid =
   | {
@@ -334,9 +596,32 @@ export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
       solids.push(box(`Bay ${bay.index + 1} shelf ${i + 1}`, 'shelf', [bay.x, y, 0], [bay.x + bay.width, y + t, D]));
     });
   }
-  if (plan.backThickness > 0) {
-    solids.push(box('Back', 'back', [t, plan.kick, D], [W - t, H, D + plan.backThickness]));
+  for (const bay of plan.bays) {
+    bay.adjustableYs.forEach((y, i) => {
+      const x0 = bay.x + ADJUSTABLE_CLEARANCE / 2;
+      solids.push(box(`Bay ${bay.index + 1} adjustable shelf ${i + 1}`, 'adjustable', [x0, y, 0], [x0 + bay.width - ADJUSTABLE_CLEARANCE, y + t, D - ADJUSTABLE_BACK_CLEARANCE]));
+    });
   }
+  if (plan.backThickness > 0) {
+    const r = plan.backRabbet;
+    solids.push(box('Back', 'back', [t - r, plan.kick, D], [W - t + r, H, D + plan.backThickness]));
+  }
+  // Face frame and doors stand in front of the case (negative depth).
+  if (plan.frame) {
+    const f = plan.frame;
+    const z: [number, number] = [-f.thickness, 0];
+    const fbox = (name: string, x0: number, x1: number, y0: number, y1: number) =>
+      solids.push(box(name, 'frame', [x0, y0, z[0]], [x1, y1, z[1]]));
+    fbox('Face frame left stile', 0, f.stileWidth, 0, H);
+    fbox('Face frame right stile', W - f.stileWidth, W, 0, H);
+    fbox('Face frame top rail', f.stileWidth, W - f.stileWidth, H - f.topRail, H);
+    fbox('Face frame bottom rail', f.stileWidth, W - f.stileWidth, 0, f.bottomRail);
+    f.mullionXs.forEach((cx, i) => fbox(`Face frame mullion ${i + 1}`, cx - f.stileWidth / 2, cx + f.stileWidth / 2, f.bottomRail, H - f.topRail));
+  }
+  const doorFront = -(plan.frame ? plan.frame.thickness : 0);
+  plan.doors.forEach((dr, i) => {
+    solids.push(box(`Door ${i + 1}`, 'door', [dr.x, dr.y, doorFront - t], [dr.x + dr.width, dr.y + dr.height, doorFront]));
+  });
   if (plan.cleatGap > 0) {
     const z0 = D + plan.backThickness;
     const z1 = z0 + plan.cleatGap;
@@ -532,8 +817,31 @@ export function readSavedShelfDesign(raw: unknown): SavedShelfDesign | null {
       frenchCleat: c.frenchCleat === true,
       cleatHeight: num('cleatHeight', 0.5, 24) ?? 3,
       units,
+      bayWidths: Array.isArray(c.bayWidths)
+        ? Array.from({ length: Math.floor(bays) }, (_, i) => {
+          const w = (c.bayWidths as unknown[])[i];
+          return typeof w === 'number' && Number.isFinite(w) && w >= 1 && w <= 200 ? w : bayWidth;
+        })
+        : undefined,
+      adjustablePerBay: Array.from({ length: Math.floor(bays) }, (_, i) => {
+        const a = Array.isArray(c.adjustablePerBay) ? (c.adjustablePerBay as unknown[])[i] : 0;
+        return typeof a === 'number' && Number.isFinite(a) ? Math.min(20, Math.max(0, Math.floor(a))) : 0;
+      }),
+      pinSystem: c.pinSystem === 'metric' ? 'metric' : 'imperial',
+      backJoint: c.backJoint === 'rabbet' ? 'rabbet' : 'inset',
+      faceFrame: readFaceFrame(c.faceFrame),
+      doorsPerBay: Array.from({ length: Math.floor(bays) }, (_, i) => Array.isArray(c.doorsPerBay) && (c.doorsPerBay as unknown[])[i] === true),
+      shelfLoad: c.shelfLoad === 'light' || c.shelfLoad === 'heavy' ? c.shelfLoad : 'books',
     },
   };
+}
+
+function readFaceFrame(raw: unknown): FaceFrameConfig | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const f = raw as Record<string, unknown>;
+  const ok = (v: unknown, min: number, max: number) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
+  if (f.enabled !== true || !ok(f.stileWidth, 0.5, 12) || !ok(f.railWidth, 0.5, 12) || !ok(f.thickness, 0.25, 3)) return undefined;
+  return { enabled: true, stileWidth: f.stileWidth as number, railWidth: f.railWidth as number, thickness: f.thickness as number };
 }
 
 export interface ShelfDesignFields {
@@ -558,6 +866,18 @@ export interface ShelfDesignFields {
   toeKick: string;
   frenchCleat: boolean;
   cleatHeight: string;
+  /** 'same' uses bayWidth for every bay; 'custom' uses bayWidths. */
+  bayWidthMode: 'same' | 'custom';
+  bayWidths: string[];
+  adjustablePerBay: number[];
+  pinSystem: PinSystem;
+  backJoint: BackJoint;
+  faceFrame: boolean;
+  stileWidth: string;
+  railWidth: string;
+  frameThickness: string;
+  doorsPerBay: boolean[];
+  shelfLoad: ShelfLoad;
 }
 
 /** Turns a saved design back into Shelf Builder form fields, in the unit it was designed in. */
@@ -583,6 +903,7 @@ export function shelfDesignToFields(saved: SavedShelfDesign): ShelfDesignFields 
     toeKick: config.toeKick > 0 ? field(config.toeKick) : '0',
     frenchCleat: config.frenchCleat,
     cleatHeight: field(config.cleatHeight),
+    ...extraFields(config, units),
   };
 }
 
@@ -625,4 +946,28 @@ export function overallFromOpeningHeight(openingHeight: number, shelvesPerBay: n
 export function openingHeightFromOverall(overall: number, shelvesPerBay: number[], c: HeightInputs): number {
   const shelves = mostShelves(shelvesPerBay);
   return (overall - heightAllowance(c) - shelves * c.thickness) / (shelves + 1);
+}
+
+/** Defaults for the optional design fields (adjustable shelves, frame, doors, …). */
+export function extraFields(config: Partial<ShelfConfig> & Pick<ShelfConfig, 'bays' | 'bayWidth'>, units: LengthUnit): Pick<ShelfDesignFields,
+  'bayWidthMode' | 'bayWidths' | 'adjustablePerBay' | 'pinSystem' | 'backJoint' | 'faceFrame' | 'stileWidth' | 'railWidth' | 'frameThickness' | 'doorsPerBay' | 'shelfLoad'> {
+  const field = (inches: number) => lengthToField(inches, units);
+  const n = Math.max(1, Math.floor(config.bays));
+  const widths = bayWidthsOf({ bays: n, bayWidth: config.bayWidth, bayWidths: config.bayWidths });
+  const custom = widths.some(w => Math.abs(w - config.bayWidth) > 1e-6);
+  const ff = config.faceFrame;
+  const metric = units === 'mm';
+  return {
+    bayWidthMode: custom ? 'custom' : 'same',
+    bayWidths: widths.map(field),
+    adjustablePerBay: Array.from({ length: n }, (_, i) => config.adjustablePerBay?.[i] ?? 0),
+    pinSystem: config.pinSystem ?? (metric ? 'metric' : 'imperial'),
+    backJoint: config.backJoint ?? 'inset',
+    faceFrame: ff?.enabled ?? false,
+    stileWidth: ff ? field(ff.stileWidth) : metric ? '38' : '1 1/2',
+    railWidth: ff ? field(ff.railWidth) : metric ? '38' : '1 1/2',
+    frameThickness: ff ? field(ff.thickness) : metric ? '19' : '3/4',
+    doorsPerBay: Array.from({ length: n }, (_, i) => config.doorsPerBay?.[i] ?? false),
+    shelfLoad: config.shelfLoad ?? 'books',
+  };
 }

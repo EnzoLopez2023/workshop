@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertCircle, Check, FolderPlus, Loader2 } from 'lucide-react';
 import { Button, SegmentedControl } from './ui';
-import { addCutItem, createProject, deleteCutItem, getProject, listProjects, saveShelfDesign } from '../services/api';
+import { addCutItem, addMaterial, createProject, deleteCutItem, getProject, listProjects, saveShelfDesign } from '../services/api';
+import type { CostLine } from '../lib/shelfEstimate';
 import { isDemoMode } from '../demo/demoMode';
 import {
   projectCutItems, shelfProjectTitle, toSavedShelfDesign, type LengthUnit, type ShelfConfig, type ShelfPlan,
@@ -25,6 +26,8 @@ interface Props {
   initialProjectId?: number;
   /** Which height the designer typed, so the design reopens the same way. */
   heightMode?: 'opening' | 'overall';
+  /** Cost-estimate lines that can also be added to the project's Materials. */
+  costLines?: CostLine[];
   onClose: () => void;
 }
 
@@ -32,7 +35,7 @@ type Load<T> = { state: 'loading' } | { state: 'error'; message: string } | { st
 
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'Something went wrong.');
 
-export default function ShelfAddToProject({ plan, config, units, initialProjectId, heightMode = 'overall', onClose }: Props) {
+export default function ShelfAddToProject({ plan, config, units, initialProjectId, heightMode = 'overall', costLines = [], onClose }: Props) {
   const demo = isDemoMode();
   const items = useMemo(() => projectCutItems(plan), [plan]);
   const pieceCount = items.reduce((sum, i) => sum + i.qty, 0);
@@ -47,6 +50,7 @@ export default function ShelfAddToProject({ plan, config, units, initialProjectI
   const [saving, setSaving] = useState(false);
   const [outcome, setOutcome] = useState<{ ok: boolean; text: string; projectId: number | null } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [withMaterials, setWithMaterials] = useState(costLines.length > 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,6 +125,21 @@ export default function ShelfAddToProject({ plan, config, units, initialProjectI
     );
     let text = describeSave(result, name, saveMode);
     let ok = !result.error && result.removeFailed === 0;
+    if (!result.error && withMaterials && costLines.length > 0) {
+      // Materials feed the project's cost total and the Shopping List. Numbered from 1:
+      // the server treats a sort_order of 0 as unset.
+      let added = 0;
+      try {
+        for (const [index, line] of costLines.entries()) {
+          await addMaterial(id!, { name: line.name, qty_label: line.qtyLabel, cost: Math.round(line.total * 100) / 100, sort_order: index + 1 } as Parameters<typeof addMaterial>[1]);
+          added += 1;
+        }
+        text += ` Added ${added} materials with costs to its Materials and Shopping List.`;
+      } catch (err) {
+        ok = false;
+        text += ` Only ${added} of ${costLines.length} materials were added before it stopped: ${errorText(err)}`;
+      }
+    }
     if (!result.error) {
       // The design itself powers the project page's 3D preview.
       try {
@@ -214,6 +233,16 @@ export default function ShelfAddToProject({ plan, config, units, initialProjectI
           <span className="form-field-label">New project title</span>
           <input value={title} onChange={e => { setTitle(e.target.value); setOutcome(null); }} />
           <small>Created as a Planning project with this cut list.</small>
+        </label>
+      )}
+
+      {costLines.length > 0 && (
+        <label className="shelf-toggle">
+          <input type="checkbox" checked={withMaterials} onChange={e => setWithMaterials(e.target.checked)} />
+          <span>
+            <span className="shelf-toggle-label">Also add the {costLines.length} materials with costs</span>
+            <small>Plywood, hardware, and supplies go to the project’s Materials and Shopping List.</small>
+          </span>
         </label>
       )}
 

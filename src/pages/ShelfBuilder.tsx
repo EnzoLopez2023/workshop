@@ -7,7 +7,9 @@ import { Button, IconButton, PageFrame, PageHeader, SegmentedControl } from '../
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import ShelfAddToProject from '../components/ShelfAddToProject';
 import ShelfBuildGuide from '../components/ShelfBuildGuide';
+import { CostTable, HardwareTable, money, useShelfEstimate } from '../components/ShelfEstimate';
 import { getProject, getShelfDesign } from '../services/api';
+import { formatSag, SHELF_LOADS, sagCheck, type SagResult } from '../lib/shelfEstimate';
 import {
   buildShelfPlan,
   decimalString,
@@ -16,6 +18,7 @@ import {
   parseLength,
   heightAllowance,
   openingHeightFromOverall,
+  PAIR_DOOR_WIDTH,
   overallFromOpeningHeight,
   readSavedShelfDesign,
   shelfDesignToFields,
@@ -57,7 +60,46 @@ const DEFAULT_FORM: FormState = {
   toeKick: '3',
   frenchCleat: false,
   cleatHeight: '3',
+  bayWidthMode: 'same',
+  bayWidths: ['17 1/2', '17 1/2', '17 1/2', '17 1/2'],
+  adjustablePerBay: [0, 0, 0, 0],
+  pinSystem: 'imperial',
+  backJoint: 'inset',
+  faceFrame: false,
+  stileWidth: '1 1/2',
+  railWidth: '1 1/2',
+  frameThickness: '3/4',
+  doorsPerBay: [false, false, false, false],
+  shelfLoad: 'books',
 };
+
+const BAY_WIDTH_OPTIONS = [
+  { value: 'same', label: 'All the same' },
+  { value: 'custom', label: 'Each bay' },
+] as const;
+
+const BACK_JOINT_OPTIONS = [
+  { value: 'inset', label: 'Inset' },
+  { value: 'rabbet', label: 'Rabbeted' },
+] as const;
+
+const PIN_OPTIONS = [
+  { value: 'imperial', label: '1″ spacing' },
+  { value: 'metric', label: '32 mm system' },
+] as const;
+
+/** Keep every per-bay list the same length as the bay count. */
+function normalizeBays(form: FormState): FormState {
+  const n = form.bays;
+  const fit = <T,>(list: T[] | undefined, fill: T) => Array.from({ length: n }, (_, i) => list?.[i] ?? fill);
+  return {
+    ...form,
+    shelvesPerBay: fit(form.shelvesPerBay, form.shelvesPerBay?.[form.shelvesPerBay.length - 1] ?? 4),
+    bayWidths: fit(form.bayWidths, form.bayWidth),
+    adjustablePerBay: fit(form.adjustablePerBay, 0),
+    doorsPerBay: fit(form.doorsPerBay, false),
+  };
+}
 
 // Each preset carries its own unit so it means the same thing in either mode.
 const THICKNESS_PRESETS: Record<LengthUnit, string[]> = {
@@ -70,7 +112,7 @@ const UNIT_OPTIONS = [
   { value: 'mm', label: 'Millimeters' },
 ] as const;
 
-const LENGTH_FIELDS = ['thickness', 'bayWidth', 'shelfDepth', 'openingHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight'] as const;
+const LENGTH_FIELDS = ['thickness', 'bayWidth', 'shelfDepth', 'openingHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight', 'stileWidth', 'railWidth', 'frameThickness'] as const;
 
 const HEIGHT_MODE_OPTIONS = [
   { value: 'opening', label: 'Opening height' },
@@ -87,6 +129,10 @@ function convertForm(form: FormState, units: LengthUnit): FormState {
     const inches = parseLength(raw, form.units);
     if (inches !== null) next[key] = lengthToField(inches, units);
   }
+  next.bayWidths = form.bayWidths.map(raw => {
+    const inches = parseLength(raw, form.units);
+    return inches === null ? raw : lengthToField(inches, units);
+  });
   return next;
 }
 
@@ -141,18 +187,18 @@ function readStoredForm(): FormState {
     }
     delete (merged as { bayHeight?: string }).bayHeight;
     if (!Array.isArray(merged.shelvesPerBay)) merged.shelvesPerBay = DEFAULT_FORM.shelvesPerBay;
-    return merged;
+    return normalizeBays(merged);
   } catch {
     return DEFAULT_FORM;
   }
 }
 
-type FieldKey = typeof LENGTH_FIELDS[number];
+type FieldKey = typeof LENGTH_FIELDS[number] | `bayWidths.${number}`;
 
 function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: Partial<Record<FieldKey, string>> } {
   const fieldErrors: Partial<Record<FieldKey, string>> = {};
   const num = (key: FieldKey, { allowZero = false } = {}) => {
-    const raw = form[key].trim();
+    const raw = (key.startsWith('bayWidths.') ? form.bayWidths[Number(key.split('.')[1])] ?? '' : form[key as typeof LENGTH_FIELDS[number]]).trim();
     if (allowZero && (raw === '' || Number(raw) === 0)) return 0;
     const value = parseLength(raw, form.units);
     if (value === null) {
@@ -174,6 +220,12 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
     })
     : num('height');
   const cleatHeight = form.mounting === 'wall' && form.frenchCleat ? num('cleatHeight') : 3;
+  const bayWidths = form.bayWidthMode === 'custom'
+    ? form.bayWidths.slice(0, form.bays).map((_, i) => num(`bayWidths.${i}`))
+    : undefined;
+  const faceFrame = form.faceFrame
+    ? { enabled: true, stileWidth: num('stileWidth'), railWidth: num('railWidth'), thickness: num('frameThickness') }
+    : undefined;
   if (Object.keys(fieldErrors).length > 0) return { config: null, fieldErrors };
   return {
     config: {
@@ -190,13 +242,21 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
       frenchCleat: form.frenchCleat,
       cleatHeight,
       units: form.units,
+      bayWidths,
+      adjustablePerBay: form.adjustablePerBay.slice(0, form.bays),
+      pinSystem: form.pinSystem,
+      backJoint: form.backJoint,
+      faceFrame,
+      doorsPerBay: form.doorsPerBay.slice(0, form.bays),
+      shelfLoad: form.shelfLoad,
     },
     fieldErrors,
   };
 }
 
+/** Plywood parts only — the face frame is solid wood, bought as boards, not cut from sheets. */
 function toCutList(plan: ShelfPlan): CutListItem[] {
-  return plan.parts.map((part, index) => ({
+  return plan.parts.filter(part => part.material !== 'solid').map((part, index) => ({
     id: index + 1,
     project_id: null,
     part_name: part.name,
@@ -306,6 +366,12 @@ export default function ShelfBuilder() {
   const valid = plan !== null && plan.errors.length === 0;
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
   const solids = useMemo(() => (plan && config && valid ? shelfSolids(plan, config) : []), [plan, config, valid]);
+  const shelfEstimate = useShelfEstimate(plan && valid ? plan : null, valid ? config : null, units);
+  const sagResults = useMemo(() => (plan && config && valid ? sagCheck(plan, config, form.shelfLoad) : []), [plan, config, valid, form.shelfLoad]);
+  const sagWarnings = sagResults.filter(r => !r.ok).map(r =>
+    `Bay ${r.bay + 1}: ${r.kind === 'adjustable' ? 'adjustable shelves' : 'shelves'} span ${fmt(r.span)} and will sag about ${formatSag(r.sag, units)} under ${SHELF_LOADS[form.shelfLoad].label.split(' —')[0].toLowerCase()} — more than the ${formatSag(r.limit, units)} that looks flat. `
+    + (r.thicknessNeeded ? `Use ${fmt(r.thicknessNeeded)} plywood, ` : '')
+    + 'narrow the bay, or glue a 1 1/2″ solid-wood strip under the front edge.');
 
   const update = (patch: Partial<FormState>) => {
     setCopyStatus('');
@@ -325,11 +391,21 @@ export default function ShelfBuilder() {
 
   const setBays = (bays: number) => {
     const next = Math.min(MAX_BAYS, Math.max(1, bays));
-    setForm(prev => {
-      const fill = prev.shelvesPerBay[prev.shelvesPerBay.length - 1] ?? 4;
-      const shelvesPerBay = Array.from({ length: next }, (_, i) => prev.shelvesPerBay[i] ?? fill);
-      return { ...prev, bays: next, shelvesPerBay };
-    });
+    setForm(prev => normalizeBays({ ...prev, bays: next }));
+  };
+
+  const setAtBay = <K extends 'bayWidths' | 'adjustablePerBay' | 'doorsPerBay'>(key: K, bay: number, value: FormState[K][number]) => {
+    setCopyStatus('');
+    setForm(prev => ({ ...prev, [key]: (prev[key] as FormState[K][number][]).map((v, i) => (i === bay ? value : v)) }));
+  };
+
+  // Switching to per-bay widths starts every bay at the shared width.
+  const setBayWidthMode = (bayWidthMode: FormState['bayWidthMode']) => {
+    setForm(prev => ({
+      ...prev,
+      bayWidthMode,
+      bayWidths: bayWidthMode === 'custom' && prev.bayWidthMode === 'same' ? prev.bayWidths.map(() => prev.bayWidth) : prev.bayWidths,
+    }));
   };
 
   const setShelves = (bay: number, count: number) => {
@@ -451,8 +527,14 @@ export default function ShelfBuilder() {
                   : 'The total height of the unit. The openings share whatever space is inside.'}
               </small>
             </div>
+            <div className="shelf-height-mode">
+              <span className="form-field-label" id="bay-width-mode-label">Bay widths</span>
+              <SegmentedControl label="Bay widths" value={form.bayWidthMode} options={BAY_WIDTH_OPTIONS} onChange={setBayWidthMode} />
+            </div>
             <div className="shelf-field-grid">
-              <LengthField unit={units} label="Bay width (clear)" value={form.bayWidth} error={fieldErrors.bayWidth} onChange={bayWidth => update({ bayWidth })} />
+              {form.bayWidthMode === 'same' && (
+                <LengthField unit={units} label="Bay width (clear)" value={form.bayWidth} error={fieldErrors.bayWidth} onChange={bayWidth => update({ bayWidth })} />
+              )}
               <LengthField unit={units} label="Shelf depth" value={form.shelfDepth} error={fieldErrors.shelfDepth} onChange={shelfDepth => update({ shelfDepth })} />
               {form.heightMode === 'opening' ? (
                 <LengthField
@@ -485,26 +567,87 @@ export default function ShelfBuilder() {
                 />
               </div>
             </div>
-            <div className="shelf-bay-list">
-              <span className="form-field-label">Shelf openings per bay</span>
-              {form.shelvesPerBay.map((count, i) => (
-                <div className="shelf-bay-row" key={i}>
-                  <span id={`bay-${i}-label`}>Bay {i + 1}</span>
-                  {/* Openings = fixed shelves + 1: the bottom and each shelf are a level to put things on. */}
-                  <Stepper
-                    labelledBy={`bay-${i}-label`}
-                    value={count + 1}
-                    min={1}
-                    max={MAX_SHELVES + 1}
-                    onChange={value => setShelves(i, value - 1)}
-                    noun="opening"
-                  />
-                  {plan && plan.bays[i] && plan.bays[i].openingHeight > 0 && (
-                    <small>{fmt(plan.bays[i].openingHeight)} each · {count} shel{count === 1 ? 'f' : 'ves'}</small>
-                  )}
-                </div>
-              ))}
+
+            <div className="shelf-bay-cards">
+              {form.shelvesPerBay.map((count, i) => {
+                const bay = plan?.bays[i];
+                const sag = sagResults.filter(r => r.bay === i);
+                const worst = sag.reduce<SagResult | null>((w, r) => (!w || r.sag / r.limit > w.sag / w.limit ? r : w), null);
+                const pair = bay ? bay.width > PAIR_DOOR_WIDTH : false;
+                return (
+                  <div className="shelf-bay-card" key={i}>
+                    <div className="shelf-bay-card-head">
+                      <strong id={`bay-${i}-label`}>Bay {i + 1}</strong>
+                      {bay && bay.openingHeight > 0 && (
+                        <small>{fmt(bay.openingHeight)} {bay.adjustableYs.length ? 'between fixed shelves' : 'openings'}</small>
+                      )}
+                    </div>
+                    <div className="shelf-bay-card-controls">
+                      {form.bayWidthMode === 'custom' && (
+                        <LengthField
+                          unit={units}
+                          label="Width (clear)"
+                          value={form.bayWidths[i] ?? ''}
+                          error={fieldErrors[`bayWidths.${i}`]}
+                          onChange={value => setAtBay('bayWidths', i, value)}
+                        />
+                      )}
+                      <div className="form-field">
+                        <span className="form-field-label" id={`bay-${i}-openings`}>Openings</span>
+                        {/* Openings = fixed shelves + 1: the bottom and each shelf are a level to put things on. */}
+                        <Stepper
+                          labelledBy={`bay-${i}-openings`}
+                          value={count + 1}
+                          min={1}
+                          max={MAX_SHELVES + 1}
+                          onChange={value => setShelves(i, value - 1)}
+                          noun="opening"
+                        />
+                      </div>
+                      <div className="form-field">
+                        <span className="form-field-label" id={`bay-${i}-adjustable`}>Adjustable shelves</span>
+                        <Stepper
+                          labelledBy={`bay-${i}-adjustable`}
+                          value={form.adjustablePerBay[i] ?? 0}
+                          min={0}
+                          max={MAX_SHELVES}
+                          onChange={value => setAtBay('adjustablePerBay', i, Math.max(0, Math.min(MAX_SHELVES, value)))}
+                          noun="adjustable shelf"
+                        />
+                      </div>
+                      <label className="shelf-toggle shelf-bay-door">
+                        <input type="checkbox" checked={form.doorsPerBay[i] ?? false} onChange={e => setAtBay('doorsPerBay', i, e.target.checked)} />
+                        <span><span className="shelf-toggle-label">{pair ? 'Pair of doors' : 'Door'}</span></span>
+                      </label>
+                    </div>
+                    {worst && (
+                      <p className={`shelf-sag ${worst.ok ? 'is-ok' : 'is-bad'}`}>
+                        {worst.ok
+                          ? `Sag ${formatSag(worst.sag, units)} under ${SHELF_LOADS[form.shelfLoad].label.split(' —')[0].toLowerCase()} — fine`
+                          : `${worst.kind === 'adjustable' ? 'Adjustable shelves' : 'Shelves'} sag ${formatSag(worst.sag, units)} — over the ${formatSag(worst.limit, units)} limit`}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
+
+            {form.adjustablePerBay.slice(0, form.bays).some(a => a > 0) && (
+              <div className="shelf-height-mode">
+                <span className="form-field-label">Shelf-pin holes</span>
+                <SegmentedControl label="Shelf-pin spacing" value={form.pinSystem} options={PIN_OPTIONS} onChange={pinSystem => update({ pinSystem })} />
+                <small>Columns {fmt(plan?.pinHoles[0]?.frontInset ?? 1.5)} in from the front and back edges, starting 2″ clear of each fixed shelf.</small>
+              </div>
+            )}
+
+            <label className="form-field">
+              <span className="form-field-label">Shelf load (for the sag check)</span>
+              <select value={form.shelfLoad} onChange={e => update({ shelfLoad: e.target.value as FormState['shelfLoad'] })}>
+                {(Object.keys(SHELF_LOADS) as (keyof typeof SHELF_LOADS)[]).map(key => (
+                  <option key={key} value={key}>{SHELF_LOADS[key].label}</option>
+                ))}
+              </select>
+            </label>
           </fieldset>
 
           <fieldset className="shelf-group">
@@ -515,9 +658,48 @@ export default function ShelfBuilder() {
               label="Back panel"
               checked={form.backPanel || cleat}
               disabled={cleat}
-              hint={cleat ? 'Required for the French cleat.' : 'Inset between the sides; the sides grow by its thickness.'}
+              hint={cleat ? 'Required for the French cleat.' : 'Behind the shelves; the sides grow by its thickness.'}
               onChange={backPanel => update({ backPanel })}
             />
+            {(form.backPanel || cleat) && (
+              <div className="shelf-height-mode">
+                <span className="form-field-label">Back fits</span>
+                <SegmentedControl label="How the back fits" value={form.backJoint} options={BACK_JOINT_OPTIONS} onChange={backJoint => update({ backJoint })} />
+                <small>
+                  {form.backJoint === 'rabbet'
+                    ? `In a ${cleat ? 'groove' : 'rabbet'} cut into each side${config ? `, ${fmt(config.thickness / 2)} deep` : ''} — stronger and hides the back's edges.`
+                    : 'Between the sides, fastened to the back edges of the shelves.'}
+                </small>
+              </div>
+            )}
+          </fieldset>
+
+          <fieldset className="shelf-group">
+            <legend>Face frame &amp; doors</legend>
+            <Toggle
+              label="Face frame"
+              checked={form.faceFrame}
+              hint="Solid-wood stiles and rails on the front. Hides the plywood edges and stiffens the case."
+              onChange={faceFrame => update({ faceFrame })}
+            />
+            {form.faceFrame && (
+              <div className="shelf-field-grid">
+                <LengthField unit={units} label="Stile width" value={form.stileWidth} error={fieldErrors.stileWidth} onChange={stileWidth => update({ stileWidth })} />
+                <LengthField unit={units} label="Rail width" value={form.railWidth} error={fieldErrors.railWidth} onChange={railWidth => update({ railWidth })} />
+                <LengthField unit={units} label="Frame thickness" value={form.frameThickness} error={fieldErrors.frameThickness} onChange={frameThickness => update({ frameThickness })} />
+              </div>
+            )}
+            <div className="shelf-height-mode">
+              <span className="form-field-label">Doors</span>
+              <small>
+                Turn doors on for each bay above. {form.faceFrame ? `They overlay the frame by ${fmt(1 / 2)}` : 'They cover the case (full overlay)'};
+                bays wider than {fmt(PAIR_DOOR_WIDTH)} get a pair.
+              </small>
+              <span className="shelf-source-actions">
+                <Button variant="ghost" onClick={() => update({ doorsPerBay: form.doorsPerBay.map(() => true) })}>All bays</Button>
+                <Button variant="ghost" onClick={() => update({ doorsPerBay: form.doorsPerBay.map(() => false) })}>No doors</Button>
+              </span>
+            </div>
           </fieldset>
 
           <fieldset className="shelf-group">
@@ -612,9 +794,9 @@ export default function ShelfBuilder() {
           <span>{plan.errors.join(' ')}</span>
         </div>
       )}
-      {plan && plan.warnings.length > 0 && (
+      {plan && plan.warnings.length + sagWarnings.length > 0 && (
         <ul className="shelf-warnings" role="status">
-          {plan.warnings.map(w => (
+          {[...plan.warnings, ...sagWarnings].map(w => (
             <li key={w}><AlertTriangle size={16} aria-hidden="true" /> {w}</li>
           ))}
         </ul>
@@ -685,11 +867,42 @@ export default function ShelfBuilder() {
                   units={units}
                   initialProjectId={source?.id}
                   heightMode={form.heightMode}
+                  costLines={shelfEstimate?.estimate.lines}
                   onClose={() => setAddingToProject(false)}
                 />
               </div>
             )}
           </section>
+
+          {shelfEstimate && (
+            <>
+              <section className="shelf-section" aria-labelledby="shelf-hardware-title">
+                <header className="shelf-section-head">
+                  <div>
+                    <h2 id="shelf-hardware-title">Hardware</h2>
+                    <p>Everything besides plywood, counted from this design.</p>
+                  </div>
+                </header>
+                <HardwareTable items={shelfEstimate.hardware} />
+              </section>
+
+              <section className="shelf-section" aria-labelledby="shelf-cost-title">
+                <header className="shelf-section-head">
+                  <div>
+                    <h2 id="shelf-cost-title">Cost estimate</h2>
+                    <p>About {money(shelfEstimate.estimate.total)} with the optional items; {money(shelfEstimate.estimate.required)} without.</p>
+                  </div>
+                </header>
+                <CostTable
+                  estimate={shelfEstimate.estimate}
+                  prices={shelfEstimate.prices}
+                  overridden={shelfEstimate.overridden}
+                  onPrice={shelfEstimate.setPrice}
+                  onReset={shelfEstimate.resetPrices}
+                />
+              </section>
+            </>
+          )}
 
           <section className="shelf-section" aria-labelledby="shelf-marks-title">
             <header className="shelf-section-head">

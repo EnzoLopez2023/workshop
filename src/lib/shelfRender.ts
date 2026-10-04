@@ -14,7 +14,14 @@ export const SOLID_COLORS: Record<SolidKind, number> = {
   cleat: 0x9fbccb,
   'wall-cleat': 0x7fa3b5,
   groove: 0xc0552f,
+  adjustable: 0xefd9b4,
+  pinhole: 0x2b2118,
+  frame: 0xb7895a,
+  door: 0xe6cfa6,
 };
+
+/** Doors are drawn see-through so the shelves behind them stay readable. */
+export const DOOR_OPACITY = 0.38;
 
 /** Parts added in the current guide step: pencil-blue so they stand out from plywood. */
 const HIGHLIGHT_COLOR = 0x6fb0d4;
@@ -113,13 +120,22 @@ export async function renderGuideScenes(input: GuideRenderInput): Promise<string
       const group = new THREE.Group();
       const exploded = scene.view === 'exploded';
       const makeMesh = (solid: Solid, highlighted: boolean, geometry: THREE.BufferGeometry) => {
-        const color = solid.kind === 'groove' ? SOLID_COLORS.groove : highlighted ? HIGHLIGHT_COLOR : SOLID_COLORS[solid.kind];
-        const mesh = new THREE.Mesh(geometry, material(`surface-${color}`, () => surface(color)));
-        mesh.castShadow = solid.kind !== 'groove';
+        const marking = solid.kind === 'groove' || solid.kind === 'pinhole';
+        const color = marking ? SOLID_COLORS[solid.kind] : highlighted ? HIGHLIGHT_COLOR : SOLID_COLORS[solid.kind];
+        const door = solid.kind === 'door';
+        const mesh = new THREE.Mesh(geometry, material(`surface-${color}-${door ? 'door' : 'solid'}`, () => {
+          const m = surface(color);
+          if (door) { m.transparent = true; m.opacity = highlighted ? 0.7 : DOOR_OPACITY; m.depthWrite = false; }
+          return m;
+        }));
+        mesh.castShadow = !marking && !door;
         mesh.receiveShadow = true;
-        const edges = new THREE.EdgesGeometry(geometry, 30);
-        geometries.push(edges);
-        mesh.add(new THREE.LineSegments(edges, highlighted ? edgeStrong : edgeNormal));
+        // Pin holes can number in the hundreds; outlines would only add noise.
+        if (solid.kind !== 'pinhole') {
+          const edges = new THREE.EdgesGeometry(geometry, 30);
+          geometries.push(edges);
+          mesh.add(new THREE.LineSegments(edges, highlighted ? edgeStrong : edgeNormal));
+        }
         return mesh;
       };
       const add = (name: string, highlighted: boolean) => {

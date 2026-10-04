@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildShelfPlan, formatLength } from '../src/lib/shelving.ts';
-import { buildGuideSteps, dadoGrooves, guidePrintHtml, planGuideSheets, sheetLayoutSvg } from '../src/lib/buildGuide.ts';
+import { buildGuideSteps, dadoGrooves, describeOpenings, guidePrintHtml, planGuideSheets, sheetLayoutSvg } from '../src/lib/buildGuide.ts';
 
 const base = {
   thickness: 0.75, bayWidth: 17.5, shelfDepth: 11.25, height: 74, bays: 3, shelvesPerBay: [4, 5, 2],
@@ -110,14 +110,64 @@ test('the guide states the bay height and asks for it to be checked during assem
   // 74" overall, 3/4" top and bottom, 3" toe kick → 69 1/2" clear bays.
   const g = guide();
   const text = id => { const s = g.steps.find(x => x.id === id); return [s.summary, ...s.instructions].join(' '); };
-  assert.match(text('overview'), /Each bay is 17 1\/2" wide × 69 1\/2" clear\./);
+  assert.match(text('overview'), /Each bay is 17 1\/2" wide with shelf openings from .* to .* clear\./, 'bays with different counts have a range');
   assert.match(text('case'), /clear height between the bottom and the top is 69 1\/2"/);
   assert.match(text('dividers'), /Each bay should end up 17 1\/2" wide × 69 1\/2" clear/);
   // Without a top panel there's nothing to measure between, so the case check is left out.
   const open = guide({ topPanel: false });
   assert.ok(!open.steps.find(s => s.id === 'case').instructions.some(l => l.includes('clear height between')));
-  assert.match(open.steps[0].summary, /× 70 1\/4" clear/);
+
   // Millimeters too.
   const metric = guide({ thickness: 18 / 25.4, bayWidth: 400 / 25.4, height: (1800 + 36 + 76.2) / 25.4 }, 'mm');
-  assert.match(metric.steps[0].summary, /Each bay is 400 mm wide × 1800 mm clear/);
+  assert.match(metric.steps[0].summary, /Each bay is 400 mm wide with shelf openings/);
+});
+
+test('the guide gives the opening height: in the overview, per bay, and as the spacer size', () => {
+  // The example: one bay, 2 openings of 3" in 1/2" plywood → 7 1/2" overall.
+  const config = { ...base, thickness: 0.5, bays: 1, shelvesPerBay: [1], height: 7.5, mounting: 'wall', toeKick: 0 };
+  const g = buildGuideSteps(buildShelfPlan(config), config, 'in');
+  assert.match(g.steps[0].summary, /Each bay is 17 1\/2" wide with 2 shelf openings 3" clear\./);
+  const shelves = g.steps.find(s => s.id === 'shelves');
+  assert.ok(shelves.instructions.includes('Bay 1: 2 openings, 3" clear (1 shelf)'));
+  assert.match(shelves.tips[0], /spacer block exactly 3" tall — the opening height/);
+
+  // Uneven bays: a range in the overview and a per-bay spacer tip.
+  const mixedConfig = { ...base, bays: 2, shelvesPerBay: [1, 3] };
+  const mixedPlan = buildShelfPlan(mixedConfig);
+  const d = describeOpenings(mixedPlan, v => formatLength(v, 'in'));
+  assert.equal(d.uniform, false);
+  assert.ok(d.min < d.max);
+  const mixed = buildGuideSteps(mixedPlan, mixedConfig, 'in');
+  assert.match(mixed.steps.find(s => s.id === 'shelves').tips[0], /each bay’s opening height/);
+});
+
+test('options add their own guide steps in build order', () => {
+  const config = {
+    ...base, bayWidths: [12, 30, 12], adjustablePerBay: [2, 0, 1], backJoint: 'rabbet',
+    doorsPerBay: [true, true, false], faceFrame: { enabled: true, stileWidth: 1.5, railWidth: 1.5, thickness: 0.75 },
+  };
+  const g = buildGuideSteps(buildShelfPlan(config), config, 'in');
+  assert.deepEqual(g.steps.map(s => s.id),
+    ['overview', 'sheets', 'cut', 'dados', 'pins', 'case', 'dividers', 'shelves', 'back', 'frame', 'install', 'doors', 'finish']);
+  const step = id => g.steps.find(s => s.id === id);
+  assert.equal(step('dados').title, 'Cut the dados and back rabbets');
+  assert.ok(step('dados').instructions.some(l => /3\/8"-wide, 3\/4"-deep rabbet/.test(l)));
+  assert.ok(step('pins').instructions.some(l => l.startsWith('Left side, right face (bay 1)')));
+  assert.ok(step('pins').scene.highlight.length > 0 && step('pins').scene.highlight.every(n => n.startsWith('Pin hole')));
+  assert.match(step('shelves').summary, /adjustable/);
+  assert.ok(step('shelves').parts.some(p => p.name === 'Adjustable shelf (bay 1)' || p.name.startsWith('Adjustable shelf')));
+  assert.ok(step('frame').parts.every(p => p.name.startsWith('Face frame')));
+  assert.match(step('doors').instructions[0], /face-frame hinges/);
+  assert.equal(step('doors').scene.highlight.length, 3, 'one door plus a pair on the 30" bay');
+  assert.match(step('dividers').summary, /Bays are 12", 30", 12" clear/);
+  assert.match(step('overview').instructions.find(l => l.startsWith('Hardware:')), /shelf pins/);
+  // Every scene still only names real solids.
+  const known = new Set(g.solids.map(s => s.name));
+  for (const s of g.steps.filter(s => s.scene)) for (const name of [...s.scene.visible, ...s.scene.highlight]) assert.ok(known.has(name), `${s.id}: ${name}`);
+});
+
+test('the shelves step warns when shelves will sag', () => {
+  const config = { ...base, bays: 1, shelvesPerBay: [3], bayWidth: 40, thickness: 0.5, shelfLoad: 'books' };
+  const g = buildGuideSteps(buildShelfPlan(config), config, 'in');
+  assert.ok(g.steps.find(s => s.id === 'shelves').cautions.some(c => /will sag about/.test(c)));
 });

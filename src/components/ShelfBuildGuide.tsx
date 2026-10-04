@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Lightbulb, Loader2, Printer, RefreshCw } from 'lucide-react';
 import { Button } from './ui';
 import { toast } from 'sonner';
-import { buildGuideSteps, guidePrintHtml, sheetLayoutDataUrl, type GuideSheets, type GuideStep } from '../lib/buildGuide';
+import { buildGuideSteps, describeOpenings, guidePrintHtml, sheetLayoutDataUrl, type GuideSheets, type GuideStep } from '../lib/buildGuide';
 import { formatLength, type LengthUnit, type ShelfConfig, type ShelfPlan } from '../lib/shelving';
 
 interface Props {
@@ -64,7 +64,7 @@ export default function ShelfBuildGuide({ plan, config, units, title = 'Shelving
   const printGuide = () => {
     const f = (inches: number) => formatLength(inches, units);
     const subtitle = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.sideDepth)} deep · `
-      + `${plan.bays.length} bay${plan.bays.length === 1 ? '' : 's'}, each ${f(config.bayWidth)} × ${f(plan.interiorTop - plan.interiorBottom)} clear`
+      + `${plan.bays.length} bay${plan.bays.length === 1 ? '' : 's'}, each ${f(config.bayWidth)} wide with ${describeOpenings(plan, f).phrase}`
       + ` · ${f(config.thickness)} plywood`;
     const html = guidePrintHtml(guide, images.state === 'ready' ? images.urls : new Map(), title, subtitle, f);
     const win = window.open('', '_blank');
