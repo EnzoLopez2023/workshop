@@ -164,6 +164,290 @@
   --tint-red: rgb(216 108 98 / 0.13);
 }
 
+/*
+ * Color themes (Settings → Appearance → Color theme). Each replaces the base
+ * palette — vellum, ink, dividers, navigation, primary action — in light and
+ * dark, plus its own annotation trio used by "Match theme". Next action,
+ * success, warning and danger stay semantic and never change with the theme.
+ * Generated from contrast-checked values: text, muted text, action text and
+ * annotation each meet 4.5:1 on their surfaces (Spruce is the shipped original).
+ */
+
+:root[data-palette="spruce"]:not([data-theme="dark"]) {
+  --color-canvas: #EEF4F2;
+  --color-recessed: #E0EBE7;
+  --color-surface: #FAFCFB;
+  --color-glass: rgb(250 252 251 / 0.78);
+  --color-glass-strong: rgb(250 252 251 / 0.92);
+  --color-ink: #15332E;
+  --color-muted: #58716B;
+  --color-divider: #C9DAD5;
+  --color-divider-strong: #AFC7C0;
+  --color-nav: #E7F0ED;
+  --color-nav-deep: #15332E;
+  --color-on-nav: #15332E;
+  --color-action: #125447;
+  --color-action-hover: #0D4137;
+  --color-action-fill: #1E7666;
+  --color-on-action: #F7FCFA;
+  --color-annotation: #176B5B;
+  --color-annotation-strong: #125447;
+  --color-annotation-fill: #1E7666;
+  --tint-amber: rgb(30 118 102 / 0.12);
+  --field-line: rgb(88 113 107 / 0.11);
+  --field-seam: rgb(88 113 107 / 0.07);
+  --shadow-card: 0 7px 14px rgb(21 51 46 / 0.1);
+  --shadow-card-hover: 0 10px 22px rgb(21 51 46 / 0.14);
+  --shadow-glass: 0 8px 16px rgb(21 51 46 / 0.12);
+  --shadow-sidebar: 0 8px 18px rgb(21 51 46 / 0.12);
+}
+
+:root[data-palette="spruce"][data-theme="dark"] {
+  --color-canvas: #0C1513;
+  --color-recessed: #12201D;
+  --color-surface: #182823;
+  --color-glass: rgb(24 40 35 / 0.78);
+  --color-glass-strong: rgb(24 40 35 / 0.94);
+  --color-ink: #F3F8F6;
+  --color-muted: #9CB2AC;
+  --color-divider: #2A423C;
+  --color-divider-strong: #3C5A52;
+  --color-nav: #172923;
+  --color-nav-deep: #09110F;
+  --color-on-nav: #F3F8F6;
+  --color-action: #68C7B0;
+  --color-action-hover: #8AD8C5;
+  --color-action-fill: #2A927E;
+  --color-on-action: #07120F;
+  --color-annotation: #68C7B0;
+  --color-annotation-strong: #8AD8C5;
+  --color-annotation-fill: #2A927E;
+  --tint-amber: rgb(42 146 126 / 0.13);
+  --field-line: rgb(156 178 172 / 0.08);
+  --field-seam: rgb(156 178 172 / 0.05);
+  --color-steel-light: #3C5A52;
+}
+
+:root[data-palette="blueprint"]:not([data-theme="dark"]) {
+  --color-canvas: #E9F0F9;
+  --color-recessed: #DAE5F4;
+  --color-surface: #F8FBFF;
+  --color-glass: rgb(248 251 255 / 0.78);
+  --color-glass-strong: rgb(248 251 255 / 0.92);
+  --color-ink: #10284A;
+  --color-muted: #4C6384;
+  --color-divider: #C2D2E8;
+  --color-divider-strong: #A6BCDB;
+  --color-nav: #E2EBF7;
+  --color-nav-deep: #10284A;
+  --color-on-nav: #10284A;
+  --color-action: #1B4C8C;
+  --color-action-hover: #133A6D;
+  --color-action-fill: #2461AD;
+  --color-on-action: #F6F9FF;
+  --color-annotation: #1C6696;
+  --color-annotation-strong: #154F75;
+  --color-annotation-fill: #2B7AB0;
+  --tint-amber: rgb(43 122 176 / 0.12);
+  --field-line: rgb(60 100 160 / 0.17);
+  --field-seam: rgb(60 100 160 / 0.1);
+  --shadow-card: 0 7px 14px rgb(16 40 74 / 0.1);
+  --shadow-card-hover: 0 10px 22px rgb(16 40 74 / 0.14);
+  --shadow-glass: 0 8px 16px rgb(16 40 74 / 0.12);
+  --shadow-sidebar: 0 8px 18px rgb(16 40 74 / 0.12);
+}
+
+:root[data-palette="blueprint"][data-theme="dark"] {
+  --color-canvas: #0A1830;
+  --color-recessed: #0F2240;
+  --color-surface: #142B4F;
+  --color-glass: rgb(20 43 79 / 0.78);
+  --color-glass-strong: rgb(20 43 79 / 0.94);
+  --color-ink: #EEF4FF;
+  --color-muted: #A2B6D6;
+  --color-divider: #244069;
+  --color-divider-strong: #335688;
+  --color-nav: #11274A;
+  --color-nav-deep: #061124;
+  --color-on-nav: #EEF4FF;
+  --color-action: #86B9FF;
+  --color-action-hover: #A9CDFF;
+  --color-action-fill: #3B7BD6;
+  --color-on-action: #06142B;
+  --color-annotation: #8CD3FF;
+  --color-annotation-strong: #B6E3FF;
+  --color-annotation-fill: #4AA0DD;
+  --tint-amber: rgb(74 160 221 / 0.13);
+  --field-line: rgb(150 190 255 / 0.14);
+  --field-seam: rgb(150 190 255 / 0.08);
+  --color-steel-light: #335688;
+}
+
+:root[data-palette="graphite"]:not([data-theme="dark"]) {
+  --color-canvas: #F1F2F3;
+  --color-recessed: #E4E6E8;
+  --color-surface: #FBFBFC;
+  --color-glass: rgb(251 251 252 / 0.78);
+  --color-glass-strong: rgb(251 251 252 / 0.92);
+  --color-ink: #1E2226;
+  --color-muted: #5D646B;
+  --color-divider: #D2D5D9;
+  --color-divider-strong: #B8BDC3;
+  --color-nav: #EBECEE;
+  --color-nav-deep: #1E2226;
+  --color-on-nav: #1E2226;
+  --color-action: #2F3A45;
+  --color-action-hover: #222B33;
+  --color-action-fill: #46525E;
+  --color-on-action: #F7F8F9;
+  --color-annotation: #356687;
+  --color-annotation-strong: #2A526D;
+  --color-annotation-fill: #4A7CA0;
+  --tint-amber: rgb(74 124 160 / 0.12);
+  --field-line: rgb(95 100 107 / 0.11);
+  --field-seam: rgb(95 100 107 / 0.07);
+  --shadow-card: 0 7px 14px rgb(30 34 38 / 0.1);
+  --shadow-card-hover: 0 10px 22px rgb(30 34 38 / 0.14);
+  --shadow-glass: 0 8px 16px rgb(30 34 38 / 0.12);
+  --shadow-sidebar: 0 8px 18px rgb(30 34 38 / 0.12);
+}
+
+:root[data-palette="graphite"][data-theme="dark"] {
+  --color-canvas: #111315;
+  --color-recessed: #181B1E;
+  --color-surface: #1F2327;
+  --color-glass: rgb(31 35 39 / 0.78);
+  --color-glass-strong: rgb(31 35 39 / 0.94);
+  --color-ink: #F2F3F5;
+  --color-muted: #A3A9B0;
+  --color-divider: #30353B;
+  --color-divider-strong: #434A52;
+  --color-nav: #1A1D20;
+  --color-nav-deep: #0A0B0C;
+  --color-on-nav: #F2F3F5;
+  --color-action: #CBD3DC;
+  --color-action-hover: #E2E7EC;
+  --color-action-fill: #5E6B78;
+  --color-on-action: #111315;
+  --color-annotation: #8FBAE0;
+  --color-annotation-strong: #B5D3EC;
+  --color-annotation-fill: #5F8FB4;
+  --tint-amber: rgb(95 143 180 / 0.13);
+  --field-line: rgb(163 169 176 / 0.08);
+  --field-seam: rgb(163 169 176 / 0.05);
+  --color-steel-light: #434A52;
+}
+
+:root[data-palette="walnut"]:not([data-theme="dark"]) {
+  --color-canvas: #F5EFE8;
+  --color-recessed: #EBE1D5;
+  --color-surface: #FCF9F5;
+  --color-glass: rgb(252 249 245 / 0.78);
+  --color-glass-strong: rgb(252 249 245 / 0.92);
+  --color-ink: #3A2618;
+  --color-muted: #765E4C;
+  --color-divider: #DCCEBE;
+  --color-divider-strong: #C7B39F;
+  --color-nav: #F0E7DC;
+  --color-nav-deep: #3A2618;
+  --color-on-nav: #3A2618;
+  --color-action: #784322;
+  --color-action-hover: #5C3218;
+  --color-action-fill: #93582F;
+  --color-on-action: #FFF9F3;
+  --color-annotation: #2C6A6D;
+  --color-annotation-strong: #215356;
+  --color-annotation-fill: #3A7E80;
+  --tint-amber: rgb(58 126 128 / 0.12);
+  --field-line: rgb(122 94 76 / 0.11);
+  --field-seam: rgb(122 94 76 / 0.07);
+  --shadow-card: 0 7px 14px rgb(58 38 24 / 0.1);
+  --shadow-card-hover: 0 10px 22px rgb(58 38 24 / 0.14);
+  --shadow-glass: 0 8px 16px rgb(58 38 24 / 0.12);
+  --shadow-sidebar: 0 8px 18px rgb(58 38 24 / 0.12);
+}
+
+:root[data-palette="walnut"][data-theme="dark"] {
+  --color-canvas: #17110C;
+  --color-recessed: #1F1711;
+  --color-surface: #281E16;
+  --color-glass: rgb(40 30 22 / 0.78);
+  --color-glass-strong: rgb(40 30 22 / 0.94);
+  --color-ink: #F7EFE6;
+  --color-muted: #BCA897;
+  --color-divider: #3D2F24;
+  --color-divider-strong: #524033;
+  --color-nav: #211912;
+  --color-nav-deep: #0E0906;
+  --color-on-nav: #F7EFE6;
+  --color-action: #E6AC7C;
+  --color-action-hover: #EEC29C;
+  --color-action-fill: #B0703F;
+  --color-on-action: #1A0F07;
+  --color-annotation: #7EC6C6;
+  --color-annotation-strong: #A8DADA;
+  --color-annotation-fill: #4F9D9E;
+  --tint-amber: rgb(79 157 158 / 0.13);
+  --field-line: rgb(188 168 151 / 0.08);
+  --field-seam: rgb(188 168 151 / 0.05);
+  --color-steel-light: #524033;
+}
+
+:root[data-palette="slate"]:not([data-theme="dark"]) {
+  --color-canvas: #EEF1F5;
+  --color-recessed: #E1E6ED;
+  --color-surface: #FAFBFD;
+  --color-glass: rgb(250 251 253 / 0.78);
+  --color-glass-strong: rgb(250 251 253 / 0.92);
+  --color-ink: #1D2838;
+  --color-muted: #576377;
+  --color-divider: #CDD4DE;
+  --color-divider-strong: #B2BCCA;
+  --color-nav: #E8ECF2;
+  --color-nav-deep: #1D2838;
+  --color-on-nav: #1D2838;
+  --color-action: #324E78;
+  --color-action-hover: #253B5C;
+  --color-action-fill: #44669A;
+  --color-on-action: #F7F9FC;
+  --color-annotation: #5853A6;
+  --color-annotation-strong: #454187;
+  --color-annotation-fill: #6B67BA;
+  --tint-amber: rgb(107 103 186 / 0.12);
+  --field-line: rgb(87 99 119 / 0.11);
+  --field-seam: rgb(87 99 119 / 0.07);
+  --shadow-card: 0 7px 14px rgb(29 40 56 / 0.1);
+  --shadow-card-hover: 0 10px 22px rgb(29 40 56 / 0.14);
+  --shadow-glass: 0 8px 16px rgb(29 40 56 / 0.12);
+  --shadow-sidebar: 0 8px 18px rgb(29 40 56 / 0.12);
+}
+
+:root[data-palette="slate"][data-theme="dark"] {
+  --color-canvas: #10141B;
+  --color-recessed: #161C25;
+  --color-surface: #1D2430;
+  --color-glass: rgb(29 36 48 / 0.78);
+  --color-glass-strong: rgb(29 36 48 / 0.94);
+  --color-ink: #EEF2F8;
+  --color-muted: #A2ACBC;
+  --color-divider: #2D3646;
+  --color-divider-strong: #3F4A5D;
+  --color-nav: #181E28;
+  --color-nav-deep: #090C11;
+  --color-on-nav: #EEF2F8;
+  --color-action: #A0B8E2;
+  --color-action-hover: #BECEEC;
+  --color-action-fill: #4E6A9C;
+  --color-on-action: #0E1420;
+  --color-annotation: #B0ACF2;
+  --color-annotation-strong: #CCC9F7;
+  --color-annotation-fill: #7E79D6;
+  --tint-amber: rgb(126 121 214 / 0.13);
+  --field-line: rgb(162 172 188 / 0.08);
+  --field-seam: rgb(162 172 188 / 0.05);
+  --color-steel-light: #3F4A5D;
+}
+
 *,
 *::before,
 *::after {
@@ -7514,7 +7798,7 @@ tbody td {
   background:
     linear-gradient(color-mix(in srgb, var(--color-divider) 45%, transparent) 1px, transparent 1px) 0 0 / 24px 24px,
     linear-gradient(90deg, color-mix(in srgb, var(--color-divider) 45%, transparent) 1px, transparent 1px) 0 0 / 24px 24px,
-    linear-gradient(180deg, #fafcfb, #e6eeeb);
+    linear-gradient(180deg, #fbfcfd, #e9edf1);
   object-fit: contain;
 }
 
@@ -8342,4 +8626,95 @@ tbody td {
   margin: 0;
   color: var(--color-muted);
   font-size: 0.9rem;
+}
+
+/* ── Settings: color theme picker ──────────────────────────────────────────── */
+
+.settings-palettes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.settings-palette {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-default);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-palette[aria-pressed="true"] {
+  border-color: var(--color-annotation);
+  box-shadow: 0 0 0 1px var(--color-annotation);
+}
+
+/* A miniature of the theme: canvas, a surface card, a button, and an annotation mark. */
+.settings-palette-preview {
+  position: relative;
+  display: grid;
+  height: 64px;
+  padding: 10px;
+  border: 1px solid rgb(0 0 0 / 0.08);
+  border-radius: var(--radius-compact);
+}
+
+.settings-palette-preview > span {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 7px;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.12);
+}
+
+.settings-palette-preview > span > span:first-child {
+  width: 34px;
+  height: 14px;
+  border-radius: 5px;
+}
+
+.settings-palette-preview > span > span:last-child {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+.settings-palette-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--color-annotation);
+  color: var(--color-on-action);
+}
+
+.settings-palette strong {
+  font-size: 0.86rem;
+}
+
+.settings-palette small {
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.settings-swatch > span.is-theme {
+  background: conic-gradient(var(--color-annotation-fill) 0 50%, var(--color-action) 50% 100%);
+}
+
+/* The color theme picker needs the whole row: label above, cards across. */
+.settings-row:has(.settings-palettes) {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.settings-row:has(.settings-palettes) .settings-row-control {
+  justify-self: stretch;
 }

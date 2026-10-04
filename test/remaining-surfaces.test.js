@@ -85,13 +85,17 @@ test('Notebook dirty state, unload decision, timestamps, and overwrite payload r
 
 test('Settings migration keeps storage keys and restores retired accents safely', () => {
   assert.deepEqual(readSettingsValue(null), {
-    accentColor: 'amber',
+    palette: 'spruce',
+    accentColor: 'theme',
     fontSize: 'normal',
     defaultProjectStatus: 'idea',
     defaultDashboardSort: 'updated',
     showCompletedByDefault: false,
   });
-  assert.equal(readSettingsValue('{"accentColor":"retired"}').accentColor, 'amber');
+  assert.equal(readSettingsValue('{"accentColor":"retired"}').accentColor, 'theme');
+  assert.equal(readSettingsValue('{"accentColor":"amber"}').accentColor, 'amber', 'a chosen preset is kept');
+  assert.equal(readSettingsValue('{"palette":"blueprint"}').palette, 'blueprint');
+  assert.equal(readSettingsValue('{"palette":"neon"}').palette, 'spruce');
   assert.equal(readSettingsValue('{"fontSize":"large"}').fontSize, 'large');
   assert.equal(readSettingsValue('{"defaultDashboardSort":"manual"}').defaultDashboardSort, 'manual');
   assert.equal(readSettingsValue('{bad json').defaultProjectStatus, 'idea');
@@ -162,4 +166,19 @@ test('templates, inspiration, Settings account actions, auth errors, and global 
   assert.match(app, /<Toaster[\s\S]*closeButton/);
   assert.match(commandPalette, /role="dialog"[\s\S]*aria-modal="true"/);
   assert.match(commandPalette, /returnFocusTo\.focus\(\)/);
+});
+
+test('every color theme defines the full palette in light and dark, and loads before first paint', async () => {
+  const [css, html] = await Promise.all([readSource('src/index.css'), readSource('index.html')]);
+  const tokens = ['--color-canvas', '--color-surface', '--color-ink', '--color-muted', '--color-divider', '--color-nav', '--color-action', '--color-on-action', '--color-annotation'];
+  for (const palette of ['spruce', 'blueprint', 'graphite', 'walnut', 'slate']) {
+    for (const selector of [`:root[data-palette="${palette}"]:not([data-theme="dark"])`, `:root[data-palette="${palette}"][data-theme="dark"]`]) {
+      const start = css.indexOf(`${selector} {`);
+      assert.ok(start >= 0, selector);
+      const block = css.slice(start, css.indexOf('}', start));
+      for (const token of tokens) assert.ok(block.includes(`${token}:`), `${selector} ${token}`);
+    }
+    assert.ok(html.includes(`'${palette}'`), `index.html knows ${palette}`);
+  }
+  assert.match(html, /document\.documentElement\.dataset\.palette = palette/);
 });

@@ -24,6 +24,12 @@
         var t = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
         var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        var palette = 'spruce';
+        try {
+          var saved = JSON.parse(localStorage.getItem('workshop-settings') || '{}').palette;
+          if (['spruce', 'blueprint', 'graphite', 'walnut', 'slate'].indexOf(saved) >= 0) palette = saved;
+        } catch (e) {}
+        document.documentElement.dataset.palette = palette;
       })();
     </script>
     <div id="root"></div>

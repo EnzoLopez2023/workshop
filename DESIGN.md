@@ -209,7 +209,7 @@ The former **Concourse Board** is retired. Condensed board lettering, split-flap
 
 ## Colors
 
-The palette is semantic and adaptive: light and dark values are paired by role, while user settings may replace only the annotation axis.
+The palette is semantic and adaptive: light and dark values are paired by role. Users choose a **color theme** — Spruce (the original, default), Blueprint, Graphite, Walnut, or Slate — which replaces the base roles (vellum, ink, muted, dividers, navigation, primary action, shadows, the drafting grid, and its own annotation trio), and may separately pick an annotation preset.
 
 ### Primary
 
@@ -241,7 +241,9 @@ The palette is semantic and adaptive: light and dark values are paired by role, 
 
 **The Amber Next Action Rule.** Amber marks the active project's next useful move and warning state. It is not the primary brand wash, navigation accent, or general annotation color.
 
-**The Adaptive Annotation Rule.** A preset may replace annotation, annotation-strong, and annotation-fill together; it may not recolor vellum, fixed spruce structure, amber next action, success, or danger.
+**The Color Theme Rule.** A color theme replaces the base roles together, in both renditions, through `:root[data-palette]` blocks in `src/index.css`; every theme keeps ink, muted text, action text, and annotation at 4.5:1 or better on its surfaces. Themes never recolor amber next action, success, warning, or danger — those stay semantic.
+
+**The Adaptive Annotation Rule.** An annotation preset may replace annotation, annotation-strong, and annotation-fill together and nothing else. "Match theme" (the default) uses the active color theme's own annotation trio.
 
 ## Typography
 
@@ -383,7 +385,7 @@ The editor is manual-save only. It defaults new pages to Edit and existing pages
 
 ### Settings
 
-Settings are open grouped rows, not a card dashboard: Appearance (light/dark/system, five adaptive annotation presets, normal/large text), Provider connections (write-only official Thingiverse token with status and disconnect), Project defaults (new-project status, dashboard sort, completed visibility), Data (a JSON project-list summary, explicitly not a full backup), Account (identity or demo mode, sign out/exit), a two-step signed-in delete-account danger zone, and the build version. Browser-local appearance/defaults are persisted independently of existing projects; provider tokens are encrypted per user on the server and never returned to the browser. Export, connection, deletion progress, and failure remain inline and textual. Irreversible server-side account deletion is separate from ordinary remote logout: after deletion succeeds Workshop attempts the Microsoft logout redirect; if that redirect fails, it clears the active account and local MSAL cache before replacing the document to `/`.
+Settings are open grouped rows, not a card dashboard: Appearance (light/dark/system, five color themes, "Match theme" plus five annotation presets, normal/large text), Provider connections (write-only official Thingiverse token with status and disconnect), Project defaults (new-project status, dashboard sort, completed visibility), Data (a JSON project-list summary, explicitly not a full backup), Account (identity or demo mode, sign out/exit), a two-step signed-in delete-account danger zone, and the build version. Browser-local appearance/defaults are persisted independently of existing projects; provider tokens are encrypted per user on the server and never returned to the browser. Export, connection, deletion progress, and failure remain inline and textual. Irreversible server-side account deletion is separate from ordinary remote logout: after deletion succeeds Workshop attempts the Microsoft logout redirect; if that redirect fails, it clears the active account and local MSAL cache before replacing the document to `/`.
 
 ### Global Route and Feedback Behavior
 
@@ -403,7 +405,7 @@ The command palette and media previews are modal dialogs: background content bec
 
 `Button`, `IconButton`, `PageFrame`, `PageHeader`, `SectionRail`, `SegmentedControl`, and `StatePanel` in `src/components/ui.tsx` are the shared React primitives. `CreateProjectMenu`, `WorkflowSection`, `FormSection`, and `Field` in `src/components/workflows.tsx` carry the shared Layer 2 interaction patterns. `AppShell` owns the responsive shell; `ProjectCard`, `ShaperProjectCard`, `BambuProjectCard`, and `StatusBadge` own library and semantic-state patterns; the dashboard composes the active project without inventing a second navigation model.
 
-Theme and settings persistence are part of the visual contract. The pre-paint script and `ThemeContext` read `workshop-theme`, accept only `light`, `dark`, or `system`, fall invalid values back to `system`, follow OS changes while in system mode, and write the resolved rendition to `data-theme`. `SettingsContext` reads `workshop-settings`, shallow-merges current defaults, replaces retired or unknown accent names with the legacy `amber` key that now means Spruce, reapplies the three annotation custom properties after every rendition change, and scales the root to `106.25%` for large text. The preset labels are Spruce, Clay, Moss, Pencil Blue, and Iris; each swaps annotation ink, strong ink, and fill as a light/dark family.
+Theme and settings persistence are part of the visual contract. The pre-paint script and `ThemeContext` read `workshop-theme`, accept only `light`, `dark`, or `system`, fall invalid values back to `system`, follow OS changes while in system mode, and write the resolved rendition to `data-theme`. The pre-paint script also reads `palette` from `workshop-settings` and writes `data-palette` (Spruce when missing or unknown) so the chosen theme shows on first paint. `SettingsContext` reads `workshop-settings`, shallow-merges current defaults, replaces retired or unknown accent names with `theme` ("Match theme") and unknown palettes with `spruce`, writes `data-palette`, reapplies the three annotation custom properties after every rendition change (or removes them for "Match theme"), and scales the root to `106.25%` for large text. The preset labels are Spruce, Clay, Moss, Pencil Blue, and Iris; each swaps annotation ink, strong ink, and fill as a light/dark family.
 
 Motion uses 140ms for direct state change and 200ms for card/elevation change with `cubic-bezier(0.16, 1, 0.3, 1)`. Reduced Motion collapses animation and transition durations to `0.01ms` and replaces the moving skeleton with a static recessed fill.
 
@@ -429,7 +431,7 @@ Forced Colors maps semantic roles to system colors, hides the drafting grid, and
 
 - **Don't** revive the retired Concourse Board metaphor, Martian Mono, condensed board lettering, split-flap seams, steel bands, rivets, tiny radii, or summary-metric walls.
 - **Don't** use amber as the primary brand/action wash; it belongs to the next useful move and warning semantics.
-- **Don't** let a user annotation preset recolor vellum, fixed spruce structure, success, warning, or danger.
+- **Don't** let an annotation preset recolor anything but the annotation trio, or let a color theme recolor next action, success, warning, or danger.
 - **Don't** place ornamental glass behind ordinary content or stack blur layers without a shell, tool, selection, tracing, or modal purpose.
 - **Don't** use hover to reveal a required action or state.
 - **Don't** hardcode a light-only color in a component when a semantic custom property exists.

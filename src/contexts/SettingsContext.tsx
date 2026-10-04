@@ -3,20 +3,31 @@ import {
   DEFAULT_SETTINGS,
   readSettingsValue,
   type AccentColor,
+  type Palette,
   type Settings,
 } from '../lib/settingsPreferences';
 
 export { DEFAULT_SETTINGS, readSettingsValue };
 export type {
   AccentColor,
+  Palette,
   DashboardSort,
   DefaultProjectStatus,
   FontSize,
   Settings,
 } from '../lib/settingsPreferences';
 
+/** Swatches for the color theme picker: canvas, surface, primary action, annotation (light / dark). */
+export const PALETTE_PRESETS: Record<Palette, { label: string; description: string; light: string[]; dark: string[] }> = {
+  spruce: { label: 'Spruce', description: 'Cool green vellum — the original.', light: ['#EEF4F2', '#FAFCFB', '#125447', '#176B5B'], dark: ['#0C1513', '#182823', '#68C7B0', '#68C7B0'] },
+  blueprint: { label: 'Blueprint', description: 'Blue drafting paper with navy ink.', light: ['#E9F0F9', '#F8FBFF', '#1B4C8C', '#1C6696'], dark: ['#0A1830', '#142B4F', '#86B9FF', '#8CD3FF'] },
+  graphite: { label: 'Graphite', description: 'Neutral pencil gray.', light: ['#F1F2F3', '#FBFBFC', '#2F3A45', '#356687'], dark: ['#111315', '#1F2327', '#CBD3DC', '#8FBAE0'] },
+  walnut: { label: 'Walnut', description: 'Warm wood tones with teal notes.', light: ['#F5EFE8', '#FCF9F5', '#784322', '#2C6A6D'], dark: ['#17110C', '#281E16', '#E6AC7C', '#7EC6C6'] },
+  slate: { label: 'Slate', description: 'Cool blue-gray with violet notes.', light: ['#EEF1F5', '#FAFBFD', '#324E78', '#5853A6'], dark: ['#10141B', '#1D2430', '#A0B8E2', '#B0ACF2'] },
+};
+
 export const ACCENT_PRESETS: Record<
-  AccentColor,
+  Exclude<AccentColor, 'theme'>,
   {
     label: string;
     ink: string;
@@ -94,11 +105,19 @@ function readSettings(): Settings {
 
 function applySettings(s: Settings) {
   const root = document.documentElement;
-  const accent = ACCENT_PRESETS[s.accentColor] ?? ACCENT_PRESETS.amber;
-  const dark = root.dataset.theme === 'dark';
-  root.style.setProperty('--color-annotation', dark ? accent.inkDark : accent.ink);
-  root.style.setProperty('--color-annotation-strong', dark ? accent.deepDark : accent.deep);
-  root.style.setProperty('--color-annotation-fill', dark ? accent.fillDark : accent.fill);
+  // The color theme lives in CSS (index.css); index.html sets it before first paint too.
+  root.dataset.palette = s.palette;
+  const props = ['--color-annotation', '--color-annotation-strong', '--color-annotation-fill'] as const;
+  if (s.accentColor === 'theme') {
+    // "Match theme": let the theme's own annotation colors through.
+    props.forEach(p => root.style.removeProperty(p));
+  } else {
+    const accent = ACCENT_PRESETS[s.accentColor] ?? ACCENT_PRESETS.amber;
+    const dark = root.dataset.theme === 'dark';
+    root.style.setProperty(props[0], dark ? accent.inkDark : accent.ink);
+    root.style.setProperty(props[1], dark ? accent.deepDark : accent.deep);
+    root.style.setProperty(props[2], dark ? accent.fillDark : accent.fill);
+  }
   root.style.fontSize = s.fontSize === 'large' ? '106.25%' : '';
 }
 

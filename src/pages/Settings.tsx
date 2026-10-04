@@ -26,7 +26,7 @@ import {
 } from '../auth/accountIdentity';
 import { loginRequest } from '../auth/msalConfig';
 import { useTheme, type Theme } from '../contexts/ThemeContext';
-import { ACCENT_PRESETS, useSettings, type AccentColor } from '../contexts/SettingsContext';
+import { ACCENT_PRESETS, PALETTE_PRESETS, useSettings, type AccentColor, type Palette } from '../contexts/SettingsContext';
 import { exitDemoMode, isDemoMode } from '../demo/demoMode';
 import {
   createLibraryDevice,
@@ -230,13 +230,59 @@ export default function Settings() {
         </SettingsRow>
 
         <SettingsRow
+          label="Color theme"
+          description="Sets the backgrounds, text, navigation, and buttons across the app, in light and dark."
+        >
+          <div className="settings-palettes" role="group" aria-label="Color theme">
+            {(Object.entries(PALETTE_PRESETS) as [Palette, typeof PALETTE_PRESETS[Palette]][]).map(([key, preset]) => {
+              const swatches = resolvedTheme === 'dark' ? preset.dark : preset.light;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className="settings-palette"
+                  aria-pressed={settings.palette === key}
+                  onClick={() => {
+                    setSetting('palette', key);
+                    // The old default annotation was Spruce green; follow the new theme instead.
+                    if (settings.accentColor === 'amber') setSetting('accentColor', 'theme');
+                  }}
+                >
+                  <span className="settings-palette-preview" style={{ background: swatches[0] }} aria-hidden="true">
+                    <span style={{ background: swatches[1] }}>
+                      <span style={{ background: swatches[2] }} />
+                      <span style={{ background: swatches[3] }} />
+                    </span>
+                    {settings.palette === key && <Check size={15} className="settings-palette-check" />}
+                  </span>
+                  <strong>{preset.label}</strong>
+                  <small>{preset.description}</small>
+                </button>
+              );
+            })}
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
           label="Annotation color"
-          description="Marks selected controls, links, counts, and drafting notes."
+          description="Marks selected controls, links, counts, and drafting notes. “Match theme” uses the color theme’s own."
         >
           <div className="settings-swatches" role="group" aria-label="Annotation color">
+            <button
+              type="button"
+              className="settings-swatch"
+              aria-pressed={settings.accentColor === 'theme'}
+              aria-label="Match theme"
+              onClick={() => setSetting('accentColor', 'theme')}
+            >
+              <span className="is-theme" aria-hidden="true">
+                {settings.accentColor === 'theme' && <Check size={15} />}
+              </span>
+              <small>Match theme</small>
+            </button>
             {(Object.entries(ACCENT_PRESETS) as [
-              AccentColor,
-              typeof ACCENT_PRESETS[AccentColor],
+              Exclude<AccentColor, 'theme'>,
+              typeof ACCENT_PRESETS[Exclude<AccentColor, 'theme'>],
             ][]).map(([key, preset]) => (
               <button
                 key={key}
