@@ -8861,3 +8861,54 @@ tbody td {
   padding: 0;
   list-style: none;
 }
+
+.drawer-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drawer-swatch {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-divider-strong);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.drawer-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--color-action);
+  outline-offset: 2px;
+}
+
+.drawer-swatch.is-custom {
+  overflow: hidden;
+  background: conic-gradient(#e66, #ec6, #6c6, #6ce, #66e, #e6e, #e66);
+}
+
+.drawer-swatch.is-custom input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.shelf-shop-cell {
+  white-space: nowrap;
+}
+
+.shelf-shop-cell a {
+  margin-right: 8px;
+}
+
+.shelf-shop-cell form {
+  display: flex;
+  gap: 6px;
+}
+
+.shelf-shop-cell input {
+  min-width: 14rem;
+}

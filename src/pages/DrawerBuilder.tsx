@@ -27,13 +27,23 @@ import {
   equalFronts,
   graduatedFronts,
   notchedOutline,
+  frontNotch,
+  handHole,
+  pullReach,
+  stadiumOutline,
   SLIDE_CAPACITY_LB,
   SLIDE_LENGTHS,
   drawerDesignToFields,
   readSavedDrawerDesign,
   toSavedDrawerDesign,
   deskSolids,
+  finishColors,
+  DEFAULT_FINISH,
+  DRAWER_LOADS,
   EXTRA_FIELD_DEFAULTS,
+  FINISH_COLORS,
+  MIN_BOX_HEIGHT,
+  BOX_CLEARANCE,
   type DrawerConfig,
   type DrawerDesignFields,
   type DrawerPlan,
@@ -46,6 +56,8 @@ const ShelfViewer3D = lazy(() => import('../components/ShelfViewer3D'));
 
 const STORAGE_KEY = 'workshop-drawer-builder';
 const VIEW_STORAGE_KEY = 'workshop-drawer-builder-view';
+/** The user's own product links for the hardware list. */
+const LINKS_STORAGE_KEY = 'workshop-drawer-links';
 /** Which saved design is open (and its saved state), so returning to the page keeps the link. */
 const SOURCE_STORAGE_KEY = 'workshop-drawer-builder-source';
 /** The design that was in the builder before another was opened over it. */
@@ -90,6 +102,10 @@ const DEFAULT_FORM: FormState = {
   deskHeight: EXTRA_FIELD_DEFAULTS.deskHeight,
   deskDepth: EXTRA_FIELD_DEFAULTS.deskDepth,
   deskTopLayers: EXTRA_FIELD_DEFAULTS.deskTopLayers,
+  drawerSlides: ['', '', '', '', ''],
+  load: 'medium',
+  finishFront: DEFAULT_FINISH.front,
+  finishCase: DEFAULT_FINISH.case,
 };
 
 const LENGTH_FIELDS = [
@@ -116,8 +132,10 @@ const BASE_OPTIONS = [
 ] as const;
 
 const PULL_OPTIONS = [
-  { value: 'arc', label: 'Arc (ALEX)' },
-  { value: 'slot', label: 'Slot' },
+  { value: 'arc', label: 'Arc notch (ALEX)', hint: 'A shallow curve cut into the top edge.' },
+  { value: 'slot', label: 'Slot notch', hint: 'A rounded-bottom slot in the top edge.' },
+  { value: 'wide', label: 'Wide notch', hint: `A long slot across nearly the whole front, stopping 2″ from each end.` },
+  { value: 'handhole', label: 'Hand hole', hint: 'A rounded hole cut through the front, just below the top edge.' },
 ] as const;
 
 const DESK_LAYOUT_OPTIONS = [
@@ -160,6 +178,7 @@ function normalizeDrawers(form: FormState): FormState {
     insertKinds: fit(form.insertKinds, 'none'),
     gridColumns: fit(form.gridColumns, 2),
     gridRows: fit(form.gridRows, 2),
+    drawerSlides: fit(form.drawerSlides, ''),
   };
 }
 
@@ -249,6 +268,11 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
           : null),
     insertThickness: form.insertKinds.slice(0, form.drawers).some(k => k !== 'none') ? num('insertThickness') : 1 / 4,
     desk,
+    slideLengths: form.drawerSlides.slice(0, form.drawers).some(Boolean)
+      ? form.drawerSlides.slice(0, form.drawers).map(v => (v ? Number(v) : null))
+      : undefined,
+    load: form.load,
+    finish: { front: form.finishFront, case: form.finishCase },
   };
   if (Object.keys(fieldErrors).length > 0) return { config: null, fieldErrors };
   return { config, fieldErrors };
@@ -286,6 +310,13 @@ function readStoredSource(): { source: DesignSource | null; snapshot: string | n
 }
 
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'the request failed');
+
+/** "12" or "12–35". */
+function loadRange(pounds: number[]): string {
+  const lo = Math.round(Math.min(...pounds));
+  const hi = Math.round(Math.max(...pounds));
+  return lo === hi ? String(lo) : `${lo}–${hi}`;
+}
 
 /** Rounds fronts to 1/16" (or 0.5 mm), letting the bottom one take up the difference so the total holds. */
 function roundedFronts(heights: number[], units: LengthUnit): string[] {
@@ -559,6 +590,37 @@ export default function DrawerBuilder() {
     gridRows: prev.gridRows.map(() => prev.gridRows[0]),
   }));
 
+  const [perDrawerSlides, setPerDrawerSlides] = useState(() => form.drawerSlides.some(Boolean));
+  const setDrawerSlide = (index: number, value: string) =>
+    setForm(prev => ({ ...prev, drawerSlides: prev.drawerSlides.map((v, i) => (i === index ? value : v)) }));
+
+  // Your own product links for the hardware, remembered in this browser.
+  const [links, setLinks] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem(LINKS_STORAGE_KEY) ?? '{}') as Record<string, string>; } catch { return {}; }
+  });
+  const setLink = (key: string, url: string | null) => setLinks(prev => {
+    const next = { ...prev };
+    if (url) next[key] = url; else delete next[key];
+    try { localStorage.setItem(LINKS_STORAGE_KEY, JSON.stringify(next)); } catch { /* convenience only */ }
+    return next;
+  });
+
+  // A shallow top drawer: the smallest front whose box still takes the slides; the rest share what's left.
+  const shallowTopDrawer = () => {
+    if (!plan || !config || form.drawers < 2) return;
+    const caseHeight = plan.desk ? plan.desk.height - plan.desk.topThickness - plan.baseHeight : plan.caseHeight;
+    const available = caseHeight - form.drawers * config.gap;
+    const forBox = MIN_BOX_HEIGHT + 2 * BOX_CLEARANCE + config.thickness - config.gap;
+    const forPull = pullReach(config.pull, plan.drawers[0].front.width) + 1.25;
+    // Start from the box and pull minimums, then grow in 1/8" steps until the top drawer
+    // has no problems of its own (a hand hole, say, needs room for its box-front notch).
+    let top = Math.ceil(Math.max(forBox, forPull, 3) * 8) / 8;
+    const heightsFor = (h: number) => [h, ...equalFronts(form.drawers - 1, available - h)];
+    const topOk = (h: number) => !buildDrawerPlan({ ...config, frontHeights: heightsFor(h) }).errors.some(e => e.startsWith('Drawer 1'));
+    while (!topOk(top) && top < available / form.drawers) top += 1 / 8;
+    update({ heightMode: 'fronts', frontHeights: roundedFronts(heightsFor(top), units) });
+  };
+
   const setFront = (index: number, value: string) => {
     setCopyStatus('');
     setForm(prev => ({ ...prev, frontHeights: prev.frontHeights.map((v, i) => (i === index ? value : v)) }));
@@ -658,7 +720,7 @@ export default function DrawerBuilder() {
                       disabled={!saved}
                       onClick={() => saved && applyDesign(drawerDesignToFields(saved), { kind: 'library', id: entry.id, title: entry.name })}
                     >
-                      {p && saved && p.errors.length === 0 && <img src={drawerThumbnailDataUrl(p, saved.config.pull, 72)} alt="" />}
+                      {p && saved && p.errors.length === 0 && <img src={drawerThumbnailDataUrl(p, saved.config.pull, 72, saved.config.finish?.front)} alt="" />}
                       <span>
                         <strong>{entry.name}</strong>
                         <small>{p ? `${formatLength(p.overallWidth, saved!.units)} × ${formatLength(p.overallHeight, saved!.units)}` : 'Can’t be read'}</small>
@@ -862,22 +924,54 @@ export default function DrawerBuilder() {
                 Fronts {fmt(plan.drawers[0].front.height)} tall; boxes {[...new Set(plan.drawers.map(d => fmt(d.box.height)))].join(' and ')}.
               </p>
             )}
+            <span className="shelf-source-actions">
+              <Button variant="ghost" onClick={shallowTopDrawer} disabled={!plan || form.drawers < 2}>Shallow top drawer (pencil tray)</Button>
+            </span>
+            <label className="form-field">
+              <span className="form-field-label">What goes in them (for the load check)</span>
+              <select value={form.load} onChange={e => update({ load: e.target.value as FormState['load'] })}>
+                {(Object.keys(DRAWER_LOADS) as (keyof typeof DRAWER_LOADS)[]).map(key => (
+                  <option key={key} value={key}>{DRAWER_LOADS[key].label}</option>
+                ))}
+              </select>
+              {plan && plan.loads.length > 0 && (
+                <small>
+                  Full, a drawer holds about {loadRange(plan.loads.map(l => l.pounds))} lb — slides are rated {SLIDE_CAPACITY_LB} lb a pair.
+                  {' '}Bottoms sag {plan.loads.every(l => !l.sags) ? `at most ${Math.max(...plan.loads.map(l => l.sag)).toFixed(3)}″ — fine` : 'too much in some drawers (see below)'}.
+                </small>
+              )}
+            </label>
           </fieldset>
 
           <fieldset className="shelf-group">
             <legend>Finger pull</legend>
             <Toggle
-              label="Notch in each front"
+              label="Built-in pull"
               checked={form.pullEnabled}
-              hint="The ALEX look: no handles, just a cut-out in the top edge to hook a finger behind the front. The box front behind gets a matching notch."
+              hint="The ALEX look: no handles, just a cut-out to hook a finger behind the front. The box front behind gets a matching notch."
               onChange={pullEnabled => update({ pullEnabled })}
             />
             {form.pullEnabled && (
               <>
-                <SegmentedControl label="Pull shape" value={form.pullShape} options={PULL_OPTIONS} onChange={pullShape => update({ pullShape })} />
+                <label className="form-field">
+                  <span className="form-field-label">Style</span>
+                  <select value={form.pullShape} onChange={e => update({ pullShape: e.target.value as FormState['pullShape'] })}>
+                    {PULL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <small>{PULL_OPTIONS.find(o => o.value === form.pullShape)?.hint}</small>
+                </label>
                 <div className="shelf-field-grid">
-                  <LengthField unit={units} label="Pull width" value={form.pullWidth} error={fieldErrors.pullWidth} onChange={pullWidth => update({ pullWidth })} />
-                  <LengthField unit={units} label="Pull depth" value={form.pullDepth} error={fieldErrors.pullDepth} hint="Down from the top edge." onChange={pullDepth => update({ pullDepth })} />
+                  {form.pullShape !== 'wide' && (
+                    <LengthField unit={units} label={form.pullShape === 'handhole' ? 'Hole width' : 'Pull width'} value={form.pullWidth} error={fieldErrors.pullWidth} onChange={pullWidth => update({ pullWidth })} />
+                  )}
+                  <LengthField
+                    unit={units}
+                    label={form.pullShape === 'handhole' ? 'Hole height' : 'Pull depth'}
+                    value={form.pullDepth}
+                    error={fieldErrors.pullDepth}
+                    hint={form.pullShape === 'handhole' ? `Its top is ${fmt(3 / 4)} below the top edge.` : 'Down from the top edge.'}
+                    onChange={pullDepth => update({ pullDepth })}
+                  />
                 </div>
               </>
             )}
@@ -981,6 +1075,25 @@ export default function DrawerBuilder() {
               </select>
               <small>Soft-close, full extension, side mount: {fmt(1 / 2)} each side, {SLIDE_CAPACITY_LB} lb a pair. The drawer box is as deep as the slide.</small>
             </label>
+            <Toggle
+              label="Different lengths per drawer"
+              checked={perDrawerSlides}
+              hint="A shorter slide makes a shallower box — handy for a pencil drawer, or one that clears something at the back."
+              onChange={on => { setPerDrawerSlides(on); if (!on) update({ drawerSlides: form.drawerSlides.map(() => '') }); }}
+            />
+            {perDrawerSlides && plan && (
+              <div className="drawer-inserts">
+                {form.drawerSlides.slice(0, form.drawers).map((value, i) => (
+                  <div className="drawer-insert-row" key={i}>
+                    <span className="form-field-label" id={`slide-${i}`}>Drawer {i + 1}</span>
+                    <select aria-labelledby={`slide-${i}`} value={value} onChange={e => setDrawerSlide(i, e.target.value)}>
+                      <option value="">Same as the rest ({fmt(plan.slideLength)})</option>
+                      {SLIDE_LENGTHS.filter(l => l < plan.slideLength).map(l => <option key={l} value={String(l)}>{fmt(l)}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
           </fieldset>
 
           <fieldset className="shelf-group">
@@ -1009,6 +1122,33 @@ export default function DrawerBuilder() {
             {plan && plan.supports > 0 && (
               <p className="shelf-group-note">{plan.supports} {form.base === 'feet' ? 'feet' : 'casters'}{plan.supports === 6 ? ' — a middle pair, since the unit is wide' : ''}.</p>
             )}
+          </fieldset>
+
+          <fieldset className="shelf-group">
+            <legend>Finish</legend>
+            {([['finishFront', 'Drawer fronts'], ['finishCase', 'Case and top']] as const).map(([key, label]) => (
+              <div className="shelf-height-mode" key={key}>
+                <span className="form-field-label">{label}</span>
+                <div className="drawer-swatches" role="group" aria-label={`${label} colour`}>
+                  {FINISH_COLORS.map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className="drawer-swatch"
+                      style={{ background: c.hex }}
+                      aria-pressed={form[key].toLowerCase() === c.hex}
+                      aria-label={c.label}
+                      title={c.label}
+                      onClick={() => update({ [key]: c.hex })}
+                    />
+                  ))}
+                  <label className="drawer-swatch is-custom" title="Any colour">
+                    <input type="color" value={form[key]} onChange={e => update({ [key]: e.target.value })} aria-label={`Custom ${label.toLowerCase()} colour`} />
+                  </label>
+                </div>
+              </div>
+            ))}
+            <p className="shelf-group-note">For the 3D view and build guide; the cost estimate counts paint or clear finish either way.</p>
           </fieldset>
 
           <fieldset className="shelf-group">
@@ -1052,7 +1192,14 @@ export default function DrawerBuilder() {
                     <Stat label="Overall depth" value={fmt(plan.overallDepth)} />
                   </>
                 )}
-                <Stat label="Slides" value={plan.slideLength > 0 ? `${plan.drawers.length * plan.unitCount} × ${fmt(plan.slideLength)}` : '—'} accent />
+                <Stat
+                  label="Slides"
+                  value={plan.slideLength > 0
+                    ? [...new Set(plan.drawers.map(d => d.box.depth))].sort((a, b) => b - a)
+                      .map(l => `${plan.drawers.filter(d => d.box.depth === l).length * plan.unitCount} × ${fmt(l)}`).join(' + ')
+                    : '—'}
+                  accent
+                />
               </dl>
               {view === '3d' && valid ? (
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
@@ -1062,6 +1209,7 @@ export default function DrawerBuilder() {
                     height={plan.desk ? plan.desk.height : plan.overallHeight}
                     depth={plan.desk ? plan.desk.depth : plan.caseDepth}
                     wallMounted={false}
+                    colors={finishColors(config.finish)}
                     label={plan.desk
                       ? `3D view of a ${fmt(plan.desk.width)} desk on ${plan.unitCount} drawer unit${plan.unitCount === 1 ? '' : 's'}`
                       : `3D view of a ${fmt(plan.overallWidth)} wide, ${fmt(plan.overallHeight)} tall drawer unit with ${plan.drawers.length} drawers`}
@@ -1182,7 +1330,7 @@ export default function DrawerBuilder() {
                     <p>Slides, feet or casters, and everything else besides plywood, counted from this design.</p>
                   </div>
                 </header>
-                <HardwareTable items={estimate.hardware} />
+                <HardwareTable items={estimate.hardware} links={links} onLink={setLink} />
               </section>
 
               <section className="shelf-section" aria-labelledby="drawer-cost-title">
@@ -1285,13 +1433,24 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
         {B > 0 && (config.base === 'feet'
           ? [config.thickness + 1.5, W - config.thickness - 2.75].map(x => <rect key={x} className="drawer-foot" x={x} y={y(B)} width={1.25} height={B} />)
           : [config.thickness + 1.5, W - config.thickness - 4].map(x => <circle key={x} className="drawer-foot" cx={x + 1.25} cy={H - B / 2} r={B / 2 * 0.9} />))}
-        {plan.drawers.map(d => (
-          <polygon
-            key={d.index}
-            className="drawer-front-shape"
-            points={notchedOutline(d.front.x, d.front.y, d.front.width, d.front.height, pull).map(([px, py]) => `${px},${y(py)}`).join(' ')}
-          />
-        ))}
+        {plan.drawers.map(d => {
+          const hole = handHole(pull);
+          return (
+            <g key={d.index}>
+              <polygon
+                className="drawer-front-shape"
+                style={{ fill: config.finish?.front }}
+                points={notchedOutline(d.front.x, d.front.y, d.front.width, d.front.height, frontNotch(pull, d.front.width)).map(([px, py]) => `${px},${y(py)}`).join(' ')}
+              />
+              {hole && (
+                <polygon
+                  className="drawer-notch"
+                  points={stadiumOutline(d.front.x + d.front.width / 2, d.front.y + d.front.height - hole.top, hole.width, hole.height).map(([px, py]) => `${px},${y(py)}`).join(' ')}
+                />
+              )}
+            </g>
+          );
+        })}
         {plan.drawers.map(d => (
           <DimV key={d.index} y1={y(d.front.y + d.front.height)} y2={y(d.front.y)} x={W + pad * 0.3} fs={fs * 0.75} label={fmt(d.front.height)} />
         ))}
@@ -1314,25 +1473,29 @@ function DrawerSection({ plan, config, fmt }: { plan: DrawerPlan; config: Drawer
   const x = (z: number) => z + T; // fronts start at x = 0
   const pad = depth * 0.12;
   const fs = depth * 0.04;
-  const pull = config.pull.enabled ? config.pull.depth : 0;
+  const reach = pullReach(config.pull, d.front.width);
+  const hole = handHole(config.pull);
+  const slide = d.box.depth;
   return (
     <figure className="shelf-drawing is-section">
       <svg viewBox={`${-pad} ${-pad} ${depth + pad * 2} ${Hs + pad * 2.4}`} role="img"
-        aria-label={`Side section of the top drawer: ${fmt(plan.slideLength)} slide, ${fmt(d.box.height)} box behind a ${fmt(d.front.height)} front`}>
+        aria-label={`Side section of the top drawer: ${fmt(slide)} slide, ${fmt(d.box.height)} box behind a ${fmt(d.front.height)} front`}>
         <rect className="shelf-side-outline" x={x(0)} y={yy(plan.overallHeight)} width={plan.caseDepth} height={Hs - yy(plan.overallHeight)} />
         <rect className="shelf-ply" x={x(0)} y={yy(plan.overallHeight)} width={plan.interiorDepth} height={T} />
         <rect className="shelf-ply" x={x(plan.interiorDepth)} y={yy(plan.overallHeight)} width={config.backThickness} height={Hs - yy(plan.overallHeight)} />
         <rect className="drawer-front-shape" x={0} y={yy(top)} width={T} height={d.front.height} />
-        {pull > 0 && <rect className="drawer-notch" x={0} y={yy(top)} width={T} height={pull} />}
+        {reach > 0 && (hole
+          ? <rect className="drawer-notch" x={0} y={yy(top - hole.top)} width={T} height={hole.height} />
+          : <rect className="drawer-notch" x={0} y={yy(top)} width={T} height={reach} />)}
         <rect className="shelf-ply is-shelf" x={x(0)} y={yy(d.box.y + d.box.height)} width={config.boxThickness} height={d.box.height} />
         {d.boxNotchDepth > 0 && <rect className="drawer-notch" x={x(0)} y={yy(d.box.y + d.box.height)} width={config.boxThickness} height={d.boxNotchDepth} />}
-        <rect className="shelf-ply is-shelf" x={x(plan.slideLength - config.boxThickness)} y={yy(d.box.y + d.box.height)} width={config.boxThickness} height={d.box.height} />
-        <rect className="shelf-ply" x={x(config.boxThickness)} y={yy(d.box.y + 0.5 + config.bottomThickness)} width={plan.slideLength - 2 * config.boxThickness} height={config.bottomThickness} />
-        <rect className="drawer-slide" x={x(0)} y={yy(d.slideY + 45 / 25.4)} width={plan.slideLength} height={45 / 25.4} />
-        <DimH x1={x(0)} x2={x(plan.slideLength)} y={Hs + pad * 0.6} fs={fs} label={`Slide ${fmt(plan.slideLength)}`} />
+        <rect className="shelf-ply is-shelf" x={x(slide - config.boxThickness)} y={yy(d.box.y + d.box.height)} width={config.boxThickness} height={d.box.height} />
+        <rect className="shelf-ply" x={x(config.boxThickness)} y={yy(d.box.y + 0.5 + config.bottomThickness)} width={slide - 2 * config.boxThickness} height={config.bottomThickness} />
+        <rect className="drawer-slide" x={x(0)} y={yy(d.slideY + 45 / 25.4)} width={slide} height={45 / 25.4} />
+        <DimH x1={x(0)} x2={x(slide)} y={Hs + pad * 0.6} fs={fs} label={`Slide ${fmt(slide)}`} />
         <DimH x1={0} x2={depth} y={Hs + pad * 1.5} fs={fs} label={fmt(depth)} />
       </svg>
-      <figcaption>Side section through the top drawer{pull > 0 ? ': the box front is notched below the pull so fingers can hook the front' : ''}</figcaption>
+      <figcaption>Side section through the top drawer{reach > 0 ? ': the box front is notched below the pull so fingers can hook the front' : ''}</figcaption>
     </figure>
   );
 }

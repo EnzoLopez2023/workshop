@@ -91,6 +91,8 @@ export interface HardwareItem {
   note?: string;
   priceKey: PriceKey;
   optional?: boolean;
+  /** Where to buy it (a store search, or the user's own product link). */
+  url?: string;
 }
 
 const boxes = (count: number, perBox: number) => Math.max(1, Math.ceil(count / perBox));

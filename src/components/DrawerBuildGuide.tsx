@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import BuildGuideView from './BuildGuideView';
 import { drawerGuideSteps } from '../lib/drawerGuide';
-import type { DrawerConfig, DrawerPlan } from '../lib/drawerUnit';
+import { finishColors, type DrawerConfig, type DrawerPlan } from '../lib/drawerUnit';
 import { formatLength, type LengthUnit } from '../lib/shelving';
 
 interface Props {
@@ -27,6 +27,7 @@ export default function DrawerBuildGuide({ plan, config, units, title = 'Drawer 
       units={units}
       title={title}
       subtitle={subtitle}
+      colors={finishColors(config.finish)}
     />
   );
 }

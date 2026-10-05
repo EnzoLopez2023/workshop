@@ -16,6 +16,8 @@ interface Props {
   depth: number;
   wallMounted: boolean;
   label: string;
+  /** Finish colours that replace the plywood tones for some kinds of part. */
+  colors?: Partial<Record<SolidKind, number>>;
 }
 
 
@@ -37,7 +39,7 @@ interface Stage {
   userMoved: boolean;
 }
 
-export default function ShelfViewer3D({ solids, width, height, depth, wallMounted, label }: Props) {
+export default function ShelfViewer3D({ solids, width, height, depth, wallMounted, label, colors }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   const [error, setError] = useState('');
@@ -199,6 +201,18 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     }
     stage.render();
   }, [solids, width, height, depth, wallMounted]);
+
+  // Finish colours only recolour the shared materials; nothing is rebuilt.
+  const colorKey = JSON.stringify(colors ?? {});
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    for (const [kind, material] of Object.entries(stage.materials) as [SolidKind, THREE.MeshStandardMaterial][]) {
+      material.color.setHex(colors?.[kind] ?? COLORS[kind]);
+    }
+    stage.render();
+    // colorKey stands in for the colours object.
+  }, [colorKey]);
 
   const resetView = () => {
     const stage = stageRef.current;

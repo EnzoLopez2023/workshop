@@ -3,7 +3,7 @@ import { AlertTriangle, Lightbulb, Loader2, Printer, RefreshCw } from 'lucide-re
 import { Button } from './ui';
 import { toast } from 'sonner';
 import { guidePrintHtml, sheetLayoutDataUrl, type BuildGuide, type GuideSheets, type GuideStep } from '../lib/buildGuide';
-import { formatLength, type LengthUnit } from '../lib/shelving';
+import { formatLength, type LengthUnit, type SolidKind } from '../lib/shelving';
 
 interface Props {
   guide: BuildGuide;
@@ -17,6 +17,7 @@ interface Props {
   title: string;
   /** One line under the printed heading: sizes and materials. */
   subtitle: string;
+  colors?: Partial<Record<SolidKind, number>>;
 }
 
 // Images are keyed by step id so a redraw in progress never shows a picture under the wrong step.
@@ -26,7 +27,8 @@ type Images = { state: 'idle' } | { state: 'drawing'; done: number; total: numbe
 const REDRAW_DELAY_MS = 700;
 
 /** The illustrated, printable step list used by the Shelf Builder and the Drawer Builder. */
-export default function BuildGuideView({ guide, width, height, depth, wallMounted, units, title, subtitle }: Props) {
+export default function BuildGuideView({ guide, width, height, depth, wallMounted, units, title, subtitle, colors }: Props) {
+  const colorKey = JSON.stringify(colors ?? {});
   const [images, setImages] = useState<Images>({ state: 'idle' });
   const [attempt, setAttempt] = useState(0);
 
@@ -44,6 +46,7 @@ export default function BuildGuideView({ guide, width, height, depth, wallMounte
           height,
           depth,
           wallMounted,
+          colors,
           signal,
           onProgress: (done, total) => {
             if (!signal.cancelled) setImages(prev => (prev.state === 'ready' ? prev : { state: 'drawing', done, total }));
@@ -64,7 +67,8 @@ export default function BuildGuideView({ guide, width, height, depth, wallMounte
       signal.cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [guide, width, height, depth, wallMounted, attempt]);
+    // colorKey stands in for the colours object.
+  }, [guide, width, height, depth, wallMounted, attempt, colorKey]);
 
   // A clean window with only the guide, like the sheet layout's "Print or save PDF".
   const printGuide = () => {

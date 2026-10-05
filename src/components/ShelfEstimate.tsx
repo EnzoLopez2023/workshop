@@ -52,25 +52,68 @@ export function money(value: number, symbol = '$'): string {
   return `${symbol}${value.toFixed(2)}`;
 }
 
-export function HardwareTable({ items }: { items: Omit<HardwareItem, 'priceKey'>[] }) {
+export function HardwareTable({
+  items, links = {}, onLink,
+}: {
+  items: Omit<HardwareItem, 'priceKey'>[];
+  /** The user's own product links, by item key; they replace the store search. */
+  links?: Record<string, string>;
+  onLink?: (key: string, url: string | null) => void;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const shoppable = items.some(i => i.url);
   return (
     <div className="shelf-table-scroll" tabIndex={0} aria-label="Hardware list">
       <table className="shelf-table">
         <thead>
-          <tr><th scope="col">Item</th><th scope="col">Buy</th><th scope="col">Notes</th></tr>
+          <tr><th scope="col">Item</th><th scope="col">Buy</th><th scope="col">Notes</th>{shoppable && <th scope="col">Shop</th>}</tr>
         </thead>
         <tbody>
-          {items.map(item => (
-            <tr key={item.key}>
-              <th scope="row">{item.name}{item.optional ? <span className="shelf-optional"> optional</span> : null}</th>
-              <td>{quantityLabel(item.qty, item.unit)}{item.uses && /^(box|pack) of/.test(item.unit) ? ` (uses ${item.uses})` : ''}</td>
-              <td className="is-muted">{item.note}</td>
-            </tr>
-          ))}
+          {items.map(item => {
+            const own = links[item.key];
+            const href = own || item.url;
+            return (
+              <tr key={item.key}>
+                <th scope="row">{item.name}{item.optional ? <span className="shelf-optional"> optional</span> : null}</th>
+                <td>{quantityLabel(item.qty, item.unit)}{item.uses && /^(box|pack) of/.test(item.unit) ? ` (uses ${item.uses})` : ''}</td>
+                <td className="is-muted">{item.note}</td>
+                {shoppable && (
+                  <td className="shelf-shop-cell">
+                    {item.url && editing === item.key ? (
+                      <form onSubmit={e => { e.preventDefault(); onLink?.(item.key, safeUrl(draft)); setEditing(null); }}>
+                        <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="Paste your product link" aria-label={`Your link for ${item.name}`} autoFocus />
+                        <Button type="submit" variant="ghost">Save</Button>
+                      </form>
+                    ) : item.url ? (
+                      <>
+                        <a href={href} target="_blank" rel="noopener noreferrer">{own ? 'Your link' : 'Search Amazon'}</a>
+                        {onLink && (
+                          <button type="button" className="shelf-link-button" onClick={() => { setEditing(item.key); setDraft(own ?? ''); }}>
+                            {own ? 'Change' : 'Use my link'}
+                          </button>
+                        )}
+                      </>
+                    ) : null}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
+}
+
+/** Only http(s) links are kept; anything else clears the link. */
+function safeUrl(text: string): string | null {
+  try {
+    const url = new URL(text.trim());
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 export function CostTable<K extends string = PriceKey>({

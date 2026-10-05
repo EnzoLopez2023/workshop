@@ -101,7 +101,7 @@ test('the finger-pull notch has the asked width and depth, and the box front cle
     const reach = d.front.y + d.front.height - DEFAULT_PULL.depth;
     assert.ok(boxTop - d.boxNotchDepth <= reach - 3 / 8 + 1e-9, `drawer ${d.index + 1}: fingers have 3/8" behind the front`);
   }
-  assert.match(buildDrawerPlan({ ...base, pull: { ...DEFAULT_PULL, depth: 4.5 } }).errors.join(' '), /too deep/);
+  assert.match(buildDrawerPlan({ ...base, pull: { ...DEFAULT_PULL, depth: 4.5 } }).errors.join(' '), /too far/);
   assert.match(buildDrawerPlan({ ...base, pull: { ...DEFAULT_PULL, width: 13 } }).errors.join(' '), /wider than/);
   const noPull = buildDrawerPlan({ ...base, pull: { ...DEFAULT_PULL, enabled: false } });
   assert.ok(noPull.drawers.every(d => d.boxNotchDepth === 0));

@@ -10,9 +10,14 @@
 import {
   BOTTOM_GROOVE_DEPTH,
   BOTTOM_GROOVE_OFFSET,
-  BOX_NOTCH_EXTRA,
+  boxNotchSpec,
+  frontNotch,
+  handHole,
   notchedOutline,
   pullProfile,
+  pullWidth,
+  stadiumOutline,
+  type NotchShape,
   supportPositions,
   FOOT_SIZE,
   type DrawerConfig,
@@ -47,7 +52,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
           { kind: 'pocket', label: 'Back rabbet', u: 0, v: part.width - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 },
           ...plan.drawers.map((d): Feature => ({
             kind: 'guide', label: `Drawer ${d.index + 1} slide, bottom edge`,
-            points: [[d.slideMark, 0], [d.slideMark, plan.slideLength]],
+            points: [[d.slideMark, 0], [d.slideMark, d.box.depth]],
           })),
         ];
         faces.push({
@@ -83,12 +88,18 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
     if (part.name.startsWith('Drawer front')) {
       // u = left to right, v = up from the bottom edge, outside face up. The notch is cut
       // from the finished (banded) top edge, so it's that much shallower on the plywood.
-      const outline = pull
-        ? notchedOutline(0, 0, part.length, part.width, { shape: pull.shape, width: pull.width, depth: Math.max(pull.depth - band, 0.01) })
+      const finished = part.length + 2 * band;
+      const notch = frontNotch(pull, finished);
+      const hole = handHole(pull);
+      const outline = notch
+        ? notchedOutline(0, 0, part.length, part.width, { ...notch, depth: Math.max(notch.depth - band, 0.01) })
         : undefined;
+      const features: Feature[] = hole
+        ? [{ kind: 'cutout', label: 'Hand hole', points: stadiumOutline(part.length / 2, part.width + band - hole.top, hole.width, hole.height) }]
+        : [];
       faces.push({
-        ...base, id: slug(part.name), piece: part.name, face: pull ? 'outside face' : '', features: [], outline, rightHanded: true,
-        orientation: pull ? 'Outside face up, top edge (with the finger pull) at the top of the drawing.' : 'Nothing to machine — just cut the outline.',
+        ...base, id: slug(part.name), piece: part.name, face: pull ? 'outside face' : '', features, outline, rightHanded: true,
+        orientation: pull ? `Outside face up, top edge (with the ${hole ? 'hand hole' : 'finger pull'}) at the top of the drawing.` : 'Nothing to machine — just cut the outline.',
       });
       continue;
     }
@@ -99,11 +110,8 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       let outline: [number, number][] | undefined;
       if (part.name.startsWith('Box front') && pull) {
         const drawer = plan.drawers[plan.partDrawers[part.name]?.[0] ?? -1];
-        if (drawer && drawer.boxNotchDepth > 0) {
-          outline = notchedOutline(0, 0, part.length, part.width, {
-            shape: pull.shape, width: pull.width + BOX_NOTCH_EXTRA, depth: drawer.boxNotchDepth,
-          });
-        }
+        const spec = drawer ? boxNotchSpec(pull, drawer.front.width, drawer.boxNotchDepth) : null;
+        if (spec) outline = notchedOutline(0, 0, part.length, part.width, spec);
       }
       faces.push({
         ...base, id: slug(part.name), piece: part.name, face: 'inside face', features, outline, rightHanded: true,
@@ -166,20 +174,30 @@ export interface DrawerJig {
  * (so its ends line up with the part's ends and centre the notch), with the
  * notch open through its top edge and a guide line where the fence goes.
  */
-function pullTemplate(id: string, title: string, partLength: number, shape: 'arc' | 'slot', width: number, depth: number): PartFace {
+function pullTemplate(id: string, title: string, partLength: number, shape: NotchShape | 'handhole', width: number, depth: number, holeTop = 0): PartFace {
   const length = partLength <= TEMPLATE_MAX_LENGTH ? partLength : width + 8;
-  const height = TEMPLATE_OVERHANG + depth + TEMPLATE_BELOW;
+  const reach = shape === 'handhole' ? holeTop + depth : depth;
+  const height = TEMPLATE_OVERHANG + reach + TEMPLATE_BELOW;
   const cx = length / 2;
   const edge = height - TEMPLATE_OVERHANG; // where the part's top edge sits
+  const guides: Feature[] = [
+    { kind: 'guide', label: 'Fence line — the part’s top edge', points: [[0, edge], [length, edge]] },
+    { kind: 'guide', label: 'Centre line', points: [[cx, 0], [cx, edge - reach - 0.25]] },
+  ];
+  const face = { id, part: title, piece: title, face: 'face up', length, width: height, thickness: JIG_STOCK, material: 'plywood' as const, rightHanded: true };
+  if (shape === 'handhole') {
+    return {
+      ...face,
+      features: [{ kind: 'cutout', label: 'Hand hole', points: stadiumOutline(cx, edge - holeTop, width, depth) }, ...guides],
+      orientation: 'Face up as drawn; the hole sits below the fence line.',
+    };
+  }
   const notch = pullProfile({ shape, width, depth }).map(([dx, dy]) => [cx + dx, edge + dy] as [number, number]).reverse();
   const outline: [number, number][] = [[0, 0], [length, 0], [length, height], [cx + width / 2, height], ...notch, [cx - width / 2, height], [0, height]];
   return {
-    id, part: title, piece: title, face: 'face up', length, width: height, thickness: JIG_STOCK, material: 'plywood', rightHanded: true,
+    ...face,
     outline: outline.filter((pt, i) => i === 0 || Math.hypot(pt[0] - outline[i - 1][0], pt[1] - outline[i - 1][1]) > 1e-9),
-    features: [
-      { kind: 'guide', label: 'Fence line — the part’s top edge', points: [[0, edge], [length, edge]] },
-      { kind: 'guide', label: 'Centre line', points: [[cx, 0], [cx, edge - depth - 0.25]] },
-    ],
+    features: guides,
     orientation: 'Face up as drawn; the notch opens through the top edge.',
   };
 }
@@ -191,16 +209,24 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
   const fence = (length: number, width: number) => `Glue a ${f(3 / 4)} × ${f(3 / 4)} fence under the plate on the fence line, one piece each side of the notch (about ${f(Math.max((length - width) / 2 - 0.5, 1))} long each).`;
 
   if (pull && frontPart) {
-    const face = pullTemplate('pull-template', 'Finger-pull template', frontPart.length, pull.shape, pull.width, pull.depth);
+    const frontWidth = plan.drawers[0]?.front.width ?? frontPart.length;
+    const notch = frontNotch(pull, frontWidth);
+    const hole = handHole(pull);
+    const across = pullWidth(pull, frontWidth);
+    const face = notch
+      ? pullTemplate('pull-template', 'Finger-pull template', frontPart.length, notch.shape, notch.width, notch.depth)
+      : pullTemplate('pull-template', 'Hand-hole template', frontPart.length, 'handhole', hole!.width, hole!.height, hole!.top);
     const flush = frontPart.length <= TEMPLATE_MAX_LENGTH;
     jigs.push({
       face,
       steps: [
-        `Cut it from ${f(JIG_STOCK)} MDF or plywood. ${fence(face.length, pull.width)}`,
+        `Cut it from ${f(JIG_STOCK)} MDF or plywood. ${fence(face.length, across)}`,
         flush
           ? 'Lay it on the front’s outside face with the fence hooked over the top edge and the ends flush with the front’s ends — that centres the notch.'
           : 'Lay it on the front’s outside face with the fence hooked over the top edge and the centre line on the front’s centre mark.',
-        `Clamp it, jigsaw out most of the waste, then rout with a ${f(1 / 2)} top-bearing pattern bit riding the template.`,
+        hole
+          ? `Clamp it, drill a starter hole and jigsaw out the waste inside the line, then rout with a ${f(1 / 2)} top-bearing pattern bit riding the template.`
+          : `Clamp it, jigsaw out most of the waste, then rout with a ${f(1 / 2)} top-bearing pattern bit riding the template.`,
       ],
     });
     // Box fronts get a wider, deeper notch; one template per depth.
@@ -213,11 +239,12 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
     const boxFront = plan.parts.find(p => p.name.startsWith('Box front'));
     depths.forEach((g, i) => {
       const which = depths.length === 1 ? '' : ` (drawer${g.drawers.length === 1 ? '' : 's'} ${g.drawers.join(', ')})`;
-      const face = pullTemplate(`box-template-${i + 1}`, `Box-front notch template${which}`, boxFront?.length ?? 0, pull.shape, pull.width + BOX_NOTCH_EXTRA, g.depth);
+      const spec = boxNotchSpec(pull, frontWidth, g.depth)!;
+      const face = pullTemplate(`box-template-${i + 1}`, `Box-front notch template${which}`, boxFront?.length ?? 0, spec.shape, spec.width, spec.depth);
       jigs.push({
         face,
         steps: [
-          `${fence(face.length, pull.width + BOX_NOTCH_EXTRA)} Use it the same way on the box front’s inside face, before the box is glued up.`,
+          `${fence(face.length, spec.width)} Use it the same way on the box front’s inside face, before the box is glued up.`,
         ],
       });
     });
@@ -274,6 +301,7 @@ export function drawerFeatureSummary(face: PartFace): string {
         : f.label.startsWith('T-nut') ? 'T-nut hole'
           : f.label.includes('slide') ? 'slide line'
             : f.label.startsWith('Caster') ? 'caster outline'
+            : f.label === 'Hand hole' ? 'hand hole'
               : 'feature';
     counts.set(word, (counts.get(word) ?? 0) + 1);
   }

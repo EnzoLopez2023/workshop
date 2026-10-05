@@ -15,7 +15,7 @@ import {
   saveAsTemplate, getShelfDesign, getDrawerDesign,
 } from '../services/api';
 import { buildShelfPlan, formatLength, readSavedShelfDesign, shelfSolids, type SavedShelfDesign } from '../lib/shelving';
-import { buildDrawerPlan, drawerSolids, readSavedDrawerDesign, type SavedDrawerDesign } from '../lib/drawerUnit';
+import { buildDrawerPlan, deskSolids, finishColors, readSavedDrawerDesign, type SavedDrawerDesign } from '../lib/drawerUnit';
 
 const ShelfViewer3D = lazy(() => import('../components/ShelfViewer3D'));
 const ShelfBuildGuide = lazy(() => import('../components/ShelfBuildGuide'));
@@ -866,7 +866,7 @@ function ProjectDrawerPreview({ projectId, projectTitle }: { projectId: number; 
   const preview = useMemo(() => {
     if (!design) return null;
     const plan = buildDrawerPlan(design.config);
-    return plan.errors.length > 0 ? null : { plan, solids: drawerSolids(plan, design.config) };
+    return plan.errors.length > 0 ? null : { plan, solids: deskSolids(plan, design.config) };
   }, [design]);
 
   if (!design || !preview) return null;
@@ -876,7 +876,10 @@ function ProjectDrawerPreview({ projectId, projectTitle }: { projectId: number; 
   const n = plan.drawers.length;
   const summary = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.overallDepth)} deep`;
   const base = config.base === 'feet' ? `${plan.supports} leveling feet` : config.base === 'casters' ? `${plan.supports} casters` : 'on the floor';
-  const pull = config.pull.enabled ? `${config.pull.shape === 'arc' ? 'arc' : 'slot'} finger pulls` : 'no finger pulls';
+  const pull = !config.pull.enabled ? 'no finger pulls'
+    : config.pull.shape === 'handhole' ? 'hand holes'
+      : `${config.pull.shape === 'arc' ? 'arc' : config.pull.shape === 'wide' ? 'wide' : 'slot'} finger pulls`;
+  const deskText = plan.desk ? ` · desk ${f(plan.desk.width)} × ${f(plan.desk.depth)} on ${plan.unitCount} unit${plan.unitCount === 1 ? '' : 's'}` : '';
 
   return (
     <>
@@ -891,15 +894,16 @@ function ProjectDrawerPreview({ projectId, projectTitle }: { projectId: number; 
       )}
     >
       <p className="project-shelf-summary">
-        {summary} · {n} drawer{n === 1 ? '' : 's'} on {f(plan.slideLength)} slides · {pull} · {f(config.thickness)} plywood · {base}
+        {summary} · {n} drawer{n === 1 ? '' : 's'} on {f(plan.slideLength)} slides · {pull} · {f(config.thickness)} plywood · {base}{deskText}
       </p>
       <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
         <ShelfViewer3D
           solids={solids}
-          width={plan.overallWidth}
-          height={plan.overallHeight}
-          depth={plan.caseDepth}
+          width={plan.desk ? plan.desk.width : plan.overallWidth}
+          height={plan.desk ? plan.desk.height : plan.overallHeight}
+          depth={plan.desk ? plan.desk.depth : plan.caseDepth}
           wallMounted={false}
+          colors={finishColors(config.finish)}
           label={`3D view of the drawer unit, ${summary}`}
         />
       </Suspense>

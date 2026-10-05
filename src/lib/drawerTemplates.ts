@@ -2,7 +2,7 @@
 // IKEA's listings — approximate, so measure one if matching matters) plus a few
 // custom shapes, and a small front elevation used as a thumbnail.
 
-import { notchedOutline, type DrawerDesignFields, type DrawerPlan } from './drawerUnit.ts';
+import { frontNotch, handHole, notchedOutline, stadiumOutline, type DrawerDesignFields, type DrawerPlan, type FingerPull } from './drawerUnit.ts';
 
 export interface DrawerTemplate {
   id: string;
@@ -55,14 +55,18 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
 ];
 
 /** A front elevation with the notched fronts, as a standalone SVG string. */
-export function drawerThumbnailSvg(plan: DrawerPlan, pull: { enabled: boolean; shape: 'arc' | 'slot'; width: number; depth: number }, size = 120): string {
+export function drawerThumbnailSvg(plan: DrawerPlan, pull: FingerPull, size = 120, frontColor = '#f4f1ea'): string {
   const W = plan.overallWidth;
   const H = plan.overallHeight;
   const pad = Math.max(W, H) * 0.06;
   const y = (v: number) => H - v;
+  const poly = (pts: [number, number][], fill: string) =>
+    `<polygon points="${pts.map(([px, py]) => `${px.toFixed(3)},${y(py).toFixed(3)}`).join(' ')}" fill="${fill}" stroke="#15332e" stroke-width="${(W / 90).toFixed(3)}"/>`;
+  const hole = handHole(pull);
   const fronts = plan.drawers.map(d => {
-    const pts = notchedOutline(d.front.x, d.front.y, d.front.width, d.front.height, pull.enabled ? pull : null);
-    return `<polygon points="${pts.map(([px, py]) => `${px.toFixed(3)},${y(py).toFixed(3)}`).join(' ')}" fill="#f4f1ea" stroke="#15332e" stroke-width="${(W / 90).toFixed(3)}"/>`;
+    const pts = notchedOutline(d.front.x, d.front.y, d.front.width, d.front.height, frontNotch(pull, d.front.width));
+    const holePts = hole ? stadiumOutline(d.front.x + d.front.width / 2, d.front.y + d.front.height - hole.top, hole.width, hole.height) : null;
+    return poly(pts, frontColor) + (holePts ? poly(holePts, '#3a3f44') : '');
   }).join('');
   const base = plan.baseHeight > 0
     ? `<rect x="${pad * 0.2}" y="${y(plan.baseHeight)}" width="${W - pad * 0.4}" height="${plan.baseHeight}" fill="#3a3f44" opacity="0.55"/>`
@@ -72,6 +76,6 @@ export function drawerThumbnailSvg(plan: DrawerPlan, pull: { enabled: boolean; s
     + `<rect x="0" y="0" width="${W}" height="${H - plan.baseHeight}" fill="#d8b98c"/>${base}${fronts}</svg>`;
 }
 
-export function drawerThumbnailDataUrl(plan: DrawerPlan, pull: Parameters<typeof drawerThumbnailSvg>[1], size = 120): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(drawerThumbnailSvg(plan, pull, size))}`;
+export function drawerThumbnailDataUrl(plan: DrawerPlan, pull: FingerPull, size = 120, frontColor?: string): string {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(drawerThumbnailSvg(plan, pull, size, frontColor))}`;
 }

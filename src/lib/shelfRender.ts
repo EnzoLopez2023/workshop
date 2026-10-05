@@ -50,6 +50,7 @@ export function solidGeometry(solid: Solid): THREE.BufferGeometry {
     // Outline is already in the front (x, y) plane; extrude toward the camera, then
     // shift so it spans depth z0..z1 (three's z is the negative of depth).
     const shape = new THREE.Shape(solid.outline.map(([x, y]) => new THREE.Vector2(x, y)));
+    for (const hole of solid.holes ?? []) shape.holes.push(new THREE.Path(hole.map(([x, y]) => new THREE.Vector2(x, y))));
     const geometry = new THREE.ExtrudeGeometry(shape, { depth: solid.z1 - solid.z0, bevelEnabled: false, curveSegments: 4 });
     geometry.translate(0, 0, -solid.z1);
     return geometry;
@@ -88,6 +89,8 @@ export interface GuideRenderInput {
   imageHeight?: number;
   onProgress?: (done: number, total: number) => void;
   signal?: { cancelled: boolean };
+  /** Finish colours that replace the plywood tones for some kinds of part. */
+  colors?: Partial<Record<SolidKind, number>>;
 }
 
 const VIEW_DIRECTIONS: Record<GuideScene['view'], THREE.Vector3> = {
@@ -146,7 +149,8 @@ export async function renderGuideScenes(input: GuideRenderInput): Promise<string
       const exploded = scene.view === 'exploded';
       const makeMesh = (solid: Solid, highlighted: boolean, geometry: THREE.BufferGeometry) => {
         const marking = solid.kind === 'groove' || solid.kind === 'pinhole';
-        const color = marking ? SOLID_COLORS[solid.kind] : highlighted ? HIGHLIGHT_COLOR : SOLID_COLORS[solid.kind];
+        const base = input.colors?.[solid.kind] ?? SOLID_COLORS[solid.kind];
+        const color = marking ? SOLID_COLORS[solid.kind] : highlighted ? HIGHLIGHT_COLOR : base;
         const door = solid.kind === 'door';
         const mesh = new THREE.Mesh(geometry, material(`surface-${color}-${door ? 'door' : 'solid'}`, () => {
           const m = surface(color);

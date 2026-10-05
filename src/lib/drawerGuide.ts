@@ -10,6 +10,8 @@ import {
   drawerSolids,
   FINGER_ROOM,
   FOOT_SIZE,
+  HANDHOLE_TOP,
+  pullWidth,
   SLIDE_CLEARANCE,
   supportPositions,
   type DrawerConfig,
@@ -53,9 +55,10 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     instructions: [
       `The case is ${f(T)} plywood: full-height sides with the top and bottom fitted between them, and a ${f(config.backThickness)} back let into rabbets in the sides.`,
       `Each drawer is a ${f(b)} plywood box riding on a pair of ${f(plan.slideLength)} LONTAN soft-close slides, with a ${f(T)} full-overlay front screwed on from inside.`,
-      pull
-        ? `Instead of handles, each front has a ${pull.shape === 'arc' ? 'shallow arc' : 'rounded slot'} cut into its top edge — ${f(pull.width)} wide and ${f(pull.depth)} deep — and the box front behind it is notched so your fingers can hook the front.`
-        : 'The fronts have no finger pull — add knobs or pulls of your choice.',
+      !pull ? 'The fronts have no finger pull — add knobs or pulls of your choice.'
+        : pull.shape === 'handhole'
+          ? `Instead of handles, each front has a ${f(pull.width)} × ${f(pull.depth)} hand hole just below its top edge, and the box front behind it is notched so your fingers can hook the front.`
+          : `Instead of handles, each front has a ${pull.shape === 'arc' ? 'shallow arc' : pull.shape === 'wide' ? 'long slot' : 'rounded slot'} cut into its top edge — ${f(pullWidth(pull, plan.drawers[0]?.front.width ?? 0))} wide and ${f(pull.depth)} deep — and the box front behind it is notched so your fingers can hook the front.`,
       `Fronts are ${plan.drawers.map(d => f(d.front.height)).join(', ')} tall (top to bottom), with ${f(config.gap)} gaps.`,
       ...(plan.desk ? [`${plan.unitCount === 2 ? 'Two units go' : 'The unit goes'} under a ${f(plan.desk.width)} × ${f(plan.desk.depth)} desk top, ${f(plan.desk.height)} off the floor.`] : []),
     ],
@@ -124,16 +127,21 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
 
   // 5 ── Finger pulls
   if (pull) {
+    const across = pullWidth(pull, plan.drawers[0]?.front.width ?? 0);
     const R = pull.shape === 'arc' ? (pull.width ** 2 / 4 + pull.depth ** 2) / (2 * pull.depth) : 0;
     const notched = plan.drawers.filter(d => d.boxNotchDepth > 0);
     steps.push({
       id: 'pulls',
-      title: 'Cut the finger pulls',
-      summary: `A ${f(pull.width)} × ${f(pull.depth)} ${pull.shape === 'arc' ? 'arc' : 'slot'} centred on the top edge of every front.`,
+      title: pull.shape === 'handhole' ? 'Cut the hand holes' : 'Cut the finger pulls',
+      summary: pull.shape === 'handhole'
+        ? `A ${f(across)} × ${f(pull.depth)} hand hole centred ${f(HANDHOLE_TOP)} below the top edge of every front.`
+        : `A ${f(across)} × ${f(pull.depth)} ${pull.shape === 'arc' ? 'arc' : 'slot'} centred on the top edge of every front.`,
       instructions: [
         pull.shape === 'arc'
           ? `Lay out the arc: mark the centre of the top edge, ${f(pull.width / 2)} each side of it, and ${f(pull.depth)} down. That’s a circle of ${f(R)} radius.`
-          : `Lay out the slot: ${f(pull.width)} wide, ${f(pull.depth)} deep, with rounded inside corners.`,
+          : pull.shape === 'handhole'
+            ? `Lay out the hole: ${f(across)} wide and ${f(pull.depth)} tall with round ends, its top ${f(HANDHOLE_TOP)} below the top edge.`
+            : `Lay out the slot: ${f(across)} wide, ${f(pull.depth)} deep, with rounded inside corners.`,
         'Use the finger-pull template from the shop jigs: hook its fence over the front’s top edge, line its ends up with the front’s, and rout with a pattern bit so every front is identical.',
         notched.length
           ? `Notch the box fronts the same way, ${f(BOX_NOTCH_EXTRA / 2)} wider each side and ${f(FINGER_ROOM)} deeper than the pull, so your fingers reach behind the front.`
@@ -218,7 +226,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   steps.push({
     id: 'slides',
     title: 'Mount the slides in the case',
-    summary: `${n} pairs of ${f(plan.slideLength)} slides, front ends flush with the front edge of the case.`,
+    summary: `${slideCounts(plan, f)}, front ends flush with the front edge of the case.`,
     instructions: [
       'Pull each slide apart: extend it fully and press the release lever to take off the drawer member.',
       `Mark the bottom edge of each slide on both sides, measured up from the bottom edge of the side: ${plan.drawers.map(d => `drawer ${d.index + 1} at ${f(d.slideMark)}`).join(', ')}. The slide story stick from the shop jigs gives the same marks without measuring.`,
@@ -238,7 +246,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   steps.push({
     id: 'boxes',
     title: 'Build the drawer boxes',
-    summary: `${n} boxes, ${f(sample?.box.width ?? 0)} wide and ${f(plan.slideLength)} deep.`,
+    summary: `${n} boxes, ${f(sample?.box.width ?? 0)} wide and ${[...new Set(plan.drawers.map(d => f(d.box.depth)))].join(' or ')} deep.`,
     instructions: [
       'Glue the front and back into the side rabbets, slide the bottom into its groove, then add the second side.',
       'Brad each corner through the side (three per corner).',
@@ -347,4 +355,14 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   });
 
   return { steps, solids };
+}
+
+/** "5 pairs of 20\" slides" or "4 pairs of 20\" and 1 pair of 12\" slides". */
+function slideCounts(plan: DrawerPlan, f: (inches: number) => string): string {
+  const lengths = [...new Set(plan.drawers.map(d => d.box.depth))].sort((a, b) => b - a);
+  const parts = lengths.map(l => {
+    const n = plan.drawers.filter(d => d.box.depth === l).length;
+    return `${n} pair${n === 1 ? '' : 's'} of ${f(l)}`;
+  });
+  return `${parts.join(' and ')} slides`;
 }

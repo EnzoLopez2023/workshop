@@ -37,7 +37,7 @@ function describeDrawers(entry: LibraryShelfDesign): Described {
   const n = plan.drawers.length;
   const base = saved.config.base === 'feet' ? ' · feet' : saved.config.base === 'casters' ? ' · casters' : '';
   return {
-    thumb: drawerThumbnailDataUrl(plan, saved.config.pull, 120),
+    thumb: drawerThumbnailDataUrl(plan, saved.config.pull, 120, saved.config.finish?.front),
     summary: `${f(plan.overallWidth)} × ${f(plan.overallHeight)} · ${n} drawer${n === 1 ? '' : 's'}${base}`,
   };
 }

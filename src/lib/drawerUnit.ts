@@ -24,17 +24,137 @@ import {
 import { INSERT_NAMES, layoutInsert, pieceOutline, type DrawerInsert, type InsertLayout } from './drawerInserts.ts';
 
 export type DrawerBase = 'none' | 'feet' | 'casters';
-export type PullShape = 'arc' | 'slot';
+/** Notches cut into the top edge (arc, slot, wide), or a hand hole cut through below it. */
+export type PullShape = 'arc' | 'slot' | 'wide' | 'handhole';
+export type NotchShape = 'arc' | 'slot';
+/** Expected contents, for the slide-capacity and bottom-sag checks. */
+export type DrawerLoad = 'light' | 'medium' | 'heavy';
 /** Whether the overall height is typed (fronts share it equally) or built up from each front's height. */
 export type DrawerHeightMode = 'overall' | 'fronts';
 
 export interface FingerPull {
   enabled: boolean;
   shape: PullShape;
-  /** Across the top edge of the front. */
+  /** Across the front (ignored for 'wide', which runs nearly the full width). */
   width: number;
-  /** Down from the top edge. */
+  /** Down from the top edge; for a hand hole, the hole's height. */
   depth: number;
+}
+
+/** A front-face notch: the shape and size actually cut. */
+export interface NotchSpec {
+  shape: NotchShape;
+  width: number;
+  depth: number;
+}
+
+/** A wide pull stops this far from each end of the front. */
+export const WIDE_PULL_MARGIN = 2;
+/** A hand hole's top sits this far below the front's top edge. */
+export const HANDHOLE_TOP = 3 / 4;
+
+/** The notch in a front's top edge, or null for a hand hole or no pull. */
+export function frontNotch(pull: FingerPull | null | undefined, frontWidth: number): NotchSpec | null {
+  if (!pull?.enabled || pull.shape === 'handhole') return null;
+  if (pull.shape === 'wide') return { shape: 'slot', width: Math.max(frontWidth - 2 * WIDE_PULL_MARGIN, 0), depth: pull.depth };
+  return { shape: pull.shape, width: pull.width, depth: pull.depth };
+}
+
+/** A hand hole through the front, measured from its top edge, or null. */
+export function handHole(pull: FingerPull | null | undefined): { width: number; height: number; top: number } | null {
+  return pull?.enabled && pull.shape === 'handhole' ? { width: pull.width, height: pull.depth, top: HANDHOLE_TOP } : null;
+}
+
+/** How far below the front's top edge the pull reaches (where fingers hook). */
+export function pullReach(pull: FingerPull | null | undefined, frontWidth: number): number {
+  const notch = frontNotch(pull, frontWidth);
+  if (notch) return notch.depth;
+  const hole = handHole(pull);
+  return hole ? hole.top + hole.height : 0;
+}
+
+/** Width of the pull across the front. */
+export function pullWidth(pull: FingerPull | null | undefined, frontWidth: number): number {
+  return frontNotch(pull, frontWidth)?.width ?? handHole(pull)?.width ?? 0;
+}
+
+/** A rounded-end (stadium) hole, counter-clockwise, centred at cx with its top at topY. */
+export function stadiumOutline(cx: number, topY: number, width: number, height: number, segments = 12): [number, number][] {
+  const r = Math.min(height, width) / 2;
+  const cy = topY - height / 2;
+  const left = cx - width / 2 + r;
+  const right = cx + width / 2 - r;
+  const pts: [number, number][] = [];
+  for (let i = 0; i <= segments; i++) {
+    const a = -Math.PI / 2 + Math.PI * i / segments;
+    pts.push([right + r * Math.cos(a), cy + r * Math.sin(a)]);
+  }
+  for (let i = 0; i <= segments; i++) {
+    const a = Math.PI / 2 + Math.PI * i / segments;
+    pts.push([left + r * Math.cos(a), cy + r * Math.sin(a)]);
+  }
+  return dedupe(pts);
+}
+
+export const DRAWER_LOADS: Record<DrawerLoad, { psf: number; label: string }> = {
+  light: { psf: 10, label: 'Light — clothes, art supplies, linens' },
+  medium: { psf: 25, label: 'Medium — paper, tools, books' },
+  heavy: { psf: 50, label: 'Heavy — hardware, files, cans' },
+};
+
+/** Plywood bending stiffness, as in the shelf sag check. */
+const PLY_MODULUS = 1_000_000;
+/** Simply supported plate, max deflection coefficient by long/short side ratio (Timoshenko). */
+const PLATE_ALPHA: [number, number][] = [[1, 0.00406], [1.2, 0.00564], [1.4, 0.00705], [1.6, 0.0083], [1.8, 0.00931], [2, 0.01013], [3, 0.01223], [4, 0.01282], [5, 0.01297], [100, 0.01302]];
+
+/** Sag at the middle of a drawer bottom held in grooves on all four sides. */
+export function bottomSag(width: number, depth: number, thickness: number, psf: number): number {
+  const a = Math.min(width, depth);
+  const ratio = Math.max(width, depth) / a;
+  let alpha = PLATE_ALPHA[PLATE_ALPHA.length - 1][1];
+  for (let i = 1; i < PLATE_ALPHA.length; i++) {
+    const [r0, a0] = PLATE_ALPHA[i - 1];
+    const [r1, a1] = PLATE_ALPHA[i];
+    if (ratio <= r1) { alpha = a0 + (a1 - a0) * (ratio - r0) / (r1 - r0); break; }
+  }
+  const D = PLY_MODULUS * thickness ** 3 / (12 * (1 - 0.3 ** 2));
+  return alpha * (psf / 144) * a ** 4 / D;
+}
+
+/** A bottom may sag this fraction of its short span before it looks — and drags — wrong. */
+export const BOTTOM_SAG_LIMIT = 1 / 200;
+
+export interface DrawerLoadCheck {
+  /** Contents at the chosen load, in pounds. */
+  pounds: number;
+  sag: number;
+  sagLimit: number;
+  overSlides: boolean;
+  sags: boolean;
+}
+
+/** Finish colours as #rrggbb. */
+export interface DrawerFinish {
+  front: string;
+  case: string;
+}
+
+export const FINISH_COLORS = [
+  { id: 'white', label: 'White (ALEX)', hex: '#f4f1ea' },
+  { id: 'birch', label: 'Natural birch', hex: '#e3c79d' },
+  { id: 'oak', label: 'Oak stain', hex: '#b98a55' },
+  { id: 'black', label: 'Black', hex: '#2e2e2e' },
+  { id: 'sage', label: 'Sage', hex: '#a9b8a0' },
+  { id: 'navy', label: 'Navy', hex: '#2f3e5c' },
+] as const;
+
+export const DEFAULT_FINISH: DrawerFinish = { front: '#f4f1ea', case: '#d8b98c' };
+
+/** The finish as 3D colour overrides: fronts, and the case, back and desk top. */
+export function finishColors(finish: DrawerFinish | undefined): Partial<Record<SolidKind, number>> {
+  if (!finish) return {};
+  const hex = (c: string) => parseInt(c.slice(1), 16);
+  return { 'drawer-front': hex(finish.front), case: hex(finish.case), back: hex(finish.case) };
 }
 
 export interface DrawerConfig {
@@ -76,6 +196,12 @@ export interface DrawerConfig {
   insertThickness?: number;
   /** One or two units under a plywood desk top. */
   desk?: DeskConfig;
+  /** Per-drawer slide length overrides (null: the unit's slide length), e.g. a short pencil drawer. */
+  slideLengths?: (number | null)[];
+  /** Expected contents, for the load check. */
+  load?: DrawerLoad;
+  /** Finish colours for the 3D view. */
+  finish?: DrawerFinish;
 }
 
 export type DeskLayout = 'left' | 'right' | 'both';
@@ -182,6 +308,8 @@ export interface DrawerPlan {
   /** Units built: 2 for a desk with a unit at each end. Part quantities already include it. */
   unitCount: number;
   desk: DeskLayoutPlan | null;
+  /** Per drawer: contents weight and bottom sag at the chosen load. */
+  loads: DrawerLoadCheck[];
   banding: { thickness: number; totalLength: number } | null;
 }
 
@@ -191,7 +319,7 @@ export interface DrawerPlan {
  * The notch outline, left to right, as (dx from the notch centre, dy below the
  * top edge — negative). It starts and ends on the top edge.
  */
-export function pullProfile(pull: Pick<FingerPull, 'shape' | 'width' | 'depth'>, segments = 24): [number, number][] {
+export function pullProfile(pull: NotchSpec, segments = 24): [number, number][] {
   const w = pull.width;
   const d = pull.depth;
   if (pull.shape === 'slot') {
@@ -236,7 +364,7 @@ function dedupe(pts: [number, number][]): [number, number][] {
  */
 export function notchedOutline(
   x0: number, y0: number, width: number, height: number,
-  pull: Pick<FingerPull, 'shape' | 'width' | 'depth'> | null,
+  pull: NotchSpec | null,
 ): [number, number][] {
   const x1 = x0 + width;
   const y1 = y0 + height;
@@ -244,6 +372,13 @@ export function notchedOutline(
   const cx = x0 + width / 2;
   const notch = pullProfile(pull).map(([dx, dy]) => [cx + dx, y1 + dy] as [number, number]).reverse();
   return [[x0, y0], [x1, y0], [x1, y1], ...notch, [x0, y1]];
+}
+
+/** The notch in a box front behind the pull, or null when the box sits low enough. */
+export function boxNotchSpec(pull: FingerPull | null | undefined, frontWidth: number, depth: number): NotchSpec | null {
+  if (!pull?.enabled || depth <= 0) return null;
+  const notch = frontNotch(pull, frontWidth);
+  return { shape: notch?.shape ?? 'slot', width: pullWidth(pull, frontWidth) + BOX_NOTCH_EXTRA, depth };
 }
 
 // ── Front heights ─────────────────────────────────────────────────────────────
@@ -359,6 +494,16 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const interiorTop = H - T;
   const pull = config.pull.enabled ? config.pull : null;
   const frontWidth = W - gap;
+  const reach = pullReach(pull, frontWidth);
+  const pullName = pull?.shape === 'handhole' ? 'hand hole' : 'finger pull';
+  // Per-drawer slide lengths: a shorter one for a shallow drawer, for example.
+  const slideFor = (i: number) => {
+    const own = config.slideLengths?.[i];
+    if (own == null) return slideLength;
+    if (!SLIDE_LENGTHS.includes(own)) errors.push(`Drawer ${i + 1}: ${f(own)} isn’t a slide length LONTAN sells.`);
+    else if (auto !== null && own > auto + EPS) errors.push(`Drawer ${i + 1}: ${f(own)} slides don’t fit — the longest is ${f(auto)}.`);
+    return own;
+  };
   let top = H - gap / 2;
   fronts.forEach((h, i) => {
     const y = top - h;
@@ -371,12 +516,12 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     const slideOffset = Math.max(Math.round((Math.min(boxHeight / 2, 2) - SLIDE_HEIGHT / 2) * 16) / 16, 1 / 8);
     const slideY = boxY + slideOffset;
     const boxTop = boxY + boxHeight;
-    const fingerFloor = y + h - (pull ? pull.depth + FINGER_ROOM : 0);
-    const boxNotchDepth = pull && boxTop > fingerFloor ? boxTop - fingerFloor : 0;
+    const fingerFloor = y + h - (reach > 0 ? reach + FINGER_ROOM : 0);
+    const boxNotchDepth = reach > 0 && boxTop > fingerFloor ? boxTop - fingerFloor : 0;
     drawers.push({
       index: i,
       front: { x: gap / 2, y, width: frontWidth, height: h },
-      box: { x: T + SLIDE_CLEARANCE, y: boxY, width: boxWidth, height: boxHeight, depth: slideLength },
+      box: { x: T + SLIDE_CLEARANCE, y: boxY, width: boxWidth, height: boxHeight, depth: slideFor(i) },
       slideY,
       slideMark: slideY - B,
       boxNotchDepth,
@@ -386,16 +531,18 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       errors.push(`Drawer ${i + 1}’s front is ${f(h)} tall, which leaves a ${f(Math.max(boxHeight, 0))} box — the slides need at least ${f(MIN_BOX_HEIGHT)}. Make that front about ${f(Math.ceil(need * 16) / 16)} tall, or use fewer drawers.`);
     }
     if (pull) {
-      if (pull.depth >= h - 1) {
-        errors.push(`The ${f(pull.depth)} finger pull is too deep for drawer ${i + 1}’s ${f(h)} front — keep at least ${f(1)} of front below it.`);
+      if (reach >= h - 1) {
+        errors.push(`The ${pullName} reaches ${f(reach)} down, too far for drawer ${i + 1}’s ${f(h)} front — keep at least ${f(1)} of front below it.`);
       } else if (boxNotchDepth > boxHeight - (BOTTOM_GROOVE_OFFSET + bt + 1 / 4)) {
-        errors.push(`Drawer ${i + 1}’s box is only ${f(boxHeight)} tall, so the ${f(pull.depth)} finger pull would have to notch its front down to the bottom. Make the pull shallower or that front taller.`);
+        errors.push(`Drawer ${i + 1}’s box is only ${f(boxHeight)} tall, so the ${pullName} would have to notch its box front down to the bottom. Make the pull shallower or that front taller.`);
       }
     }
   });
   if (pull) {
-    if (pull.width <= 0 || pull.depth <= 0) errors.push('Give the finger pull a width and a depth, or turn it off.');
-    else if (pull.width > frontWidth - 2) errors.push(`The ${f(pull.width)} finger pull is wider than the ${f(frontWidth)} front allows — leave at least ${f(1)} each side.`);
+    const across = pullWidth(pull, frontWidth);
+    if (pull.depth <= 0 || (pull.shape !== 'wide' && pull.width <= 0)) errors.push(`Give the ${pullName} a width and a ${pull.shape === 'handhole' ? 'height' : 'depth'}, or turn it off.`);
+    else if (pull.shape === 'wide' && across < 2) errors.push(`The front is too narrow for a wide pull — use an arc or slot.`);
+    else if (across > frontWidth - 2) errors.push(`The ${f(across)} ${pullName} is wider than the ${f(frontWidth)} front allows — leave at least ${f(1)} each side.`);
     else if (pull.shape === 'arc' && pull.depth > pull.width / 2) {
       warnings.push(`An arc pull deeper than half its width (${f(pull.width / 2)}) curls back under the top edge, which a router can’t cut cleanly. Use the slot shape or a shallower pull.`);
     }
@@ -429,26 +576,30 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   parts.push({ name: 'Back', qty: 1, length: sideHeight, width: W - T, thickness: backT, note: `Sits in ${f(T / 2)} rabbets in the sides`, material: 'plywood' });
 
   // Drawer parts, grouped by size so identical drawers share a line.
-  const groups: { indexes: number[]; front: number; box: number; notch: number }[] = [];
+  const groups: { indexes: number[]; front: number; box: number; notch: number; depth: number }[] = [];
   for (const d of drawers) {
-    const g = groups.find(g => Math.abs(g.front - d.front.height) < EPS && Math.abs(g.box - d.box.height) < EPS && Math.abs(g.notch - d.boxNotchDepth) < 1e-3);
+    const g = groups.find(g => Math.abs(g.front - d.front.height) < EPS && Math.abs(g.box - d.box.height) < EPS
+      && Math.abs(g.notch - d.boxNotchDepth) < 1e-3 && g.depth === d.box.depth);
     if (g) g.indexes.push(d.index);
-    else groups.push({ indexes: [d.index], front: d.front.height, box: d.box.height, notch: d.boxNotchDepth });
+    else groups.push({ indexes: [d.index], front: d.front.height, box: d.box.height, notch: d.boxNotchDepth, depth: d.box.depth });
   }
   const partDrawers: Record<string, number[]> = {};
   const boxInsideWidth = boxWidth - 2 * b;
-  const boxInsideDepth = slideLength - 2 * b;
   for (const g of groups) {
+    const boxInsideDepth = g.depth - 2 * b;
     const which = groups.length === 1 ? '' : ` · ${drawerRange(g.indexes)}`;
     const qty = g.indexes.length;
     for (const kind of ['Drawer front', 'Box side', 'Box front', 'Box back', 'Box bottom']) partDrawers[`${kind}${which}`] = g.indexes;
-    const pullNote = pull ? `${pull.shape === 'arc' ? 'Arc' : 'Slot'} finger pull ${f(pull.width)} wide × ${f(pull.depth)} deep, centred on the top edge` : undefined;
+    const across = pullWidth(pull, frontWidth);
+    const pullNote = !pull ? undefined
+      : pull.shape === 'handhole' ? `Hand hole ${f(across)} × ${f(pull.depth)}, its top ${f(HANDHOLE_TOP)} below the top edge`
+        : `${pull.shape === 'arc' ? 'Arc' : pull.shape === 'wide' ? 'Wide' : 'Slot'} finger pull ${f(across)} wide × ${f(pull.depth)} deep, centred on the top edge`;
     parts.push({ name: `Drawer front${which}`, qty, length: frontWidth - 2 * banding, width: g.front - 2 * banding, thickness: T,
       note: pullNote, material: 'plywood' });
-    parts.push({ name: `Box side${which}`, qty: qty * 2, length: slideLength, width: g.box, thickness: b,
+    parts.push({ name: `Box side${which}`, qty: qty * 2, length: g.depth, width: g.box, thickness: b,
       note: `${f(b)} × ${f(b / 2)} rabbet at each end; bottom groove ${f(BOTTOM_GROOVE_OFFSET)} up`, material: 'plywood' });
     parts.push({ name: `Box front${which}`, qty, length: boxWidth - b, width: g.box, thickness: b,
-      note: g.notch > 0 ? `Notch ${f((pull?.width ?? 0) + BOX_NOTCH_EXTRA)} wide × ${f(g.notch)} deep for fingers` : 'Bottom groove',
+      note: g.notch > 0 ? `Notch ${f(across + BOX_NOTCH_EXTRA)} wide × ${f(g.notch)} deep for fingers` : 'Bottom groove',
       material: 'plywood' });
     parts.push({ name: `Box back${which}`, qty, length: boxWidth - b, width: g.box, thickness: b, note: 'Bottom groove', material: 'plywood' });
     parts.push({ name: `Box bottom${which}`, qty, length: boxInsideWidth + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY, width: boxInsideDepth + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY,
@@ -461,7 +612,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     const insert = config.inserts?.[i];
     if (!insert) return null;
     const layout = layoutInsert(insert, {
-      width: boxInsideWidth, depth: boxInsideDepth, height: d.box.height - BOTTOM_GROOVE_OFFSET - bt,
+      width: boxInsideWidth, depth: d.box.depth - 2 * b, height: d.box.height - BOTTOM_GROOVE_OFFSET - bt,
     }, it, f);
     if (layout.error) errors.push(`Drawer ${i + 1}: ${layout.error}.`);
     return layout;
@@ -488,6 +639,30 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
         material: 'plywood',
       });
     }
+  }
+
+  // Load: contents weight against the slides, and how far the bottom sags.
+  const load = DRAWER_LOADS[config.load ?? 'medium'];
+  const loads: DrawerLoadCheck[] = drawers.map(d => {
+    const w = boxInsideWidth;
+    const dd = d.box.depth - 2 * b;
+    const pounds = load.psf * (w * dd) / 144;
+    const sag = bt > 0 && w > 0 && dd > 0 ? bottomSag(w + 2 * BOTTOM_GROOVE_DEPTH, dd + 2 * BOTTOM_GROOVE_DEPTH, bt, load.psf) : 0;
+    const sagLimit = Math.min(w, dd) * BOTTOM_SAG_LIMIT;
+    return { pounds, sag, sagLimit, overSlides: pounds > SLIDE_CAPACITY_LB, sags: sag > sagLimit };
+  });
+  const loadWord = load.label.split(' —')[0].toLowerCase();
+  const heavy = loads.map((l, i) => (l.overSlides ? i + 1 : 0)).filter(Boolean);
+  if (heavy.length && errors.length === 0) {
+    const most = Math.max(...loads.map(l => l.pounds));
+    warnings.push(`Full of ${loadWord} things, drawer${heavy.length === 1 ? '' : 's'} ${heavy.join(', ')} could hold about ${Math.round(most)} lb — more than the ${SLIDE_CAPACITY_LB} lb the slides are rated for. Use heavier-duty slides, or keep them lighter.`);
+  }
+  const sagging = loads.map((l, i) => (l.sags ? i + 1 : 0)).filter(Boolean);
+  if (sagging.length && errors.length === 0) {
+    const worst = loads.reduce((w, l) => (l.sag / l.sagLimit > w.sag / w.sagLimit ? l : w));
+    const needed = bt * Math.cbrt(worst.sag / worst.sagLimit);
+    const thicker = [3 / 8, 1 / 2, 3 / 4].find(x => x >= needed - 1e-6) ?? 3 / 4;
+    warnings.push(`Under ${loadWord} loads the ${f(bt)} bottom${sagging.length === 1 ? '' : 's'} of drawer${sagging.length === 1 ? '' : 's'} ${sagging.join(', ')} would sag about ${worst.sag.toFixed(2)}″ — more than the ${worst.sagLimit.toFixed(2)}″ that stays flat. Use ${f(thicker)} bottoms, or glue a ${f(3 / 4)} × ${f(1.5)} stiffener across the middle underneath.`);
   }
 
   // Desk: units under a laminated top. Everything above is per unit, so multiply it out.
@@ -553,6 +728,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     inserts,
     unitCount,
     desk,
+    loads,
     banding: banding > 0 ? { thickness: banding, totalLength: bandingTotal } : null,
   };
 }
@@ -600,16 +776,16 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
   for (const d of plan.drawers) {
     const name = `Drawer ${d.index + 1}`;
     const fr = d.front;
+    const hole = handHole(pull);
     solids.push({ name: `${name} front`, kind: 'drawer-front', shape: 'plate', z0: -T, z1: 0,
-      outline: notchedOutline(fr.x, fr.y, fr.width, fr.height, pull) });
+      outline: notchedOutline(fr.x, fr.y, fr.width, fr.height, frontNotch(pull, fr.width)),
+      holes: hole ? [stadiumOutline(fr.x + fr.width / 2, fr.y + fr.height - hole.top, hole.width, hole.height)] : undefined });
     const bx = d.box;
     const x0 = bx.x;
     const x1 = bx.x + bx.width;
     const y0 = bx.y;
     const y1 = bx.y + bx.height;
-    const boxNotch = d.boxNotchDepth > 0 && pull
-      ? { shape: pull.shape, width: pull.width + BOX_NOTCH_EXTRA, depth: d.boxNotchDepth }
-      : null;
+    const boxNotch = boxNotchSpec(pull, fr.width, d.boxNotchDepth);
     solids.push({ name: `${name} box front`, kind: 'drawer-box', shape: 'plate', z0: 0, z1: b,
       outline: notchedOutline(x0, y0, bx.width, bx.height, boxNotch) });
     solids.push(box(`${name} box back`, 'drawer-box', [x0, y0, bx.depth - b], [x1, y1, bx.depth]));
@@ -756,7 +932,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       gap: num(c.gap, 0, 1) ?? 1 / 8,
       pull: {
         enabled: p.enabled !== false,
-        shape: p.shape === 'slot' ? 'slot' : 'arc',
+        shape: p.shape === 'slot' || p.shape === 'wide' || p.shape === 'handhole' ? p.shape : 'arc',
         width: num(p.width, 0, 60) ?? DEFAULT_PULL.width,
         depth: num(p.depth, 0, 20) ?? DEFAULT_PULL.depth,
       },
@@ -775,8 +951,25 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
         : undefined,
       insertThickness: num(c.insertThickness, 0.05, 1) ?? 1 / 4,
       desk: readDesk(c.desk),
+      slideLengths: Array.isArray(c.slideLengths)
+        ? Array.from({ length: drawers }, (_, i) => {
+          const v = (c.slideLengths as unknown[])[i];
+          return typeof v === 'number' && SLIDE_LENGTHS.includes(v) ? v : null;
+        })
+        : undefined,
+      load: c.load === 'light' || c.load === 'heavy' ? c.load : 'medium',
+      finish: readFinish(c.finish),
     },
   };
+}
+
+function readFinish(raw: unknown): DrawerFinish | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  const hex = (x: unknown) => (typeof x === 'string' && /^#[0-9a-f]{6}$/i.test(x) ? x : null);
+  const front = hex(v.front);
+  const body = hex(v.case);
+  return front && body ? { front, case: body } : undefined;
 }
 
 function readInsert(raw: unknown): DrawerInsert | null {
@@ -857,6 +1050,11 @@ export interface DrawerDesignFields {
   deskHeight: string;
   deskDepth: string;
   deskTopLayers: 1 | 2;
+  /** Per drawer: '' for the unit's slide length, or a length in inches. */
+  drawerSlides: string[];
+  load: DrawerLoad;
+  finishFront: string;
+  finishCase: string;
 }
 
 export type InsertKind = 'none' | 'grid' | 'markers';
@@ -915,5 +1113,9 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     deskHeight: L(c.desk?.height ?? 29),
     deskDepth: L(c.desk?.depth ?? 24),
     deskTopLayers: c.desk?.topLayers ?? 2,
+    drawerSlides: Array.from({ length: c.drawers }, (_, i) => (c.slideLengths?.[i] != null ? String(c.slideLengths[i]) : '')),
+    load: c.load ?? 'medium',
+    finishFront: c.finish?.front ?? DEFAULT_FINISH.front,
+    finishCase: c.finish?.case ?? DEFAULT_FINISH.case,
   };
 }

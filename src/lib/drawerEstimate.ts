@@ -20,6 +20,11 @@ export interface DrawerHardwareItem extends Omit<HardwareItem, 'priceKey'> {
 
 const boxes = (count: number, perBox: number) => Math.max(1, Math.ceil(count / perBox));
 
+/** A store search rather than a specific listing, so it never points at a stale product. */
+export function amazonSearch(query: string): string {
+  return `https://www.amazon.com/s?k=${encodeURIComponent(query).replace(/%20/g, '+')}`;
+}
+
 export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units: LengthUnit): DrawerHardwareItem[] {
   const f = (inches: number) => formatLength(inches, units);
   const unitCount = plan.unitCount;
@@ -27,14 +32,20 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   const supports = plan.supports * unitCount;
   const items: DrawerHardwareItem[] = [];
 
-  items.push({
-    key: 'slides',
-    name: `LONTAN soft-close drawer slides, ${f(plan.slideLength)}`,
-    qty: n,
-    unit: 'pair',
-    note: `Full extension, side mount, ${SLIDE_CAPACITY_LB} lb a pair. Mounting screws come with them.`,
-    priceKey: 'slidePair',
-  });
+  // One line per slide length (a shallow drawer can take a shorter pair).
+  const lengths = [...new Set(plan.drawers.map(d => d.box.depth))].sort((a, b) => b - a);
+  for (const length of lengths) {
+    const pairs = plan.drawers.filter(d => d.box.depth === length).length * unitCount;
+    items.push({
+      key: lengths.length === 1 ? 'slides' : `slides-${length}`,
+      name: `LONTAN soft-close drawer slides, ${f(length)}`,
+      qty: pairs,
+      unit: 'pair',
+      note: `Full extension, side mount, ${SLIDE_CAPACITY_LB} lb a pair. Mounting screws come with them.`,
+      priceKey: 'slidePair',
+      url: amazonSearch(`LONTAN soft close drawer slides ${length} inch`),
+    });
+  }
 
   if (config.base === 'feet') {
     items.push({
@@ -45,6 +56,7 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
       uses: supports,
       note: `${supports} feet; drill ${f(5 / 16)} for each T-nut.`,
       priceKey: 'feetPack',
+      url: amazonSearch('MROCO furniture leveling feet 1/4-20 T-nuts 12 pack'),
     });
   } else if (config.base === 'casters') {
     items.push({
@@ -54,6 +66,7 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
       unit: 'ea',
       note: 'Get locking ones for the front pair.',
       priceKey: 'caster',
+      url: amazonSearch(`${config.casterHeight} inch plate casters locking`),
     });
   }
 

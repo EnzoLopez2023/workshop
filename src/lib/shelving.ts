@@ -612,7 +612,7 @@ export type Solid =
   /** A profile in the (z, y) plane extruded from x0 to x1 — used for beveled cleats. */
   | { name: string; kind: SolidKind; shape: 'prism'; x0: number; x1: number; profile: [number, number][] }
   /** An outline in the front (x, y) plane extruded from depth z0 to z1 — used for notched drawer fronts. */
-  | { name: string; kind: SolidKind; shape: 'plate'; z0: number; z1: number; outline: [number, number][] };
+  | { name: string; kind: SolidKind; shape: 'plate'; z0: number; z1: number; outline: [number, number][]; holes?: [number, number][][] };
 
 export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
   const t = config.thickness;
