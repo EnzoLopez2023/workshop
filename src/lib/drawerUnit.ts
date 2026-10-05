@@ -137,6 +137,8 @@ export interface DrawerPlan {
   errors: string[];
   /** Feet or casters, counted. */
   supports: number;
+  /** Which drawers (0-based) each drawer part is cut for, by part name. */
+  partDrawers: Record<string, number[]>;
   banding: { thickness: number; totalLength: number } | null;
 }
 
@@ -388,11 +390,13 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     if (g) g.indexes.push(d.index);
     else groups.push({ indexes: [d.index], front: d.front.height, box: d.box.height, notch: d.boxNotchDepth });
   }
+  const partDrawers: Record<string, number[]> = {};
   const boxInsideWidth = boxWidth - 2 * b;
   const boxInsideDepth = slideLength - 2 * b;
   for (const g of groups) {
     const which = groups.length === 1 ? '' : ` · ${drawerRange(g.indexes)}`;
     const qty = g.indexes.length;
+    for (const kind of ['Drawer front', 'Box side', 'Box front', 'Box back', 'Box bottom']) partDrawers[`${kind}${which}`] = g.indexes;
     const pullNote = pull ? `${pull.shape === 'arc' ? 'Arc' : 'Slot'} finger pull ${f(pull.width)} wide × ${f(pull.depth)} deep, centred on the top edge` : undefined;
     parts.push({ name: `Drawer front${which}`, qty, length: frontWidth - 2 * banding, width: g.front - 2 * banding, thickness: T,
       note: pullNote, material: 'plywood' });
@@ -430,6 +434,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     warnings,
     errors,
     supports,
+    partDrawers,
     banding: banding > 0 ? { thickness: banding, totalLength: bandingTotal } : null,
   };
 }

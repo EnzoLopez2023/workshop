@@ -11,6 +11,7 @@ import {
   shelfSolids,
   type LengthUnit,
   type ShelfConfig,
+  type ShelfPart,
   type ShelfPlan,
   type Solid,
 } from './shelving.ts';
@@ -141,13 +142,18 @@ export function pinHoleSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
 
 /** Lays the parts out on full sheets of the design's plywood: 4×8 (or 2440×1220 in mm) and a typical kerf. */
 export function planGuideSheets(plan: ShelfPlan, config: ShelfConfig, units: LengthUnit): GuideSheets {
+  // Solid-wood parts (the face frame) are bought as boards, not cut from sheets.
+  return planPartSheets(plan.parts.filter(part => part.material !== 'solid'), config.thickness, units);
+}
+
+/** Lays parts of one thickness out on full 4×8 (or 2440×1220) sheets with a typical kerf. */
+export function planPartSheets(parts: ShelfPart[], thicknessInches: number, units: LengthUnit): GuideSheets {
   const metric = units === 'mm';
   const sheetLength = metric ? 2440 / MM_PER_INCH : 96;
   const sheetWidth = metric ? 1220 / MM_PER_INCH : 48;
   const kerf = metric ? 3.2 / MM_PER_INCH : 0.125;
-  const thickness = decimalString(config.thickness);
-  // Solid-wood parts (the face frame) are bought as boards, not cut from sheets.
-  const pieces: CutPiece[] = plan.parts.filter(part => part.material !== 'solid').flatMap(part => Array.from({ length: part.qty }, (_, i) => ({
+  const thickness = decimalString(thicknessInches);
+  const pieces: CutPiece[] = parts.flatMap(part => Array.from({ length: part.qty }, (_, i) => ({
     id: `${part.name}-${i}`,
     partName: part.name,
     length: part.length,
@@ -168,6 +174,16 @@ export function planGuideSheets(plan: ShelfPlan, config: ShelfConfig, units: Len
     yieldPercent: result.overallYieldPercent,
     unplaced: result.unplacedPieces,
   };
+}
+
+/** One sheet plan per plywood thickness, thickest first. */
+export function planSheetsByThickness(parts: ShelfPart[], units: LengthUnit): { thickness: number; sheets: GuideSheets }[] {
+  const thicknesses: number[] = [];
+  for (const p of parts) if (!thicknesses.some(t => Math.abs(t - p.thickness) < 1e-6)) thicknesses.push(p.thickness);
+  return thicknesses.sort((a, b) => b - a).map(thickness => ({
+    thickness,
+    sheets: planPartSheets(parts.filter(p => Math.abs(p.thickness - thickness) < 1e-6), thickness, units),
+  }));
 }
 
 const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

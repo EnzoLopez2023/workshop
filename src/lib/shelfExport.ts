@@ -18,7 +18,9 @@ import { hingesPerDoor } from './shelfEstimate.ts';
 
 export type Feature =
   | { kind: 'pocket'; label: string; u: number; v: number; length: number; width: number; depth: number }
-  | { kind: 'hole'; label: string; u: number; v: number; radius: number; depth: number };
+  | { kind: 'hole'; label: string; u: number; v: number; radius: number; depth: number }
+  /** A layout line that isn't cut (e.g. where a drawer slide goes): Shaper's guide, DXF layer GUIDE. */
+  | { kind: 'guide'; label: string; points: [number, number][]; closed?: boolean };
 
 export interface PartFace {
   /** Stable id, e.g. "divider-1-left". */
@@ -36,6 +38,11 @@ export interface PartFace {
   /** Where u and v start, in words, so the part goes on the machine the right way round. */
   orientation: string;
   material: 'plywood' | 'solid';
+  /**
+   * A shaped outside cut in (u, v), e.g. a drawer front with its finger-pull notch.
+   * Without one the outline is the length × width rectangle.
+   */
+  outline?: [number, number][];
   /**
    * Whether (u, v, face normal) is right-handed. Drawings must honour this or the
    * face comes out mirrored — dados and holes on the wrong side of the panel.
@@ -192,12 +199,18 @@ function svgShapes(face: PartFace, place: Place, units: LengthUnit): string {
     const corners = [place(u, v), place(u + lu, v), place(u + lu, v + lv), place(u, v + lv)];
     return `M ${corners.map(([x, y]) => `${s(x)} ${s(y)}`).join(' L ')} Z`;
   };
-  const outline = `<path d="${rect(0, 0, face.length, face.width)}" fill="#000000" stroke="none" `
+  const path = (pts: [number, number][], closed = true) =>
+    `M ${pts.map(([u, v]) => place(u, v)).map(([x, y]) => `${s(x)} ${s(y)}`).join(' L ')}${closed ? ' Z' : ''}`;
+  const outline = `<path d="${face.outline ? path(face.outline) : rect(0, 0, face.length, face.width)}" fill="#000000" stroke="none" `
     + `shaper:cutType="outside" shaper:cutDepth="${depthLabel(face.thickness, units)}"><title>${escapeXml(face.piece)}</title></path>`;
   const features = face.features.map(f => {
     if (f.kind === 'pocket') {
       return `<path d="${rect(f.u, f.v, f.length, f.width)}" fill="#7F7F7F" stroke="none" `
         + `shaper:cutType="pocket" shaper:cutDepth="${depthLabel(f.depth, units)}"><title>${escapeXml(f.label)}</title></path>`;
+    }
+    if (f.kind === 'guide') {
+      return `<path d="${path(f.points, f.closed)}" fill="none" stroke="#0000FF" stroke-width="${units === 'mm' ? 0.5 : 0.02}" `
+        + `shaper:cutType="guide"><title>${escapeXml(f.label)}</title></path>`;
     }
     const [cx, cy] = place(f.u, f.v);
     return `<circle cx="${s(cx)}" cy="${s(cy)}" r="${s(f.radius)}" fill="#7F7F7F" stroke="none" `
@@ -256,16 +269,18 @@ function dxfEntities(face: PartFace, topDown: Place, docHeight: number, units: L
   const place: Place = (u, v) => { const [x, y] = topDown(u, v); return [x, docHeight - y]; };
   const s = (inches: number) => num(inches, units);
   const out: string[] = [];
-  const polyline = (layer: string, pts: [number, number][]) => {
-    out.push('0', 'POLYLINE', '8', layer, '66', '1', '70', '1');
+  const polyline = (layer: string, pts: [number, number][], closed = true) => {
+    out.push('0', 'POLYLINE', '8', layer, '66', '1', '70', closed ? '1' : '0');
     for (const [x, y] of pts) out.push('0', 'VERTEX', '8', layer, '10', s(x), '20', s(y), '30', '0');
     out.push('0', 'SEQEND', '8', layer);
   };
   const rect = (u: number, v: number, lu: number, lv: number): [number, number][] =>
     [place(u, v), place(u + lu, v), place(u + lu, v + lv), place(u, v + lv)];
-  polyline(`OUTSIDE_${depthLabel(face.thickness, units)}`, rect(0, 0, face.length, face.width));
+  polyline(`OUTSIDE_${depthLabel(face.thickness, units)}`, face.outline ? face.outline.map(([u, v]) => place(u, v)) : rect(0, 0, face.length, face.width));
   for (const f of face.features) {
-    if (f.kind === 'pocket') {
+    if (f.kind === 'guide') {
+      polyline('GUIDE', f.points.map(([u, v]) => place(u, v)), f.closed ?? false);
+    } else if (f.kind === 'pocket') {
       polyline(`POCKET_${depthLabel(f.depth, units)}`, rect(f.u, f.v, f.length, f.width));
     } else {
       const [cx, cy] = place(f.u, f.v);

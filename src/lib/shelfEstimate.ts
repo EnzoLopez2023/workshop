@@ -262,6 +262,8 @@ export function quantityLabel(qty: number, unit: string): string {
   if (unit === 'ft') return `${qty} ft`;
   const box = unit.match(/^box of (\d+)$/);
   if (box) return `${qty} box${qty === 1 ? '' : 'es'} of ${box[1]}`;
+  const pack = unit.match(/^pack of (\d+)$/);
+  if (pack) return `${qty} pack${qty === 1 ? '' : 's'} of ${pack[1]}`;
   return `${qty} ${unit}${qty === 1 ? '' : 's'}`;
 }
 

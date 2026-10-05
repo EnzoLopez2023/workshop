@@ -4,7 +4,7 @@ import { Button } from './ui';
 import { planGuideSheets } from '../lib/buildGuide';
 import {
   costEstimate, defaultPrices, hardwareList, PRICE_LABELS, quantityLabel,
-  type CostEstimate, type HardwareItem, type PriceKey, type Prices,
+  type HardwareItem, type PriceKey, type Prices,
 } from '../lib/shelfEstimate';
 import { formatLength, type LengthUnit, type ShelfConfig, type ShelfPlan } from '../lib/shelving';
 
@@ -52,7 +52,7 @@ export function money(value: number, symbol = '$'): string {
   return `${symbol}${value.toFixed(2)}`;
 }
 
-export function HardwareTable({ items }: { items: HardwareItem[] }) {
+export function HardwareTable({ items }: { items: Omit<HardwareItem, 'priceKey'>[] }) {
   return (
     <div className="shelf-table-scroll" tabIndex={0} aria-label="Hardware list">
       <table className="shelf-table">
@@ -63,7 +63,7 @@ export function HardwareTable({ items }: { items: HardwareItem[] }) {
           {items.map(item => (
             <tr key={item.key}>
               <th scope="row">{item.name}{item.optional ? <span className="shelf-optional"> optional</span> : null}</th>
-              <td>{quantityLabel(item.qty, item.unit)}{item.uses && item.unit.startsWith('box') ? ` (uses ${item.uses})` : ''}</td>
+              <td>{quantityLabel(item.qty, item.unit)}{item.uses && /^(box|pack) of/.test(item.unit) ? ` (uses ${item.uses})` : ''}</td>
               <td className="is-muted">{item.note}</td>
             </tr>
           ))}
@@ -73,14 +73,15 @@ export function HardwareTable({ items }: { items: HardwareItem[] }) {
   );
 }
 
-export function CostTable({
-  estimate, prices, overridden, onPrice, onReset,
+export function CostTable<K extends string = PriceKey>({
+  estimate, prices, overridden, onPrice, onReset, labels = PRICE_LABELS as Record<K, string>,
 }: {
-  estimate: CostEstimate;
-  prices: Prices;
-  overridden: PriceKey[];
-  onPrice: (key: PriceKey, value: number | null) => void;
+  estimate: { lines: { key: string; name: string; qtyLabel: string; total: number; priceKey: K; optional: boolean }[]; total: number; required: number };
+  prices: Record<K, number>;
+  overridden: K[];
+  onPrice: (key: K, value: number | null) => void;
   onReset: () => void;
+  labels?: Record<K, string>;
 }) {
   return (
     <div className="shelf-cost">
@@ -103,7 +104,7 @@ export function CostTable({
                       step={0.01}
                       inputMode="decimal"
                       value={String(prices[line.priceKey])}
-                      aria-label={PRICE_LABELS[line.priceKey]}
+                      aria-label={labels[line.priceKey]}
                       onChange={e => {
                         const value = Number.parseFloat(e.target.value);
                         onPrice(line.priceKey, Number.isFinite(value) && value >= 0 ? value : null);

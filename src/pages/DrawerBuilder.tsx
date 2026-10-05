@@ -4,6 +4,10 @@ import { AlertCircle, AlertTriangle, ArrowLeft, Check, Clipboard, Printer, Rotat
 import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
 import { DimH, DimV, LengthField, Stat, Stepper, Toggle } from '../components/builderControls';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
+import DrawerExport from '../components/DrawerExport';
+import { useDrawerEstimate } from '../components/DrawerEstimate';
+import { CostTable, HardwareTable, money } from '../components/ShelfEstimate';
+import { DRAWER_PRICE_LABELS } from '../lib/drawerEstimate';
 import { decimalString, formatLength, lengthToField, parseLength, type LengthUnit } from '../lib/shelving';
 import {
   buildDrawerPlan,
@@ -230,6 +234,7 @@ export default function DrawerBuilder() {
   const valid = plan !== null && plan.errors.length === 0;
   const solids = useMemo(() => (plan && config && valid ? drawerSolids(plan, config) : []), [plan, config, valid]);
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
+  const estimate = useDrawerEstimate(plan && valid ? plan : null, valid ? config : null, units);
 
   const update = (patch: Partial<FormState>) => {
     setCopyStatus('');
@@ -642,6 +647,47 @@ export default function DrawerBuilder() {
               </table>
             </div>
           </section>
+
+          <section className="shelf-section" aria-labelledby="drawer-export-title">
+            <header className="shelf-section-head">
+              <div>
+                <h2 id="drawer-export-title">CNC &amp; Shaper export</h2>
+                <p>Cut files for every part: fronts with the finger-pull notch, box rabbets and bottom grooves, the back rabbet, and slide lines.</p>
+              </div>
+            </header>
+            <DrawerExport plan={plan} config={config} units={units} />
+          </section>
+
+          {estimate && (
+            <>
+              <section className="shelf-section" aria-labelledby="drawer-hardware-title">
+                <header className="shelf-section-head">
+                  <div>
+                    <h2 id="drawer-hardware-title">Hardware</h2>
+                    <p>Slides, feet or casters, and everything else besides plywood, counted from this design.</p>
+                  </div>
+                </header>
+                <HardwareTable items={estimate.hardware} />
+              </section>
+
+              <section className="shelf-section" aria-labelledby="drawer-cost-title">
+                <header className="shelf-section-head">
+                  <div>
+                    <h2 id="drawer-cost-title">Cost estimate</h2>
+                    <p>About {money(estimate.estimate.total)} with the optional items; {money(estimate.estimate.required)} without.</p>
+                  </div>
+                </header>
+                <CostTable
+                  estimate={estimate.estimate}
+                  prices={estimate.prices}
+                  overridden={estimate.overridden}
+                  onPrice={estimate.setPrice}
+                  onReset={estimate.resetPrices}
+                  labels={DRAWER_PRICE_LABELS}
+                />
+              </section>
+            </>
+          )}
 
           <section className="shelf-section" aria-labelledby="drawer-marks-title">
             <header className="shelf-section-head">
