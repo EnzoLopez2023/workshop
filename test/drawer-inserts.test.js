@@ -127,7 +127,7 @@ test('jigs: pull templates match the parts, and the story stick carries every sl
   plan.drawers.forEach((d, i) => close(lines[i], d.slideMark - 0.75, `drawer ${i + 1}`));
   assert.ok(jigs.some(j => j.face.id === 'gap-spacer'));
   assert.ok(!drawerJigs(buildDrawerPlan({ ...base, pull: { ...DEFAULT_PULL, enabled: false } }), { ...base, pull: { ...DEFAULT_PULL, enabled: false } }, f)
-    .some(j => j.face.id.includes('template')));
+    .some(j => j.face.id.startsWith('pull-template') || j.face.id.startsWith('box-template')));
 });
 
 test('the guide adds insert and desk steps that only show parts that exist', () => {

@@ -3,7 +3,7 @@ import { Download } from 'lucide-react';
 import { Button } from './ui';
 import CncExport, { DXF_TYPE, saveFile, SVG_TYPE, svgThumb } from './CncExport';
 import { planSheetsByThickness } from '../lib/buildGuide';
-import { drawerFeatureSummary, drawerJigs, drawerPartFaces } from '../lib/drawerExport';
+import { drawerFeatureSummary, drawerJigs, drawerPartFaces, JIG_STAGES } from '../lib/drawerExport';
 import type { DrawerConfig, DrawerPlan } from '../lib/drawerUnit';
 import { fileName, partDxf, partSvg } from '../lib/shelfExport';
 import { baseplateStl, GF_PITCH } from '../lib/gridfinity';
@@ -75,32 +75,48 @@ export default function DrawerExport({ plan, config, units }: Props) {
 
       <div className="shelf-export-group">
         <h3>Shop jigs <small>make the build repeatable</small></h3>
-        <p>Cut these once from offcuts; they make every front, box and slide land in the same place.</p>
-        <ul className="drawer-jigs">
-          {jigs.map(jig => {
-            const svg = partSvg(jig.face, units);
-            return (
-              <li key={jig.face.id} className="shelf-export-jig">
-                <img src={svgThumb(svg)} alt="" />
-                <div>
-                  <strong>{jig.face.piece}</strong>
-                  <small className="is-muted"> {f(jig.face.length)} × {f(jig.face.width)} × {f(jig.face.thickness)}</small>
-                  <ol className="shelf-export-steps">
-                    {jig.steps.map(step => <li key={step}>{step}</li>)}
-                  </ol>
-                  <span className="shelf-export-buttons">
-                    <Button variant="ghost" onClick={() => saveFile(fileName(`drawer ${jig.face.piece}`, 'svg'), svg, SVG_TYPE)} aria-label={`Download ${jig.face.piece} as SVG`}>
-                      <Download size={16} aria-hidden="true" /> SVG
-                    </Button>
-                    <Button variant="ghost" onClick={() => saveFile(fileName(`drawer ${jig.face.piece}`, 'dxf'), partDxf(jig.face, units), DXF_TYPE)} aria-label={`Download ${jig.face.piece} as DXF`}>
-                      <Download size={16} aria-hidden="true" /> DXF
-                    </Button>
-                  </span>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <p>Cut these once from offcuts, in the order you’ll need them. Each is sized from this design.</p>
+        {JIG_STAGES.map(({ stage, title }) => {
+          const list = jigs.filter(j => j.stage === stage);
+          if (!list.length) return null;
+          return (
+            <section key={stage} className="drawer-jig-stage" aria-label={title}>
+              <h4>{title}</h4>
+              <ul className="drawer-jigs">
+                {list.map(jig => {
+                  const pieces = [jig.face, ...(jig.extraFaces ?? [])];
+                  return (
+                    <li key={jig.face.id} className="shelf-export-jig">
+                      <img src={svgThumb(partSvg(jig.face, units))} alt="" />
+                      <div>
+                        <strong>{jig.title ?? jig.face.piece}</strong>
+                        {jig.make && <small className="is-muted"> · {jig.make}</small>}
+                        <ol className="shelf-export-steps">
+                          {jig.steps.map(step => <li key={step}>{step}</li>)}
+                        </ol>
+                        <ul className="drawer-jig-pieces">
+                          {pieces.map(piece => (
+                            <li key={piece.id}>
+                              <span>{pieces.length > 1 ? piece.piece : ''} {f(piece.length)} × {f(piece.width)} × {f(piece.thickness)}</span>
+                              <span className="shelf-export-buttons">
+                                <Button variant="ghost" onClick={() => saveFile(fileName(`drawer ${piece.piece}`, 'svg'), partSvg(piece, units), SVG_TYPE)} aria-label={`Download ${piece.piece} as SVG`}>
+                                  <Download size={16} aria-hidden="true" /> SVG
+                                </Button>
+                                <Button variant="ghost" onClick={() => saveFile(fileName(`drawer ${piece.piece}`, 'dxf'), partDxf(piece, units), DXF_TYPE)} aria-label={`Download ${piece.piece} as DXF`}>
+                                  <Download size={16} aria-hidden="true" /> DXF
+                                </Button>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          );
+        })}
       </div>
     </CncExport>
   );

@@ -123,7 +123,10 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       'Dry-fit one box before cutting the rest.',
     ],
     parts: sized(partsWhere(['Side', 'Box side', 'Box front', 'Box back'])),
-    tips: ['Cut the grooves on the table saw with the fence set once for every box part, so the bottoms all line up.'],
+    tips: [
+      'Cut the grooves on the table saw with the fence set once for every box part, so the bottoms all line up.',
+      'Set the fence and blade height from the setup gauge (shop jigs): one step for each groove and rabbet size.',
+    ],
     cautions: [],
     scene: { view: 'exploded', visible: [...caseNames, ...back], highlight: boxes },
     highlightCaption: 'Parts to machine',
@@ -172,7 +175,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         'Tap each T-nut in from the top face until its prongs bite flush, then thread a foot in from below to check.',
       ],
       parts: sized(partsWhere(['Bottom'])),
-      tips: ['A drill press (or a drilling guide) keeps the holes square so the feet stand straight.'],
+      tips: ['The T-nut drilling template (shop jigs) hooks on a corner of the bottom and flips for each corner; a drill press keeps the holes square.'],
       cautions: T < 0.6 ? [`Glue a ${f(3 / 4)} block under the bottom at each foot first — ${f(T)} is thin for a T-nut.`] : [],
       scene: { view: 'exploded', visible: [], highlight: ['Bottom'] },
     });
@@ -192,7 +195,10 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       'Measure both diagonals across the front; they must match before the glue sets.',
     ],
     parts: sized(partsWhere(['Side', 'Top', 'Bottom', 'Partition'])),
-    tips: ['Clamp a square block inside each corner to hold it at 90° while you screw.'],
+    tips: [
+      'Clamp a clamping square (shop jigs) inside each corner to hold it at 90° while you screw.',
+      ...(plan.partitionXs.length ? ['Stand the partition spacers between the side and each partition so every opening is its exact width.'] : []),
+    ],
     cautions: [],
     scene: { view: 'front', visible: [], highlight: caseNames },
   });
@@ -241,7 +247,8 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     ],
     parts: [],
     tips: [
-      'Cut a spacer block for each gap and work up from the bottom — far more accurate than measuring every line.',
+      'Faster still: the slide spacer blocks (shop jigs). Stand one on the bottom panel, rest the slide on it, screw, then stack the next block on that slide and repeat.',
+      'Clamp the slide front stop across the front edge so every slide butts against it and ends up flush.',
       'The CNC files draw these lines on the sides as guides if you cut the case on a CNC.',
     ],
     cautions: [`Slides need exactly ${f(SLIDE_CLEARANCE)} each side; a box that’s too wide binds, too narrow and the slides won’t engage.`],
@@ -260,7 +267,10 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       `Each box must measure ${[...new Set(plan.drawers.map(d => f(d.box.width)))].join(' or ')} across — exactly its opening less ${f(SLIDE_CLEARANCE * 2)}.`,
     ],
     parts: sized(partsWhere(['Box'])),
-    tips: ['Glue the bottom in all round: a plywood bottom doesn’t move, and it makes the box much stiffer.'],
+    tips: [
+      'Glue each box up around its squaring frame (shop jigs): it can only close square and at its exact size.',
+      'Glue the bottom in all round: a plywood bottom doesn’t move, and it makes the box much stiffer.',
+    ],
     cautions: [],
     scene: { view: 'exploded', visible: [...caseNames, ...back, ...slides], highlight: boxes },
   });
@@ -275,7 +285,10 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       'Line the box members up with the case members and push each drawer in until it soft-closes.',
     ],
     parts: [],
-    tips: ['Use the slide’s horizontal (slotted) screw holes first, so you can adjust in and out before adding the round-hole screws.'],
+    tips: [
+      'Rest each member on the box slide block (shop jigs) with the box standing on the bench: no marking needed.',
+      'Use the slide’s horizontal (slotted) screw holes first, so you can adjust in and out before adding the round-hole screws.',
+    ],
     cautions: [],
     scene: { view: 'front', visible: [...caseNames, ...back, ...supports, ...slides], highlight: boxes },
   });
@@ -303,7 +316,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
           `${drawer}: print the ${gf.columns} × ${gf.rows} baseplate (${gf.tiles.map(t => `${t.count} × ${t.columns}×${t.rows}`).join(' + ')} tiles) and drop it in, centred — about ${Math.round(gf.marginX)} mm spare each side and ${Math.round(gf.marginY)} mm front and back. Bins up to ${gf.maxUnitsWithLip}u with a stacking lip fit under the drawer above.`),
       ],
       parts: sized(insertParts),
-      tips: ['Cut every divider with one fence setting; a gang of slots cut at once lines up perfectly.'],
+      tips: ['Mark a whole set of dividers at once with its slot strip (shop jigs), or use the strip as an indexing fence on a sled.'],
       cautions: [],
       // From above, without the case, so you can see into the boxes.
       scene: { view: 'above', visible: boxes, highlight: insertNames },
@@ -322,7 +335,10 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       'Drill the box-front holes oversize, so each front can shift slightly before you snug the screws.',
     ],
     parts: sized(partsWhere(['Drawer front'])),
-    tips: ['Playing cards make good gap spacers: stack them to the gap thickness.'],
+    tips: [
+      'Hang the front reveal gauges (shop jigs) on the front below and set the next front on their tongues — the gap is automatic.',
+      'Drill the box fronts with the front screw template before the fronts go on, so every screw lands in the same place.',
+    ],
     cautions: [],
     scene: { view: 'front', visible: [...caseNames, ...back, ...supports, ...slides, ...boxes], highlight: fronts },
   });

@@ -8960,3 +8960,38 @@ tbody td {
 .drawer-insert-row .form-field-label {
   overflow-wrap: anywhere;
 }
+
+.drawer-jig-stage h4 {
+  margin: 16px 0 8px;
+  font-size: 0.85rem;
+  font-weight: 650;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.drawer-jig-pieces {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drawer-jig-pieces li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+/* Jig drawings at a readable size: small blocks shouldn't fill the column. */
+.drawer-jigs .shelf-export-jig img {
+  width: auto;
+  max-width: min(100%, 360px);
+  max-height: 140px;
+  object-fit: contain;
+  padding: 6px;
+  border: 1px solid var(--color-divider);
+}

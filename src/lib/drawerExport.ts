@@ -20,6 +20,7 @@ import {
   type NotchShape,
   supportPositions,
   FOOT_SIZE,
+  SLIDE_HEIGHT,
   type DrawerConfig,
   type DrawerPlan,
 } from './drawerUnit.ts';
@@ -175,11 +176,31 @@ const TEMPLATE_BELOW = 2.5;
 /** Longest template that still registers on both ends of the front. */
 const TEMPLATE_MAX_LENGTH = 36;
 
+export type JigStage = 'layout' | 'setup' | 'case' | 'slides' | 'boxes' | 'fronts';
+
 export interface DrawerJig {
+  /** The jig, or its first piece. */
   face: PartFace;
+  /** More pieces of the same jig (e.g. a spacer block for each opening). */
+  extraFaces?: PartFace[];
+  /** Heading for a jig of several pieces (otherwise its piece name). */
+  title?: string;
+  /** What to cut, e.g. "4 from 3/4\" offcuts". */
+  make?: string;
+  /** Which part of the build it's for, to group the list. */
+  stage: JigStage;
   /** How to make and use it. */
   steps: string[];
 }
+
+export const JIG_STAGES: { stage: JigStage; title: string }[] = [
+  { stage: 'setup', title: 'Machine setup' },
+  { stage: 'layout', title: 'Pulls and layout' },
+  { stage: 'case', title: 'Case assembly' },
+  { stage: 'slides', title: 'Slides' },
+  { stage: 'boxes', title: 'Drawer boxes' },
+  { stage: 'fronts', title: 'Hanging the fronts' },
+];
 
 /**
  * A pattern-bit routing template for a finger pull: a plate as long as the part
@@ -240,6 +261,7 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
     const flush = w.length <= TEMPLATE_MAX_LENGTH;
     jigs.push({
       face,
+      stage: 'layout',
       steps: [
         `Cut it from ${f(JIG_STOCK)} MDF or plywood. ${fence(face.length, across)}`,
         flush
@@ -264,6 +286,7 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
       const face = pullTemplate(`box-template-${wi + 1}-${i + 1}`, `Box-front notch template${which}`, g.boxFront, spec.shape, spec.width, spec.depth);
       jigs.push({
         face,
+        stage: 'layout',
         steps: [
           `${fence(face.length, spec.width)} Use it the same way on the box front’s inside face, before the box is glued up.`,
         ],
@@ -293,6 +316,7 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
         features: stick.marks.map((m, i) => ({ kind: 'guide' as const, label: `Drawer ${i + 1} slide`, points: [[m, 0], [m, stickWidth]] as [number, number][] })),
         orientation: 'The end at the left stands on the bottom panel; each notch’s lower edge is a slide’s bottom edge.',
       },
+      stage: 'slides',
       steps: [
         `Stand it on the bottom panel inside the case, against the front edge of ${plan.columns.length > 1 ? 'a side or partition' : 'a side'}, and tick it at the bottom of each notch (${stick.marks.map(m => f(m)).join(', ')} up from the bottom panel).`,
         plan.columns.length > 1 ? 'Mark both faces of every opening in that column with the same stick, so the slides match exactly.' : 'Do the other side with the same stick, so both sides match exactly.',
@@ -306,12 +330,310 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
         id: 'gap-spacer', part: 'Front gap spacer', piece: 'Front gap spacer', face: '', length: 3, width: 1, thickness: config.gap,
         material: 'plywood', rightHanded: true, features: [], orientation: `Cut four from ${f(config.gap)} stock (hardboard or a thin offcut).`,
       },
+      stage: 'fronts',
       steps: [
         `Four ${f(config.gap)} spacers set the gap between fronts; two ${f(config.gap / 2)} shims (half as thick) set the bottom reveal.`,
       ],
     });
   }
+  jigs.push(...buildJigs(plan, config, f));
+  const order = JIG_STAGES.map(x => x.stage);
+  return jigs.sort((a, b2) => order.indexOf(a.stage) - order.indexOf(b2.stage));
+}
+
+// ── More shop jigs, each sized from the design ───────────────────────────────
+
+const rect = (length: number, width: number): [number, number][] => [[0, 0], [length, 0], [length, width], [0, width]];
+const jigFace = (id: string, piece: string, length: number, width: number, thickness: number, extra: Partial<PartFace> = {}): PartFace => ({
+  id, part: piece, piece, face: 'face up', length, width, thickness, material: 'plywood', rightHanded: true, features: [],
+  orientation: 'Either face up.', ...extra,
+});
+/** Round to the nearest 1/32" — jig sizes should be easy to cut and check. */
+const r32 = (inches: number) => Math.round(inches * 32) / 32;
+
+function buildJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) => string): DrawerJig[] {
+  const jigs: DrawerJig[] = [];
+  const T = config.thickness;
+  const b = config.boxThickness;
+  const columnName = (c: number) => (plan.columns.length > 1 ? `column ${c + 1} ` : '');
+
+  // 1 ── Slide spacer blocks: stacked from the bottom panel, each slide rests on the block below it.
+  for (const column of plan.columns) {
+    const bottomUp = [...column.drawers].reverse().map(i => plan.drawers[i]);
+    const faces: PartFace[] = [];
+    let floor = T; // the bottom panel's top, measured like slide marks (from the side's bottom edge)
+    bottomUp.forEach((d, k) => {
+      const height = r32(d.slideMark - floor);
+      floor = d.slideMark + SLIDE_HEIGHT;
+      if (height <= 0.05) return;
+      faces.push(jigFace(`slide-spacer-${column.index + 1}-${k + 1}`, `Slide spacer ${columnName(column.index)}${k === 0 ? '(bottom)' : `#${k + 1}`}`.replace('  ', ' '),
+        3, height, T, { orientation: `${f(height)} tall — write “${d.label}” on it.` }));
+    });
+    if (!faces.length) continue;
+    jigs.push({
+      title: `Slide spacer blocks${plan.columns.length > 1 ? ` — column ${column.index + 1}` : ''}`, face: faces[0], extraFaces: faces.slice(1), stage: 'slides',
+      make: `${faces.length} blocks from ${f(T)} offcuts, two of each (one per side of the opening)`,
+      steps: [
+        `Stand the first block on the bottom panel against the ${plan.columns.length > 1 ? 'side or partition' : 'side'}, rest the bottom drawer’s slide on it, and screw it on.`,
+        'Then stand the next block on top of that slide, rest the next slide on it, and so on up the opening — no measuring.',
+        `Blocks for ${column.drawers.map(i => plan.drawers[i].label.toLowerCase()).reverse().join(', ')}, bottom to top: ${faces.map(x => f(x.width)).join(', ')}.`,
+      ],
+    });
+    if (plan.columns.length > 1 && plan.columns.slice(column.index + 1).every(c => c.drawers.length === column.drawers.length)) {
+      // Later columns with the same blocks would only repeat this set.
+      const same = plan.columns.slice(column.index + 1).every(c => c.drawers.every((i, n) => Math.abs(plan.drawers[i].slideMark - plan.drawers[column.drawers[n]].slideMark) < 1e-6));
+      if (same) { jigs[jigs.length - 1].make += ' — the same set does every column'; break; }
+    }
+  }
+
+  // 2 ── Front stop: clamped across the case's front edge so each slide's front end butts against it.
+  jigs.push({
+    face: jigFace('slide-front-stop', 'Slide front stop', 3, T + 1, T, {
+      features: [{ kind: 'guide', label: 'Inside face of the side', points: [[0, T], [3, T]] }],
+      orientation: 'The blue line lines up with the inside face of the side or partition.',
+    }),
+    stage: 'slides', make: `1 from a ${f(T)} offcut`,
+    steps: [
+      'Clamp it flat across the front edge of the side, with the blue line on the side’s inside face, so it sticks 1″ into the opening.',
+      'Push each slide forward against it before screwing: every slide ends up flush with the case front.',
+    ],
+  });
+
+  // 3 ── Box-side slide jig: a block the drawer member rests on, as tall as its offset above the box's bottom edge.
+  const offsets: { offset: number; drawers: string[] }[] = [];
+  for (const d of plan.drawers) {
+    const offset = r32(d.slideY - d.box.y);
+    const g = offsets.find(x => Math.abs(x.offset - offset) < 1e-6);
+    if (g) g.drawers.push(d.label.toLowerCase()); else offsets.push({ offset, drawers: [d.label.toLowerCase()] });
+  }
+  const offsetFaces = offsets.map((g, i) => jigFace(`box-slide-block-${i + 1}`, offsets.length === 1 ? 'Box slide block' : `Box slide block ${f(g.offset)}`, 6, g.offset, T, {
+    orientation: `${f(g.offset)} tall, for ${g.drawers.join(', ')}.`,
+  }));
+  jigs.push({
+    title: 'Box slide blocks', face: offsetFaces[0], extraFaces: offsetFaces.slice(1), stage: 'boxes',
+    make: `${offsetFaces.length === 1 ? 'One block' : `${offsetFaces.length} blocks`} from ${f(T)} offcuts`,
+    steps: [
+      'Stand the box on its bottom edge on a flat bench, lay the block on the bench against the box side, and rest the drawer member on the block.',
+      'Slide the member forward until it’s flush with the box front, then screw it on through the horizontal slots first.',
+      ...offsets.map(g => `${f(g.offset)} block: ${g.drawers.join(', ')}.`),
+    ],
+  });
+
+  // 4 ── Glue-up squaring frame: exactly the box's inside, corners clipped so squeeze-out can't glue it in.
+  const insides: { w: number; d: number; drawers: string[] }[] = [];
+  for (const d of plan.drawers) {
+    const w = d.box.width - 2 * b;
+    const dd = d.box.depth - 2 * b;
+    const g = insides.find(x => Math.abs(x.w - w) < 1e-6 && Math.abs(x.d - dd) < 1e-6);
+    if (g) g.drawers.push(d.label.toLowerCase()); else insides.push({ w, d: dd, drawers: [d.label.toLowerCase()] });
+  }
+  const frameFaces = insides.map((g, i) => {
+    const L = r32(g.w - 1 / 32);
+    const Wd = r32(g.d - 1 / 32);
+    const c = 3 / 8;
+    const band = 1.5;
+    const outline: [number, number][] = [[c, 0], [L - c, 0], [L, c], [L, Wd - c], [L - c, Wd], [c, Wd], [0, Wd - c], [0, c]];
+    const hole: [number, number][] = [[band, band], [L - band, band], [L - band, Wd - band], [band, Wd - band]];
+    return jigFace(`squaring-frame-${i + 1}`, insides.length === 1 ? 'Box squaring frame' : `Box squaring frame ${f(L)} × ${f(Wd)}`, L, Wd, T, {
+      outline,
+      features: L > 2 * band + 1 && Wd > 2 * band + 1 ? [{ kind: 'cutout', label: 'Centre (saves material and weight)', points: hole }] : [],
+      orientation: `${f(L)} × ${f(Wd)} — the inside of ${g.drawers.join(', ')}, less ${f(1 / 32)} so it lifts out.`,
+    });
+  });
+  jigs.push({
+    title: 'Box squaring frame', face: frameFaces[0], extraFaces: frameFaces.slice(1), stage: 'boxes',
+    make: `${frameFaces.length === 1 ? 'One frame' : `${frameFaces.length} frames`} from ${f(T)} plywood — check the corners with a square`,
+    steps: [
+      'Glue up each box around the frame laid on the bottom: the box can only close square and at its exact inside size.',
+      'The clipped corners keep glue squeeze-out off the frame; lift it out once the clamps are on.',
+    ],
+  });
+
+  // 5 ── Setup gauge: one stepped block for setting fences and blade or bit heights by touch.
+  const settings = [
+    { value: BOTTOM_GROOVE_DEPTH, what: 'groove depth' },
+    { value: BOTTOM_GROOVE_OFFSET, what: 'groove up from the bottom edge' },
+    { value: b / 2, what: 'box rabbet depth' },
+    { value: b, what: 'box rabbet width' },
+    { value: T / 2, what: 'back rabbet depth' },
+    { value: config.backThickness, what: 'back rabbet width' },
+  ];
+  const steps: { value: number; what: string[] }[] = [];
+  for (const x of settings) {
+    const g = steps.find(y => Math.abs(y.value - x.value) < 1e-6);
+    if (g) g.what.push(x.what); else steps.push({ value: x.value, what: [x.what] });
+  }
+  steps.sort((a, c) => a.value - c.value);
+  const stepLength = 1.25;
+  const gaugeOutline: [number, number][] = [[0, 0], [steps.length * stepLength, 0]];
+  for (let i = steps.length - 1; i >= 0; i--) {
+    gaugeOutline.push([(i + 1) * stepLength, steps[i].value], [i * stepLength, steps[i].value]);
+  }
+  jigs.push({
+    face: jigFace('setup-gauge', 'Setup gauge', steps.length * stepLength, Math.max(...steps.map(x => x.value)), JIG_STOCK, {
+      outline: gaugeOutline.filter((p, i) => i === 0 || p[0] !== gaugeOutline[i - 1][0] || p[1] !== gaugeOutline[i - 1][1]),
+      orientation: `Steps, left to right: ${steps.map(x => f(x.value)).join(', ')}.`,
+    }),
+    stage: 'setup', make: `1 from a ${f(JIG_STOCK)} offcut; write each size on its step`,
+    steps: steps.map(x => `${f(x.value)} step: ${x.what.join(', ')}.`),
+  });
+
+  // 6 ── Divider slot strips: one per slotted piece, notched at every slot, to mark or index a set at once.
+  const slotted = plan.parts.filter(p => (p.name.startsWith('Lengthwise') || p.name.startsWith('Crosswise')) && plan.partOutlines[p.name]);
+  const stripFaces = slotted.flatMap((p, i) => {
+    const outline = plan.partOutlines[p.name];
+    // Recover the slot centres and width from the piece's outline: its notches in the top or bottom edge.
+    const slots = notchesOf(outline, p.width);
+    if (!slots.length) return [];
+    const cuts = slots.map(x => ({ kind: 'slot' as const, center: x.center, width: x.width, depth: 1 / 4, from: 'top' as const }));
+    return [jigFace(`slot-strip-${i + 1}`, `Slot strip · ${p.name.replace(/ · .*/, '').toLowerCase()} ${p.name.split(' · ')[1] ?? ''}`.trim(), p.length, 1, JIG_STOCK, {
+      outline: pieceOutline(p.length, 1, cuts),
+      orientation: `As long as the ${p.name.toLowerCase()}; its notches sit over the slots.`,
+    })];
+  });
+  if (stripFaces.length) {
+    jigs.push({
+      title: 'Divider slot strips', face: stripFaces[0], extraFaces: stripFaces.slice(1), stage: 'layout',
+      make: `${stripFaces.length === 1 ? 'One strip' : `${stripFaces.length} strips`} from ${f(JIG_STOCK)} plywood`,
+      steps: [
+        'Clamp a set of dividers edge to edge, ends flush, and lay the strip across them: mark both sides of every notch on every piece at once.',
+        'Or screw it to a crosscut sled as an indexing fence, with a pin in each notch, and cut the whole set slot by slot.',
+      ],
+    });
+  }
+
+  // 7 ── Partition spacers: hold each partition parallel while it's screwed in.
+  if (plan.columns.length > 1) {
+    const widths: { w: number; columns: number[] }[] = [];
+    for (const c of plan.columns) {
+      const g = widths.find(x => Math.abs(x.w - c.width) < 1e-6);
+      if (g) g.columns.push(c.index + 1); else widths.push({ w: c.width, columns: [c.index + 1] });
+    }
+    const height = Math.min(12, plan.caseHeight - 2 * T);
+    const spacerFaces = widths.map((g, i) => jigFace(`partition-spacer-${i + 1}`, widths.length === 1 ? 'Partition spacer' : `Partition spacer ${f(g.w)}`, r32(g.w), height, T, {
+      orientation: `${f(r32(g.w))} wide — column${g.columns.length === 1 ? '' : 's'} ${g.columns.join(', ')}.`,
+    }));
+    jigs.push({
+      title: 'Partition spacers', face: spacerFaces[0], extraFaces: spacerFaces.slice(1), stage: 'case',
+      make: `Two of each from ${f(T)} plywood`,
+      steps: [
+        'Stand two spacers between the side (or the last partition) and the next partition, one at the front and one at the back, and screw the partition through the top and bottom.',
+        'Move them across for each partition in turn: every opening comes out its exact width and the partitions stay parallel.',
+      ],
+    });
+  }
+
+  // 8 ── Clamping squares: right-angle brackets with the inside corner relieved and clamp slots.
+  const leg = 6;
+  const relief = 0.5;
+  const arm = 1.75;
+  jigs.push({
+    face: jigFace('clamping-square', 'Clamping square', leg, leg, T, {
+      outline: [[relief, 0], [leg, 0], [leg, arm], [arm, leg], [0, leg], [0, relief], [relief, relief]],
+      features: [
+        { kind: 'cutout', label: 'Clamp slot', points: rect(1, 0.75).map(([u, v]) => [u + 3.25, v + 0.5] as [number, number]) },
+        { kind: 'cutout', label: 'Clamp slot', points: rect(0.75, 1).map(([u, v]) => [u + 0.5, v + 3.25] as [number, number]) },
+      ],
+      orientation: 'Either face up. The notch in the corner keeps glue off it.',
+    }),
+    stage: 'case', make: `4 from ${f(T)} plywood — check each with a square before you use it`,
+    steps: [
+      'Clamp one inside each corner where the top and bottom meet the sides, through the slots.',
+      'They hold the case at 90° while you drive the screws, and keep it square until the back goes on.',
+    ],
+  });
+
+  // 9 ── Bottom drilling template: a corner plate with the T-nut hole, registered on two edges.
+  if (config.base === 'feet' && plan.supports > 0) {
+    const [x0, z0] = supportPositions(plan, config)[0];
+    const band = plan.banding?.thickness ?? 0;
+    const u = x0 - T + FOOT_SIZE / 2;
+    const v = z0 + FOOT_SIZE / 2 - band;
+    const size = Math.ceil(Math.max(u, v) + 1.5);
+    jigs.push({
+      face: jigFace('tnut-template', 'T-nut drilling template', size, size, JIG_STOCK, {
+        features: [
+          { kind: 'hole', label: 'T-nut', u, v, radius: TNUT_HOLE / 2, depth: JIG_STOCK },
+          { kind: 'guide', label: 'Fence: the bottom’s end', points: [[0, 0], [0, size]] },
+          { kind: 'guide', label: 'Fence: the bottom’s front edge', points: [[0, 0], [size, 0]] },
+        ],
+        orientation: 'Glue fences along the two blue edges, underneath.',
+      }),
+      stage: 'case', make: `1 from ${f(JIG_STOCK)} plywood, with two ${f(3 / 4)} fences glued underneath along the blue edges`,
+      steps: [
+        `Hook the fences on a corner of the bottom panel and drill through the hole: ${f(u)} from the end and ${f(v)} from the front edge.`,
+        'The positions are symmetrical, so flip the template for each of the four corners.',
+        ...(plan.supports === 6 ? [`For the middle pair, mark ${f(plan.overallWidth / 2 - T)} from the end and use the template against the front and back edges only.`] : []),
+      ],
+    });
+  }
+
+  // 10 ── Front reveal gauge: hangs on the front below; its tongue sets the gap.
+  if (config.gap > 0) {
+    const plate = 1 / 2;
+    const tongue = Math.min(T * 0.8, 0.5);
+    const tall = 4;
+    const mid = 2;
+    jigs.push({
+      face: jigFace('reveal-gauge', 'Front reveal gauge', plate + tongue, tall, JIG_STOCK, {
+        outline: [[0, 0], [plate, 0], [plate, mid], [plate + tongue, mid], [plate + tongue, mid + config.gap], [plate, mid + config.gap], [plate, tall], [0, tall]],
+        orientation: `A side view: the ${f(config.gap)} tongue sits between two fronts.`,
+      }),
+      stage: 'fronts', make: `2 from ${f(JIG_STOCK)} hardwood or MDF (plywood can split on the thin tongue)`,
+      steps: [
+        'Hang two gauges on the top edge of the front below, one near each end, the tongue resting on that front.',
+        `Set the next front down onto the tongues: the gap is exactly ${f(config.gap)}. Line its ends up with the front below, tape it, and screw it from inside.`,
+      ],
+    });
+  }
+
+  // 11 ── Front screw template: hooks over the box front, drilling the oversize holes the screws pass through.
+  const fronts: { length: number; height: number; notch: number; drawers: string[] }[] = [];
+  for (const d of plan.drawers) {
+    const length = d.box.width - b;
+    const g = fronts.find(x => Math.abs(x.length - length) < 1e-6 && Math.abs(x.height - d.box.height) < 1e-6 && Math.abs(x.notch - d.boxNotchDepth) < 1e-3);
+    if (g) g.drawers.push(d.label.toLowerCase()); else fronts.push({ length, height: d.box.height, notch: d.boxNotchDepth, drawers: [d.label.toLowerCase()] });
+  }
+  const holeRadius = 3 / 16;
+  const screwFaces = fronts.map((g, i) => {
+    const low = BOTTOM_GROOVE_OFFSET + config.bottomThickness + 0.5;
+    // Stay below the box-front notch: a wide pull's notch reaches nearly to the ends.
+    const high = Math.min(g.height - 1, g.height - g.notch - 0.5);
+    const rows = high - low >= 1.25 ? [low, high] : [(low + Math.max(high, low)) / 2];
+    const us = [1.25, g.length - 1.25];
+    return jigFace(`screw-template-${i + 1}`, fronts.length === 1 ? 'Front screw template' : `Front screw template ${f(g.length)} × ${f(g.height)}`, g.length, g.height, JIG_STOCK, {
+      features: [
+        ...us.flatMap(u => rows.map((v, k) => ({ kind: 'hole' as const, label: `Screw hole ${k + 1}`, u, v, radius: holeRadius, depth: JIG_STOCK }))),
+        { kind: 'guide', label: 'Fence: the box front’s top edge', points: [[0, g.height], [g.length, g.height]] },
+      ],
+      orientation: `For ${g.drawers.join(', ')}. Glue a fence along the top (blue) edge.`,
+    });
+  });
+  jigs.push({
+    title: 'Front screw template', face: screwFaces[0], extraFaces: screwFaces.slice(1), stage: 'fronts',
+    make: `${screwFaces.length === 1 ? 'One template' : `${screwFaces.length} templates`} from ${f(JIG_STOCK)} plywood, each with a fence along the top edge`,
+    steps: [
+      'Hook the fence over the box front’s top edge from inside, ends flush with the box front’s ends, and drill the holes through the box front.',
+      `The ${f(holeRadius * 2)} holes are oversize, so each front can shift a little before you snug the screws. They’re near the ends, well clear of the pull.`,
+    ],
+  });
+
   return jigs;
+}
+
+/** Slot centres and widths from a slotted piece's outline (its rectangular notches in the top or bottom edge). */
+function notchesOf(outline: [number, number][], height: number): { center: number; width: number }[] {
+  const found: { center: number; width: number }[] = [];
+  for (let i = 0; i + 3 < outline.length; i++) {
+    const [a, b, c, d] = [outline[i], outline[i + 1], outline[i + 2], outline[i + 3]];
+    const onEdge = (p: [number, number]) => Math.abs(p[1]) < 1e-9 || Math.abs(p[1] - height) < 1e-9;
+    if (onEdge(a) && onEdge(d) && Math.abs(a[1] - d[1]) < 1e-9 && Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(c[0] - d[0]) < 1e-9 && Math.abs(b[1] - c[1]) < 1e-9 && !onEdge(b)) {
+      const lo = Math.min(a[0], d[0]);
+      const hi = Math.max(a[0], d[0]);
+      found.push({ center: (lo + hi) / 2, width: hi - lo });
+    }
+  }
+  return found.sort((x, y) => x.center - y.center);
 }
 
 /** A guide line at each slide's bottom edge for one column, measured from `from` above the side's bottom edge. */
