@@ -77,7 +77,8 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   // through each unit's top (8 per unit), and a double top is screwed together every 8".
   const desk = plan.desk;
   const laminate = desk && config.desk?.topLayers === 2 ? Math.ceil(desk.width / 8) * Math.ceil(desk.depth / 8) : 0;
-  const caseScrews = 2 * 2 * 4 * unitCount + (desk ? 8 * unitCount + laminate : 0);
+  // Each partition is screwed through the top and bottom: 4 at each end.
+  const caseScrews = (2 * 2 * 4 + plan.partitionXs.length * 2 * 4) * unitCount + (desk ? 8 * unitCount + laminate : 0);
   items.push({
     key: 'case-screws',
     name: `Wood screws, ${f(config.thickness < 0.6 ? 1.25 : 1.625)}`,

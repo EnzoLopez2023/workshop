@@ -47,17 +47,29 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
     if (part.name === 'Side') {
       // u = up from the bottom edge, v = back from the front edge. The left side's
       // inside face points +x, which makes (up, back, +x) left-handed; the right mirrors it.
-      for (const [piece, rightHanded] of [['Left side', false], ['Right side', true]] as const) {
+      // Each side carries the slides of the column next to it.
+      const lastColumn = plan.columns.length - 1;
+      for (const [piece, rightHanded, column] of [['Left side', false, 0], ['Right side', true, lastColumn]] as const) {
         const features: Feature[] = [
           { kind: 'pocket', label: 'Back rabbet', u: 0, v: part.width - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 },
-          ...plan.drawers.map((d): Feature => ({
-            kind: 'guide', label: `Drawer ${d.index + 1} slide, bottom edge`,
-            points: [[d.slideMark, 0], [d.slideMark, d.box.depth]],
-          })),
+          ...slideLines(plan, column, 0),
         ];
         faces.push({
           ...base, id: slug(`${piece} inside`), piece, face: 'inside face', features, rightHanded,
           orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, inside face up. Blue lines mark each slide’s bottom edge (not cut).`,
+        });
+      }
+      continue;
+    }
+
+    if (part.name.startsWith('Partition')) {
+      // Slides on both faces: the left face holds the column to its left, the right face the one to its right.
+      // u = up from the partition's bottom end (on the bottom panel), v = back from the front edge.
+      const p = part.name === 'Partition' ? 0 : Number(part.name.split(' ')[1]) - 1;
+      for (const [side, column, rightHanded] of [['left', p, true], ['right', p + 1, false]] as const) {
+        faces.push({
+          ...base, id: slug(`${part.name} ${side}`), piece: part.name, face: `${side} face`, features: slideLines(plan, column, T), rightHanded,
+          orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, ${side} face up. Blue lines mark the slides (not cut).`,
         });
       }
       continue;
@@ -208,15 +220,24 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
   const frontPart = plan.parts.find(p => p.name.startsWith('Drawer front'));
   const fence = (length: number, width: number) => `Glue a ${f(3 / 4)} × ${f(3 / 4)} fence under the plate on the fence line, one piece each side of the notch (about ${f(Math.max((length - width) / 2 - 0.5, 1))} long each).`;
 
-  if (pull && frontPart) {
-    const frontWidth = plan.drawers[0]?.front.width ?? frontPart.length;
+  // One template per front width (columns can differ).
+  const widths: { width: number; length: number; columns: number[] }[] = [];
+  for (const d of plan.drawers) {
+    const g = widths.find(w => Math.abs(w.width - d.front.width) < 1e-6);
+    if (g) { if (!g.columns.includes(d.column + 1)) g.columns.push(d.column + 1); }
+    else widths.push({ width: d.front.width, length: d.front.width - 2 * (plan.banding?.thickness ?? 0), columns: [d.column + 1] });
+  }
+  if (pull && frontPart) for (const [wi, w] of widths.entries()) {
+    const frontWidth = w.width;
     const notch = frontNotch(pull, frontWidth);
     const hole = handHole(pull);
     const across = pullWidth(pull, frontWidth);
+    const forColumns = widths.length > 1 ? ` (column${w.columns.length === 1 ? '' : 's'} ${w.columns.join(', ')})` : '';
+    const id = wi === 0 ? 'pull-template' : `pull-template-${wi + 1}`;
     const face = notch
-      ? pullTemplate('pull-template', 'Finger-pull template', frontPart.length, notch.shape, notch.width, notch.depth)
-      : pullTemplate('pull-template', 'Hand-hole template', frontPart.length, 'handhole', hole!.width, hole!.height, hole!.top);
-    const flush = frontPart.length <= TEMPLATE_MAX_LENGTH;
+      ? pullTemplate(id, `Finger-pull template${forColumns}`, w.length, notch.shape, notch.width, notch.depth)
+      : pullTemplate(id, `Hand-hole template${forColumns}`, w.length, 'handhole', hole!.width, hole!.height, hole!.top);
+    const flush = w.length <= TEMPLATE_MAX_LENGTH;
     jigs.push({
       face,
       steps: [
@@ -230,17 +251,17 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
       ],
     });
     // Box fronts get a wider, deeper notch; one template per depth.
-    const depths: { depth: number; drawers: number[] }[] = [];
+    const depths: { depth: number; drawers: string[]; boxFront: number }[] = [];
     for (const d of plan.drawers) {
-      if (d.boxNotchDepth <= 0) continue;
+      if (d.boxNotchDepth <= 0 || Math.abs(d.front.width - w.width) > 1e-6) continue;
       const g = depths.find(x => Math.abs(x.depth - d.boxNotchDepth) < 1 / 64);
-      if (g) g.drawers.push(d.index + 1); else depths.push({ depth: d.boxNotchDepth, drawers: [d.index + 1] });
+      const short = d.label.replace(/^Drawer /, '').replace(/^Column (\d+) drawer (\d+)$/, '$1.$2');
+      if (g) g.drawers.push(short); else depths.push({ depth: d.boxNotchDepth, drawers: [short], boxFront: d.box.width - config.boxThickness });
     }
-    const boxFront = plan.parts.find(p => p.name.startsWith('Box front'));
     depths.forEach((g, i) => {
-      const which = depths.length === 1 ? '' : ` (drawer${g.drawers.length === 1 ? '' : 's'} ${g.drawers.join(', ')})`;
+      const which = depths.length === 1 && widths.length === 1 ? '' : ` (drawer${g.drawers.length === 1 ? '' : 's'} ${g.drawers.join(', ')})`;
       const spec = boxNotchSpec(pull, frontWidth, g.depth)!;
-      const face = pullTemplate(`box-template-${i + 1}`, `Box-front notch template${which}`, boxFront?.length ?? 0, spec.shape, spec.width, spec.depth);
+      const face = pullTemplate(`box-template-${wi + 1}-${i + 1}`, `Box-front notch template${which}`, g.boxFront, spec.shape, spec.width, spec.depth);
       jigs.push({
         face,
         steps: [
@@ -251,23 +272,32 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
   }
 
   // Story stick: stands on the bottom panel inside the case, notched where each slide's bottom edge goes.
+  // Columns with the same slide heights share one.
   const T = config.thickness;
   const stickLength = plan.caseHeight - 2 * T;
-  const marks = plan.drawers.map(d => d.slideMark - T);
   const stickWidth = 2;
-  const cuts = marks.map(m => ({ kind: 'slot' as const, center: m + 1 / 16, width: 1 / 8, depth: 3 / 8, from: 'top' as const }));
-  jigs.push({
-    face: {
-      id: 'story-stick', part: 'Slide story stick', piece: 'Slide story stick', face: 'face up', length: stickLength, width: stickWidth,
-      thickness: JIG_STOCK, material: 'plywood', rightHanded: true,
-      outline: pieceOutline(stickLength, stickWidth, cuts),
-      features: marks.map((m, i) => ({ kind: 'guide' as const, label: `Drawer ${i + 1} slide`, points: [[m, 0], [m, stickWidth]] as [number, number][] })),
-      orientation: 'The end at the left stands on the bottom panel; each notch’s lower edge is a slide’s bottom edge.',
-    },
-    steps: [
-      `Stand it on the bottom panel inside the case, against the front edge of a side, and tick the side at the bottom of each notch (${marks.map(m => f(m)).join(', ')} up from the bottom panel).`,
-      'Do the other side with the same stick, so both sides match exactly.',
-    ],
+  const sticks: { marks: number[]; columns: number[] }[] = [];
+  for (const column of plan.columns) {
+    const marks = plan.drawers.filter(d => d.column === column.index).map(d => d.slideMark - T);
+    const g = sticks.find(x => x.marks.length === marks.length && x.marks.every((m, i) => Math.abs(m - marks[i]) < 1e-6));
+    if (g) g.columns.push(column.index + 1); else sticks.push({ marks, columns: [column.index + 1] });
+  }
+  sticks.forEach((stick, si) => {
+    const forColumns = sticks.length > 1 ? ` (column${stick.columns.length === 1 ? '' : 's'} ${stick.columns.join(', ')})` : '';
+    const cuts = stick.marks.map(m => ({ kind: 'slot' as const, center: m + 1 / 16, width: 1 / 8, depth: 3 / 8, from: 'top' as const }));
+    jigs.push({
+      face: {
+        id: si === 0 ? 'story-stick' : `story-stick-${si + 1}`, part: `Slide story stick${forColumns}`, piece: `Slide story stick${forColumns}`,
+        face: 'face up', length: stickLength, width: stickWidth, thickness: JIG_STOCK, material: 'plywood', rightHanded: true,
+        outline: pieceOutline(stickLength, stickWidth, cuts),
+        features: stick.marks.map((m, i) => ({ kind: 'guide' as const, label: `Drawer ${i + 1} slide`, points: [[m, 0], [m, stickWidth]] as [number, number][] })),
+        orientation: 'The end at the left stands on the bottom panel; each notch’s lower edge is a slide’s bottom edge.',
+      },
+      steps: [
+        `Stand it on the bottom panel inside the case, against the front edge of ${plan.columns.length > 1 ? 'a side or partition' : 'a side'}, and tick it at the bottom of each notch (${stick.marks.map(m => f(m)).join(', ')} up from the bottom panel).`,
+        plan.columns.length > 1 ? 'Mark both faces of every opening in that column with the same stick, so the slides match exactly.' : 'Do the other side with the same stick, so both sides match exactly.',
+      ],
+    });
   });
 
   if (config.gap >= 1 / 16) {
@@ -282,6 +312,14 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
     });
   }
   return jigs;
+}
+
+/** A guide line at each slide's bottom edge for one column, measured from `from` above the side's bottom edge. */
+function slideLines(plan: DrawerPlan, column: number, from: number): Feature[] {
+  return plan.drawers.filter(d => d.column === column).map((d): Feature => ({
+    kind: 'guide', label: `${d.label} slide, bottom edge`,
+    points: [[d.slideMark - from, 0], [d.slideMark - from, d.box.depth]],
+  }));
 }
 
 /** The bottom groove, a hair wider than the bottom so it slides in. */

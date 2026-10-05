@@ -26,12 +26,13 @@ export default function DrawerExport({ plan, config, units }: Props) {
   const jigs = useMemo(() => drawerJigs(plan, config, f), [plan, config, units]);
   // Every Gridfinity tile size in the design, with how many to print (all units, all drawers).
   const tiles = useMemo(() => {
-    const out: { columns: number; rows: number; count: number; drawers: number[] }[] = [];
+    const out: { columns: number; rows: number; count: number; drawers: string[] }[] = [];
     plan.inserts.forEach((layout, i) => {
+      const name = plan.drawers[i].label.toLowerCase();
       for (const t of layout?.gridfinity && !layout.error ? layout.gridfinity.tiles : []) {
         const found = out.find(x => x.columns === t.columns && x.rows === t.rows);
-        if (found) { found.count += t.count * plan.unitCount; if (!found.drawers.includes(i + 1)) found.drawers.push(i + 1); }
-        else out.push({ ...t, count: t.count * plan.unitCount, drawers: [i + 1] });
+        if (found) { found.count += t.count * plan.unitCount; if (!found.drawers.includes(name)) found.drawers.push(name); }
+        else out.push({ ...t, count: t.count * plan.unitCount, drawers: [name] });
       }
     });
     return out;
@@ -58,7 +59,7 @@ export default function DrawerExport({ plan, config, units }: Props) {
             {tiles.map(t => (
               <li key={`${t.columns}x${t.rows}`}>
                 <strong>{t.columns} × {t.rows} tile</strong>
-                <span className="is-muted"> {t.columns * GF_PITCH} × {t.rows * GF_PITCH} mm · print {t.count} · drawer{t.drawers.length === 1 ? '' : 's'} {t.drawers.join(', ')}</span>
+                <span className="is-muted"> {t.columns * GF_PITCH} × {t.rows * GF_PITCH} mm · print {t.count} · for {t.drawers.join(', ')}</span>
                 <Button
                   variant="ghost"
                   onClick={() => saveFile(`gridfinity-baseplate-${t.columns}x${t.rows}.stl`, baseplateStl(t.columns, t.rows), 'model/stl')}

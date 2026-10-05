@@ -36,7 +36,8 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     parts.map(p => ({ name: p.name, qty: p.qty, size: `${f(p.length)} × ${f(p.width)} × ${f(p.thickness)}` }));
   const partsWhere = (prefix: string[]) => plan.parts.filter(p => prefix.some(x => p.name.startsWith(x)));
 
-  const caseNames = ['Left side', 'Right side', 'Top', 'Bottom'];
+  const partitionNames = names(name => name.startsWith('Partition'));
+  const caseNames = ['Left side', 'Right side', 'Top', 'Bottom', ...partitionNames];
   const back = ['Back'];
   const supports = names(name => name.startsWith('Foot') || name.startsWith('Caster'));
   const slides = names(name => name.endsWith(' slide'));
@@ -60,7 +61,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         : pull.shape === 'handhole'
           ? `Instead of handles, each front has a ${f(pull.width)} × ${f(pull.depth)} hand hole just below its top edge, and the box front behind it is notched so your fingers can hook the front.`
           : `Instead of handles, each front has a ${pull.shape === 'arc' ? 'shallow arc' : pull.shape === 'wide' ? 'long slot' : 'rounded slot'} cut into its top edge — ${f(pullWidth(pull, plan.drawers[0]?.front.width ?? 0))} wide and ${f(pull.depth)} deep — and the box front behind it is notched so your fingers can hook the front.`,
-      `Fronts are ${plan.drawers.map(d => f(d.front.height)).join(', ')} tall (top to bottom), with ${f(config.gap)} gaps.`,
+      plan.columns.length > 1
+        ? `${plan.columns.length} columns of drawers (openings ${plan.columns.map(c => f(c.width)).join(', ')}) with ${f(T)} partitions between them; ${plan.columns.map(c => `column ${c.index + 1} has ${c.drawers.length}`).join(', ')}.`
+        : `Fronts are ${plan.drawers.map(d => f(d.front.height)).join(', ')} tall (top to bottom), with ${f(config.gap)} gaps.`,
       ...(plan.desk ? [`${plan.unitCount === 2 ? 'Two units go' : 'The unit goes'} under a ${f(plan.desk.width)} × ${f(plan.desk.depth)} desk top, ${f(plan.desk.height)} off the floor.`] : []),
     ],
     parts: [],
@@ -183,9 +186,12 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     instructions: [
       'Lay a side inside face up; stand the top and bottom on it, flush at the front and set back from the rabbet.',
       'Glue, then drive four screws through the side into each panel. Repeat with the other side.',
+      ...(plan.partitionXs.length ? [
+        `Stand the partition${plan.partitionXs.length > 1 ? 's' : ''} between the top and bottom at ${plan.partitionXs.map(x => f(x - T)).join(' and ')} from the inside of the left side, front edges flush; glue and screw through the top and bottom into each.`,
+      ] : []),
       'Measure both diagonals across the front; they must match before the glue sets.',
     ],
-    parts: sized(partsWhere(['Side', 'Top', 'Bottom'])),
+    parts: sized(partsWhere(['Side', 'Top', 'Bottom', 'Partition'])),
     tips: ['Clamp a square block inside each corner to hold it at 90° while you screw.'],
     cautions: [],
     scene: { view: 'front', visible: [], highlight: caseNames },
@@ -230,7 +236,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     summary: `${slideCounts(plan, f)}, front ends flush with the front edge of the case.`,
     instructions: [
       'Pull each slide apart: extend it fully and press the release lever to take off the drawer member.',
-      `Mark the bottom edge of each slide on both sides, measured up from the bottom edge of the side: ${plan.drawers.map(d => `drawer ${d.index + 1} at ${f(d.slideMark)}`).join(', ')}. The slide story stick from the shop jigs gives the same marks without measuring.`,
+      `Mark the bottom edge of each slide on both sides of its opening, measured up from the bottom edge of the case side: ${plan.drawers.map(d => `${d.label.toLowerCase()} at ${f(d.slideMark)}`).join(', ')}${plan.partitionXs.length ? ` (on a partition, ${f(T)} less — it starts on the bottom panel)` : ''}. The slide story stick from the shop jigs gives the same marks without measuring.`,
       'Screw each cabinet member on with its bottom on the line and its front end flush with the case front.',
     ],
     parts: [],
@@ -243,16 +249,15 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   });
 
   // 11 ── Boxes
-  const sample = plan.drawers[0];
   steps.push({
     id: 'boxes',
     title: 'Build the drawer boxes',
-    summary: `${n} boxes, ${f(sample?.box.width ?? 0)} wide and ${[...new Set(plan.drawers.map(d => f(d.box.depth)))].join(' or ')} deep.`,
+    summary: `${n} boxes, ${[...new Set(plan.drawers.map(d => f(d.box.width)))].join(' or ')} wide and ${[...new Set(plan.drawers.map(d => f(d.box.depth)))].join(' or ')} deep.`,
     instructions: [
       'Glue the front and back into the side rabbets, slide the bottom into its groove, then add the second side.',
       'Brad each corner through the side (three per corner).',
       'Check both diagonals across the top; nudge until they match, then let it set.',
-      `Each box must measure ${f(sample?.box.width ?? 0)} across — exactly the opening less ${f(SLIDE_CLEARANCE * 2)}.`,
+      `Each box must measure ${[...new Set(plan.drawers.map(d => f(d.box.width)))].join(' or ')} across — exactly its opening less ${f(SLIDE_CLEARANCE * 2)}.`,
     ],
     parts: sized(partsWhere(['Box'])),
     tips: ['Glue the bottom in all round: a plywood bottom doesn’t move, and it makes the box much stiffer.'],
@@ -266,7 +271,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     title: 'Attach the drawer members and fit the drawers',
     summary: 'The other half of each slide goes on the box, then the boxes go in.',
     instructions: [
-      ...plan.drawers.map(d => `Drawer ${d.index + 1}: slide member’s bottom edge ${f(d.slideY - d.box.y)} up from the bottom of the box, front end flush with the box front.`),
+      ...plan.drawers.map(d => `${d.label}: slide member’s bottom edge ${f(d.slideY - d.box.y)} up from the bottom of the box, front end flush with the box front.`),
       'Line the box members up with the case members and push each drawer in until it soft-closes.',
     ],
     parts: [],
@@ -277,7 +282,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
 
   // 12b ── Inserts
   const insertParts = plan.parts.filter(p => p.name.startsWith('Lengthwise') || p.name.startsWith('Crosswise') || p.name.startsWith('Marker rib'));
-  const gridfinity = plan.inserts.map((x, i) => (x?.gridfinity && !x.error ? { drawer: i + 1, gf: x.gridfinity } : null)).filter(Boolean) as { drawer: number; gf: NonNullable<InsertLayout['gridfinity']> }[];
+  const gridfinity = plan.inserts.map((x, i) => (x?.gridfinity && !x.error ? { drawer: plan.drawers[i].label, gf: x.gridfinity } : null)).filter(Boolean) as { drawer: string; gf: NonNullable<InsertLayout['gridfinity']> }[];
   if (insertParts.length || gridfinity.length) {
     const grids = plan.inserts.some(x => x?.cells && !x.gridfinity);
     const trays = plan.inserts.filter(x => x?.capacity).reduce((n, x) => n + (x?.capacity ?? 0), 0);
@@ -295,7 +300,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
           'Glue the ribs to the drawer bottom in pairs, a marker’s length apart, notches lined up — lay a row of markers in while the glue sets.',
         ] : []),
         ...gridfinity.map(({ drawer, gf }) =>
-          `Drawer ${drawer}: print the ${gf.columns} × ${gf.rows} baseplate (${gf.tiles.map(t => `${t.count} × ${t.columns}×${t.rows}`).join(' + ')} tiles) and drop it in, centred — about ${Math.round(gf.marginX)} mm spare each side and ${Math.round(gf.marginY)} mm front and back. Bins up to ${gf.maxUnitsWithLip}u with a stacking lip fit under the drawer above.`),
+          `${drawer}: print the ${gf.columns} × ${gf.rows} baseplate (${gf.tiles.map(t => `${t.count} × ${t.columns}×${t.rows}`).join(' + ')} tiles) and drop it in, centred — about ${Math.round(gf.marginX)} mm spare each side and ${Math.round(gf.marginY)} mm front and back. Bins up to ${gf.maxUnitsWithLip}u with a stacking lip fit under the drawer above.`),
       ],
       parts: sized(insertParts),
       tips: ['Cut every divider with one fence setting; a gang of slots cut at once lines up perfectly.'],

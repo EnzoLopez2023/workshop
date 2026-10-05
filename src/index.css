@@ -8950,3 +8950,13 @@ tbody td {
   align-items: center;
   gap: 4px 10px;
 }
+
+.drawer-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.drawer-insert-row .form-field-label {
+  overflow-wrap: anywhere;
+}

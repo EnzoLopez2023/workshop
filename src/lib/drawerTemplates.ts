@@ -47,6 +47,24 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
     },
   },
   {
+    id: 'two-column',
+    name: 'Two-column dresser',
+    description: 'A wide dresser with two stacks of four drawers and a partition between them, on leveling feet.',
+    fields: {
+      width: '40', height: '34', depth: '20', heightMode: 'overall', drawers: 8, base: 'feet', footHeight: '1/2',
+      columns: 2, columnWidthMode: 'equal', columnDrawers: [4, 4], columnFronts: [['8', '8', '8', '8'], ['8', '8', '8', '8']],
+    },
+  },
+  {
+    id: 'flat-files',
+    name: 'Three-column flat files',
+    description: 'Three columns of shallow drawers for paper, prints and art supplies.',
+    fields: {
+      width: '48', height: '30', depth: '24', heightMode: 'overall', drawers: 18, base: 'casters', casterHeight: '2',
+      columns: 3, columnWidthMode: 'equal', columnDrawers: [6, 6, 6], columnFronts: [['4', '4', '4', '4', '4', '4'], ['4', '4', '4', '4', '4', '4'], ['4', '4', '4', '4', '4', '4']],
+    },
+  },
+  {
     id: 'workbench',
     name: 'Under-bench parts drawers',
     description: 'Shallow, wide drawers for tools and hardware under a workbench, on leveling feet.',

@@ -64,6 +64,7 @@ const SOURCE_STORAGE_KEY = 'workshop-drawer-builder-source';
 /** The design that was in the builder before another was opened over it. */
 const PREVIOUS_STORAGE_KEY = 'workshop-drawer-builder-previous';
 const MAX_DRAWERS = 12;
+const MAX_COLUMNS = 4;
 
 type FormState = DrawerDesignFields;
 
@@ -108,6 +109,11 @@ const DEFAULT_FORM: FormState = {
   finishFront: DEFAULT_FINISH.front,
   finishCase: DEFAULT_FINISH.case,
   gridfinityBed: '256',
+  columns: 1,
+  columnWidthMode: 'equal',
+  columnWidths: [],
+  columnDrawers: [5],
+  columnFronts: [['5', '5', '5', '5', '5']],
 };
 
 const LENGTH_FIELDS = [
@@ -115,7 +121,7 @@ const LENGTH_FIELDS = [
   'boxThickness', 'bottomThickness', 'backThickness', 'footHeight', 'casterHeight',
   'insertThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
 ] as const;
-type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}`;
+type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}` | `columnFronts.${number}.${number}` | `columnWidths.${number}`;
 
 const UNIT_OPTIONS = [
   { value: 'in', label: 'Inches' },
@@ -138,6 +144,11 @@ const PULL_OPTIONS = [
   { value: 'slot', label: 'Slot notch', hint: 'A rounded-bottom slot in the top edge.' },
   { value: 'wide', label: 'Wide notch', hint: `A long slot across nearly the whole front, stopping 2″ from each end.` },
   { value: 'handhole', label: 'Hand hole', hint: 'A rounded hole cut through the front, just below the top edge.' },
+] as const;
+
+const COLUMN_WIDTH_OPTIONS = [
+  { value: 'equal', label: 'All the same' },
+  { value: 'custom', label: 'Each column' },
 ] as const;
 
 const DESK_LAYOUT_OPTIONS = [
@@ -168,8 +179,22 @@ const BANDING_PRESETS = [
   { value: '2 mm', label: '2 mm PVC' },
 ];
 
-/** Keep the front-height list the same length as the drawer count. */
-function normalizeDrawers(form: FormState): FormState {
+/** Keep every per-drawer list the same length as the drawer count (with columns, their total). */
+function normalizeDrawers(input: FormState): FormState {
+  let form = input;
+  if (form.columns > 1) {
+    const k = Math.min(Math.max(Math.floor(form.columns), 2), MAX_COLUMNS);
+    const counts = Array.from({ length: k }, (_, c) => form.columnDrawers?.[c] ?? form.columnDrawers?.[c - 1] ?? form.drawers);
+    const fronts = counts.map((count, c) => {
+      const list = form.columnFronts?.[c] ?? form.columnFronts?.[c - 1] ?? form.frontHeights;
+      return Array.from({ length: count }, (_, i) => list?.[i] ?? list?.[list.length - 1] ?? '5');
+    });
+    form = {
+      ...form, columns: k, columnDrawers: counts, columnFronts: fronts,
+      columnWidths: Array.from({ length: k }, (_, c) => form.columnWidths?.[c] ?? ''),
+      drawers: counts.reduce((a, b) => a + b, 0),
+    };
+  }
   const n = form.drawers;
   const list = Array.isArray(form.frontHeights) ? form.frontHeights : [];
   const last = list[list.length - 1] ?? DEFAULT_FORM.frontHeights[0];
@@ -193,7 +218,20 @@ function convertForm(form: FormState, units: LengthUnit): FormState {
   const next: FormState = { ...form, units };
   for (const key of LENGTH_FIELDS) next[key] = convert(form[key]);
   next.frontHeights = form.frontHeights.map(convert);
+  next.columnFronts = form.columnFronts.map(list => list.map(convert));
+  next.columnWidths = form.columnWidths.map(w => (w.trim() ? convert(w) : w));
   return next;
+}
+
+/**
+ * Splices a per-drawer list when one column's drawer count changes: drawers are listed
+ * column by column, so the column's slice grows or shrinks in place.
+ */
+function resizeColumnSlice<T>(list: T[], counts: number[], column: number, count: number, fill: (last: T | undefined) => T): T[] {
+  const start = counts.slice(0, column).reduce((a, b) => a + b, 0);
+  const slice = list.slice(start, start + counts[column]);
+  const resized = Array.from({ length: count }, (_, i) => slice[i] ?? fill(slice[slice.length - 1]));
+  return [...list.slice(0, start), ...resized, ...list.slice(start + counts[column])];
 }
 
 function readStoredForm(): FormState {
@@ -220,7 +258,11 @@ function readStoredView(): PreviewMode {
 function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: Partial<Record<FieldKey, string>> } {
   const fieldErrors: Partial<Record<FieldKey, string>> = {};
   const num = (key: FieldKey, { allowZero = false } = {}) => {
-    const raw = (key.startsWith('frontHeights.') ? form.frontHeights[Number(key.split('.')[1])] ?? '' : form[key as typeof LENGTH_FIELDS[number]]).trim();
+    const parts = key.split('.');
+    const raw = (key.startsWith('frontHeights.') ? form.frontHeights[Number(parts[1])] ?? ''
+      : key.startsWith('columnFronts.') ? form.columnFronts[Number(parts[1])]?.[Number(parts[2])] ?? ''
+        : key.startsWith('columnWidths.') ? form.columnWidths[Number(parts[1])] ?? ''
+          : form[key as typeof LENGTH_FIELDS[number]]).trim();
     if (allowZero && (raw === '' || Number(raw) === 0)) return 0;
     const value = parseLength(raw, form.units);
     if (value === null) {
@@ -247,7 +289,14 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     height: fronts ? 0 : desk ? desk.height - desk.topLayers * thickness : num('height'),
     depth: num('depth'),
     drawers: form.drawers,
-    frontHeights: fronts ? form.frontHeights.slice(0, form.drawers).map((_, i) => num(`frontHeights.${i}`)) : undefined,
+    frontHeights: fronts && form.columns <= 1 ? form.frontHeights.slice(0, form.drawers).map((_, i) => num(`frontHeights.${i}`)) : undefined,
+    columns: form.columns > 1
+      ? form.columnDrawers.map((count, c) => ({
+        drawers: count,
+        frontHeights: fronts ? Array.from({ length: count }, (_, i) => num(`columnFronts.${c}.${i}`)) : undefined,
+        width: form.columnWidthMode === 'custom' && c < form.columns - 1 ? num(`columnWidths.${c}`) : undefined,
+      }))
+      : undefined,
     gap: num('gap', { allowZero: true }),
     pull: {
       enabled: form.pullEnabled,
@@ -372,6 +421,8 @@ export default function DrawerBuilder() {
   const solids = useMemo(() => (plan && config && valid ? (plan.desk ? deskSolids(plan, config) : drawerSolids(plan, config)) : []), [plan, config, valid]);
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
   const estimate = useDrawerEstimate(plan && valid ? plan : null, valid ? config : null, units);
+
+  const drawerLabel = (i: number) => plan?.drawers[i]?.label ?? `Drawer ${i + 1}`;
 
   const update = (patch: Partial<FormState>) => {
     setCopyStatus('');
@@ -563,11 +614,79 @@ export default function DrawerBuilder() {
     if (heightMode === form.heightMode) return;
     const patch: Partial<FormState> = { heightMode };
     if (plan) {
-      if (heightMode === 'fronts') patch.frontHeights = roundedFronts(plan.drawers.map(d => d.front.height), units);
-      else patch.height = lengthToField(plan.overallHeight, units);
+      if (heightMode === 'fronts') {
+        patch.frontHeights = roundedFronts(plan.drawers.filter(d => d.column === 0).map(d => d.front.height), units);
+        patch.columnFronts = plan.columns.map(c => roundedFronts(c.drawers.map(i => plan.drawers[i].front.height), units));
+      } else {
+        patch.height = lengthToField(plan.overallHeight, units);
+      }
     }
     update(patch);
   };
+
+  /** One column ↔ several: drawer lists are copied column by column so nothing is lost. */
+  const setColumns = (count: number) => {
+    const k = Math.min(Math.max(count, 1), MAX_COLUMNS);
+    setForm(prev => {
+      if (k === prev.columns) return prev;
+      const was = prev.columns > 1 ? prev.columnDrawers : [prev.drawers];
+      const wasFronts = prev.columns > 1 ? prev.columnFronts : [prev.frontHeights];
+      const counts = Array.from({ length: k }, (_, c) => was[c] ?? was[was.length - 1]);
+      const fronts = Array.from({ length: k }, (_, c) => wasFronts[c] ?? wasFronts[wasFronts.length - 1]);
+      // Per-drawer lists: keep each existing column's slice; new columns copy the last one.
+      const regroup = <T,>(list: T[]): T[] => {
+        const slices: T[][] = [];
+        let at = 0;
+        for (const n of was) { slices.push(list.slice(at, at + n)); at += n; }
+        return counts.flatMap((_, c) => slices[c] ?? slices[slices.length - 1]);
+      };
+      const next: FormState = {
+        ...prev,
+        columns: k,
+        columnDrawers: counts,
+        columnFronts: fronts,
+        columnWidths: Array.from({ length: k }, (_, c) => prev.columnWidths[c] ?? ''),
+        drawers: counts.reduce((a, b) => a + b, 0),
+        insertKinds: regroup(prev.insertKinds),
+        gridColumns: regroup(prev.gridColumns),
+        gridRows: regroup(prev.gridRows),
+        drawerSlides: regroup(prev.drawerSlides),
+      };
+      if (k === 1) { next.drawers = counts[0]; next.frontHeights = fronts[0]; }
+      return normalizeDrawers(next);
+    });
+  };
+
+  const setColumnDrawers = (column: number, count: number) => {
+    const n = Math.min(Math.max(count, 1), MAX_DRAWERS);
+    // Typing each front: re-spread the changed column over the current case height so it still fits.
+    const caseHeight = plan ? (plan.desk ? plan.desk.height - plan.desk.topThickness - plan.baseHeight : plan.caseHeight) : null;
+    const respread = form.heightMode === 'fronts' && caseHeight && config
+      ? roundedFronts(equalFronts(n, caseHeight - n * config.gap), units)
+      : null;
+    setForm(prev => {
+      const counts = prev.columnDrawers;
+      const next: FormState = {
+        ...prev,
+        insertKinds: resizeColumnSlice(prev.insertKinds, counts, column, n, () => 'none' as const),
+        gridColumns: resizeColumnSlice(prev.gridColumns, counts, column, n, last => last ?? 2),
+        gridRows: resizeColumnSlice(prev.gridRows, counts, column, n, last => last ?? 2),
+        drawerSlides: resizeColumnSlice(prev.drawerSlides, counts, column, n, () => ''),
+        columnDrawers: counts.map((c, i) => (i === column ? n : c)),
+        columnFronts: prev.columnFronts.map((list, i) => (i !== column ? list
+          : respread ?? Array.from({ length: n }, (_, j) => list[j] ?? list[list.length - 1] ?? '5'))),
+      };
+      return normalizeDrawers(next);
+    });
+  };
+
+  const setColumnFront = (column: number, index: number, value: string) => {
+    setCopyStatus('');
+    setForm(prev => ({ ...prev, columnFronts: prev.columnFronts.map((list, c) => (c === column ? list.map((v, i) => (i === index ? value : v)) : list)) }));
+  };
+
+  const setColumnWidth = (column: number, value: string) =>
+    setForm(prev => ({ ...prev, columnWidths: prev.columnWidths.map((v, c) => (c === column ? value : v)) }));
 
   const setDrawers = (count: number) => {
     const drawers = Math.min(MAX_DRAWERS, Math.max(1, count));
@@ -610,19 +729,28 @@ export default function DrawerBuilder() {
   });
 
   // A shallow top drawer: the smallest front whose box still takes the slides; the rest share what's left.
+  // With columns, every column gets the same shallow top drawer.
   const shallowTopDrawer = () => {
-    if (!plan || !config || form.drawers < 2) return;
+    if (!plan || !config) return;
     const caseHeight = plan.desk ? plan.desk.height - plan.desk.topThickness - plan.baseHeight : plan.caseHeight;
-    const available = caseHeight - form.drawers * config.gap;
+    const counts = form.columns > 1 ? form.columnDrawers : [form.drawers];
+    if (counts.some(n => n < 2)) return;
     const forBox = MIN_BOX_HEIGHT + 2 * BOX_CLEARANCE + config.thickness - config.gap;
-    const forPull = pullReach(config.pull, plan.drawers[0].front.width) + 1.25;
-    // Start from the box and pull minimums, then grow in 1/8" steps until the top drawer
-    // has no problems of its own (a hand hole, say, needs room for its box-front notch).
+    const forPull = pullReach(config.pull, Math.min(...plan.drawers.map(d => d.front.width))) + 1.25;
+    // Start from the box and pull minimums, then grow in 1/8" steps until no top drawer
+    // has problems of its own (a hand hole, say, needs room for its box-front notch).
     let top = Math.ceil(Math.max(forBox, forPull, 3) * 8) / 8;
-    const heightsFor = (h: number) => [h, ...equalFronts(form.drawers - 1, available - h)];
-    const topOk = (h: number) => !buildDrawerPlan({ ...config, frontHeights: heightsFor(h) }).errors.some(e => e.startsWith('Drawer 1'));
-    while (!topOk(top) && top < available / form.drawers) top += 1 / 8;
-    update({ heightMode: 'fronts', frontHeights: roundedFronts(heightsFor(top), units) });
+    const heightsFor = (h: number, n: number) => [h, ...equalFronts(n - 1, caseHeight - n * config.gap - h)];
+    const tryConfig = (h: number): DrawerConfig => (form.columns > 1
+      ? { ...config, columns: config.columns!.map((c, i) => ({ ...c, frontHeights: heightsFor(h, counts[i]) })) }
+      : { ...config, frontHeights: heightsFor(h, counts[0]) });
+    const topOk = (h: number) => !buildDrawerPlan(tryConfig(h)).errors.some(e => /^(Column \d+ )?[Dd]rawer 1(’s|:)/.test(e));
+    while (!topOk(top) && top < caseHeight / Math.max(...counts)) top += 1 / 8;
+    update({
+      heightMode: 'fronts',
+      frontHeights: roundedFronts(heightsFor(top, counts[0]), units),
+      columnFronts: counts.map(n => roundedFronts(heightsFor(top, n), units)),
+    });
   };
 
   const setFront = (index: number, value: string) => {
@@ -631,12 +759,18 @@ export default function DrawerBuilder() {
   };
 
   // Spread the fronts over the current case height, equally or growing toward the floor.
-  const spreadFronts = (kind: 'equal' | 'graduated') => {
+  const spreadFronts = (kind: 'equal' | 'graduated', column?: number) => {
     if (!plan || !config) return;
     const caseHeight = plan.desk ? plan.desk.height - plan.desk.topThickness - plan.baseHeight : plan.caseHeight;
-    const available = caseHeight - form.drawers * config.gap;
-    const heights = kind === 'equal' ? equalFronts(form.drawers, available) : graduatedFronts(form.drawers, available);
-    update({ frontHeights: roundedFronts(heights, units) });
+    const spread = (n: number) => {
+      const available = caseHeight - n * config.gap;
+      return roundedFronts(kind === 'equal' ? equalFronts(n, available) : graduatedFronts(n, available), units);
+    };
+    if (form.columns > 1) {
+      update({ columnFronts: form.columnDrawers.map((n, c) => (column === undefined || column === c ? spread(n) : form.columnFronts[c])) });
+    } else {
+      update({ frontHeights: spread(form.drawers) });
+    }
   };
 
   const copyCutList = async () => {
@@ -890,9 +1024,15 @@ export default function DrawerBuilder() {
             </div>
             <div className="shelf-field-grid">
               <div className="form-field">
-                <span className="form-field-label" id="drawer-count-label">Number of drawers</span>
-                <Stepper labelledBy="drawer-count-label" value={form.drawers} min={1} max={MAX_DRAWERS} onChange={setDrawers} noun="drawer" />
+                <span className="form-field-label" id="column-count-label">Columns</span>
+                <Stepper labelledBy="column-count-label" value={form.columns} min={1} max={MAX_COLUMNS} onChange={setColumns} noun="column" />
               </div>
+              {form.columns === 1 && (
+                <div className="form-field">
+                  <span className="form-field-label" id="drawer-count-label">Number of drawers</span>
+                  <Stepper labelledBy="drawer-count-label" value={form.drawers} min={1} max={MAX_DRAWERS} onChange={setDrawers} noun="drawer" />
+                </div>
+              )}
               <LengthField
                 unit={units}
                 label="Gap between fronts"
@@ -902,7 +1042,65 @@ export default function DrawerBuilder() {
                 onChange={gap => update({ gap })}
               />
             </div>
-            {form.heightMode === 'fronts' && (
+            {form.columns > 1 && (
+              <>
+                <div className="shelf-height-mode">
+                  <span className="form-field-label">Column widths</span>
+                  <SegmentedControl label="Column widths" value={form.columnWidthMode} options={COLUMN_WIDTH_OPTIONS} onChange={columnWidthMode => update({ columnWidthMode })} />
+                  <small>Partitions between columns are {fmt(config?.thickness ?? 0.75)} case plywood; the slides screw to both faces.</small>
+                </div>
+                <div className="drawer-columns">
+                  {form.columnDrawers.map((count, c) => {
+                    const layout = plan?.columns[c];
+                    const last = c === form.columns - 1;
+                    return (
+                      <div className="shelf-bay-card" key={c}>
+                        <div className="shelf-bay-card-head">
+                          <strong id={`column-${c}-label`}>Column {c + 1}</strong>
+                          {layout && <small>{fmt(layout.width)} opening</small>}
+                        </div>
+                        <div className="shelf-bay-card-controls">
+                          <div className="form-field">
+                            <span className="form-field-label" id={`column-${c}-drawers`}>Drawers</span>
+                            <Stepper labelledBy={`column-${c}-drawers`} value={count} min={1} max={MAX_DRAWERS} onChange={v => setColumnDrawers(c, v)} noun="drawer" />
+                          </div>
+                          {form.columnWidthMode === 'custom' && !last && (
+                            <LengthField unit={units} label="Opening width" value={form.columnWidths[c] ?? ''} error={fieldErrors[`columnWidths.${c}`]} onChange={v => setColumnWidth(c, v)} />
+                          )}
+                          {form.columnWidthMode === 'custom' && last && <small>Takes the rest{layout ? `: ${fmt(layout.width)}` : ''}.</small>}
+                        </div>
+                        {form.heightMode === 'fronts' && (
+                          <>
+                            <div className="drawer-fronts">
+                              {(form.columnFronts[c] ?? []).map((value, i) => (
+                                <LengthField
+                                  key={i}
+                                  unit={units}
+                                  label={`Drawer ${i + 1}${i === 0 ? ' (top)' : i === count - 1 ? ' (bottom)' : ''}`}
+                                  value={value}
+                                  error={fieldErrors[`columnFronts.${c}.${i}`]}
+                                  onChange={v => setColumnFront(c, i, v)}
+                                />
+                              ))}
+                            </div>
+                            <span className="shelf-source-actions">
+                              <Button variant="ghost" onClick={() => spreadFronts('equal', c)} disabled={!plan}>Make equal</Button>
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {form.heightMode === 'fronts' && (
+                  <span className="shelf-source-actions">
+                    <Button variant="ghost" onClick={() => spreadFronts('equal')} disabled={!plan}>Make all equal</Button>
+                    <Button variant="ghost" onClick={() => spreadFronts('graduated')} disabled={!plan}>Graduate every column</Button>
+                  </span>
+                )}
+              </>
+            )}
+            {form.heightMode === 'fronts' && form.columns === 1 && (
               <>
                 <div className="drawer-fronts">
                   {form.frontHeights.map((value, i) => (
@@ -923,13 +1121,15 @@ export default function DrawerBuilder() {
                 </span>
               </>
             )}
-            {form.heightMode === 'overall' && plan && plan.drawers.length > 0 && (
+            {form.heightMode === 'overall' && plan && plan.drawers.length > 0 && plan.columns.length === 1 && (
               <p className="shelf-group-note">
                 Fronts {fmt(plan.drawers[0].front.height)} tall; boxes {[...new Set(plan.drawers.map(d => fmt(d.box.height)))].join(' and ')}.
               </p>
             )}
             <span className="shelf-source-actions">
-              <Button variant="ghost" onClick={shallowTopDrawer} disabled={!plan || form.drawers < 2}>Shallow top drawer (pencil tray)</Button>
+              <Button variant="ghost" onClick={shallowTopDrawer} disabled={!plan || (form.columns > 1 ? form.columnDrawers.some(n => n < 2) : form.drawers < 2)}>
+                Shallow top drawer{form.columns > 1 ? 's' : ''} (pencil tray)
+              </Button>
             </span>
             <label className="form-field">
               <span className="form-field-label">What goes in them (for the load check)</span>
@@ -989,7 +1189,7 @@ export default function DrawerBuilder() {
                 const layout = plan?.inserts[i];
                 return (
                   <div className="drawer-insert-row" key={i}>
-                    <span className="form-field-label" id={`insert-${i}`}>Drawer {i + 1}</span>
+                    <span className="form-field-label" id={`insert-${i}`}>{drawerLabel(i)}</span>
                     <select aria-labelledby={`insert-${i}`} value={kind} onChange={e => setInsert(i, { insertKinds: e.target.value as FormState['insertKinds'][number] })}>
                       <option value="none">Empty</option>
                       <option value="grid">Divider grid</option>
@@ -1102,7 +1302,7 @@ export default function DrawerBuilder() {
               <div className="drawer-inserts">
                 {form.drawerSlides.slice(0, form.drawers).map((value, i) => (
                   <div className="drawer-insert-row" key={i}>
-                    <span className="form-field-label" id={`slide-${i}`}>Drawer {i + 1}</span>
+                    <span className="form-field-label" id={`slide-${i}`}>{drawerLabel(i)}</span>
                     <select aria-labelledby={`slide-${i}`} value={value} onChange={e => setDrawerSlide(i, e.target.value)}>
                       <option value="">Same as the rest ({fmt(plan.slideLength)})</option>
                       {SLIDE_LENGTHS.filter(l => l < plan.slideLength).map(l => <option key={l} value={String(l)}>{fmt(l)}</option>)}

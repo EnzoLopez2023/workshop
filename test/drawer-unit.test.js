@@ -145,6 +145,7 @@ test('every template builds with no errors', () => {
     const plan = buildDrawerPlan({
       ...base, width: P(f.width), depth: P(f.depth), height: f.height ? P(f.height) : 0, drawers: f.drawers,
       frontHeights: f.frontHeights?.map(P), base: f.base ?? 'none',
+      columns: f.columns > 1 ? f.columnDrawers.map(n => ({ drawers: n })) : undefined,
     });
     assert.deepEqual(plan.errors, [], t.id);
   }

@@ -166,8 +166,9 @@ export interface DrawerConfig {
   height: number;
   /** Overall depth, drawer fronts included. */
   depth: number;
+  /** Total drawers (across every column). */
   drawers: number;
-  /** Each front's height, top to bottom. When set, the case height is built from them. */
+  /** Each front's height, top to bottom (single column). When set, the case height is built from them. */
   frontHeights?: number[];
   /** Gap between neighbouring fronts (half of it shows at the top, bottom and sides). */
   gap: number;
@@ -196,6 +197,11 @@ export interface DrawerConfig {
   insertThickness?: number;
   /** Printer bed (mm) that Gridfinity baseplate tiles must fit. */
   gridfinityBed?: number;
+  /**
+   * Two or more stacks of drawers side by side, with partitions between them. Drawers
+   * are numbered column by column (left to right, top to bottom) in every per-drawer list.
+   */
+  columns?: DrawerColumn[];
   /** One or two units under a plywood desk top. */
   desk?: DeskConfig;
   /** Per-drawer slide length overrides (null: the unit's slide length), e.g. a short pencil drawer. */
@@ -204,6 +210,30 @@ export interface DrawerConfig {
   load?: DrawerLoad;
   /** Finish colours for the 3D view. */
   finish?: DrawerFinish;
+}
+
+export interface DrawerColumn {
+  drawers: number;
+  /** Each front's height, top to bottom. Column 1's sets the case height; the others must match it. */
+  frontHeights?: number[];
+  /** Clear opening between the sides/partitions; columns without one share what's left equally. */
+  width?: number;
+}
+
+export interface ColumnLayout {
+  index: number;
+  /** Left edge of the opening (inside face of the side or partition). */
+  x: number;
+  width: number;
+  /** Global indexes of its drawers, top to bottom. */
+  drawers: number[];
+}
+
+export const MAX_COLUMNS = 4;
+
+/** The columns, or the single column a plain config describes. */
+export function columnsOf(c: Pick<DrawerConfig, 'columns' | 'drawers' | 'frontHeights'>): DrawerColumn[] {
+  return c.columns && c.columns.length > 1 ? c.columns : [{ drawers: c.drawers, frontHeights: c.frontHeights }];
 }
 
 export type DeskLayout = 'left' | 'right' | 'both';
@@ -272,7 +302,11 @@ const EPS = 1e-6;
 const floor16 = (inches: number) => Math.floor(inches * 16 + EPS) / 16;
 
 export interface DrawerLayout {
+  /** Position in every per-drawer list (column by column). */
   index: number;
+  column: number;
+  /** "Drawer 3", or "Column 2 drawer 3" when there are columns — used in names and messages. */
+  label: string;
   /** Front extent in the front elevation. */
   front: { x: number; y: number; width: number; height: number };
   /** Box extent: bottom, height, and outside width. */
@@ -286,6 +320,9 @@ export interface DrawerLayout {
 }
 
 export interface DrawerPlan {
+  columns: ColumnLayout[];
+  /** Left face of each partition between columns. */
+  partitionXs: number[];
   overallWidth: number;
   overallHeight: number;
   overallDepth: number;
@@ -436,19 +473,47 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const backT = config.backThickness;
   const W = config.width;
   const D = config.depth;
-  const n = config.drawers;
   const gap = config.gap;
   const B = baseHeightOf(config);
-  const fronts = frontHeightsOf(config);
-  const caseHeight = config.frontHeights && config.frontHeights.length === n
-    ? fronts.reduce((a, s) => a + s, 0) + n * gap
-    : config.height - B;
+  const cols = columnsOf(config);
+  const k = cols.length;
+  const n = cols.reduce((a, c) => a + c.drawers, 0);
+  const own = (c: DrawerColumn) => (c.frontHeights && c.frontHeights.length === c.drawers ? c.frontHeights : null);
+  const firstFronts = own(cols[0]);
+  const caseHeight = firstFronts ? firstFronts.reduce((a, s) => a + s, 0) + cols[0].drawers * gap : config.height - B;
+  const columnFronts = cols.map(c => own(c) ?? equalFronts(c.drawers, caseHeight - c.drawers * gap));
   const H = caseHeight + B;
   const caseDepth = D - T;
   const interiorWidth = W - 2 * T;
   const interiorDepth = caseDepth - backT;
-  const boxWidth = interiorWidth - 2 * SLIDE_CLEARANCE;
   const banding = config.edgeBanding ? (config.bandingThickness ?? 0.02) : 0;
+
+  // Column openings: given widths first, the rest share what's left; partitions are case stock.
+  const openingTotal = interiorWidth - (k - 1) * T;
+  const given = cols.map(c => (k > 1 && c.width && c.width > 0 ? c.width : null));
+  const free = given.filter(w => w === null).length;
+  const fixed = given.reduce<number>((a, w) => a + (w ?? 0), 0);
+  const share = free ? (openingTotal - fixed) / free : 0;
+  const openings = given.map(w => w ?? share);
+  if (k > 1 && free === 0 && Math.abs(fixed - openingTotal) > 1 / 32) {
+    errors.push(`The column widths add up to ${f(fixed)}, but there’s ${f(openingTotal)} between the sides once the ${k - 1} partition${k > 2 ? 's' : ''} (${f(T)} each) are in. Leave one column to take up the rest.`);
+  }
+  const columns: ColumnLayout[] = [];
+  const partitionXs: number[] = [];
+  {
+    let x = T;
+    let index = 0;
+    cols.forEach((c, ci) => {
+      columns.push({ index: ci, x, width: openings[ci], drawers: Array.from({ length: c.drawers }, () => index++) });
+      x += openings[ci];
+      if (ci < k - 1) { partitionXs.push(x); x += T; }
+    });
+  }
+  // Fronts meet on each partition's centre line; the outer ones reach the case sides.
+  const bounds = [0, ...partitionXs.map(x => x + T / 2), W];
+  const label = (ci: number, i: number) => (k > 1 ? `Column ${ci + 1} drawer ${i + 1}` : `Drawer ${i + 1}`);
+  const boxWidths = openings.map(w => w - 2 * SLIDE_CLEARANCE);
+  const boxWidth = Math.min(...boxWidths);
 
   // Material.
   if (!(T > 0) || T > 1.5) errors.push(`Case plywood ${f(T)} isn’t usable — enter a thickness between ${f(1 / 4)} and ${f(1.5)}.`);
@@ -458,15 +523,26 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     errors.push(`The ${f(BOTTOM_GROOVE_DEPTH)} bottom groove would leave less than ${f(1 / 8)} of the ${f(b)} box sides. Use box plywood at least ${f(BOTTOM_GROOVE_DEPTH + 1 / 4)} thick.`);
   }
   if (!(backT > 0) || backT >= T) errors.push(`The back (${f(backT)}) must be thinner than the case plywood (${f(T)}) — it sits in a rabbet in the sides.`);
-  if (!Number.isInteger(n) || n < 1 || n > 12) errors.push('Choose between 1 and 12 drawers.');
+  if (k > MAX_COLUMNS) errors.push(`Choose up to ${MAX_COLUMNS} columns.`);
+  cols.forEach((c, ci) => {
+    if (!Number.isInteger(c.drawers) || c.drawers < 1 || c.drawers > 12) errors.push(`${k > 1 ? `Column ${ci + 1}: c` : 'C'}hoose between 1 and 12 drawers.`);
+  });
   if (gap < 0 || gap > 0.5) errors.push(`A ${f(gap)} gap between fronts is outside ${f(0)}–${f(1 / 2)}; ${f(1 / 8)} is typical.`);
 
   // Width.
-  if (boxWidth < MIN_BOX_WIDTH) {
+  if (k === 1 && boxWidth < MIN_BOX_WIDTH) {
     const minWidth = MIN_BOX_WIDTH + 2 * SLIDE_CLEARANCE + 2 * T;
     errors.push(`At ${f(W)} wide the drawer boxes would be only ${f(Math.max(boxWidth, 0))} wide after the two sides (${f(T)} each) and ${f(SLIDE_CLEARANCE)} per side for the slides. Make the unit at least ${f(minWidth)} wide.`);
-  } else if (boxWidth > WIDE_DRAWER) {
-    warnings.push(`The drawers are ${f(boxWidth)} wide. Past about ${f(WIDE_DRAWER)} a drawer pulled from one side twists and binds — consider two units side by side.`);
+  } else if (k > 1) {
+    boxWidths.forEach((w, ci) => {
+      if (w < MIN_BOX_WIDTH) {
+        errors.push(`Column ${ci + 1}’s opening is ${f(Math.max(openings[ci], 0))}, so its drawers would be only ${f(Math.max(w, 0))} wide after ${f(SLIDE_CLEARANCE)} per side for the slides — at least ${f(MIN_BOX_WIDTH + 2 * SLIDE_CLEARANCE)} is needed. Make the unit wider, use fewer columns, or narrow the other columns.`);
+      }
+    });
+  }
+  const tooWide = boxWidths.map((w, ci) => (w > WIDE_DRAWER ? ci : -1)).filter(ci => ci >= 0);
+  if (tooWide.length) {
+    warnings.push(`${k > 1 ? `Column ${tooWide.map(c => c + 1).join(' and ')}’s drawers are` : 'The drawers are'} ${f(Math.max(...boxWidths))} wide. Past about ${f(WIDE_DRAWER)} a drawer pulled from one side twists and binds — ${k > 1 ? 'add a column' : 'consider two columns'}.`);
   }
 
   // Depth and slides.
@@ -484,12 +560,21 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   }
 
   // Heights.
-  if (config.frontHeights && config.frontHeights.length !== n) {
+  if (k === 1 && config.frontHeights && config.frontHeights.length !== n) {
     errors.push(`There are ${n} drawers but ${config.frontHeights.length} front heights.`);
   }
   if (caseHeight <= 2 * T) errors.push(`At ${f(H)} overall there’s no room for drawers once the base (${f(B)}) and the top and bottom are taken out.`);
-  fronts.forEach((h, i) => {
-    if (!(h > 0)) errors.push(`Drawer ${i + 1}’s front would be ${f(h)} tall — make the unit taller or use fewer drawers.`);
+  cols.forEach((c, ci) => {
+    const fixedFronts = own(c);
+    if (ci > 0 && fixedFronts) {
+      const total = fixedFronts.reduce((a, s) => a + s, 0) + c.drawers * gap;
+      if (Math.abs(total - caseHeight) > 1 / 32) {
+        errors.push(`Column ${ci + 1}’s fronts and gaps add up to ${f(total)}, but column 1 makes the case ${f(caseHeight)} tall. Use “Make equal” on column ${ci + 1}, or change its fronts by ${f(Math.abs(caseHeight - total))}.`);
+      }
+    }
+    columnFronts[ci].forEach((h, i) => {
+      if (!(h > 0)) errors.push(`${label(ci, i)}’s front would be ${f(h)} tall — make the unit taller or use fewer drawers.`);
+    });
   });
   if (B < 0) errors.push('The foot or caster height can’t be negative.');
 
@@ -497,19 +582,27 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const interiorBottom = B + T;
   const interiorTop = H - T;
   const pull = config.pull.enabled ? config.pull : null;
-  const frontWidth = W - gap;
+  const frontWidths = cols.map((_, ci) => bounds[ci + 1] - bounds[ci] - gap);
+  const frontWidth = Math.min(...frontWidths);
   const reach = pullReach(pull, frontWidth);
   const pullName = pull?.shape === 'handhole' ? 'hand hole' : 'finger pull';
   // Per-drawer slide lengths: a shorter one for a shallow drawer, for example.
   const slideFor = (i: number) => {
     const own = config.slideLengths?.[i];
     if (own == null) return slideLength;
-    if (!SLIDE_LENGTHS.includes(own)) errors.push(`Drawer ${i + 1}: ${f(own)} isn’t a slide length LONTAN sells.`);
-    else if (auto !== null && own > auto + EPS) errors.push(`Drawer ${i + 1}: ${f(own)} slides don’t fit — the longest is ${f(auto)}.`);
+    if (!SLIDE_LENGTHS.includes(own)) errors.push(`${labelOf(i)}: ${f(own)} isn’t a slide length LONTAN sells.`);
+    else if (auto !== null && own > auto + EPS) errors.push(`${labelOf(i)}: ${f(own)} slides don’t fit — the longest is ${f(auto)}.`);
     return own;
   };
+  const labelOf = (index: number) => {
+    const ci = columns.findIndex(c => c.drawers.includes(index));
+    return label(Math.max(ci, 0), Math.max(columns[Math.max(ci, 0)].drawers.indexOf(index), 0));
+  };
+  cols.forEach((_, ci) => {
   let top = H - gap / 2;
-  fronts.forEach((h, i) => {
+  columnFronts[ci].forEach((h, row) => {
+    const i = columns[ci].drawers[row];
+    const name = label(ci, row);
     const y = top - h;
     top = y - gap;
     const zoneBottom = Math.max(y - gap / 2, interiorBottom);
@@ -524,24 +617,29 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     const boxNotchDepth = reach > 0 && boxTop > fingerFloor ? boxTop - fingerFloor : 0;
     drawers.push({
       index: i,
-      front: { x: gap / 2, y, width: frontWidth, height: h },
-      box: { x: T + SLIDE_CLEARANCE, y: boxY, width: boxWidth, height: boxHeight, depth: slideFor(i) },
+      column: ci,
+      label: name,
+      front: { x: bounds[ci] + gap / 2, y, width: frontWidths[ci], height: h },
+      box: { x: columns[ci].x + SLIDE_CLEARANCE, y: boxY, width: boxWidths[ci], height: boxHeight, depth: slideFor(i) },
       slideY,
       slideMark: slideY - B,
       boxNotchDepth,
     });
     if (h > 0 && boxHeight < MIN_BOX_HEIGHT) {
       const need = h + (MIN_BOX_HEIGHT - boxHeight);
-      errors.push(`Drawer ${i + 1}’s front is ${f(h)} tall, which leaves a ${f(Math.max(boxHeight, 0))} box — the slides need at least ${f(MIN_BOX_HEIGHT)}. Make that front about ${f(Math.ceil(need * 16) / 16)} tall, or use fewer drawers.`);
+      errors.push(`${name}’s front is ${f(h)} tall, which leaves a ${f(Math.max(boxHeight, 0))} box — the slides need at least ${f(MIN_BOX_HEIGHT)}. Make that front about ${f(Math.ceil(need * 16) / 16)} tall, or use fewer drawers.`);
     }
     if (pull) {
       if (reach >= h - 1) {
-        errors.push(`The ${pullName} reaches ${f(reach)} down, too far for drawer ${i + 1}’s ${f(h)} front — keep at least ${f(1)} of front below it.`);
+        errors.push(`The ${pullName} reaches ${f(reach)} down, too far for ${name.toLowerCase()}’s ${f(h)} front — keep at least ${f(1)} of front below it.`);
       } else if (boxNotchDepth > boxHeight - (BOTTOM_GROOVE_OFFSET + bt + 1 / 4)) {
-        errors.push(`Drawer ${i + 1}’s box is only ${f(boxHeight)} tall, so the ${pullName} would have to notch its box front down to the bottom. Make the pull shallower or that front taller.`);
+        errors.push(`${name}’s box is only ${f(boxHeight)} tall, so the ${pullName} would have to notch its box front down to the bottom. Make the pull shallower or that front taller.`);
       }
     }
   });
+  });
+  // Column by column is how every per-drawer list is ordered.
+  drawers.sort((a, b2) => a.index - b2.index);
   if (pull) {
     const across = pullWidth(pull, frontWidth);
     if (pull.depth <= 0 || (pull.shape !== 'wide' && pull.width <= 0)) errors.push(`Give the ${pullName} a width and a ${pull.shape === 'handhole' ? 'height' : 'depth'}, or turn it off.`);
@@ -578,20 +676,30 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     note: config.base === 'feet' ? `${supports} T-nuts for the leveling feet` : config.base === 'casters' ? `${supports} casters screw on` : undefined,
     material: 'plywood' });
   parts.push({ name: 'Back', qty: 1, length: sideHeight, width: W - T, thickness: backT, note: `Sits in ${f(T / 2)} rabbets in the sides`, material: 'plywood' });
+  partitionXs.forEach((x, pi) => {
+    parts.push({
+      name: partitionXs.length === 1 ? 'Partition' : `Partition ${pi + 1}`, qty: 1, length: caseHeight - 2 * T, width: interiorDepth - caseBanding, thickness: T,
+      note: `Between the top and bottom, ${f(x - T)} in from the left side; slides screw to both faces`, material: 'plywood',
+    });
+  });
 
   // Drawer parts, grouped by size so identical drawers share a line.
-  const groups: { indexes: number[]; front: number; box: number; notch: number; depth: number }[] = [];
+  const groups: { indexes: number[]; front: number; box: number; notch: number; depth: number; frontWidth: number; boxWidth: number }[] = [];
   for (const d of drawers) {
     const g = groups.find(g => Math.abs(g.front - d.front.height) < EPS && Math.abs(g.box - d.box.height) < EPS
-      && Math.abs(g.notch - d.boxNotchDepth) < 1e-3 && g.depth === d.box.depth);
+      && Math.abs(g.notch - d.boxNotchDepth) < 1e-3 && g.depth === d.box.depth
+      && Math.abs(g.frontWidth - d.front.width) < EPS && Math.abs(g.boxWidth - d.box.width) < EPS);
     if (g) g.indexes.push(d.index);
-    else groups.push({ indexes: [d.index], front: d.front.height, box: d.box.height, notch: d.boxNotchDepth, depth: d.box.depth });
+    else groups.push({ indexes: [d.index], front: d.front.height, box: d.box.height, notch: d.boxNotchDepth, depth: d.box.depth, frontWidth: d.front.width, boxWidth: d.box.width });
   }
   const partDrawers: Record<string, number[]> = {};
-  const boxInsideWidth = boxWidth - 2 * b;
+  const range = (indexes: number[]) => drawerRange(indexes, drawers, k);
   for (const g of groups) {
+    const boxWidth = g.boxWidth;
+    const frontWidth = g.frontWidth;
+    const boxInsideWidth = boxWidth - 2 * b;
     const boxInsideDepth = g.depth - 2 * b;
-    const which = groups.length === 1 ? '' : ` · ${drawerRange(g.indexes)}`;
+    const which = groups.length === 1 ? '' : ` · ${range(g.indexes)}`;
     const qty = g.indexes.length;
     for (const kind of ['Drawer front', 'Box side', 'Box front', 'Box back', 'Box bottom']) partDrawers[`${kind}${which}`] = g.indexes;
     const across = pullWidth(pull, frontWidth);
@@ -616,9 +724,9 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     const insert = config.inserts?.[i];
     if (!insert) return null;
     const layout = layoutInsert(insert, {
-      width: boxInsideWidth, depth: d.box.depth - 2 * b, height: d.box.height - BOTTOM_GROOVE_OFFSET - bt,
+      width: d.box.width - 2 * b, depth: d.box.depth - 2 * b, height: d.box.height - BOTTOM_GROOVE_OFFSET - bt,
     }, it, f, config.gridfinityBed ?? 256);
-    if (layout.error) errors.push(`Drawer ${i + 1}: ${layout.error}.`);
+    if (layout.error) errors.push(`${d.label}: ${layout.error}.`);
     return layout;
   });
   if (inserts.some(Boolean) && !(it > 0 && it <= 1)) errors.push(`Divider stock ${f(it)} isn’t usable — ${f(1 / 4)} is typical.`);
@@ -631,7 +739,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   });
   for (const g of insertGroups) {
     for (const piece of g.layout.pieces) {
-      const name = `${INSERT_NAMES[piece.role]} · ${drawerRange(g.indexes)}`;
+      const name = `${INSERT_NAMES[piece.role]} · ${range(g.indexes)}`;
       partDrawers[name] = g.indexes;
       partOutlines[name] = pieceOutline(piece.length, piece.height, piece.cuts);
       const slots = piece.cuts.length;
@@ -648,7 +756,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   // Load: contents weight against the slides, and how far the bottom sags.
   const load = DRAWER_LOADS[config.load ?? 'medium'];
   const loads: DrawerLoadCheck[] = drawers.map(d => {
-    const w = boxInsideWidth;
+    const w = d.box.width - 2 * b;
     const dd = d.box.depth - 2 * b;
     const pounds = load.psf * (w * dd) / 144;
     const sag = bt > 0 && w > 0 && dd > 0 ? bottomSag(w + 2 * BOTTOM_GROOVE_DEPTH, dd + 2 * BOTTOM_GROOVE_DEPTH, bt, load.psf) : 0;
@@ -656,17 +764,17 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     return { pounds, sag, sagLimit, overSlides: pounds > SLIDE_CAPACITY_LB, sags: sag > sagLimit };
   });
   const loadWord = load.label.split(' —')[0].toLowerCase();
-  const heavy = loads.map((l, i) => (l.overSlides ? i + 1 : 0)).filter(Boolean);
+  const heavy = drawers.filter((_, i) => loads[i].overSlides).map(d => d.index);
   if (heavy.length && errors.length === 0) {
     const most = Math.max(...loads.map(l => l.pounds));
-    warnings.push(`Full of ${loadWord} things, drawer${heavy.length === 1 ? '' : 's'} ${heavy.join(', ')} could hold about ${Math.round(most)} lb — more than the ${SLIDE_CAPACITY_LB} lb the slides are rated for. Use heavier-duty slides, or keep them lighter.`);
+    warnings.push(`Full of ${loadWord} things, ${range(heavy)} could hold about ${Math.round(most)} lb — more than the ${SLIDE_CAPACITY_LB} lb the slides are rated for. Use heavier-duty slides, or keep them lighter.`);
   }
-  const sagging = loads.map((l, i) => (l.sags ? i + 1 : 0)).filter(Boolean);
+  const sagging = drawers.filter((_, i) => loads[i].sags).map(d => d.index);
   if (sagging.length && errors.length === 0) {
     const worst = loads.reduce((w, l) => (l.sag / l.sagLimit > w.sag / w.sagLimit ? l : w));
     const needed = bt * Math.cbrt(worst.sag / worst.sagLimit);
     const thicker = [3 / 8, 1 / 2, 3 / 4].find(x => x >= needed - 1e-6) ?? 3 / 4;
-    warnings.push(`Under ${loadWord} loads the ${f(bt)} bottom${sagging.length === 1 ? '' : 's'} of drawer${sagging.length === 1 ? '' : 's'} ${sagging.join(', ')} would sag about ${worst.sag.toFixed(2)}″ — more than the ${worst.sagLimit.toFixed(2)}″ that stays flat. Use ${f(thicker)} bottoms, or glue a ${f(3 / 4)} × ${f(1.5)} stiffener across the middle underneath.`);
+    warnings.push(`Under ${loadWord} loads the ${f(bt)} bottom${sagging.length === 1 ? '' : 's'} of ${range(sagging)} would sag about ${worst.sag.toFixed(2)}″ — more than the ${worst.sagLimit.toFixed(2)}″ that stays flat. Use ${f(thicker)} bottoms, or glue a ${f(3 / 4)} × ${f(1.5)} stiffener across the middle underneath.`);
   }
 
   // Desk: units under a laminated top. Everything above is per unit, so multiply it out.
@@ -707,12 +815,15 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   }
 
   const bandingTotal = banding > 0
-    ? (2 * caseHeight + 2 * interiorWidth + n * 2 * frontWidth + fronts.reduce((a, h) => a + 2 * h, 0)) * unitCount
+    ? (2 * caseHeight + 2 * interiorWidth + (k - 1) * (caseHeight - 2 * T)
+      + drawers.reduce((a, d) => a + 2 * d.front.width + 2 * d.front.height, 0)) * unitCount
       // The desk top's front and ends (each layer's edge shows).
       + (desk ? (desk.width + 2 * desk.depth) * (config.desk?.topLayers ?? 1) : 0)
     : 0;
 
   return {
+    columns,
+    partitionXs,
     overallWidth: W,
     overallHeight: H,
     overallDepth: D,
@@ -737,11 +848,23 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   };
 }
 
-function drawerRange(indexes: number[]): string {
-  const nums = indexes.map(i => i + 1);
-  if (nums.length === 1) return `drawer ${nums[0]}`;
-  const contiguous = nums.every((v, i) => i === 0 || v === nums[i - 1] + 1);
-  return contiguous ? `drawers ${nums[0]}–${nums[nums.length - 1]}` : `drawers ${nums.join(', ')}`;
+/** "drawers 2–4", or with columns "column 1 drawers 1–3, column 2 drawer 1". */
+function drawerRange(indexes: number[], drawers: DrawerLayout[] = [], columnCount = 1): string {
+  const numbers = (nums: number[]) => {
+    if (nums.length === 1) return `drawer ${nums[0]}`;
+    const contiguous = nums.every((v, i) => i === 0 || v === nums[i - 1] + 1);
+    return contiguous ? `drawers ${nums[0]}–${nums[nums.length - 1]}` : `drawers ${nums.join(', ')}`;
+  };
+  if (columnCount <= 1) return numbers(indexes.map(i => i + 1));
+  const byColumn = new Map<number, number[]>();
+  for (const i of indexes) {
+    const d = drawers.find(x => x.index === i);
+    if (!d) continue;
+    const list = byColumn.get(d.column) ?? [];
+    list.push(drawers.filter(x => x.column === d.column).findIndex(x => x.index === i) + 1);
+    byColumn.set(d.column, list);
+  }
+  return [...byColumn].map(([c, nums]) => `column ${c + 1} ${numbers(nums)}`).join(', ');
 }
 
 // ── 3D solids ─────────────────────────────────────────────────────────────────
@@ -776,9 +899,10 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     box('Top', 'case', [T, H - T, 0], [W - T, H, id]),
     box('Bottom', 'case', [T, B, 0], [W - T, B + T, id]),
     box('Back', 'back', [T / 2, B, id], [W - T / 2, H, cd]),
+    ...plan.partitionXs.map((x, i) => box(plan.partitionXs.length === 1 ? 'Partition' : `Partition ${i + 1}`, 'case', [x, B + T, 0], [x + T, H - T, id])),
   ];
   for (const d of plan.drawers) {
-    const name = `Drawer ${d.index + 1}`;
+    const name = d.label;
     const first = solids.length;
     const fr = d.front;
     const hole = handHole(pull);
@@ -828,8 +952,9 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     }
     // Everything so far for this drawer slides out together; the slides stay put.
     for (const s of solids.slice(first)) { s.group = name; s.travel = d.box.depth * DRAWER_OPEN_FRACTION; }
-    solids.push(box(`${name} left slide`, 'slide', [T, d.slideY, 0], [T + SLIDE_CLEARANCE, d.slideY + SLIDE_HEIGHT, bx.depth]));
-    solids.push(box(`${name} right slide`, 'slide', [W - T - SLIDE_CLEARANCE, d.slideY, 0], [W - T, d.slideY + SLIDE_HEIGHT, bx.depth]));
+    // Slides fill the gap between the box and the side or partition on each side.
+    solids.push(box(`${name} left slide`, 'slide', [bx.x - SLIDE_CLEARANCE, d.slideY, 0], [bx.x, d.slideY + SLIDE_HEIGHT, bx.depth]));
+    solids.push(box(`${name} right slide`, 'slide', [bx.x + bx.width, d.slideY, 0], [bx.x + bx.width + SLIDE_CLEARANCE, d.slideY + SLIDE_HEIGHT, bx.depth]));
   }
   supportPositions(plan, config).forEach(([x, z], i) => {
     if (config.base === 'feet') {
@@ -909,7 +1034,12 @@ export interface SavedDrawerDesign {
 
 export function toSavedDrawerDesign(config: DrawerConfig, units: LengthUnit, heightMode: DrawerHeightMode = 'overall'): SavedDrawerDesign {
   const c: DrawerConfig = { ...config, units, pull: { ...config.pull } };
-  if (heightMode === 'overall') delete c.frontHeights;
+  if (heightMode === 'overall') {
+    delete c.frontHeights;
+    if (c.columns) c.columns = c.columns.map(col => ({ drawers: col.drawers, ...(col.width ? { width: col.width } : {}) }));
+  }
+  if (c.columns && c.columns.length > 1) delete c.frontHeights;
+  else delete c.columns;
   return { version: DRAWER_DESIGN_VERSION, kind: 'drawer-unit', units, heightMode, config: c };
 }
 
@@ -926,11 +1056,13 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
   const width = num(c.width, 1, 120);
   const height = num(c.height, 1, 120);
   const depth = num(c.depth, 1, 60);
-  const drawers = num(c.drawers, 1, 12);
+  const drawers = num(c.drawers, 1, 12 * MAX_COLUMNS);
   if (thickness === null || width === null || height === null || depth === null || drawers === null || !Number.isInteger(drawers)) return null;
   const heightMode: DrawerHeightMode = value.heightMode === 'fronts' ? 'fronts' : 'overall';
   let frontHeights: number[] | undefined;
-  if (heightMode === 'fronts') {
+  const columns = readColumns(c.columns, drawers, heightMode === 'fronts');
+  if (Array.isArray(c.columns) && c.columns.length > 1 && !columns) return null;
+  if (heightMode === 'fronts' && !columns) {
     if (!Array.isArray(c.frontHeights) || c.frontHeights.length !== drawers) return null;
     const list = c.frontHeights.map(h => num(h, 0.25, 60));
     if (list.some(h => h === null)) return null;
@@ -969,6 +1101,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       insertThickness: num(c.insertThickness, 0.05, 1) ?? 1 / 4,
       gridfinityBed: num(c.gridfinityBed, 100, 1000) ?? 256,
       desk: readDesk(c.desk),
+      columns,
       slideLengths: Array.isArray(c.slideLengths)
         ? Array.from({ length: drawers }, (_, i) => {
           const v = (c.slideLengths as unknown[])[i];
@@ -979,6 +1112,24 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       finish: readFinish(c.finish),
     },
   };
+}
+
+/** Columns must account for every drawer; anything inconsistent is dropped rather than guessed. */
+function readColumns(raw: unknown, drawers: number, fronts: boolean): DrawerColumn[] | undefined {
+  if (!Array.isArray(raw) || raw.length < 2 || raw.length > MAX_COLUMNS) return undefined;
+  const cols: DrawerColumn[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') return undefined;
+    const v = item as Record<string, unknown>;
+    const n = typeof v.drawers === 'number' && Number.isInteger(v.drawers) && v.drawers >= 1 && v.drawers <= 12 ? v.drawers : null;
+    if (n === null) return undefined;
+    const heights = Array.isArray(v.frontHeights) && v.frontHeights.length === n && v.frontHeights.every(h => typeof h === 'number' && h > 0 && h < 60)
+      ? v.frontHeights as number[] : undefined;
+    if (fronts && !heights) return undefined;
+    const width = typeof v.width === 'number' && v.width > 0 && v.width < 120 ? v.width : undefined;
+    cols.push({ drawers: n, ...(fronts ? { frontHeights: heights } : {}), ...(width ? { width } : {}) });
+  }
+  return cols.reduce((a, c) => a + c.drawers, 0) === drawers ? cols : undefined;
 }
 
 function readFinish(raw: unknown): DrawerFinish | undefined {
@@ -1076,6 +1227,14 @@ export interface DrawerDesignFields {
   finishCase: string;
   /** Printer bed in mm, as typed. */
   gridfinityBed: string;
+  /** 1 for a single stack; 2–4 for columns side by side. */
+  columns: number;
+  columnWidthMode: 'equal' | 'custom';
+  /** Each column's clear opening (the last takes whatever's left). */
+  columnWidths: string[];
+  /** With columns: each column's drawer count and front heights. */
+  columnDrawers: number[];
+  columnFronts: string[][];
 }
 
 export type InsertKind = 'none' | 'grid' | 'markers' | 'gridfinity';
@@ -1096,13 +1255,14 @@ export const EXTRA_FIELD_DEFAULTS = {
 export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFields {
   const { config: c, units } = saved;
   const L = (inches: number) => lengthToField(inches, units);
-  const fronts = frontHeightsOf(c);
+  const cols = columnsOf(c);
+  const fronts = cols.length > 1 ? (cols[0].frontHeights ?? frontHeightsOf({ ...c, drawers: cols[0].drawers, frontHeights: undefined })) : frontHeightsOf(c);
   const marker = c.inserts?.find((x): x is Extract<DrawerInsert, { kind: 'markers' }> => x?.kind === 'markers');
   return {
     units,
     thickness: L(c.thickness),
     width: L(c.width),
-    height: L(c.frontHeights ? overallFromFronts(c.frontHeights, c) : c.height),
+    height: L((cols[0].frontHeights ?? c.frontHeights) ? overallFromFronts((cols[0].frontHeights ?? c.frontHeights)!, c) : c.height),
     depth: L(c.depth),
     heightMode: saved.heightMode,
     drawers: c.drawers,
@@ -1139,5 +1299,10 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     finishFront: c.finish?.front ?? DEFAULT_FINISH.front,
     finishCase: c.finish?.case ?? DEFAULT_FINISH.case,
     gridfinityBed: String(c.gridfinityBed ?? 256),
+    columns: cols.length,
+    columnWidthMode: cols.some(x => x.width) ? 'custom' : 'equal',
+    columnWidths: cols.map(x => (x.width ? L(x.width) : '')),
+    columnDrawers: cols.map(x => x.drawers),
+    columnFronts: cols.map(x => (x.frontHeights ?? equalFronts(x.drawers, c.height - baseHeightOf(c) - x.drawers * c.gap)).map(L)),
   };
 }
