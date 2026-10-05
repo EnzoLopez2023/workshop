@@ -142,3 +142,21 @@ test('Add to project writes drawer parts and the cost lines the project page rea
   assert.equal(parseInches(side.thickness), 0.75);
   assert.ok(rows.some(r => parseInches(r.thickness) === 0.25), 'thin back and bottoms keep their thickness');
 });
+
+test('build progress is saved per project and per guide, and checked', async () => {
+  const id = await createProject();
+  assert.deepEqual(await (await request(`/api/projects/${id}/build-progress`)).json(), { progress: {} });
+  const put = await request(`/api/projects/${id}/build-progress`, { method: 'PUT', body: { kind: 'drawer', done: ['cut', 'case', 'cut'] } });
+  assert.equal(put.status, 200);
+  await request(`/api/projects/${id}/build-progress`, { method: 'PUT', body: { kind: 'shelf', done: ['overview'] } });
+  assert.deepEqual((await (await request(`/api/projects/${id}/build-progress`)).json()).progress, { drawer: ['cut', 'case'], shelf: ['overview'] });
+
+  for (const body of [{ kind: 'boat', done: [] }, { kind: 'drawer', done: 'cut' }, { kind: 'drawer', done: [''] }, { kind: 'drawer', done: ['x'.repeat(65)] }]) {
+    assert.equal((await request(`/api/projects/${id}/build-progress`, { method: 'PUT', body })).status, 400, JSON.stringify(body));
+  }
+  assert.equal((await request('/api/projects/999999/build-progress')).status, 404);
+  assert.equal((await request(`/api/projects/${id}/build-progress`, { user: USER_B })).status === 200
+    ? (await (await request(`/api/projects/${id}/build-progress`, { user: USER_B })).json()).progress.drawer : undefined, undefined, 'another account never sees it');
+  const demo = await request(`/api/projects/${id}/build-progress`, { user: null, method: 'PUT', body: { kind: 'drawer', done: [] }, headers: { 'X-Demo': '1' } });
+  assert.equal(demo.status, 403);
+});

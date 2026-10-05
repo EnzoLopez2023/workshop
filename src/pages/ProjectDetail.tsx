@@ -12,7 +12,7 @@ import {
   addFinishLogEntry, deleteFinishLogEntry,
   addProjectLink, removeProjectLink,
   listProjects, togglePurchased as apiTogglePurchased,
-  saveAsTemplate, getShelfDesign, getDrawerDesign,
+  saveAsTemplate, getShelfDesign, getDrawerDesign, getBuildProgress, saveBuildProgress,
 } from '../services/api';
 import { buildShelfPlan, formatLength, readSavedShelfDesign, shelfSolids, type SavedShelfDesign } from '../lib/shelving';
 import { buildDrawerPlan, deskSolids, finishColors, readSavedDrawerDesign, type SavedDrawerDesign } from '../lib/drawerUnit';
@@ -749,9 +749,35 @@ function ChipGroup({ label, items }: { label: string; items: string[] }) {
   );
 }
 
+/** Build-guide progress saved on the project, for the shelf or drawer guide. */
+function useBuildTracker(projectId: number, kind: 'shelf' | 'drawer') {
+  const [done, setDone] = useState<string[]>([]);
+  const [status, setStatus] = useState<string>('');
+  useEffect(() => {
+    let cancelled = false;
+    getBuildProgress(projectId)
+      .then(({ progress }) => !cancelled && setDone(progress[kind] ?? []))
+      .catch(() => !cancelled && setStatus('progress couldn’t be loaded'));
+    return () => { cancelled = true; };
+  }, [projectId, kind]);
+  const onChange = (next: string[]) => {
+    const before = done;
+    setDone(next);
+    setStatus('saving…');
+    saveBuildProgress(projectId, kind, next)
+      .then(() => setStatus('saved on this project'))
+      .catch(err => {
+        setDone(before);
+        setStatus(`not saved: ${err instanceof Error && err.message ? err.message : 'the request failed'}`);
+      });
+  };
+  return { done, onChange, status };
+}
+
 function ProjectShelfPreview({ projectId, projectTitle }: { projectId: number; projectTitle: string }) {
   const [design, setDesign] = useState<SavedShelfDesign | null>(null);
   const [showGuide, setShowGuide] = useState(false);
+  const tracker = useBuildTracker(projectId, 'shelf');
 
   useEffect(() => {
     let cancelled = false;
@@ -834,7 +860,7 @@ function ProjectShelfPreview({ projectId, projectTitle }: { projectId: number; p
       {showGuide ? (
         <div id="project-build-guide">
           <Suspense fallback={<p className="project-shelf-summary" role="status">Loading the build guide…</p>}>
-            <ShelfBuildGuide plan={plan} config={config} units={units} title={projectTitle} />
+            <ShelfBuildGuide plan={plan} config={config} units={units} title={projectTitle} progress={tracker} />
           </Suspense>
         </div>
       ) : (
@@ -848,6 +874,7 @@ function ProjectShelfPreview({ projectId, projectTitle }: { projectId: number; p
 function ProjectDrawerPreview({ projectId, projectTitle }: { projectId: number; projectTitle: string }) {
   const [design, setDesign] = useState<SavedDrawerDesign | null>(null);
   const [showGuide, setShowGuide] = useState(false);
+  const tracker = useBuildTracker(projectId, 'drawer');
 
   useEffect(() => {
     let cancelled = false;
@@ -873,7 +900,7 @@ function ProjectDrawerPreview({ projectId, projectTitle }: { projectId: number; 
   const { plan, solids } = preview;
   const { config, units } = design;
   const f = (inches: number) => formatLength(inches, units);
-  const n = plan.drawers.length;
+  const n = plan.drawers.filter(d => !d.open).length;
   const summary = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.overallDepth)} deep`;
   const base = config.base === 'feet' ? `${plan.supports} leveling feet` : config.base === 'casters' ? `${plan.supports} casters` : 'on the floor';
   const pull = !config.pull.enabled ? 'no finger pulls'
@@ -927,7 +954,7 @@ function ProjectDrawerPreview({ projectId, projectTitle }: { projectId: number; 
       {showGuide ? (
         <div id="project-drawer-guide">
           <Suspense fallback={<p className="project-shelf-summary" role="status">Loading the build guide…</p>}>
-            <DrawerBuildGuide plan={plan} config={config} units={units} title={projectTitle} />
+            <DrawerBuildGuide plan={plan} config={config} units={units} title={projectTitle} progress={tracker} />
           </Suspense>
         </div>
       ) : (

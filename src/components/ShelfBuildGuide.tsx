@@ -9,9 +9,11 @@ interface Props {
   units: LengthUnit;
   /** Heading for the printed guide, e.g. the project name. */
   title?: string;
+  /** Build tracker: finished step ids and where to save them. */
+  progress?: { done: string[]; onChange: (done: string[]) => void; status?: string };
 }
 
-export default function ShelfBuildGuide({ plan, config, units, title = 'Shelving unit' }: Props) {
+export default function ShelfBuildGuide({ plan, config, units, progress, title = 'Shelving unit' }: Props) {
   const guide = useMemo(() => buildGuideSteps(plan, config, units), [plan, config, units]);
   const f = (inches: number) => formatLength(inches, units);
   const subtitle = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.sideDepth)} deep · `
@@ -27,6 +29,7 @@ export default function ShelfBuildGuide({ plan, config, units, title = 'Shelving
       units={units}
       title={title}
       subtitle={subtitle}
+      progress={progress}
     />
   );
 }

@@ -60,6 +60,8 @@ export interface GuideStep {
   sheets?: GuideSheets;
   /** Caption for the blue parts, when "Added in this step" isn't right (e.g. "Parts to machine"). */
   highlightCaption?: string;
+  /** Rough working time, for the build tracker. */
+  minutes?: number;
 }
 
 export interface BuildGuide {
@@ -187,6 +189,8 @@ export function planSheetsByThickness(parts: ShelfPart[], units: LengthUnit): { 
     sheets: planPartSheets(parts.filter(p => Math.abs(p.thickness - thickness) < 1e-6), thickness, units),
   }));
 }
+
+export const escapeHtmlText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -693,6 +697,8 @@ export function guidePrintHtml(
   title: string,
   subtitle: string,
   formatDim: (inches: number) => string,
+  /** Sections printed before the guide (a build packet's cut list, hardware, jigs…). */
+  extraHtml = '',
 ): string {
   const steps = guide.steps.map((step, i) => {
     if (step.sheets) return printSheetsStep(step, step.sheets, i, formatDim);
@@ -750,9 +756,21 @@ export function guidePrintHtml(
   .sheet-grid figcaption { color: #58716B; font-size: 8.5pt; }
   .note { margin: 4pt 0 0; padding: 4pt 6pt; border-radius: 4pt; background: #EEF4F2; font-size: 9pt; }
   .caution { background: #FBF0DC; }
+  .packet { padding: 10pt 0; border-bottom: 0.75pt solid #C9DAD5; }
+  .packet h2 { margin: 0 0 6pt; }
+  .packet h3 { margin: 8pt 0 4pt; font-size: 11pt; }
+  .packet .jig { display: grid; grid-template-columns: 1.6in 1fr; gap: 10pt; padding: 6pt 0; break-inside: avoid; }
+  .packet .jig img { width: 100%; max-height: 1.2in; object-fit: contain; border: 0.75pt solid #C9DAD5; border-radius: 4pt; background: #fff; }
+  .packet .facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6pt; margin: 0; }
+  .packet .facts div { padding: 6pt; border: 0.75pt solid #C9DAD5; border-radius: 4pt; }
+  .packet .facts dt { color: #58716B; font-size: 8pt; }
+  .packet .facts dd { margin: 0; font-weight: 700; }
+  .page-break { break-before: page; }
   @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 </style></head><body>
 <header><h1>${escapeHtml(title)}</h1><p>${escapeHtml(subtitle)}</p></header>
+${extraHtml}
+${extraHtml ? '<h2 class="page-break">Build guide</h2>' : ''}
 ${steps}
 <script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 300); });<\/script>
 </body></html>`;

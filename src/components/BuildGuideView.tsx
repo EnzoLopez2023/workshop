@@ -18,6 +18,16 @@ interface Props {
   /** One line under the printed heading: sizes and materials. */
   subtitle: string;
   colors?: Partial<Record<SolidKind, number>>;
+  /** Build tracker: finished step ids, and where to save changes. */
+  progress?: { done: string[]; onChange: (done: string[]) => void; status?: string };
+}
+
+/** "about 3 h 20 min" */
+function duration(minutes: number): string {
+  const rounded = Math.max(5, Math.round(minutes / 5) * 5);
+  const h = Math.floor(rounded / 60);
+  const m = rounded % 60;
+  return `about ${h ? `${h} h` : ''}${h && m ? ' ' : ''}${m ? `${m} min` : ''}`;
 }
 
 // Images are keyed by step id so a redraw in progress never shows a picture under the wrong step.
@@ -27,7 +37,17 @@ type Images = { state: 'idle' } | { state: 'drawing'; done: number; total: numbe
 const REDRAW_DELAY_MS = 700;
 
 /** The illustrated, printable step list used by the Shelf Builder and the Drawer Builder. */
-export default function BuildGuideView({ guide, width, height, depth, wallMounted, units, title, subtitle, colors }: Props) {
+export default function BuildGuideView({ guide, width, height, depth, wallMounted, units, title, subtitle, colors, progress }: Props) {
+  const done = new Set(progress?.done ?? []);
+  const doneCount = guide.steps.filter(s => done.has(s.id)).length;
+  const timed = guide.steps.some(s => s.minutes);
+  const left = guide.steps.filter(s => !done.has(s.id)).reduce((a, s) => a + (s.minutes ?? 0), 0);
+  const toggle = (id: string, on: boolean) => {
+    if (!progress) return;
+    const next = new Set(done);
+    if (on) next.add(id); else next.delete(id);
+    progress.onChange(guide.steps.map(s => s.id).filter(x => next.has(x)));
+  };
   const colorKey = JSON.stringify(colors ?? {});
   const [images, setImages] = useState<Images>({ state: 'idle' });
   const [attempt, setAttempt] = useState(0);
@@ -92,6 +112,13 @@ export default function BuildGuideView({ guide, width, height, depth, wallMounte
           )}
           {images.state === 'ready' && `${guide.steps.length} steps · updates as you change the design`}
         </span>
+        {progress && (
+          <span className="shelf-guide-progress" role="status">
+            <progress max={guide.steps.length} value={doneCount} aria-label="Steps done" />
+            {doneCount} of {guide.steps.length} done{timed && left > 0 ? ` · ${duration(left)} to go` : doneCount === guide.steps.length ? ' — finished!' : ''}
+            {progress.status && <small> · {progress.status}</small>}
+          </span>
+        )}
         <Button variant="ghost" onClick={printGuide} disabled={images.state === 'drawing'}>
           <Printer size={16} aria-hidden="true" /> Print guide
         </Button>
@@ -112,15 +139,15 @@ export default function BuildGuideView({ guide, width, height, depth, wallMounte
           const url = images.state === 'ready' ? images.urls.get(step.id) : undefined;
           if (step.sheets) {
             return (
-              <li key={step.id} className="shelf-guide-step is-sheets">
-                <GuideStepBody step={step} index={index} />
+              <li key={step.id} className={`shelf-guide-step is-sheets${done.has(step.id) ? ' is-done' : ''}`}>
+                <GuideStepBody step={step} index={index} done={progress ? done.has(step.id) : undefined} onDone={on => toggle(step.id, on)} />
                 <SheetFigures sheets={step.sheets} units={units} />
               </li>
             );
           }
           const scene = step.scene!;
           return (
-            <li key={step.id} className="shelf-guide-step">
+            <li key={step.id} className={`shelf-guide-step${done.has(step.id) ? ' is-done' : ''}`}>
               <figure className="shelf-guide-figure">
                 {url ? (
                   <img
@@ -140,7 +167,7 @@ export default function BuildGuideView({ guide, width, height, depth, wallMounte
                 )}
               </figure>
 
-              <GuideStepBody step={step} index={index} />
+              <GuideStepBody step={step} index={index} done={progress ? done.has(step.id) : undefined} onDone={on => toggle(step.id, on)} />
             </li>
           );
         })}
@@ -149,12 +176,18 @@ export default function BuildGuideView({ guide, width, height, depth, wallMounte
   );
 }
 
-function GuideStepBody({ step, index }: { step: GuideStep; index: number }) {
+function GuideStepBody({ step, index, done, onDone }: { step: GuideStep; index: number; done?: boolean; onDone?: (done: boolean) => void }) {
   return (
     <div className="shelf-guide-body">
       <h3>
         <span className="shelf-guide-number" aria-hidden="true">{index + 1}</span>
         <span><span className="sr-only">Step {index + 1}: </span>{step.title}</span>
+        {done !== undefined && (
+          <label className="shelf-guide-done">
+            <input type="checkbox" checked={done} onChange={e => onDone?.(e.target.checked)} />
+            Done{step.minutes ? <small> · {duration(step.minutes)}</small> : null}
+          </label>
+        )}
       </h3>
       <p className="shelf-guide-summary">{step.summary}</p>
 

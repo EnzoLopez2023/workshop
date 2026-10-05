@@ -7,6 +7,13 @@ import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/u
 import { DimH, DimV, LengthField, Stat, Stepper, Toggle } from '../components/builderControls';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import DrawerExport from '../components/DrawerExport';
+import CuttingOrder from '../components/CuttingOrder';
+import { drawerPacketHtml } from '../lib/buildPacket';
+import { guidePrintHtml } from '../lib/buildGuide';
+import { drawerGuideSteps } from '../lib/drawerGuide';
+import { drawerJigs } from '../lib/drawerExport';
+import { quantityLabel } from '../lib/shelfEstimate';
+import GridfinityPlanner from '../components/GridfinityPlanner';
 import { useDrawerEstimate } from '../components/DrawerEstimate';
 import { CostTable, HardwareTable, money } from '../components/ShelfEstimate';
 import { DRAWER_PRICE_LABELS } from '../lib/drawerEstimate';
@@ -59,6 +66,8 @@ const STORAGE_KEY = 'workshop-drawer-builder';
 const VIEW_STORAGE_KEY = 'workshop-drawer-builder-view';
 /** The user's own product links for the hardware list. */
 const LINKS_STORAGE_KEY = 'workshop-drawer-links';
+/** Build-tracker progress for designs that aren't on a project. */
+const PROGRESS_STORAGE_KEY = 'workshop-drawer-progress';
 /** Which saved design is open (and its saved state), so returning to the page keeps the link. */
 const SOURCE_STORAGE_KEY = 'workshop-drawer-builder-source';
 /** The design that was in the builder before another was opened over it. */
@@ -94,6 +103,7 @@ const DEFAULT_FORM: FormState = {
   insertKinds: ['none', 'none', 'none', 'none', 'none'],
   gridColumns: [2, 2, 2, 2, 2],
   gridRows: [2, 2, 2, 2, 2],
+  gridfinityBins: [[], [], [], [], []],
   insertThickness: EXTRA_FIELD_DEFAULTS.insertThickness,
   markerDiameter: lengthToField(MARKER_PRESETS[0].diameter, 'in'),
   markerLength: lengthToField(MARKER_PRESETS[0].length, 'in'),
@@ -114,12 +124,16 @@ const DEFAULT_FORM: FormState = {
   columnWidths: [],
   columnDrawers: [5],
   columnFronts: [['5', '5', '5', '5', '5']],
+  mount: 'floor',
+  mountHeight: '30',
+  cleatHeight: '3',
 };
 
 const LENGTH_FIELDS = [
   'thickness', 'width', 'height', 'depth', 'gap', 'pullWidth', 'pullDepth',
   'boxThickness', 'bottomThickness', 'backThickness', 'footHeight', 'casterHeight',
   'insertThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
+  'mountHeight', 'cleatHeight',
 ] as const;
 type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}` | `columnFronts.${number}.${number}` | `columnWidths.${number}`;
 
@@ -131,6 +145,12 @@ const UNIT_OPTIONS = [
 const HEIGHT_MODE_OPTIONS = [
   { value: 'overall', label: 'Overall height' },
   { value: 'fronts', label: 'Each front' },
+] as const;
+
+const MOUNT_OPTIONS = [
+  { value: 'floor', label: 'On the floor' },
+  { value: 'wall', label: 'Wall-hung' },
+  { value: 'under-desk', label: 'Under a desk' },
 ] as const;
 
 const BASE_OPTIONS = [
@@ -205,6 +225,7 @@ function normalizeDrawers(input: FormState): FormState {
     insertKinds: fit(form.insertKinds, 'none'),
     gridColumns: fit(form.gridColumns, 2),
     gridRows: fit(form.gridRows, 2),
+    gridfinityBins: fit(form.gridfinityBins, []),
     drawerSlides: fit(form.drawerSlides, ''),
   };
 }
@@ -313,10 +334,11 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     slideLength: form.slideLength === 'auto' ? undefined : Number(form.slideLength),
     edgeBanding: form.edgeBanding,
     bandingThickness: parseLength(form.bandingThickness, form.units) ?? 0.02,
+    openSlots: form.insertKinds.slice(0, form.drawers).includes('cubby') ? form.insertKinds.slice(0, form.drawers).map(k => k === 'cubby') : undefined,
     inserts: form.insertKinds.slice(0, form.drawers).map((kind, i) =>
       kind === 'grid' ? { kind: 'grid', columns: form.gridColumns[i] ?? 2, rows: form.gridRows[i] ?? 2 }
         : kind === 'markers' ? marker
-          : kind === 'gridfinity' ? { kind: 'gridfinity' }
+          : kind === 'gridfinity' ? { kind: 'gridfinity', bins: form.gridfinityBins[i]?.length ? form.gridfinityBins[i] : undefined }
             : null),
     gridfinityBed: Number(form.gridfinityBed) || 256,
     insertThickness: form.insertKinds.slice(0, form.drawers).some(k => k !== 'none') ? num('insertThickness') : 1 / 4,
@@ -325,6 +347,9 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
       ? form.drawerSlides.slice(0, form.drawers).map(v => (v ? Number(v) : null))
       : undefined,
     load: form.load,
+    mount: form.mount,
+    mountHeight: form.mount === 'floor' ? undefined : num('mountHeight'),
+    cleatHeight: form.mount === 'wall' ? num('cleatHeight') : 3,
     finish: { front: form.finishFront, case: form.finishCase },
   };
   if (Object.keys(fieldErrors).length > 0) return { config: null, fieldErrors };
@@ -421,6 +446,57 @@ export default function DrawerBuilder() {
   const solids = useMemo(() => (plan && config && valid ? (plan.desk ? deskSolids(plan, config) : drawerSolids(plan, config)) : []), [plan, config, valid]);
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
   const estimate = useDrawerEstimate(plan && valid ? plan : null, valid ? config : null, units);
+
+  // Build packet: cut list, cutting order, hardware, jigs and prints ahead of the illustrated guide, in one printable page.
+  const [packetBusy, setPacketBusy] = useState(false);
+  const printPacket = async () => {
+    if (!plan || !config || packetBusy) return;
+    const win = window.open('', '_blank');
+    if (!win) {
+      setLoadNotice({ tone: 'error', text: 'Pop-up blocked — allow pop-ups for Workshop and try again.' });
+      return;
+    }
+    win.document.write('<p style="font:16px system-ui;padding:24px;color:#15332e">Preparing the build packet — drawing the illustrations…</p>');
+    setPacketBusy(true);
+    try {
+      const guide = drawerGuideSteps(plan, config, units);
+      let images = new Map<string, string>();
+      try {
+        const { renderGuideScenes } = await import('../lib/shelfRender');
+        const drawn = guide.steps.filter(step => step.scene !== null);
+        const urls = await renderGuideScenes({
+          solids: guide.solids, scenes: drawn.map(step => step.scene!), width: plan.overallWidth, height: plan.overallHeight + plan.lift,
+          depth: plan.caseDepth, wallMounted: plan.mount === 'wall', colors: finishColors(config.finish),
+        });
+        images = new Map(drawn.map((step, i) => [step.id, urls[i]]));
+      } catch (err) {
+        console.error('Packet illustrations failed', err);
+      }
+      const extra = drawerPacketHtml({
+        plan, config, units, jigs: drawerJigs(plan, config, fmt), quantity: quantityLabel,
+        hardware: estimate?.hardware ?? [],
+        cost: estimate ? { lines: estimate.estimate.lines, total: estimate.estimate.total } : undefined,
+      });
+      const title = source?.title ?? 'Drawer unit';
+      const subtitle = `${fmt(plan.overallWidth)} wide × ${fmt(plan.overallHeight)} tall × ${fmt(plan.overallDepth)} deep · build packet`;
+      win.document.open();
+      win.document.write(guidePrintHtml(guide, images, title, subtitle, fmt, extra));
+      win.document.close();
+    } finally {
+      setPacketBusy(false);
+    }
+  };
+
+  // Build tracker: finished guide steps, kept in this browser per design.
+  const progressKey = `${PROGRESS_STORAGE_KEY}:${source && source.kind !== 'template' ? `${source.kind}-${source.id}` : 'current'}`;
+  const [guideDone, setGuideDone] = useState<string[]>([]);
+  useEffect(() => {
+    try { setGuideDone(JSON.parse(localStorage.getItem(progressKey) ?? '[]') as string[]); } catch { setGuideDone([]); }
+  }, [progressKey]);
+  const saveGuideDone = (done: string[]) => {
+    setGuideDone(done);
+    try { localStorage.setItem(progressKey, JSON.stringify(done)); } catch { /* convenience only */ }
+  };
 
   const drawerLabel = (i: number) => plan?.drawers[i]?.label ?? `Drawer ${i + 1}`;
 
@@ -650,6 +726,7 @@ export default function DrawerBuilder() {
         insertKinds: regroup(prev.insertKinds),
         gridColumns: regroup(prev.gridColumns),
         gridRows: regroup(prev.gridRows),
+        gridfinityBins: regroup(prev.gridfinityBins),
         drawerSlides: regroup(prev.drawerSlides),
       };
       if (k === 1) { next.drawers = counts[0]; next.frontHeights = fronts[0]; }
@@ -671,6 +748,7 @@ export default function DrawerBuilder() {
         insertKinds: resizeColumnSlice(prev.insertKinds, counts, column, n, () => 'none' as const),
         gridColumns: resizeColumnSlice(prev.gridColumns, counts, column, n, last => last ?? 2),
         gridRows: resizeColumnSlice(prev.gridRows, counts, column, n, last => last ?? 2),
+        gridfinityBins: resizeColumnSlice(prev.gridfinityBins, counts, column, n, () => []),
         drawerSlides: resizeColumnSlice(prev.drawerSlides, counts, column, n, () => ''),
         columnDrawers: counts.map((c, i) => (i === column ? n : c)),
         columnFronts: prev.columnFronts.map((list, i) => (i !== column ? list
@@ -1110,7 +1188,7 @@ export default function DrawerBuilder() {
                       label={`Drawer ${i + 1}${i === 0 ? ' (top)' : i === form.drawers - 1 ? ' (bottom)' : ''}`}
                       value={value}
                       error={fieldErrors[`frontHeights.${i}`]}
-                      hint={plan?.drawers[i] ? `Box ${fmt(plan.drawers[i].box.height)} tall` : undefined}
+                      hint={plan?.drawers[i] ? (plan.drawers[i].open ? 'Open cubby' : `Box ${fmt(plan.drawers[i].box.height)} tall`) : undefined}
                       onChange={v => setFront(i, v)}
                     />
                   ))}
@@ -1123,7 +1201,7 @@ export default function DrawerBuilder() {
             )}
             {form.heightMode === 'overall' && plan && plan.drawers.length > 0 && plan.columns.length === 1 && (
               <p className="shelf-group-note">
-                Fronts {fmt(plan.drawers[0].front.height)} tall; boxes {[...new Set(plan.drawers.map(d => fmt(d.box.height)))].join(' and ')}.
+                Fronts {fmt(plan.drawers[0].front.height)} tall; boxes {[...new Set(plan.drawers.filter(d => !d.open).map(d => fmt(d.box.height)))].join(' and ')}.
               </p>
             )}
             <span className="shelf-source-actions">
@@ -1195,6 +1273,7 @@ export default function DrawerBuilder() {
                       <option value="grid">Divider grid</option>
                       <option value="markers">Marker tray</option>
                       <option value="gridfinity">Gridfinity baseplate</option>
+                      <option value="cubby">Open cubby (no drawer)</option>
                     </select>
                     {kind === 'grid' && (
                       <span className="drawer-insert-grid">
@@ -1202,6 +1281,15 @@ export default function DrawerBuilder() {
                         <span aria-hidden="true">×</span>
                         <Stepper labelledBy={`insert-${i}`} value={form.gridRows[i] ?? 2} min={1} max={12} onChange={v => setInsert(i, { gridRows: Math.max(1, Math.min(12, v)) })} noun="row" />
                       </span>
+                    )}
+                    {kind === 'gridfinity' && layout?.gridfinity && !layout.gridfinity.error && (
+                      <GridfinityPlanner
+                        layout={layout.gridfinity}
+                        packing={layout.binPacking}
+                        bins={form.gridfinityBins[i] ?? []}
+                        onChange={bins => setForm(prev => ({ ...prev, gridfinityBins: prev.gridfinityBins.map((v, k) => (k === i ? bins : v)) }))}
+                        label={drawerLabel(i)}
+                      />
                     )}
                     {layout && !layout.error && (
                       <small className="is-muted">
@@ -1314,9 +1402,26 @@ export default function DrawerBuilder() {
           </fieldset>
 
           <fieldset className="shelf-group">
-            <legend>Base</legend>
+            <legend>Base &amp; mounting</legend>
+            <SegmentedControl
+              label="Mounting"
+              value={form.mount}
+              options={MOUNT_OPTIONS}
+              onChange={mount => update({ mount, mountHeight: form.mount === mount ? form.mountHeight : lengthToField(mount === 'under-desk' ? 27.5 : 30, units) })}
+            />
+            {form.mount === 'wall' && (
+              <div className="shelf-field-grid">
+                <LengthField unit={units} label="Bottom above the floor" value={form.mountHeight} error={fieldErrors.mountHeight} hint="Where it hangs, for the 3D view and the hanging step." onChange={mountHeight => update({ mountHeight })} />
+                <LengthField unit={units} label="Cleat height" value={form.cleatHeight} error={fieldErrors.cleatHeight} hint="The back moves forward by the cleat’s thickness; the sides hide it." onChange={cleatHeight => update({ cleatHeight })} />
+              </div>
+            )}
+            {form.mount === 'under-desk' && (
+              <LengthField unit={units} label="Desk underside above the floor" value={form.mountHeight} error={fieldErrors.mountHeight} hint="It’s screwed up through its top into the desk." onChange={mountHeight => update({ mountHeight })} />
+            )}
+            {form.mount === 'floor' && (
             <SegmentedControl label="Base" value={form.base} options={BASE_OPTIONS} onChange={base => update({ base })} />
-            {form.base === 'feet' && (
+            )}
+            {form.mount === 'floor' && form.base === 'feet' && (
               <LengthField
                 unit={units}
                 label="Gap under the case"
@@ -1326,7 +1431,7 @@ export default function DrawerBuilder() {
                 onChange={footHeight => update({ footHeight })}
               />
             )}
-            {form.base === 'casters' && (
+            {form.mount === 'floor' && form.base === 'casters' && (
               <LengthField
                 unit={units}
                 label="Caster height"
@@ -1412,8 +1517,8 @@ export default function DrawerBuilder() {
                 <Stat
                   label="Slides"
                   value={plan.slideLength > 0
-                    ? [...new Set(plan.drawers.map(d => d.box.depth))].sort((a, b) => b - a)
-                      .map(l => `${plan.drawers.filter(d => d.box.depth === l).length * plan.unitCount} × ${fmt(l)}`).join(' + ')
+                    ? [...new Set(plan.drawers.filter(d => !d.open).map(d => d.box.depth))].sort((a, b) => b - a)
+                      .map(l => `${plan.drawers.filter(d => !d.open && d.box.depth === l).length * plan.unitCount} × ${fmt(l)}`).join(' + ') || '—'
                     : '—'}
                   accent
                 />
@@ -1423,9 +1528,9 @@ export default function DrawerBuilder() {
                   <ShelfViewer3D
                     solids={solids}
                     width={plan.desk ? plan.desk.width : plan.overallWidth}
-                    height={plan.desk ? plan.desk.height : plan.overallHeight}
+                    height={plan.desk ? plan.desk.height : plan.overallHeight + plan.lift + (plan.mount === 'under-desk' ? 1.5 : 0)}
                     depth={plan.desk ? plan.desk.depth : plan.caseDepth}
-                    wallMounted={false}
+                    wallMounted={plan.mount === 'wall'}
                     colors={finishColors(config.finish)}
                     label={plan.desk
                       ? `3D view of a ${fmt(plan.desk.width)} desk on ${plan.unitCount} drawer unit${plan.unitCount === 1 ? '' : 's'}`
@@ -1528,6 +1633,16 @@ export default function DrawerBuilder() {
             )}
           </section>
 
+          <section className="shelf-section" aria-labelledby="drawer-order-title">
+            <header className="shelf-section-head">
+              <div>
+                <h2 id="drawer-order-title">Cutting order</h2>
+                <p>The cut list as saw setups — every cut at one fence or stop setting before you move it.</p>
+              </div>
+            </header>
+            <CuttingOrder parts={plan.parts} units={units} />
+          </section>
+
           <section className="shelf-section" aria-labelledby="drawer-export-title">
             <header className="shelf-section-head">
               <div>
@@ -1580,7 +1695,7 @@ export default function DrawerBuilder() {
               </div>
             </header>
             <ul className="shelf-marks">
-              {plan.drawers.map(d => (
+              {plan.drawers.filter(d => !d.open).map(d => (
                 <li key={d.index}>
                   <strong>Drawer {d.index + 1}</strong>
                   <span className="is-muted">front {fmt(d.front.height)} · box {fmt(d.box.height)}</span>
@@ -1597,6 +1712,9 @@ export default function DrawerBuilder() {
                 <p>Step-by-step instructions with an illustration of every stage, using this design’s measurements.</p>
               </div>
               <div className="shelf-section-actions">
+                <Button variant="ghost" onClick={() => void printPacket()} disabled={packetBusy}>
+                  {packetBusy ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <Printer size={16} aria-hidden="true" />} Print build packet
+                </Button>
                 <Button variant={showGuide ? 'secondary' : 'primary'} onClick={() => setShowGuide(open => !open)} aria-expanded={showGuide} aria-controls="drawer-guide">
                   <BookOpen size={16} aria-hidden="true" /> {showGuide ? 'Hide guide' : 'Show build guide'}
                 </Button>
@@ -1604,7 +1722,13 @@ export default function DrawerBuilder() {
             </header>
             {showGuide && (
               <div id="drawer-guide">
-                <DrawerBuildGuide plan={plan} config={config} units={units} title={source?.title} />
+                <DrawerBuildGuide
+                  plan={plan}
+                  config={config}
+                  units={units}
+                  title={source?.title}
+                  progress={{ done: guideDone, onChange: saveGuideDone, status: source?.kind === 'project' ? 'saved in this browser — open the project to track it there' : 'saved in this browser' }}
+                />
               </div>
             )}
           </section>
@@ -1652,6 +1776,15 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
           : [config.thickness + 1.5, W - config.thickness - 4].map(x => <circle key={x} className="drawer-foot" cx={x + 1.25} cy={H - B / 2} r={B / 2 * 0.9} />))}
         {plan.drawers.map(d => {
           const hole = handHole(pull);
+          if (d.open) {
+            const c = plan.columns[d.column];
+            return (
+              <g key={d.index}>
+                <rect className="drawer-notch" x={c.x} y={y(d.front.y + d.front.height + config.gap / 2)} width={c.width} height={d.front.height + config.gap} />
+                {d.shelfY !== null && <rect className="shelf-ply" x={c.x} y={y(d.shelfY + config.thickness)} width={c.width} height={config.thickness} />}
+              </g>
+            );
+          }
           return (
             <g key={d.index}>
               <polygon
@@ -1680,7 +1813,7 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
 
 function DrawerSection({ plan, config, fmt }: { plan: DrawerPlan; config: DrawerConfig; fmt: (inches: number) => string }) {
   const T = config.thickness;
-  const d = plan.drawers[0];
+  const d = plan.drawers.find(x => !x.open);
   if (!d) return null;
   const depth = plan.overallDepth;
   const Hs = Math.max(d.front.height + T * 2, 6);

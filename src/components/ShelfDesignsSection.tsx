@@ -34,7 +34,7 @@ function describeDrawers(entry: LibraryShelfDesign): Described {
   const plan = buildDrawerPlan(saved.config);
   if (plan.errors.length) return null;
   const f = (inches: number) => formatLength(inches, saved.units);
-  const n = plan.drawers.length;
+  const n = plan.drawers.filter(d => !d.open).length;
   const base = saved.config.base === 'feet' ? ' · feet' : saved.config.base === 'casters' ? ' · casters' : '';
   return {
     thumb: drawerThumbnailDataUrl(plan, saved.config.pull, 120, saved.config.finish?.front),

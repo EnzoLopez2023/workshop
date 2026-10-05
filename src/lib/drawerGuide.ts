@@ -6,6 +6,7 @@ import {
   BOTTOM_GROOVE_DEPTH,
   BOTTOM_GROOVE_OFFSET,
   BOX_NOTCH_EXTRA,
+  boxedDrawers,
   deskSolids,
   drawerSolids,
   FINGER_ROOM,
@@ -30,7 +31,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const names = (match: (name: string) => boolean) => unitSolids.filter(s => match(s.name)).map(s => s.name);
   const T = config.thickness;
   const b = config.boxThickness;
-  const n = plan.drawers.length;
+  const boxed = boxedDrawers(plan);
+  const cubbies = plan.drawers.filter(d => d.open);
+  const n = boxed.length;
   const pull = config.pull.enabled ? config.pull : null;
   const sized = (parts: ShelfPart[]): GuidePart[] =>
     parts.map(p => ({ name: p.name, qty: p.qty, size: `${f(p.length)} × ${f(p.width)} × ${f(p.thickness)}` }));
@@ -60,10 +63,11 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       !pull ? 'The fronts have no finger pull — add knobs or pulls of your choice.'
         : pull.shape === 'handhole'
           ? `Instead of handles, each front has a ${f(pull.width)} × ${f(pull.depth)} hand hole just below its top edge, and the box front behind it is notched so your fingers can hook the front.`
-          : `Instead of handles, each front has a ${pull.shape === 'arc' ? 'shallow arc' : pull.shape === 'wide' ? 'long slot' : 'rounded slot'} cut into its top edge — ${f(pullWidth(pull, plan.drawers[0]?.front.width ?? 0))} wide and ${f(pull.depth)} deep — and the box front behind it is notched so your fingers can hook the front.`,
+          : `Instead of handles, each front has a ${pull.shape === 'arc' ? 'shallow arc' : pull.shape === 'wide' ? 'long slot' : 'rounded slot'} cut into its top edge — ${f(pullWidth(pull, boxed[0]?.front.width ?? 0))} wide and ${f(pull.depth)} deep — and the box front behind it is notched so your fingers can hook the front.`,
       plan.columns.length > 1
         ? `${plan.columns.length} columns of drawers (openings ${plan.columns.map(c => f(c.width)).join(', ')}) with ${f(T)} partitions between them; ${plan.columns.map(c => `column ${c.index + 1} has ${c.drawers.length}`).join(', ')}.`
-        : `Fronts are ${plan.drawers.map(d => f(d.front.height)).join(', ')} tall (top to bottom), with ${f(config.gap)} gaps.`,
+        : `Fronts are ${boxed.map(d => f(d.front.height)).join(', ')} tall (top to bottom), with ${f(config.gap)} gaps.`,
+      ...(cubbies.length ? [`${cubbies.length === 1 ? 'One position is an open cubby' : `${cubbies.length} positions are open cubbies`} (${cubbies.map(d => d.label.toLowerCase()).join(', ')}), with a fixed shelf for a floor where it isn’t at the bottom.`] : []),
       ...(plan.desk ? [`${plan.unitCount === 2 ? 'Two units go' : 'The unit goes'} under a ${f(plan.desk.width)} × ${f(plan.desk.depth)} desk top, ${f(plan.desk.height)} off the floor.`] : []),
     ],
     parts: [],
@@ -134,7 +138,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
 
   // 5 ── Finger pulls
   if (pull) {
-    const across = pullWidth(pull, plan.drawers[0]?.front.width ?? 0);
+    const across = pullWidth(pull, boxed[0]?.front.width ?? 0);
     const R = pull.shape === 'arc' ? (pull.width ** 2 / 4 + pull.depth ** 2) / (2 * pull.depth) : 0;
     const notched = plan.drawers.filter(d => d.boxNotchDepth > 0);
     steps.push({
@@ -189,6 +193,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     instructions: [
       'Lay a side inside face up; stand the top and bottom on it, flush at the front and set back from the rabbet.',
       'Glue, then drive four screws through the side into each panel. Repeat with the other side.',
+      ...(cubbies.some(d => d.shelfY !== null) ? [
+        `Fix the cubby shelves: ${cubbies.filter(d => d.shelfY !== null).map(d => `${d.label.toLowerCase()}’s, its top ${f(d.shelfY! + T - plan.baseHeight)} up from the bottom edge of the side`).join('; ')}. Glue and screw through the sides into their ends.`,
+      ] : []),
       ...(plan.partitionXs.length ? [
         `Stand the partition${plan.partitionXs.length > 1 ? 's' : ''} between the top and bottom at ${plan.partitionXs.map(x => f(x - T)).join(' and ')} from the inside of the left side, front edges flush; glue and screw through the top and bottom into each.`,
       ] : []),
@@ -242,7 +249,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     summary: `${slideCounts(plan, f)}, front ends flush with the front edge of the case.`,
     instructions: [
       'Pull each slide apart: extend it fully and press the release lever to take off the drawer member.',
-      `Mark the bottom edge of each slide on both sides of its opening, measured up from the bottom edge of the case side: ${plan.drawers.map(d => `${d.label.toLowerCase()} at ${f(d.slideMark)}`).join(', ')}${plan.partitionXs.length ? ` (on a partition, ${f(T)} less — it starts on the bottom panel)` : ''}. The slide story stick from the shop jigs gives the same marks without measuring.`,
+      `Mark the bottom edge of each slide on both sides of its opening, measured up from the bottom edge of the case side: ${boxed.map(d => `${d.label.toLowerCase()} at ${f(d.slideMark)}`).join(', ')}${plan.partitionXs.length ? ` (on a partition, ${f(T)} less — it starts on the bottom panel)` : ''}. The slide story stick from the shop jigs gives the same marks without measuring.`,
       'Screw each cabinet member on with its bottom on the line and its front end flush with the case front.',
     ],
     parts: [],
@@ -259,12 +266,12 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   steps.push({
     id: 'boxes',
     title: 'Build the drawer boxes',
-    summary: `${n} boxes, ${[...new Set(plan.drawers.map(d => f(d.box.width)))].join(' or ')} wide and ${[...new Set(plan.drawers.map(d => f(d.box.depth)))].join(' or ')} deep.`,
+    summary: `${n} boxes, ${[...new Set(boxed.map(d => f(d.box.width)))].join(' or ')} wide and ${[...new Set(boxed.map(d => f(d.box.depth)))].join(' or ')} deep.`,
     instructions: [
       'Glue the front and back into the side rabbets, slide the bottom into its groove, then add the second side.',
       'Brad each corner through the side (three per corner).',
       'Check both diagonals across the top; nudge until they match, then let it set.',
-      `Each box must measure ${[...new Set(plan.drawers.map(d => f(d.box.width)))].join(' or ')} across — exactly its opening less ${f(SLIDE_CLEARANCE * 2)}.`,
+      `Each box must measure ${[...new Set(boxed.map(d => f(d.box.width)))].join(' or ')} across — exactly its opening less ${f(SLIDE_CLEARANCE * 2)}.`,
     ],
     parts: sized(partsWhere(['Box'])),
     tips: [
@@ -281,7 +288,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     title: 'Attach the drawer members and fit the drawers',
     summary: 'The other half of each slide goes on the box, then the boxes go in.',
     instructions: [
-      ...plan.drawers.map(d => `${d.label}: slide member’s bottom edge ${f(d.slideY - d.box.y)} up from the bottom of the box, front end flush with the box front.`),
+      ...boxed.map(d => `${d.label}: slide member’s bottom edge ${f(d.slideY - d.box.y)} up from the bottom of the box, front end flush with the box front.`),
       'Line the box members up with the case members and push each drawer in until it soft-closes.',
     ],
     parts: [],
@@ -363,6 +370,39 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     });
   }
 
+  // 13c ── Hanging it
+  if (plan.mount === 'wall') {
+    steps.push({
+      id: 'install',
+      title: 'Hang it on the French cleat',
+      summary: `The wall cleat goes into the studs; the unit’s cleat hooks over it, ${f(plan.lift)} off the floor.`,
+      instructions: [
+        `Find the studs and mark a level line ${f(plan.lift + plan.overallHeight - config.thickness)} up the wall — the top edge of the cabinet cleat.`,
+        `Screw the wall cleat into every stud it crosses, bevel up and facing the wall, its top edge ${f(config.cleatHeight ?? 3)} below that line.`,
+        'Take the drawers out, lift the unit and lower it so its cleat drops onto the wall cleat. Then put the drawers back.',
+      ],
+      parts: sized(plan.parts.filter(p => /cleat|spacer/i.test(p.name))),
+      tips: ['Screw the cabinet cleat to the back and up through the top before hanging — it carries everything.'],
+      cautions: ['Loaded drawers are heavy: use 3″ structural screws into studs, never drywall anchors.'],
+      scene: { view: 'back', visible: everything.filter(n => !/cleat|spacer/i.test(n)), highlight: names(n => /cleat|spacer/i.test(n)) },
+    });
+  } else if (plan.mount === 'under-desk') {
+    steps.push({
+      id: 'install',
+      title: 'Hang it under the desk',
+      summary: `Screwed up through its top into the desk, ${f(plan.lift)} off the floor.`,
+      instructions: [
+        'Take the drawers out. With a helper, hold the unit up under the desk where you want it (clamp a scrap across the desk front as a stop).',
+        `Drive eight ${f(1.25)} screws up through the unit’s top into the desk, two near each corner — short enough not to come through the desk top.`,
+        'Put the drawers back.',
+      ],
+      parts: [],
+      tips: ['Pre-drill the top panel and countersink from inside the case.'],
+      cautions: ['Check the desk top is solid wood or thick plywood; screws pull out of thin particleboard.'],
+      scene: { view: 'front', visible: everything.filter(n => n !== 'Desk (existing)'), highlight: names(n => n === 'Desk (existing)') },
+    });
+  }
+
   // 14 ── Finish
   steps.push({
     id: 'finish',
@@ -379,14 +419,42 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     scene: { view: 'front', visible: everything, highlight: [] },
   });
 
+  // Rough working time per step, for the build tracker (a first build, unhurried).
+  const u = plan.unitCount;
+  const pieces = plan.parts.reduce((a, p) => a + p.qty, 0);
+  const machined = (2 + n * 4) * u;
+  const withInserts = plan.inserts.filter(Boolean).length * u;
+  const minutes: Record<string, number> = {
+    cut: 3 * pieces,
+    joinery: 2 * machined,
+    pulls: 15 * n * u,
+    tnuts: 20 * u,
+    case: (45 + 15 * plan.partitionXs.length + 10 * cubbies.length) * u,
+    back: 20 * u,
+    casters: 20 * u,
+    slides: 15 * n * u,
+    boxes: 20 * n * u,
+    drawers: 8 * n * u,
+    inserts: 30 * withInserts,
+    fronts: 10 * n * u,
+    desk: 45,
+    install: 40,
+    finish: 90 + 10 * n * u,
+  };
+  for (const step of steps) {
+    if (step.id.startsWith('sheets-')) step.minutes = Math.round(10 * (step.sheets?.layouts.length ?? 1));
+    else if (minutes[step.id]) step.minutes = minutes[step.id];
+  }
+
   return { steps, solids };
 }
 
 /** "5 pairs of 20\" slides" or "4 pairs of 20\" and 1 pair of 12\" slides". */
 function slideCounts(plan: DrawerPlan, f: (inches: number) => string): string {
-  const lengths = [...new Set(plan.drawers.map(d => d.box.depth))].sort((a, b) => b - a);
+  const boxed = boxedDrawers(plan);
+  const lengths = [...new Set(boxed.map(d => d.box.depth))].sort((a, b) => b - a);
   const parts = lengths.map(l => {
-    const n = plan.drawers.filter(d => d.box.depth === l).length;
+    const n = boxed.filter(d => d.box.depth === l).length;
     return `${n} pair${n === 1 ? '' : 's'} of ${f(l)}`;
   });
   return `${parts.join(' and ')} slides`;

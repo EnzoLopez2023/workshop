@@ -148,3 +148,136 @@ export function baseplateStl(columns: number, rows: number, name = 'gridfinity-b
   }
   return `solid ${name}\n${facets.join('\n')}\nendsolid ${name}\n`;
 }
+
+// ── Bins ─────────────────────────────────────────────────────────────────────
+
+/** A bin size and how many: w × d grid units, u × 7 mm tall. */
+export interface GridfinityBin {
+  w: number;
+  d: number;
+  u: number;
+  qty: number;
+}
+
+export interface BinPlacement {
+  /** Grid cell of the bin's corner (column, row from the front left). */
+  x: number;
+  y: number;
+  w: number;
+  d: number;
+  u: number;
+  /** Which entry in the bin list it came from. */
+  bin: number;
+}
+
+export interface BinPacking {
+  placements: BinPlacement[];
+  /** Bins that didn't fit. */
+  unplaced: number;
+  /** Grid cells left empty. */
+  freeCells: number;
+}
+
+/** Packs bins into a grid, biggest first, first free spot scanning from the front left; turns them if that fits. */
+export function packBins(columns: number, rows: number, bins: GridfinityBin[]): BinPacking {
+  const used = Array.from({ length: rows }, () => Array<boolean>(columns).fill(false));
+  const fits = (x: number, y: number, w: number, d: number) => {
+    if (x + w > columns || y + d > rows) return false;
+    for (let j = y; j < y + d; j++) for (let i = x; i < x + w; i++) if (used[j][i]) return false;
+    return true;
+  };
+  const instances = bins.flatMap((b, bin) => Array.from({ length: Math.max(0, Math.floor(b.qty)) }, () => ({ ...b, bin })))
+    .sort((a, b) => b.w * b.d - a.w * a.d);
+  const placements: BinPlacement[] = [];
+  let unplaced = 0;
+  for (const b of instances) {
+    let placed = false;
+    for (let y = 0; y < rows && !placed; y++) {
+      for (let x = 0; x < columns && !placed; x++) {
+        for (const [w, d] of b.w === b.d ? [[b.w, b.d]] : [[b.w, b.d], [b.d, b.w]]) {
+          if (fits(x, y, w, d)) {
+            for (let j = y; j < y + d; j++) for (let i = x; i < x + w; i++) used[j][i] = true;
+            placements.push({ x, y, w, d, u: b.u, bin: b.bin });
+            placed = true;
+            break;
+          }
+        }
+      }
+    }
+    if (!placed) unplaced += 1;
+  }
+  const freeCells = used.flat().filter(c => !c).length;
+  return { placements, unplaced, freeCells };
+}
+
+/** Bin outside is this much smaller than its grid footprint, so neighbours don't bind. */
+const BIN_PLAY = 0.5;
+const BIN_WALL = 1.2;
+const BIN_FLOOR = 1.2;
+/** The bin foot's profile (half-width at each height), the reverse of the baseplate pocket. */
+const FOOT: [number, number][] = [[0, 17.8], [0.8, 18.6], [2.6, 18.6], [GF_PLATE_HEIGHT + 0.1, 20.75]];
+
+/**
+ * A plain Gridfinity bin w × d units, u × 7 mm tall (no stacking lip, square corners),
+ * as an ASCII STL in millimetres: a foot under every cell and an open-topped box.
+ */
+export function binStl(w: number, d: number, u: number, name = 'gridfinity-bin'): string {
+  const facets: string[] = [];
+  const sub = (a: V, b: V): V => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const cross = (a: V, b: V): V => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const dot = (a: V, b: V) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const fmt = (n: number) => Number(n.toFixed(4)).toString();
+  const tri = (a: V, b: V, c: V, out: V) => {
+    let n = cross(sub(b, a), sub(c, a));
+    if (dot(n, out) < 0) { [b, c] = [c, b]; n = n.map(x => -x) as V; }
+    const len = Math.hypot(...n) || 1;
+    facets.push(`facet normal ${n.map(x => fmt(x / len)).join(' ')}\n outer loop\n${[a, b, c].map(v => `  vertex ${v.map(fmt).join(' ')}`).join('\n')}\n endloop\nendfacet`);
+  };
+  const quad = (a: V, b: V, c: V, e: V, out: V) => { tri(a, b, c, out); tri(a, c, e, out); };
+  const rectAt = (x0: number, y0: number, x1: number, y1: number, z: number): V[] => [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]];
+  const sides: V[] = [[0, -1, 0], [1, 0, 0], [0, 1, 0], [-1, 0, 0]];
+  /** Side walls between two rectangles (corner lists in the same order), facing `inward ? in : out`. */
+  const walls = (lower: V[], upper: V[], inward = false) => {
+    for (let i = 0; i < 4; i++) {
+      const j = (i + 1) % 4;
+      const n = sides[i];
+      quad(lower[i], lower[j], upper[j], upper[i], inward ? n.map(x => -x) as V : n);
+    }
+  };
+
+  // Feet: one closed frustum stack per cell.
+  for (let i = 0; i < w; i++) {
+    for (let j = 0; j < d; j++) {
+      const cx = i * GF_PITCH + GF_PITCH / 2;
+      const cy = j * GF_PITCH + GF_PITCH / 2;
+      const ring = (h: number, z: number) => rectAt(cx - h, cy - h, cx + h, cy + h, z);
+      const [first, last] = [FOOT[0], FOOT[FOOT.length - 1]];
+      const bottom = ring(first[1], first[0]);
+      quad(bottom[0], bottom[1], bottom[2], bottom[3], [0, 0, -1]);
+      for (let k = 0; k < FOOT.length - 1; k++) walls(ring(FOOT[k][1], FOOT[k][0]), ring(FOOT[k + 1][1], FOOT[k + 1][0]));
+      const top = ring(last[1], last[0]);
+      quad(top[0], top[1], top[2], top[3], [0, 0, 1]);
+    }
+  }
+
+  // Body: an open-topped box from the feet up to u × 7 mm.
+  const z0 = GF_PLATE_HEIGHT;
+  const zTop = Math.max(u * GF_UNIT, z0 + BIN_FLOOR + 2);
+  const x0 = BIN_PLAY / 2;
+  const y0 = BIN_PLAY / 2;
+  const x1 = w * GF_PITCH - BIN_PLAY / 2;
+  const y1 = d * GF_PITCH - BIN_PLAY / 2;
+  const outerBottom = rectAt(x0, y0, x1, y1, z0);
+  const outerTop = rectAt(x0, y0, x1, y1, zTop);
+  const innerTop = rectAt(x0 + BIN_WALL, y0 + BIN_WALL, x1 - BIN_WALL, y1 - BIN_WALL, zTop);
+  const innerFloor = rectAt(x0 + BIN_WALL, y0 + BIN_WALL, x1 - BIN_WALL, y1 - BIN_WALL, z0 + BIN_FLOOR);
+  quad(outerBottom[0], outerBottom[1], outerBottom[2], outerBottom[3], [0, 0, -1]);
+  walls(outerBottom, outerTop);
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    quad(outerTop[i], outerTop[j], innerTop[j], innerTop[i], [0, 0, 1]);
+  }
+  walls(innerFloor, innerTop, true);
+  quad(innerFloor[0], innerFloor[1], innerFloor[2], innerFloor[3], [0, 0, 1]);
+  return `solid ${name}\n${facets.join('\n')}\nendsolid ${name}\n`;
+}

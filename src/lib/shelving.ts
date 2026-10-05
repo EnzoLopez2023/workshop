@@ -610,6 +610,8 @@ export type SolidKind = 'case' | 'shelf' | 'adjustable' | 'pin' | 'back' | 'clea
 export interface SolidMotion {
   group?: string;
   travel?: number;
+  /** Where the part moves in an exploded view (x right, y up, z back), in inches. */
+  explode?: [number, number, number];
 }
 
 export type Solid = SolidMotion & (

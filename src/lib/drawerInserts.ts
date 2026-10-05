@@ -5,13 +5,13 @@
 // Inside a box: x runs from the inside face of the left box side, z from the
 // inside face of the box front, y up from the top of the box bottom.
 
-import { layoutGridfinity, type GridfinityLayout } from './gridfinity.ts';
+import { layoutGridfinity, packBins, type BinPacking, type GridfinityBin, type GridfinityLayout } from './gridfinity.ts';
 
 export type DrawerInsert =
   | { kind: 'grid'; columns: number; rows: number }
   | { kind: 'markers'; diameter: number; length: number; spacing: number }
-  /** A printed Gridfinity baseplate sized to the drawer. */
-  | { kind: 'gridfinity' };
+  /** A printed Gridfinity baseplate sized to the drawer, and the bins planned for it. */
+  | { kind: 'gridfinity'; bins?: GridfinityBin[] };
 
 /** A cut into a piece's edge, in the piece's (u along its length, v up its height) frame. */
 export type EdgeCut =
@@ -46,6 +46,8 @@ export interface InsertLayout {
   cells: number;
   /** The baseplate, for a Gridfinity drawer. */
   gridfinity?: GridfinityLayout;
+  /** Where the planned bins go on it. */
+  binPacking?: BinPacking;
   error: string | null;
 }
 
@@ -81,7 +83,14 @@ export function layoutInsert(
   if (insert.kind === 'gridfinity') {
     const mm = 25.4;
     const gf = layoutGridfinity(inside.width * mm, inside.depth * mm, (inside.height - INSERT_TOP_CLEARANCE) * mm, bedMm);
-    return { ...empty, cells: gf.error ? 0 : gf.columns * gf.rows, gridfinity: gf, error: gf.error };
+    if (gf.error) return { ...empty, gridfinity: gf, error: gf.error };
+    const bins = insert.bins ?? [];
+    const tooTall = bins.filter(b => b.qty > 0 && b.u > gf.maxUnits);
+    const binPacking = bins.length ? packBins(gf.columns, gf.rows, bins) : undefined;
+    const error = tooTall.length
+      ? `${tooTall.map(b => `${b.u}u`).join(', ')} bins are taller than the ${gf.maxUnits}u that fits under the drawer above`
+      : null;
+    return { ...empty, cells: gf.columns * gf.rows, gridfinity: gf, binPacking, error };
   }
 
   if (insert.kind === 'grid') {

@@ -6,7 +6,7 @@ import { planSheetsByThickness } from '../lib/buildGuide';
 import { drawerFeatureSummary, drawerJigs, drawerPartFaces, JIG_STAGES } from '../lib/drawerExport';
 import type { DrawerConfig, DrawerPlan } from '../lib/drawerUnit';
 import { fileName, partDxf, partSvg } from '../lib/shelfExport';
-import { baseplateStl, GF_PITCH } from '../lib/gridfinity';
+import { baseplateStl, binStl, GF_PITCH, GF_UNIT } from '../lib/gridfinity';
 import { formatLength, type LengthUnit } from '../lib/shelving';
 
 interface Props {
@@ -36,6 +36,18 @@ export default function DrawerExport({ plan, config, units }: Props) {
       }
     });
     return out;
+  }, [plan]);
+  // Planned bins that fit, by size, across every drawer and unit.
+  const bins = useMemo(() => {
+    const out: { w: number; d: number; u: number; count: number }[] = [];
+    for (const layout of plan.inserts) {
+      for (const p of layout?.binPacking?.placements ?? []) {
+        const [w, d] = p.w >= p.d ? [p.w, p.d] : [p.d, p.w];
+        const found = out.find(x => x.w === w && x.d === d && x.u === p.u);
+        if (found) found.count += plan.unitCount; else out.push({ w, d, u: p.u, count: plan.unitCount });
+      }
+    }
+    return out.sort((a, b) => b.w * b.d - a.w * a.d || b.u - a.u);
   }, [plan]);
 
   return (
@@ -70,6 +82,27 @@ export default function DrawerExport({ plan, config, units }: Props) {
               </li>
             ))}
           </ul>
+          {bins.length > 0 && (
+            <>
+              <h4 className="drawer-gf-bins-title">Bins to print</h4>
+              <p className="shelf-group-note">Plain bins (no stacking lip, square corners), {GF_PITCH} mm grid, heights in {GF_UNIT} mm units — or print bins from your favourite Gridfinity generator at these sizes.</p>
+              <ul className="drawer-gridfinity">
+                {bins.map(b => (
+                  <li key={`${b.w}x${b.d}x${b.u}`}>
+                    <strong>{b.w} × {b.d} bin, {b.u}u</strong>
+                    <span className="is-muted"> {b.w * GF_PITCH} × {b.d * GF_PITCH} × {b.u * GF_UNIT} mm · print {b.count}</span>
+                    <Button
+                      variant="ghost"
+                      onClick={() => saveFile(`gridfinity-bin-${b.w}x${b.d}x${b.u}u.stl`, binStl(b.w, b.d, b.u), 'model/stl')}
+                      aria-label={`Download the ${b.w} by ${b.d} by ${b.u}u bin STL`}
+                    >
+                      <Download size={16} aria-hidden="true" /> STL
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       )}
 

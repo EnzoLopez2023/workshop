@@ -193,6 +193,15 @@ export const updateLibraryShelfDesign = (id: number, patch: { name?: string; des
 export const deleteLibraryShelfDesign = (id: number) =>
   request<{ success: boolean }>(`/shelf-designs/${id}`, { method: 'DELETE' });
 
+// ── Build-guide progress ──────────────────────────────────────────────────────
+
+export type BuildProgress = Partial<Record<'shelf' | 'drawer', string[]>>;
+
+export const getBuildProgress = (projectId: number) =>
+  request<{ progress: BuildProgress }>(`/projects/${projectId}/build-progress`);
+export const saveBuildProgress = (projectId: number, kind: 'shelf' | 'drawer', done: string[]) =>
+  request<{ progress: BuildProgress }>(`/projects/${projectId}/build-progress`, json('PUT', { kind, done }));
+
 // ── Drawer Builder design ─────────────────────────────────────────────────────
 
 export const getDrawerDesign = (projectId: number) =>

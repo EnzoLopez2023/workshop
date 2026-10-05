@@ -10,6 +10,7 @@
 import {
   BOTTOM_GROOVE_DEPTH,
   BOTTOM_GROOVE_OFFSET,
+  boxedDrawers,
   boxNotchSpec,
   frontNotch,
   handHole,
@@ -52,7 +53,9 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       const lastColumn = plan.columns.length - 1;
       for (const [piece, rightHanded, column] of [['Left side', false, 0], ['Right side', true, lastColumn]] as const) {
         const features: Feature[] = [
-          { kind: 'pocket', label: 'Back rabbet', u: 0, v: part.width - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 },
+          plan.cleatGap > 0
+            ? { kind: 'pocket', label: 'Back groove', u: 0, v: part.width - plan.cleatGap - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 }
+            : { kind: 'pocket', label: 'Back rabbet', u: 0, v: part.width - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 },
           ...slideLines(plan, column, 0),
         ];
         faces.push({
@@ -243,7 +246,7 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
 
   // One template per front width (columns can differ).
   const widths: { width: number; length: number; columns: number[] }[] = [];
-  for (const d of plan.drawers) {
+  for (const d of boxedDrawers(plan)) {
     const g = widths.find(w => Math.abs(w.width - d.front.width) < 1e-6);
     if (g) { if (!g.columns.includes(d.column + 1)) g.columns.push(d.column + 1); }
     else widths.push({ width: d.front.width, length: d.front.width - 2 * (plan.banding?.thickness ?? 0), columns: [d.column + 1] });
@@ -301,7 +304,7 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
   const stickWidth = 2;
   const sticks: { marks: number[]; columns: number[] }[] = [];
   for (const column of plan.columns) {
-    const marks = plan.drawers.filter(d => d.column === column.index).map(d => d.slideMark - T);
+    const marks = boxedDrawers(plan).filter(d => d.column === column.index).map(d => d.slideMark - T);
     const g = sticks.find(x => x.marks.length === marks.length && x.marks.every((m, i) => Math.abs(m - marks[i]) < 1e-6));
     if (g) g.columns.push(column.index + 1); else sticks.push({ marks, columns: [column.index + 1] });
   }
@@ -363,6 +366,8 @@ function buildJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) =
     const faces: PartFace[] = [];
     let floor = T; // the bottom panel's top, measured like slide marks (from the side's bottom edge)
     bottomUp.forEach((d, k) => {
+      // A cubby has no slide; the next block stands on its shelf (or the bottom panel).
+      if (d.open) { floor = d.shelfY !== null ? d.shelfY + T - plan.baseHeight : floor; return; }
       const height = r32(d.slideMark - floor);
       floor = d.slideMark + SLIDE_HEIGHT;
       if (height <= 0.05) return;
@@ -376,7 +381,7 @@ function buildJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) =
       steps: [
         `Stand the first block on the bottom panel against the ${plan.columns.length > 1 ? 'side or partition' : 'side'}, rest the bottom drawer’s slide on it, and screw it on.`,
         'Then stand the next block on top of that slide, rest the next slide on it, and so on up the opening — no measuring.',
-        `Blocks for ${column.drawers.map(i => plan.drawers[i].label.toLowerCase()).reverse().join(', ')}, bottom to top: ${faces.map(x => f(x.width)).join(', ')}.`,
+        `Blocks for ${column.drawers.map(i => plan.drawers[i]).filter(d => !d.open).map(d => d.label.toLowerCase()).reverse().join(', ')}, bottom to top: ${faces.map(x => f(x.width)).join(', ')}.`,
       ],
     });
     if (plan.columns.length > 1 && plan.columns.slice(column.index + 1).every(c => c.drawers.length === column.drawers.length)) {
@@ -401,7 +406,7 @@ function buildJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) =
 
   // 3 ── Box-side slide jig: a block the drawer member rests on, as tall as its offset above the box's bottom edge.
   const offsets: { offset: number; drawers: string[] }[] = [];
-  for (const d of plan.drawers) {
+  for (const d of boxedDrawers(plan)) {
     const offset = r32(d.slideY - d.box.y);
     const g = offsets.find(x => Math.abs(x.offset - offset) < 1e-6);
     if (g) g.drawers.push(d.label.toLowerCase()); else offsets.push({ offset, drawers: [d.label.toLowerCase()] });
@@ -421,7 +426,7 @@ function buildJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) =
 
   // 4 ── Glue-up squaring frame: exactly the box's inside, corners clipped so squeeze-out can't glue it in.
   const insides: { w: number; d: number; drawers: string[] }[] = [];
-  for (const d of plan.drawers) {
+  for (const d of boxedDrawers(plan)) {
     const w = d.box.width - 2 * b;
     const dd = d.box.depth - 2 * b;
     const g = insides.find(x => Math.abs(x.w - w) < 1e-6 && Math.abs(x.d - dd) < 1e-6);
@@ -589,7 +594,7 @@ function buildJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) =
 
   // 11 ── Front screw template: hooks over the box front, drilling the oversize holes the screws pass through.
   const fronts: { length: number; height: number; notch: number; drawers: string[] }[] = [];
-  for (const d of plan.drawers) {
+  for (const d of boxedDrawers(plan)) {
     const length = d.box.width - b;
     const g = fronts.find(x => Math.abs(x.length - length) < 1e-6 && Math.abs(x.height - d.box.height) < 1e-6 && Math.abs(x.notch - d.boxNotchDepth) < 1e-3);
     if (g) g.drawers.push(d.label.toLowerCase()); else fronts.push({ length, height: d.box.height, notch: d.boxNotchDepth, drawers: [d.label.toLowerCase()] });
@@ -638,7 +643,7 @@ function notchesOf(outline: [number, number][], height: number): { center: numbe
 
 /** A guide line at each slide's bottom edge for one column, measured from `from` above the side's bottom edge. */
 function slideLines(plan: DrawerPlan, column: number, from: number): Feature[] {
-  return plan.drawers.filter(d => d.column === column).map((d): Feature => ({
+  return boxedDrawers(plan).filter(d => d.column === column).map((d): Feature => ({
     kind: 'guide', label: `${d.label} slide, bottom edge`,
     points: [[d.slideMark - from, 0], [d.slideMark - from, d.box.depth]],
   }));

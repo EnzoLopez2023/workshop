@@ -82,6 +82,10 @@ export function drawerThumbnailSvg(plan: DrawerPlan, pull: FingerPull, size = 12
     `<polygon points="${pts.map(([px, py]) => `${px.toFixed(3)},${y(py).toFixed(3)}`).join(' ')}" fill="${fill}" stroke="#15332e" stroke-width="${(W / 90).toFixed(3)}"/>`;
   const hole = handHole(pull);
   const fronts = plan.drawers.map(d => {
+    if (d.open) {
+      const pts: [number, number][] = [[d.front.x, d.front.y], [d.front.x + d.front.width, d.front.y], [d.front.x + d.front.width, d.front.y + d.front.height], [d.front.x, d.front.y + d.front.height]];
+      return poly(pts, '#5b4a36');
+    }
     const pts = notchedOutline(d.front.x, d.front.y, d.front.width, d.front.height, frontNotch(pull, d.front.width));
     const holePts = hole ? stadiumOutline(d.front.x + d.front.width / 2, d.front.y + d.front.height - hole.top, hole.width, hole.height) : null;
     return poly(pts, frontColor) + (holePts ? poly(holePts, '#3a3f44') : '');

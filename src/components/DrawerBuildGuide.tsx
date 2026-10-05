@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import BuildGuideView from './BuildGuideView';
 import { drawerGuideSteps } from '../lib/drawerGuide';
-import { finishColors, type DrawerConfig, type DrawerPlan } from '../lib/drawerUnit';
+import { boxedDrawers, finishColors, type DrawerConfig, type DrawerPlan } from '../lib/drawerUnit';
 import { formatLength, type LengthUnit } from '../lib/shelving';
 
 interface Props {
@@ -10,13 +10,15 @@ interface Props {
   units: LengthUnit;
   /** Heading for the printed guide, e.g. the project name. */
   title?: string;
+  /** Build tracker: finished step ids and where to save them. */
+  progress?: { done: string[]; onChange: (done: string[]) => void; status?: string };
 }
 
-export default function DrawerBuildGuide({ plan, config, units, title = 'Drawer unit' }: Props) {
+export default function DrawerBuildGuide({ plan, config, units, progress, title = 'Drawer unit' }: Props) {
   const guide = useMemo(() => drawerGuideSteps(plan, config, units), [plan, config, units]);
   const f = (inches: number) => formatLength(inches, units);
   const subtitle = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.overallDepth)} deep · `
-    + `${plan.drawers.length} drawer${plan.drawers.length === 1 ? '' : 's'} on ${f(plan.slideLength)} slides · ${f(config.thickness)} case, ${f(config.boxThickness)} boxes`;
+    + `${boxedDrawers(plan).length} drawer${boxedDrawers(plan).length === 1 ? '' : 's'} on ${f(plan.slideLength)} slides · ${f(config.thickness)} case, ${f(config.boxThickness)} boxes`;
   return (
     <BuildGuideView
       guide={guide}
@@ -27,6 +29,7 @@ export default function DrawerBuildGuide({ plan, config, units, title = 'Drawer 
       units={units}
       title={title}
       subtitle={subtitle}
+      progress={progress}
       colors={finishColors(config.finish)}
     />
   );

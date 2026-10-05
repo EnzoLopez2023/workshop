@@ -39,10 +39,14 @@ interface Stage {
   userMoved: boolean;
   /** Parts that slide out (drawers), by group name. */
   movers: Map<string, THREE.Group>;
+  /** Parts with an exploded-view offset (three.js axes). */
+  explodables: { mesh: THREE.Mesh; offset: THREE.Vector3 }[];
+  exploded: boolean;
 }
 
 /** How far a drawer travels per frame, as a share of what's left — a quick ease-out. */
 const SLIDE_EASE = 0.22;
+const ZERO = new THREE.Vector3();
 
 export default function ShelfViewer3D({ solids, width, height, depth, wallMounted, label, colors }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -52,6 +56,9 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
   const openRef = useRef(new Set<string>());
   const [openCount, setOpenCount] = useState(0);
   const [movable, setMovable] = useState(0);
+  const [hover, setHover] = useState('');
+  const [exploded, setExploded] = useState(false);
+  const [explodable, setExplodable] = useState(false);
 
   // ── One-time stage ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -129,6 +136,13 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
           group.position.z = target;
         }
       }
+      // And each part toward its exploded (or assembled) position.
+      const stage = stageRef.current;
+      for (const { mesh, offset } of stage?.explodables ?? []) {
+        const target = stage!.exploded ? offset : ZERO;
+        const d = mesh.position.distanceTo(target);
+        if (d > 0.01) { mesh.position.lerp(target, SLIDE_EASE); sliding = true; } else if (d > 0) mesh.position.copy(target);
+      }
       renderer.render(scene, camera);
       if (moving || sliding) frame = requestAnimationFrame(loop);
     };
@@ -159,8 +173,26 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
         if (hit.object instanceof THREE.Mesh) break; // the nearest solid part isn't a drawer
       }
     };
+    // Hovering names the part under the pointer.
+    let hoverFrame = 0;
+    const onMove = (e: PointerEvent) => {
+      if (e.buttons || hoverFrame) return;
+      hoverFrame = requestAnimationFrame(() => {
+        hoverFrame = 0;
+        const stage = stageRef.current;
+        if (!stage) return;
+        const rect = renderer.domElement.getBoundingClientRect();
+        const pointer = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+        raycaster.setFromCamera(pointer, camera);
+        const hit = raycaster.intersectObjects(stage.parts.children, true).find(h => h.object instanceof THREE.Mesh);
+        setHover(hit ? hit.object.name : '');
+      });
+    };
+    const onLeave = () => setHover('');
     renderer.domElement.addEventListener('pointerdown', onDown);
     renderer.domElement.addEventListener('pointerup', onUp);
+    renderer.domElement.addEventListener('pointermove', onMove);
+    renderer.domElement.addEventListener('pointerleave', onLeave);
 
     const resize = () => {
       const { width: w, height: h } = host.getBoundingClientRect();
@@ -176,6 +208,8 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
       envelope: null,
       userMoved: false,
       movers: new Map(),
+      explodables: [],
+      exploded: false,
     };
     const observer = new ResizeObserver(resize);
     observer.observe(host);
@@ -186,6 +220,9 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
       observer.disconnect();
       renderer.domElement.removeEventListener('pointerdown', onDown);
       renderer.domElement.removeEventListener('pointerup', onUp);
+      renderer.domElement.removeEventListener('pointermove', onMove);
+      renderer.domElement.removeEventListener('pointerleave', onLeave);
+      cancelAnimationFrame(hoverFrame);
       controls.dispose();
       scene.traverse(child => {
         if (child instanceof THREE.Mesh || child instanceof THREE.LineSegments) {
@@ -218,6 +255,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     // Center the unit on x, floor at y = 0, front edge toward the camera (+z).
     // A drawer's parts share a group so they slide out together.
     stage.movers.clear();
+    stage.explodables = [];
     for (const solid of solids) {
       const geometry = solidGeometry(solid);
       const mesh = new THREE.Mesh(geometry, materials[solid.kind]);
@@ -225,6 +263,12 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
       mesh.receiveShadow = true;
       mesh.name = solid.name;
       mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 30), edgeMaterial));
+      if (solid.explode) {
+        // Depth runs back from the front, so it's three's −z.
+        const offset = new THREE.Vector3(solid.explode[0], solid.explode[1], -solid.explode[2]);
+        stage.explodables.push({ mesh, offset });
+        if (stage.exploded) mesh.position.copy(offset);
+      }
       if (solid.group && solid.travel) {
         let group = stage.movers.get(solid.group);
         if (!group) {
@@ -242,6 +286,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     // Forget drawers that no longer exist.
     for (const name of [...openRef.current]) if (!stage.movers.has(name)) openRef.current.delete(name);
     setMovable(stage.movers.size);
+    setExplodable(stage.explodables.length > 0);
     setOpenCount(openRef.current.size);
     parts.position.set(-width / 2, 0, depth / 2);
 
@@ -294,6 +339,15 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
   toggleRef.current = (name: string) => setOpen([name], !openRef.current.has(name));
   const allOpen = movable > 0 && openCount === movable;
   const toggleAll = () => setOpen([...(stageRef.current?.movers.keys() ?? [])], !allOpen);
+  // Exploding opens every drawer so its parts have room to spread.
+  const toggleExploded = () => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    stage.exploded = !stage.exploded;
+    setExploded(stage.exploded);
+    if (stage.exploded) setOpen([...stage.movers.keys()], true);
+    else stage.render();
+  };
 
   const resetView = () => {
     const stage = stageRef.current;
@@ -313,14 +367,22 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
           <button type="button" className="shelf-viewer-reset" onClick={resetView} aria-label="Reset 3D view" title="Reset view">
             <RotateCcw size={16} aria-hidden="true" />
           </button>
-          {movable > 0 && (
+          {(movable > 0 || explodable) && (
             <div className="shelf-viewer-drawers" data-open={openCount}>
-              <button type="button" onClick={toggleAll} aria-pressed={allOpen}>
-                {allOpen ? 'Close drawers' : 'Open drawers'}
-              </button>
-              <small>or click a drawer</small>
+              {movable > 0 && (
+                <button type="button" onClick={toggleAll} aria-pressed={allOpen}>
+                  {allOpen ? 'Close drawers' : 'Open drawers'}
+                </button>
+              )}
+              {explodable && (
+                <button type="button" onClick={toggleExploded} aria-pressed={exploded}>
+                  {exploded ? 'Assemble' : 'Explode'}
+                </button>
+              )}
+              {movable > 0 && <small>or click a drawer</small>}
             </div>
           )}
+          {hover && <span className="shelf-viewer-hover" aria-hidden="true">{hover}</span>}
         </>
       )}
     </div>

@@ -8995,3 +8995,137 @@ tbody td {
   padding: 6px;
   border: 1px solid var(--color-divider);
 }
+
+.shelf-viewer-hover {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider-strong);
+  color: var(--color-ink);
+  font-size: 0.8rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.cutting-order {
+  display: grid;
+  gap: 18px;
+}
+
+.cutting-order h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.cutting-order h3 small {
+  font-weight: 500;
+  color: var(--color-muted);
+}
+
+.cutting-order-rips {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 1.4em;
+}
+
+.cutting-order-rips ul {
+  margin: 4px 0 0;
+  padding-left: 1.1em;
+  display: grid;
+  gap: 2px;
+}
+
+.cutting-order-note {
+  display: block;
+  color: var(--color-muted);
+}
+
+.shelf-guide-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.shelf-guide-progress progress {
+  width: 120px;
+  accent-color: var(--color-action-fill);
+}
+
+.shelf-guide-done {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.shelf-guide-done small {
+  font-weight: 500;
+  color: var(--color-muted);
+}
+
+.shelf-guide-step.is-done .shelf-guide-body > :not(h3),
+.shelf-guide-step.is-done figure {
+  opacity: 0.5;
+}
+
+.gf-planner {
+  grid-column: 2;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--color-divider);
+  border-radius: 10px;
+}
+
+.gf-cell {
+  fill: var(--color-recessed);
+  stroke: var(--color-divider-strong);
+  stroke-width: 0.5;
+}
+
+.gf-bins {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gf-bins li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 0.85rem;
+}
+
+.gf-bins input {
+  width: 3.2rem;
+}
+
+.gf-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.gf-qty {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.drawer-gf-bins-title {
+  margin: 14px 0 4px;
+  font-size: 0.9rem;
+}

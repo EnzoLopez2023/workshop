@@ -22,8 +22,11 @@ import {
   type SolidKind,
 } from './shelving.ts';
 import { INSERT_NAMES, layoutInsert, pieceOutline, type DrawerInsert, type InsertLayout } from './drawerInserts.ts';
+import type { GridfinityBin } from './gridfinity.ts';
 
 export type DrawerBase = 'none' | 'feet' | 'casters';
+/** On the floor (on its base), hung on a French cleat, or hung under an existing desk. */
+export type DrawerMount = 'floor' | 'wall' | 'under-desk';
 /** Notches cut into the top edge (arc, slot, wide), or a hand hole cut through below it. */
 export type PullShape = 'arc' | 'slot' | 'wide' | 'handhole';
 export type NotchShape = 'arc' | 'slot';
@@ -204,6 +207,13 @@ export interface DrawerConfig {
   columns?: DrawerColumn[];
   /** One or two units under a plywood desk top. */
   desk?: DeskConfig;
+  mount?: DrawerMount;
+  /** Wall: the unit's bottom above the floor. Under a desk: the desk's underside above the floor. */
+  mountHeight?: number;
+  /** Height of each French cleat (wall-hung). */
+  cleatHeight?: number;
+  /** Per drawer: true for an open cubby (no drawer); its floor is a fixed shelf unless it's at the bottom. */
+  openSlots?: boolean[];
   /** Per-drawer slide length overrides (null: the unit's slide length), e.g. a short pencil drawer. */
   slideLengths?: (number | null)[];
   /** Expected contents, for the load check. */
@@ -307,6 +317,10 @@ export interface DrawerLayout {
   column: number;
   /** "Drawer 3", or "Column 2 drawer 3" when there are columns — used in names and messages. */
   label: string;
+  /** An open cubby instead of a drawer: no front, box or slides. */
+  open: boolean;
+  /** For a cubby above another drawer or cubby: the fixed shelf's underside, from the floor (null at the bottom). */
+  shelfY: number | null;
   /** Front extent in the front elevation. */
   front: { x: number; y: number; width: number; height: number };
   /** Box extent: bottom, height, and outside width. */
@@ -320,6 +334,11 @@ export interface DrawerLayout {
 }
 
 export interface DrawerPlan {
+  mount: DrawerMount;
+  /** How far the unit's bottom sits above the floor in the 3D view (hung units). */
+  lift: number;
+  /** Space behind the back for a French cleat (0 unless wall-hung). */
+  cleatGap: number;
   columns: ColumnLayout[];
   /** Left face of each partition between columns. */
   partitionXs: number[];
@@ -415,6 +434,22 @@ export function notchedOutline(
   return [[x0, y0], [x1, y0], [x1, y1], ...notch, [x0, y1]];
 }
 
+/** A solid moved up by `dy` (a hung unit sits above the floor). */
+function liftSolid(s: Solid, dy: number): Solid {
+  if (s.shape === 'box') return { ...s, min: [s.min[0], s.min[1] + dy, s.min[2]], max: [s.max[0], s.max[1] + dy, s.max[2]] };
+  if (s.shape === 'prism') return { ...s, profile: s.profile.map(([z, y]) => [z, y + dy] as [number, number]) };
+  return {
+    ...s,
+    outline: s.outline.map(([x, y]) => [x, y + dy] as [number, number]),
+    holes: s.holes?.map(h => h.map(([x, y]) => [x, y + dy] as [number, number])),
+  };
+}
+
+/** The positions that hold a drawer (not an open cubby). */
+export function boxedDrawers(plan: Pick<DrawerPlan, 'drawers'>): DrawerLayout[] {
+  return plan.drawers.filter(d => !d.open);
+}
+
 /** The notch in a box front behind the pull, or null when the box sits low enough. */
 export function boxNotchSpec(pull: FingerPull | null | undefined, frontWidth: number, depth: number): NotchSpec | null {
   if (!pull?.enabled || depth <= 0) return null;
@@ -437,7 +472,8 @@ export function graduatedFronts(count: number, available: number, step = 1.2): n
 }
 
 /** Height under the case. */
-export function baseHeightOf(c: Pick<DrawerConfig, 'base' | 'footHeight' | 'casterHeight'>): number {
+export function baseHeightOf(c: Pick<DrawerConfig, 'base' | 'footHeight' | 'casterHeight'> & { mount?: DrawerMount }): number {
+  if (c.mount && c.mount !== 'floor') return 0;
   return c.base === 'feet' ? c.footHeight : c.base === 'casters' ? c.casterHeight : 0;
 }
 
@@ -485,7 +521,10 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const H = caseHeight + B;
   const caseDepth = D - T;
   const interiorWidth = W - 2 * T;
-  const interiorDepth = caseDepth - backT;
+  const mount: DrawerMount = config.mount ?? 'floor';
+  // A wall-hung unit's back moves forward by the cleat's thickness; the sides hide the cleat.
+  const cleatGap = mount === 'wall' ? T : 0;
+  const interiorDepth = caseDepth - cleatGap - backT;
   const banding = config.edgeBanding ? (config.bandingThickness ?? 0.02) : 0;
 
   // Column openings: given widths first, the rest share what's left; partitions are case stock.
@@ -602,7 +641,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   let top = H - gap / 2;
   columnFronts[ci].forEach((h, row) => {
     const i = columns[ci].drawers[row];
-    const name = label(ci, row);
+    const open = config.openSlots?.[i] === true;
+    const name = open ? (k > 1 ? `Column ${ci + 1} cubby ${row + 1}` : `Cubby ${row + 1}`) : label(ci, row);
     const y = top - h;
     top = y - gap;
     const zoneBottom = Math.max(y - gap / 2, interiorBottom);
@@ -623,8 +663,15 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       box: { x: columns[ci].x + SLIDE_CLEARANCE, y: boxY, width: boxWidths[ci], height: boxHeight, depth: slideFor(i) },
       slideY,
       slideMark: slideY - B,
-      boxNotchDepth,
+      boxNotchDepth: open ? 0 : boxNotchDepth,
+      open,
+      // A cubby needs a floor unless the case bottom is right under it.
+      shelfY: open && zoneBottom > interiorBottom + EPS ? zoneBottom : null,
     });
+    if (open) {
+      if (zoneTop - zoneBottom - (zoneBottom > interiorBottom + EPS ? T : 0) < 1) errors.push(`${name} is only ${f(Math.max(zoneTop - zoneBottom, 0))} tall — too small to be useful.`);
+      return;
+    }
     if (h > 0 && boxHeight < MIN_BOX_HEIGHT) {
       const need = h + (MIN_BOX_HEIGHT - boxHeight);
       errors.push(`${name}’s front is ${f(h)} tall, which leaves a ${f(Math.max(boxHeight, 0))} box — the slides need at least ${f(MIN_BOX_HEIGHT)}. Make that front about ${f(Math.ceil(need * 16) / 16)} tall, or use fewer drawers.`);
@@ -651,7 +698,21 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   }
 
   // Base.
-  const supports = config.base === 'none' ? 0 : W > MIDDLE_SUPPORT_WIDTH ? 6 : 4;
+  const supports = mount !== 'floor' || config.base === 'none' ? 0 : W > MIDDLE_SUPPORT_WIDTH ? 6 : 4;
+  // Hung units: where they sit above the floor (for the 3D view), and their own checks.
+  let lift = 0;
+  const cleatHeight = config.cleatHeight ?? 3;
+  if (mount === 'wall') {
+    lift = config.mountHeight ?? 30;
+    if (cleatHeight < 1.5 || cleatHeight > caseHeight / 3) errors.push(`A ${f(cleatHeight)} cleat doesn’t suit a ${f(caseHeight)} tall case — use ${f(2)}–${f(Math.max(2, Math.floor(caseHeight / 3)))}.`);
+    if (config.desk?.enabled) errors.push('A desk top needs floor-standing units — turn off the desk or stand the unit on the floor.');
+  } else if (mount === 'under-desk') {
+    const underside = config.mountHeight ?? 27.5;
+    lift = underside - H;
+    if (lift < 4) errors.push(`Hung under a desk whose underside is ${f(underside)} up, a ${f(H)} tall unit would leave ${f(Math.max(lift, 0))} above the floor. Keep it at least ${f(4)} clear — make it shorter.`);
+    else if (lift < 18 && W > 20) warnings.push(`It hangs only ${f(lift)} above the floor — check it clears your knees.`);
+    if (config.desk?.enabled) errors.push('Use either the desk top or hang the unit under an existing desk, not both.');
+  }
   if (config.base === 'feet' && T < TNUT_MIN_THICKNESS) {
     warnings.push(`The leveling feet’s T-nuts want about ${f(TNUT_MIN_THICKNESS)} of wood and the bottom is ${f(T)}. Glue a ${f(3 / 4)} block under the bottom at each foot.`);
   }
@@ -670,12 +731,19 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const sideHeight = caseHeight;
   const panelLength = interiorWidth;
   parts.push({ name: 'Side', qty: 2, length: sideHeight, width: caseDepth - caseBanding, thickness: T,
-    note: `${f(backT)} × ${f(T / 2)} rabbet on the back inside edge for the back`, material: 'plywood' });
+    note: cleatGap > 0
+      ? `${f(backT)} × ${f(T / 2)} groove for the back, ${f(cleatGap)} in from the back edge (room for the cleat)`
+      : `${f(backT)} × ${f(T / 2)} rabbet on the back inside edge for the back`, material: 'plywood' });
   parts.push({ name: 'Top', qty: 1, length: panelLength, width: interiorDepth - caseBanding, thickness: T, material: 'plywood' });
   parts.push({ name: 'Bottom', qty: 1, length: panelLength, width: interiorDepth - caseBanding, thickness: T,
     note: config.base === 'feet' ? `${supports} T-nuts for the leveling feet` : config.base === 'casters' ? `${supports} casters screw on` : undefined,
     material: 'plywood' });
   parts.push({ name: 'Back', qty: 1, length: sideHeight, width: W - T, thickness: backT, note: `Sits in ${f(T / 2)} rabbets in the sides`, material: 'plywood' });
+  if (cleatGap > 0) {
+    parts.push({ name: 'Cabinet cleat', qty: 1, length: interiorWidth, width: cleatHeight, thickness: T, note: '45° bevel along one edge; screwed to the back and the top', material: 'plywood' });
+    parts.push({ name: 'Wall cleat', qty: 1, length: interiorWidth, width: cleatHeight, thickness: T, note: '45° bevel along one edge; screwed into the studs', material: 'plywood' });
+    parts.push({ name: 'Bottom spacer', qty: 1, length: interiorWidth, width: 2, thickness: T, note: 'Behind the back at the bottom, so the unit hangs plumb', material: 'plywood' });
+  }
   partitionXs.forEach((x, pi) => {
     parts.push({
       name: partitionXs.length === 1 ? 'Partition' : `Partition ${pi + 1}`, qty: 1, length: caseHeight - 2 * T, width: interiorDepth - caseBanding, thickness: T,
@@ -686,6 +754,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   // Drawer parts, grouped by size so identical drawers share a line.
   const groups: { indexes: number[]; front: number; box: number; notch: number; depth: number; frontWidth: number; boxWidth: number }[] = [];
   for (const d of drawers) {
+    if (d.open) continue;
     const g = groups.find(g => Math.abs(g.front - d.front.height) < EPS && Math.abs(g.box - d.box.height) < EPS
       && Math.abs(g.notch - d.boxNotchDepth) < 1e-3 && g.depth === d.box.depth
       && Math.abs(g.frontWidth - d.front.width) < EPS && Math.abs(g.boxWidth - d.box.width) < EPS);
@@ -717,12 +786,27 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     parts.push({ name: `Box bottom${which}`, qty, length: boxInsideWidth + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY, width: boxInsideDepth + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY,
       thickness: bt, material: 'plywood' });
   }
+  // Cubby shelves: a fixed panel under each cubby that isn't at the bottom, one line per opening width.
+  const shelves: { width: number; indexes: number[] }[] = [];
+  for (const d of drawers) {
+    if (!d.open || d.shelfY === null) continue;
+    const w = columns[d.column].width;
+    const g = shelves.find(x => Math.abs(x.width - w) < EPS);
+    if (g) g.indexes.push(d.index); else shelves.push({ width: w, indexes: [d.index] });
+  }
+  for (const g of shelves) {
+    const name = shelves.length === 1 ? 'Cubby shelf' : `Cubby shelf · ${range(g.indexes)}`;
+    partDrawers[name] = g.indexes;
+    parts.push({ name, qty: g.indexes.length, length: g.width, width: interiorDepth - caseBanding, thickness: T,
+      note: 'Fixed: glue and screw through the sides (or partition) into its ends', material: 'plywood' });
+  }
+
   // Inserts: laid out in each box, then grouped so identical ones share a line.
   const it = config.insertThickness ?? 1 / 4;
   const partOutlines: Record<string, [number, number][]> = {};
   const inserts: (InsertLayout | null)[] = drawers.map((d, i) => {
     const insert = config.inserts?.[i];
-    if (!insert) return null;
+    if (!insert || d.open) return null;
     const layout = layoutInsert(insert, {
       width: d.box.width - 2 * b, depth: d.box.depth - 2 * b, height: d.box.height - BOTTOM_GROOVE_OFFSET - bt,
     }, it, f, config.gridfinityBed ?? 256);
@@ -756,6 +840,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   // Load: contents weight against the slides, and how far the bottom sags.
   const load = DRAWER_LOADS[config.load ?? 'medium'];
   const loads: DrawerLoadCheck[] = drawers.map(d => {
+    if (d.open) return { pounds: 0, sag: 0, sagLimit: 1, overSlides: false, sags: false };
     const w = d.box.width - 2 * b;
     const dd = d.box.depth - 2 * b;
     const pounds = load.psf * (w * dd) / 144;
@@ -816,12 +901,15 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
 
   const bandingTotal = banding > 0
     ? (2 * caseHeight + 2 * interiorWidth + (k - 1) * (caseHeight - 2 * T)
-      + drawers.reduce((a, d) => a + 2 * d.front.width + 2 * d.front.height, 0)) * unitCount
+      + drawers.reduce((a, d) => a + (d.open ? (d.shelfY !== null ? columns[d.column].width : 0) : 2 * d.front.width + 2 * d.front.height), 0)) * unitCount
       // The desk top's front and ends (each layer's edge shows).
       + (desk ? (desk.width + 2 * desk.depth) * (config.desk?.topLayers ?? 1) : 0)
     : 0;
 
   return {
+    mount,
+    lift,
+    cleatGap,
     columns,
     partitionXs,
     overallWidth: W,
@@ -898,11 +986,16 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     box('Right side', 'case', [W - T, B, 0], [W, H, cd]),
     box('Top', 'case', [T, H - T, 0], [W - T, H, id]),
     box('Bottom', 'case', [T, B, 0], [W - T, B + T, id]),
-    box('Back', 'back', [T / 2, B, id], [W - T / 2, H, cd]),
+    box('Back', 'back', [T / 2, B, id], [W - T / 2, H, id + config.backThickness]),
     ...plan.partitionXs.map((x, i) => box(plan.partitionXs.length === 1 ? 'Partition' : `Partition ${i + 1}`, 'case', [x, B + T, 0], [x + T, H - T, id])),
   ];
   for (const d of plan.drawers) {
     const name = d.label;
+    if (d.open) {
+      const c = plan.columns[d.column];
+      if (d.shelfY !== null) solids.push(box(`${name} shelf`, 'shelf', [c.x, d.shelfY, 0], [c.x + c.width, d.shelfY + T, id]));
+      continue;
+    }
     const first = solids.length;
     const fr = d.front;
     const hole = handHole(pull);
@@ -956,6 +1049,28 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     solids.push(box(`${name} left slide`, 'slide', [bx.x - SLIDE_CLEARANCE, d.slideY, 0], [bx.x, d.slideY + SLIDE_HEIGHT, bx.depth]));
     solids.push(box(`${name} right slide`, 'slide', [bx.x + bx.width, d.slideY, 0], [bx.x + bx.width + SLIDE_CLEARANCE, d.slideY + SLIDE_HEIGHT, bx.depth]));
   }
+  // Exploded view: case panels move outward, each drawer's parts spread from the box.
+  const spread = Math.max(W, H) / 12;
+  const explodeOf = (s: Solid): [number, number, number] | undefined => {
+    const n = s.name;
+    if (n === 'Left side') return [-spread, 0, 0];
+    if (n === 'Right side') return [spread, 0, 0];
+    if (n === 'Top') return [0, spread, 0];
+    if (n === 'Bottom') return [0, -spread / 3, 0];
+    if (n === 'Back') return [0, 0, spread * 1.5];
+    if (/ front$/.test(n) && s.kind === 'drawer-front') return [0, 0, -spread * 1.2];
+    if (/ box front$/.test(n)) return [0, 0, -spread * 0.5];
+    if (/ box back$/.test(n)) return [0, 0, spread * 0.5];
+    if (/ box left side$/.test(n)) return [-spread * 0.5, 0, 0];
+    if (/ box right side$/.test(n)) return [spread * 0.5, 0, 0];
+    if (/ box bottom$/.test(n)) return [0, -spread * 0.4, 0];
+    if (s.kind === 'insert') return [0, spread * 0.8, 0];
+    if (/ left slide$/.test(n)) return [-spread * 0.25, 0, 0];
+    if (/ right slide$/.test(n)) return [spread * 0.25, 0, 0];
+    return undefined;
+  };
+  for (const s of solids) s.explode = explodeOf(s);
+
   supportPositions(plan, config).forEach(([x, z], i) => {
     if (config.base === 'feet') {
       solids.push(box(`Foot ${i + 1}`, 'foot', [x, 0, z], [x + FOOT_SIZE, B, z + FOOT_SIZE]));
@@ -973,7 +1088,24 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
       solids.push({ name: `Caster ${i + 1} wheel`, kind: 'caster', shape: 'prism', x0: x + 0.85, x1: x + 1.65, profile: wheel });
     }
   });
-  return solids;
+  if (plan.cleatGap > 0) {
+    // French cleat behind the back: the cabinet cleat under the top, bevel down; the wall cleat below it, bevel up.
+    const z0 = id + config.backThickness;
+    const z1 = cd;
+    const h = config.cleatHeight ?? 3;
+    const top = H - T;
+    const bevel = Math.min(z1 - z0, h / 2);
+    solids.push({ name: 'Cabinet cleat', kind: 'cleat', shape: 'prism', x0: T, x1: W - T,
+      profile: [[z0, top], [z1, top], [z1, top - h + bevel], [z0, top - h]] });
+    solids.push({ name: 'Wall cleat', kind: 'wall-cleat', shape: 'prism', x0: T, x1: W - T,
+      profile: [[z0, top - h], [z1, top - h + bevel], [z1, top - 2 * h + bevel], [z0, top - 2 * h]] });
+    solids.push(box('Bottom spacer', 'cleat', [T, B + T, z0], [W - T, B + T + 2, z1]));
+  }
+  if (plan.mount === 'under-desk') {
+    // The desk it hangs from, for context.
+    solids.push(box('Desk (existing)', 'back', [-6, H, -T - 2], [W + 6, H + 1.5, cd + 2]));
+  }
+  return plan.lift ? solids.map(s => liftSolid(s, plan.lift)) : solids;
 }
 
 /**
@@ -997,7 +1129,7 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
     }
   });
   const H = plan.overallHeight;
-  out.push({ name: 'Desk top', kind: 'case', shape: 'box', min: [0, H, plan.caseDepth - dk.depth], max: [dk.width, H + dk.topThickness, plan.caseDepth] });
+  out.push({ name: 'Desk top', kind: 'case', shape: 'box', min: [0, H, plan.caseDepth - dk.depth], max: [dk.width, H + dk.topThickness, plan.caseDepth], explode: [0, Math.max(dk.width, H) / 8, 0] });
   return out;
 }
 
@@ -1102,6 +1234,10 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       gridfinityBed: num(c.gridfinityBed, 100, 1000) ?? 256,
       desk: readDesk(c.desk),
       columns,
+      mount: c.mount === 'wall' || c.mount === 'under-desk' ? c.mount : 'floor',
+      mountHeight: num(c.mountHeight, 0, 120) ?? undefined,
+      cleatHeight: num(c.cleatHeight, 0.5, 12) ?? 3,
+      openSlots: Array.isArray(c.openSlots) ? Array.from({ length: drawers }, (_, i) => (c.openSlots as unknown[])[i] === true) : undefined,
       slideLengths: Array.isArray(c.slideLengths)
         ? Array.from({ length: drawers }, (_, i) => {
           const v = (c.slideLengths as unknown[])[i];
@@ -1150,7 +1286,17 @@ function readInsert(raw: unknown): DrawerInsert | null {
     const rows = n(v.rows, 1, 20);
     return columns && rows ? { kind: 'grid', columns: Math.floor(columns), rows: Math.floor(rows) } : null;
   }
-  if (v.kind === 'gridfinity') return { kind: 'gridfinity' };
+  if (v.kind === 'gridfinity') {
+    const bins = Array.isArray(v.bins)
+      ? (v.bins as unknown[]).flatMap(b => {
+        if (!b || typeof b !== 'object') return [];
+        const x = b as Record<string, unknown>;
+        const w = n(x.w, 1, 20); const dd = n(x.d, 1, 20); const u = n(x.u, 2, 40); const qty = n(x.qty, 0, 400);
+        return w && dd && u && qty !== null ? [{ w: Math.floor(w), d: Math.floor(dd), u: Math.floor(u), qty: Math.floor(qty) }] : [];
+      })
+      : undefined;
+    return bins?.length ? { kind: 'gridfinity', bins } : { kind: 'gridfinity' };
+  }
   if (v.kind === 'markers') {
     const diameter = n(v.diameter, 0.05, 4);
     const length = n(v.length, 0.5, 30);
@@ -1207,6 +1353,8 @@ export interface DrawerDesignFields {
   bandingThickness: string;
   /** Per drawer, top to bottom. */
   insertKinds: InsertKind[];
+  /** Per drawer: the Gridfinity bins planned for it. */
+  gridfinityBins: GridfinityBin[][];
   gridColumns: number[];
   gridRows: number[];
   insertThickness: string;
@@ -1235,9 +1383,14 @@ export interface DrawerDesignFields {
   /** With columns: each column's drawer count and front heights. */
   columnDrawers: number[];
   columnFronts: string[][];
+  mount: DrawerMount;
+  /** Wall: bottom above the floor; under a desk: the desk's underside. As typed. */
+  mountHeight: string;
+  cleatHeight: string;
 }
 
-export type InsertKind = 'none' | 'grid' | 'markers' | 'gridfinity';
+/** What's in each position: an empty drawer, an insert, or an open cubby (no drawer at all). */
+export type InsertKind = 'none' | 'grid' | 'markers' | 'gridfinity' | 'cubby';
 
 /** Form defaults for the inside-the-drawer and desk fields (inch strings). */
 export const EXTRA_FIELD_DEFAULTS = {
@@ -1281,8 +1434,9 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     slideLength: c.slideLength ? String(c.slideLength) : 'auto',
     edgeBanding: c.edgeBanding === true,
     bandingThickness: c.bandingThickness ? `${Math.round(c.bandingThickness * 25.4 * 10) / 10} mm` : '0.5 mm',
-    insertKinds: Array.from({ length: c.drawers }, (_, i) => c.inserts?.[i]?.kind ?? 'none'),
+    insertKinds: Array.from({ length: c.drawers }, (_, i) => (c.openSlots?.[i] ? 'cubby' : c.inserts?.[i]?.kind ?? 'none')),
     gridColumns: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'grid' ? x.columns : 2; }),
+    gridfinityBins: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'gridfinity' ? x.bins ?? [] : []; }),
     gridRows: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'grid' ? x.rows : 2; }),
     insertThickness: L(c.insertThickness ?? 1 / 4),
     markerDiameter: marker ? L(marker.diameter) : lengthToField(parseFloat(EXTRA_FIELD_DEFAULTS.markerDiameter), units),
@@ -1303,6 +1457,9 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     columnWidthMode: cols.some(x => x.width) ? 'custom' : 'equal',
     columnWidths: cols.map(x => (x.width ? L(x.width) : '')),
     columnDrawers: cols.map(x => x.drawers),
+    mount: c.mount ?? 'floor',
+    mountHeight: L(c.mountHeight ?? (c.mount === 'under-desk' ? 27.5 : 30)),
+    cleatHeight: L(c.cleatHeight ?? 3),
     columnFronts: cols.map(x => (x.frontHeights ?? equalFronts(x.drawers, c.height - baseHeightOf(c) - x.drawers * c.gap)).map(L)),
   };
 }

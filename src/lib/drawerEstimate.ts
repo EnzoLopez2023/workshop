@@ -1,7 +1,7 @@
 // Hardware list and cost estimate for the Drawer Builder. Quantities come from
 // the plan; prices are rough placeholders the user overrides with what they pay.
 
-import { SLIDE_CAPACITY_LB, type DrawerConfig, type DrawerPlan } from './drawerUnit.ts';
+import { boxedDrawers, SLIDE_CAPACITY_LB, type DrawerConfig, type DrawerPlan } from './drawerUnit.ts';
 import { quantityLabel, type HardwareItem } from './shelfEstimate.ts';
 import { formatLength, type LengthUnit } from './shelving.ts';
 
@@ -28,14 +28,15 @@ export function amazonSearch(query: string): string {
 export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units: LengthUnit): DrawerHardwareItem[] {
   const f = (inches: number) => formatLength(inches, units);
   const unitCount = plan.unitCount;
-  const n = plan.drawers.length * unitCount;
+  const boxed = boxedDrawers(plan);
+  const n = boxed.length * unitCount;
   const supports = plan.supports * unitCount;
   const items: DrawerHardwareItem[] = [];
 
   // One line per slide length (a shallow drawer can take a shorter pair).
-  const lengths = [...new Set(plan.drawers.map(d => d.box.depth))].sort((a, b) => b - a);
+  const lengths = [...new Set(boxed.map(d => d.box.depth))].sort((a, b) => b - a);
   for (const length of lengths) {
-    const pairs = plan.drawers.filter(d => d.box.depth === length).length * unitCount;
+    const pairs = boxed.filter(d => d.box.depth === length).length * unitCount;
     items.push({
       key: lengths.length === 1 ? 'slides' : `slides-${length}`,
       name: `LONTAN soft-close drawer slides, ${f(length)}`,
@@ -109,7 +110,17 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
     note: 'The case back and the drawer-box corners, with glue.', priceKey: 'brads',
   });
 
-  if (!desk && config.base !== 'casters' && plan.overallHeight > 30) {
+  if (plan.mount === 'wall') {
+    // Two screws into each stud the wall cleat crosses (studs every 16").
+    const studs = Math.max(2, Math.floor(plan.interiorWidth / 16) + 1);
+    const full = plan.loads.reduce((a, l) => a + l.pounds, 0);
+    items.push({ key: 'structural', name: '3″ (75 mm) structural screws', qty: studs * 2, unit: 'ea',
+      note: `Wall cleat into about ${studs} studs. Full, the drawers could hold about ${Math.round(full)} lb — studs only, never drywall anchors.`, priceKey: 'caseScrews' });
+  } else if (plan.mount === 'under-desk') {
+    items.push({ key: 'desk-screws', name: `Wood screws, ${f(1.25)}`, qty: 8, unit: 'ea', note: 'Up through the unit’s top into the desk, two near each corner. Check they won’t come through the desk top.', priceKey: 'caseScrews' });
+  }
+
+  if (!desk && plan.mount === 'floor' && config.base !== 'casters' && plan.overallHeight > 30) {
     items.push({ key: 'anti-tip', name: 'Anti-tip furniture strap', qty: 1, unit: 'kit', note: 'Open drawers shift the weight forward; anchor the top to a stud.', priceKey: 'antiTip' });
   }
 

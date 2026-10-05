@@ -218,6 +218,11 @@ if (!projectCols.has('drawer_design')) {
   db.exec(`ALTER TABLE projects ADD COLUMN drawer_design TEXT`);
 }
 
+// Build-guide progress (JSON: { shelf?: string[], drawer?: string[] } of finished step ids).
+if (!projectCols.has('build_progress')) {
+  db.exec(`ALTER TABLE projects ADD COLUMN build_progress TEXT`);
+}
+
 if (!imageCols.has('shaper_project_id')) {
   db.exec(`ALTER TABLE project_images ADD COLUMN shaper_project_id INTEGER REFERENCES shaper_projects(id) ON DELETE CASCADE`);
 }
@@ -678,6 +683,8 @@ function buildStmts(db) {
   deleteLibraryShelfDesign: db.prepare(`DELETE FROM shelf_designs WHERE id = ?`),
   saveShelfDesign:   db.prepare(`UPDATE projects SET shelf_design = @design WHERE id = @id`),
   getDrawerDesign:   db.prepare(`SELECT drawer_design FROM projects WHERE id = ?`),
+  getBuildProgress:  db.prepare(`SELECT build_progress FROM projects WHERE id = ?`),
+  saveBuildProgress: db.prepare(`UPDATE projects SET build_progress = @progress WHERE id = @id`),
   saveDrawerDesign:  db.prepare(`UPDATE projects SET drawer_design = @design WHERE id = @id`),
   listLibraryDrawerDesigns:  db.prepare(`SELECT * FROM drawer_designs ORDER BY updated_at DESC, id DESC`),
   getLibraryDrawerDesign:    db.prepare(`SELECT * FROM drawer_designs WHERE id = ?`),
@@ -3565,6 +3572,38 @@ function registerDesignRoutes(kind, stmt, column) {
 }
 
 registerDesignRoutes('shelf', 'Shelf', 'shelf_design');
+
+// ── Build-guide progress ─────────────────────────────────────────────────────
+
+const PROGRESS_KINDS = new Set(['shelf', 'drawer']);
+
+const readProgress = (row) => {
+  try {
+    const value = row.build_progress ? JSON.parse(row.build_progress) : {};
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch { return {}; }
+};
+
+app.get('/api/projects/:id/build-progress', (req, res) => {
+  const row = req.stmts.getBuildProgress.get(Number(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Project not found' });
+  res.json({ progress: readProgress(row) });
+});
+
+// Body: { kind: 'shelf' | 'drawer', done: string[] } — the finished step ids for that guide.
+app.put('/api/projects/:id/build-progress', (req, res) => {
+  const id = Number(req.params.id);
+  const row = req.stmts.getBuildProgress.get(id);
+  if (!row) return res.status(404).json({ error: 'Project not found' });
+  const { kind, done } = req.body ?? {};
+  if (!PROGRESS_KINDS.has(kind)) return res.status(400).json({ error: 'kind must be shelf or drawer' });
+  if (!Array.isArray(done) || done.length > 200 || !done.every(x => typeof x === 'string' && x.length > 0 && x.length <= 64)) {
+    return res.status(400).json({ error: 'done must be a list of step ids' });
+  }
+  const progress = { ...readProgress(row), [kind]: [...new Set(done)] };
+  req.stmts.saveBuildProgress.run({ id, progress: JSON.stringify(progress) });
+  res.json({ progress });
+});
 registerDesignRoutes('drawer', 'Drawer', 'drawer_design');
 
 // ── Analyze project URL with Claude ──────────────────────────────────────────
