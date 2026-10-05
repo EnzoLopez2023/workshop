@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   Search, LayoutDashboard, Plus, ShoppingCart, Ruler,
-  BookOpen, Settings, Hammer, Cpu, Box, Library, Inbox, FolderInput, FolderCog, Rows3, Archive,
+  BookOpen, Settings, Hammer, Cpu, Box, Library, Inbox, FolderInput, FolderCog, Rows3, Archive, Compass,
 } from 'lucide-react';
 import { listLibraryModels, listProjects } from '../services/api';
 import type { LibraryModel, ProjectListItem } from '../types/project';
@@ -46,6 +46,12 @@ export default function CommandPalette({ open, onClose, returnFocusTo }: Props) 
     navigate(path);
     onClose();
   }, [navigate, onClose]);
+
+  // Tours live in the app shell; ask it to start one once the palette has closed.
+  const startTour = useCallback((id: 'app' | 'drawers' | 'shelves') => {
+    onClose();
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent('workshop:tour', { detail: id })), 50);
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -155,6 +161,9 @@ export default function CommandPalette({ open, onClose, returnFocusTo }: Props) 
                   <PaletteItem icon={<Ruler size={15} />} label="Conversions" onSelect={() => go('/conversions')} />
                   <PaletteItem icon={<Rows3 size={15} />} label="Shelf Builder" onSelect={() => go('/shelves')} />
                   <PaletteItem icon={<Archive size={15} />} label="Drawer Builder" onSelect={() => go('/drawers')} />
+                  <PaletteItem icon={<Compass size={15} />} label="Take the Workshop tour" onSelect={() => startTour('app')} />
+                  <PaletteItem icon={<Compass size={15} />} label="Drawer Builder tutorial" onSelect={() => startTour('drawers')} />
+                  <PaletteItem icon={<Compass size={15} />} label="Shelf Builder tutorial" onSelect={() => startTour('shelves')} />
                   <PaletteItem icon={<BookOpen size={15} />} label="Notebook" onSelect={() => go('/notebook')} />
                   <PaletteItem icon={<Cpu size={15} />} label="Add Shaper Hub Project" onSelect={() => go('/shaper/new')} />
                   <PaletteItem icon={<Box size={15} />} label="Add Bambu Hub Project" onSelect={() => go('/bambu/new')} />

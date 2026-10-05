@@ -25,6 +25,8 @@ import {
 } from '../navigation';
 import { IconButton } from './ui';
 import { CreateProjectMenu } from './workflows';
+import { TourProvider } from '../tour/Tour';
+import { FirstVisitOffer, HelpMenu } from '../tour/TourLaunchers';
 
 const NAV_ICONS: Record<NavigationId, ComponentType<{ size?: number; strokeWidth?: number }>> = {
   projects: Hammer,
@@ -73,6 +75,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const openPalette = () => window.dispatchEvent(new CustomEvent('workshop:palette'));
 
   return (
+    <TourProvider>
+    <FirstVisitOffer />
     <div className="app-shell">
       <a className="skip-link" href="#main-content" data-command-background>Skip to content</a>
 
@@ -85,7 +89,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </span>
         </NavLink>
 
-        <nav className="app-sidebar-nav" aria-label="Primary">
+        <nav className="app-sidebar-nav" aria-label="Primary" data-tour="nav">
           {PRIMARY_NAVIGATION.map(item => {
             const Icon = NAV_ICONS[item.id];
             const current = isNavigationItemCurrent(item, pathname);
@@ -103,16 +107,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
 
-        <div className="app-sidebar-actions" aria-label="Create">
+        <div className="app-sidebar-actions" aria-label="Create" data-tour="new-project">
           <CreateProjectMenu />
         </div>
 
         <div className="app-sidebar-tools" aria-label="Workspace tools">
-          <button type="button" onClick={openPalette}>
+          <button type="button" onClick={openPalette} data-tour="search">
             <Search size={17} aria-hidden="true" />
             <span>Search</span>
             <kbd>⌘K</kbd>
           </button>
+          <HelpMenu />
           <button type="button" onClick={toggleTheme}>
             {resolvedTheme === 'dark'
               ? <Sun size={17} aria-hidden="true" />
@@ -139,10 +144,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <strong>Workshop</strong>
         </NavLink>
         <span className="app-mobile-actions">
-          <IconButton label="Search and navigate" onClick={openPalette}>
+          <IconButton label="Search and navigate" onClick={openPalette} data-tour="search">
             <Search size={19} aria-hidden="true" />
           </IconButton>
-          <CreateProjectMenu align="end" compact />
+          <HelpMenu compact />
+          <span data-tour="new-project"><CreateProjectMenu align="end" compact /></span>
           {!demo && (
             <IconButton label="Sign out" onClick={signOut}>
               <LogOut size={19} aria-hidden="true" />
@@ -161,7 +167,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {children}
       </main>
 
-      <nav className="app-mobile-nav" aria-label="Primary" data-command-background>
+      <nav className="app-mobile-nav" aria-label="Primary" data-command-background data-tour="nav">
         {PRIMARY_NAVIGATION.map(item => {
           const Icon = NAV_ICONS[item.id];
           const current = isNavigationItemCurrent(item, pathname);
@@ -179,5 +185,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
         })}
       </nav>
     </div>
+    </TourProvider>
   );
 }

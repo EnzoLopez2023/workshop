@@ -97,7 +97,7 @@ test('shell uses semantic landmarks and current-page semantics', async () => {
   ]);
 
   assert.match(shell, /<aside[^>]*aria-label="Workshop navigation"/);
-  assert.match(shell, /<nav className="app-sidebar-nav" aria-label="Primary">/);
+  assert.match(shell, /<nav className="app-sidebar-nav" aria-label="Primary"[^>]*>/);
   assert.match(shell, /<main id="main-content"/);
   assert.match(shell, /aria-current=\{current \? 'page' : undefined\}/);
   assert.match(shell, /<nav className="app-mobile-nav" aria-label="Primary"[^>]*>/);

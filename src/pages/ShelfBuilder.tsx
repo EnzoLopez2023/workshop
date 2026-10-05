@@ -11,6 +11,7 @@ import ShelfBuildGuide from '../components/ShelfBuildGuide';
 import { CostTable, HardwareTable, money, useShelfEstimate } from '../components/ShelfEstimate';
 import ShelfExport from '../components/ShelfExport';
 import ShelfLibrary from '../components/ShelfLibrary';
+import { TutorialButton } from '../tour/TourLaunchers';
 import type { ShelfTemplate } from '../lib/shelfTemplates';
 import { createLibraryShelfDesign, getLibraryShelfDesign, getProject, getShelfDesign, updateLibraryShelfDesign } from '../services/api';
 import { isDemoMode } from '../demo/demoMode';
@@ -609,6 +610,7 @@ export default function ShelfBuilder() {
         description="Design a plywood shelving unit by bay, then take the exact cut list, shelf positions, and sheet layout to the saw."
         actions={(
           <>
+            <TutorialButton tour="shelves" />
             <Button variant={showLibrary ? 'secondary' : 'ghost'} onClick={() => setShowLibrary(open => !open)} aria-expanded={showLibrary} aria-controls="shelf-library">
               <Library size={16} aria-hidden="true" /> Library
             </Button>
@@ -729,7 +731,7 @@ export default function ShelfBuilder() {
         <section className="shelf-config" aria-labelledby="shelf-config-title">
           <h2 id="shelf-config-title" className="sr-only">Design</h2>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-units">
             <legend>Units</legend>
             <SegmentedControl label="Units" value={units} options={UNIT_OPTIONS} onChange={next => setForm(prev => convertForm(prev, next))} />
             <p className="shelf-group-note">
@@ -737,7 +739,7 @@ export default function ShelfBuilder() {
             </p>
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-material">
             <legend>Material</legend>
             <LengthField
               unit={units}
@@ -766,7 +768,7 @@ export default function ShelfBuilder() {
             </div>
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-bays">
             <legend>Bays</legend>
             <div className="shelf-height-mode">
               <SegmentedControl label="Set the height by" value={form.heightMode} options={HEIGHT_MODE_OPTIONS} onChange={setHeightMode} />
@@ -899,7 +901,7 @@ export default function ShelfBuilder() {
             </label>
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-case">
             <legend>Case</legend>
             <Toggle label="Top panel" checked={form.topPanel} onChange={topPanel => update({ topPanel })} />
             <Toggle label="Bottom panel" checked={form.bottomPanel} onChange={bottomPanel => update({ bottomPanel })} />
@@ -923,7 +925,7 @@ export default function ShelfBuilder() {
             )}
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-face-frame-doors-edges">
             <legend>Face frame, doors &amp; edges</legend>
             <Toggle
               label="Face frame"
@@ -974,7 +976,7 @@ export default function ShelfBuilder() {
             </div>
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-joinery">
             <legend>Joinery</legend>
             <SegmentedControl label="Shelf joinery" value={form.joinery} options={JOINERY_OPTIONS} onChange={joinery => update({ joinery })} />
             {form.joinery === 'dado' && (
@@ -989,7 +991,7 @@ export default function ShelfBuilder() {
             )}
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-mounting">
             <legend>Mounting</legend>
             <SegmentedControl label="Mounting" value={form.mounting} options={MOUNTING_OPTIONS} onChange={mounting => update({ mounting })} />
             {!wall && (

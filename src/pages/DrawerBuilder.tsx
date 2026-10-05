@@ -15,6 +15,7 @@ import { drawerJigs } from '../lib/drawerExport';
 import { quantityLabel } from '../lib/shelfEstimate';
 import GridfinityPlanner from '../components/GridfinityPlanner';
 import ToolInsertEditor from '../components/ToolInsertEditor';
+import { TutorialButton } from '../tour/TourLaunchers';
 import { useDrawerEstimate } from '../components/DrawerEstimate';
 import { CostTable, HardwareTable, money } from '../components/ShelfEstimate';
 import { DRAWER_PRICE_LABELS } from '../lib/drawerEstimate';
@@ -911,9 +912,12 @@ export default function DrawerBuilder() {
         title="Drawer Builder"
         description="Design an ALEX-style plywood drawer unit with finger-pull fronts, sized to standard IKEA units or any width you need, then take the cut list and sheet layout to the saw."
         actions={(
+          <>
+          <TutorialButton tour="drawers" />
           <Button variant="ghost" onClick={() => { setForm(convertForm(DEFAULT_FORM, units)); setSource(null); }}>
             <RotateCcw size={16} aria-hidden="true" /> Reset design
           </Button>
+          </>
         )}
       />
 
@@ -1046,7 +1050,7 @@ export default function DrawerBuilder() {
         <section className="shelf-config" aria-labelledby="drawer-config-title">
           <h2 id="drawer-config-title" className="sr-only">Design</h2>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-units">
             <legend>Units</legend>
             <SegmentedControl label="Units" value={units} options={UNIT_OPTIONS} onChange={next => setForm(prev => convertForm(prev, next))} />
             <p className="shelf-group-note">
@@ -1054,7 +1058,7 @@ export default function DrawerBuilder() {
             </p>
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-material">
             <legend>Material</legend>
             <LengthField
               unit={units}
@@ -1072,7 +1076,7 @@ export default function DrawerBuilder() {
             </div>
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-size">
             <legend>Size</legend>
             <div className="shelf-field-grid">
               <LengthField
@@ -1104,7 +1108,7 @@ export default function DrawerBuilder() {
             </div>
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-drawers">
             <legend>Drawers</legend>
             <div className="shelf-height-mode">
               <SegmentedControl label="Set the height by" value={form.heightMode} options={HEIGHT_MODE_OPTIONS} onChange={setHeightMode} />
@@ -1239,7 +1243,7 @@ export default function DrawerBuilder() {
             </label>
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-finger-pull">
             <legend>Finger pull</legend>
             <Toggle
               label="Built-in pull"
@@ -1273,7 +1277,7 @@ export default function DrawerBuilder() {
             )}
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-inside-the-drawers">
             <legend>Inside the drawers</legend>
             <p className="shelf-group-note">An egg-crate divider grid, a tray of notched ribs that holds markers lying front to back, or a printed Gridfinity baseplate for modular bins.</p>
             <div className="drawer-inserts">
@@ -1377,7 +1381,7 @@ export default function DrawerBuilder() {
             )}
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-desk">
             <legend>Desk</legend>
             <Toggle
               label="Put the units under a desk top"
@@ -1403,7 +1407,7 @@ export default function DrawerBuilder() {
             )}
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-slides">
             <legend>Slides</legend>
             <label className="form-field">
               <span className="form-field-label">LONTAN slide length</span>
@@ -1434,7 +1438,7 @@ export default function DrawerBuilder() {
             )}
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-base-mounting">
             <legend>Base &amp; mounting</legend>
             <SegmentedControl
               label="Mounting"
@@ -1479,7 +1483,7 @@ export default function DrawerBuilder() {
             )}
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-finish">
             <legend>Finish</legend>
             {([['finishFront', 'Drawer fronts'], ['finishCase', 'Case and top']] as const).map(([key, label]) => (
               <div className="shelf-height-mode" key={key}>
@@ -1506,7 +1510,7 @@ export default function DrawerBuilder() {
             <p className="shelf-group-note">For the 3D view and build guide; the cost estimate counts paint or clear finish either way.</p>
           </fieldset>
 
-          <fieldset className="shelf-group">
+          <fieldset className="shelf-group" data-tour="fs-edges">
             <legend>Edges</legend>
             <Toggle
               label="Edge banding"
