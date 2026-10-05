@@ -104,3 +104,17 @@ test('the new options survive a save and reopen, and bad values are dropped', ()
   assert.deepEqual(bad.config.slideLengths, [null, null, null, null, null]);
   assert.equal(bad.config.finish, undefined);
 });
+
+test('each drawer’s front, box and insert slide out together; slides and case stay put', async () => {
+  const { DRAWER_OPEN_FRACTION, deskSolids } = await import('../src/lib/drawerUnit.ts');
+  const config = { ...base, inserts: [{ kind: 'grid', columns: 2, rows: 2 }, null, null, null, null] };
+  const plan = buildDrawerPlan(config);
+  const solids = drawerSolids(plan, config);
+  const first = solids.filter(s => s.group === 'Drawer 1');
+  assert.ok(first.some(s => s.kind === 'drawer-front') && first.some(s => s.kind === 'drawer-box') && first.some(s => s.kind === 'insert'));
+  assert.ok(first.every(s => Math.abs(s.travel - 20 * DRAWER_OPEN_FRACTION) < 1e-9));
+  assert.ok(solids.filter(s => s.kind === 'slide' || s.kind === 'case').every(s => !s.group));
+  const desk = { enabled: true, layout: 'both', width: 60, height: 29, depth: 24, topLayers: 2 };
+  const groups = new Set(deskSolids(buildDrawerPlan({ ...config, desk }), { ...config, desk }).map(s => s.group).filter(Boolean));
+  assert.ok(groups.has('Drawer 1') && groups.has('Right unit · Drawer 1'), 'each unit’s drawers open on their own');
+});

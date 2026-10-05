@@ -238,6 +238,8 @@ export const SLIDE_LENGTHS = [10, 12, 14, 16, 18, 20, 22, 24];
 export const SLIDE_CLEARANCE = 1 / 2;
 export const SLIDE_HEIGHT = 45 / 25.4;
 export const SLIDE_CAPACITY_LB = 100;
+/** An opened drawer in the 3D view comes out this share of its slide's travel. */
+export const DRAWER_OPEN_FRACTION = 0.85;
 /** Room left behind a closed drawer box for the slide's back end and an out-of-square back. */
 export const SLIDE_BACK_CLEARANCE = 1 / 2;
 /** Space above and below each drawer box inside its front's share of the case. */
@@ -775,6 +777,7 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
   ];
   for (const d of plan.drawers) {
     const name = `Drawer ${d.index + 1}`;
+    const first = solids.length;
     const fr = d.front;
     const hole = handHole(pull);
     solids.push({ name: `${name} front`, kind: 'drawer-front', shape: 'plate', z0: -T, z1: 0,
@@ -812,6 +815,8 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
         }
       });
     }
+    // Everything so far for this drawer slides out together; the slides stay put.
+    for (const s of solids.slice(first)) { s.group = name; s.travel = d.box.depth * DRAWER_OPEN_FRACTION; }
     solids.push(box(`${name} left slide`, 'slide', [T, d.slideY, 0], [T + SLIDE_CLEARANCE, d.slideY + SLIDE_HEIGHT, bx.depth]));
     solids.push(box(`${name} right slide`, 'slide', [W - T - SLIDE_CLEARANCE, d.slideY, 0], [W - T, d.slideY + SLIDE_HEIGHT, bx.depth]));
   }
@@ -848,7 +853,8 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
   dk.unitXs.forEach((dx, i) => {
     const side = dk.unitXs.length === 2 ? (i === 0 ? 'Left unit' : 'Right unit') : 'Unit';
     const rename = (name: string) => (prefix || i > 0 ? `${side} · ${name}` : name);
-    for (const s of unit) {
+    for (const unitSolid of unit) {
+      const s = unitSolid.group ? { ...unitSolid, group: rename(unitSolid.group) } : unitSolid;
       if (s.shape === 'box') out.push({ ...s, name: rename(s.name), min: [s.min[0] + dx, s.min[1], s.min[2]], max: [s.max[0] + dx, s.max[1], s.max[2]] });
       else if (s.shape === 'prism') out.push({ ...s, name: rename(s.name), x0: s.x0 + dx, x1: s.x1 + dx });
       else out.push({ ...s, name: rename(s.name), outline: s.outline.map(([x, y]) => [x + dx, y] as [number, number]) });

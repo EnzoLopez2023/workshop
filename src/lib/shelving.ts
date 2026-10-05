@@ -603,7 +603,16 @@ function splitBack(height: number, dividerXs: number[], t: number, overallWidth:
 export type SolidKind = 'case' | 'shelf' | 'adjustable' | 'pin' | 'back' | 'cleat' | 'wall-cleat' | 'groove' | 'pinhole' | 'frame' | 'door'
   | 'drawer-front' | 'drawer-box' | 'slide' | 'foot' | 'caster' | 'insert';
 
-export type Solid =
+/**
+ * Parts that move together in the 3D view (a drawer's front, box and insert) share a
+ * `group`; `travel` is how far that group slides out when opened.
+ */
+export interface SolidMotion {
+  group?: string;
+  travel?: number;
+}
+
+export type Solid = SolidMotion & (
   | {
     name: string; kind: SolidKind; shape: 'box'; min: [number, number, number]; max: [number, number, number];
     /** For grooves: the part they are cut into, and which way its grooved face points along x. */
@@ -612,7 +621,7 @@ export type Solid =
   /** A profile in the (z, y) plane extruded from x0 to x1 — used for beveled cleats. */
   | { name: string; kind: SolidKind; shape: 'prism'; x0: number; x1: number; profile: [number, number][] }
   /** An outline in the front (x, y) plane extruded from depth z0 to z1 — used for notched drawer fronts. */
-  | { name: string; kind: SolidKind; shape: 'plate'; z0: number; z1: number; outline: [number, number][]; holes?: [number, number][][] };
+  | { name: string; kind: SolidKind; shape: 'plate'; z0: number; z1: number; outline: [number, number][]; holes?: [number, number][][] });
 
 export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
   const t = config.thickness;
