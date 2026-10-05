@@ -3487,7 +3487,8 @@ app.put('/api/projects/:id/cut-plan-config', (req, res) => {
 
 // ── Saved designs (Shelf Builder, Drawer Builder) ─────────────────────────────
 
-const DESIGN_MAX = 20_000;
+// Tool outlines make drawer designs bigger; stays under the 100 kB JSON body limit.
+const DESIGN_MAX = 90_000;
 
 /** Returns an error message, or null when the name and design are acceptable. */
 function checkLibraryDesign(name, design) {

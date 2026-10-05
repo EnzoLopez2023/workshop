@@ -47,7 +47,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const boxes = names(name => / box /.test(name));
   const fronts = unitSolids.filter(s => / front$/.test(s.name) && !s.name.includes(' box ')).map(s => s.name);
   const everything = unitSolids.map(s => s.name);
-  const insertNames = names(name => / (divider|marker rib) \d+$/.test(name) || name.endsWith('Gridfinity baseplate'));
+  const insertNames = names(name => / (divider|marker rib) \d+$/.test(name) || name.endsWith('Gridfinity baseplate') || name.endsWith('tool board'));
 
   const steps: GuideStep[] = [];
 
@@ -301,7 +301,8 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   });
 
   // 12b ── Inserts
-  const insertParts = plan.parts.filter(p => p.name.startsWith('Lengthwise') || p.name.startsWith('Crosswise') || p.name.startsWith('Marker rib'));
+  const insertParts = plan.parts.filter(p => p.name.startsWith('Lengthwise') || p.name.startsWith('Crosswise') || p.name.startsWith('Marker rib') || p.name.startsWith('Tool board'));
+  const toolBoards = plan.inserts.filter(x => x?.toolBoard && !x.error).length;
   const gridfinity = plan.inserts.map((x, i) => (x?.gridfinity && !x.error ? { drawer: plan.drawers[i].label, gf: x.gridfinity } : null)).filter(Boolean) as { drawer: string; gf: NonNullable<InsertLayout['gridfinity']> }[];
   if (insertParts.length || gridfinity.length) {
     const grids = plan.inserts.some(x => x?.cells && !x.gridfinity);
@@ -309,7 +310,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     steps.push({
       id: 'inserts',
       title: 'Fit the dividers and marker trays',
-      summary: [grids ? 'Egg-crate divider grids' : '', trays ? `marker trays holding ${trays} markers per unit` : '', gridfinity.length ? 'Gridfinity baseplates' : ''].filter(Boolean).join(', ') + '.',
+      summary: [grids ? 'Egg-crate divider grids' : '', trays ? `marker trays holding ${trays} markers per unit` : '', gridfinity.length ? 'Gridfinity baseplates' : '', toolBoards ? 'tool shadow boards' : ''].filter(Boolean).join(', ') + '.',
       instructions: [
         ...(grids ? [
           'Cut the lap slots: lengthwise dividers are slotted from the top, crosswise ones from the bottom, each half the divider’s height.',
@@ -318,6 +319,10 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         ...(trays ? [
           'Cut the half-round notches (the CNC rib files have them), sand them smooth so the markers don’t snag.',
           'Glue the ribs to the drawer bottom in pairs, a marker’s length apart, notches lined up — lay a row of markers in while the glue sets.',
+        ] : []),
+        ...(toolBoards ? [
+          'Shadow boards: rout each tool pocket and finger hole to depth (the CNC file has them as pockets), ease the edges, then lay each tool in to check before finishing.',
+          'Flock or paint the pockets a contrasting colour so an empty one stands out.',
         ] : []),
         ...gridfinity.map(({ drawer, gf }) =>
           `${drawer}: print the ${gf.columns} × ${gf.rows} baseplate (${gf.tiles.map(t => `${t.count} × ${t.columns}×${t.rows}`).join(' + ')} tiles) and drop it in, centred — about ${Math.round(gf.marginX)} mm spare each side and ${Math.round(gf.marginY)} mm front and back. Bins up to ${gf.maxUnitsWithLip}u with a stacking lip fit under the drawer above.`),

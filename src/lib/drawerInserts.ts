@@ -11,7 +11,37 @@ export type DrawerInsert =
   | { kind: 'grid'; columns: number; rows: number }
   | { kind: 'markers'; diameter: number; length: number; spacing: number }
   /** A printed Gridfinity baseplate sized to the drawer, and the bins planned for it. */
-  | { kind: 'gridfinity'; bins?: GridfinityBin[] };
+  | { kind: 'gridfinity'; bins?: GridfinityBin[] }
+  /** A shadow board: a plywood insert with a pocket shaped to each tool (outlines from SVG/DXF). */
+  | { kind: 'tools'; tools: ToolPocket[]; boardThickness: number; pocketDepth: number; fingerHoles: boolean };
+
+/** One tool's pocket: its outline (inches, clearance included, lower-left at the origin), optionally turned 90°. */
+export interface ToolPocket {
+  name: string;
+  rings: [number, number][][];
+  width: number;
+  height: number;
+  rotated?: boolean;
+}
+
+export interface PlacedTool {
+  name: string;
+  /** Rings in board coordinates (x across the drawer, y from the front). */
+  rings: [number, number][][];
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ToolBoardLayout {
+  width: number;
+  depth: number;
+  thickness: number;
+  pocketDepth: number;
+  placed: PlacedTool[];
+  fingerHoles: { x: number; y: number; r: number }[];
+}
 
 /** A cut into a piece's edge, in the piece's (u along its length, v up its height) frame. */
 export type EdgeCut =
@@ -19,7 +49,11 @@ export type EdgeCut =
   | { kind: 'round'; center: number; radius: number };
 
 export interface InsertPiece {
-  role: 'lengthwise' | 'crosswise' | 'rib';
+  role: 'lengthwise' | 'crosswise' | 'rib' | 'board';
+  /** Stock thickness when it isn't the divider stock (a tool board). */
+  thickness?: number;
+  /** Tells otherwise identical pieces apart (a tool board's pockets). */
+  signature?: string;
   qty: number;
   length: number;
   height: number;
@@ -48,6 +82,8 @@ export interface InsertLayout {
   gridfinity?: GridfinityLayout;
   /** Where the planned bins go on it. */
   binPacking?: BinPacking;
+  /** The shadow board, for a tool insert. */
+  toolBoard?: ToolBoardLayout;
   error: string | null;
 }
 
@@ -79,6 +115,30 @@ export function layoutInsert(
 ): InsertLayout {
   const t = thickness;
   const empty: InsertLayout = { pieces: [], placements: [], capacity: 0, cells: 0, error: null };
+
+  if (insert.kind === 'tools') {
+    const board = { width: inside.width - INSERT_PLAY, depth: inside.depth - INSERT_PLAY };
+    const tb = insert.boardThickness;
+    if (!(tb > 0) || tb > inside.height - INSERT_TOP_CLEARANCE) {
+      return { ...empty, error: `a ${f(tb)} tool board won’t fit — the box is ${f(inside.height)} deep inside` };
+    }
+    if (!(insert.pocketDepth > 0) || insert.pocketDepth >= tb - 1 / 8) {
+      return { ...empty, error: `pockets ${f(insert.pocketDepth)} deep leave less than ${f(1 / 8)} under them in a ${f(tb)} board` };
+    }
+    const placed = arrangeTools(insert.tools, board.width, board.depth, insert.fingerHoles);
+    if (typeof placed === 'string') return { ...empty, error: placed };
+    const fingerHoles = insert.fingerHoles
+      ? placed.map(p => ({ x: p.x + p.width, y: p.y + p.height / 2, r: FINGER_HOLE_RADIUS }))
+      : [];
+    const signature = JSON.stringify([insert.tools.map(t => [t.name, t.rotated, t.rings.length, t.width, t.height]), insert.fingerHoles, insert.pocketDepth]);
+    return {
+      ...empty,
+      pieces: [{ role: 'board', qty: 1, length: board.width, height: board.depth, cuts: [], thickness: tb, signature }],
+      placements: [],
+      cells: placed.length,
+      toolBoard: { ...board, thickness: tb, pocketDepth: insert.pocketDepth, placed, fingerHoles },
+    };
+  }
 
   if (insert.kind === 'gridfinity') {
     const mm = 25.4;
@@ -202,4 +262,41 @@ export const INSERT_NAMES: Record<InsertPiece['role'], string> = {
   lengthwise: 'Lengthwise divider',
   crosswise: 'Crosswise divider',
   rib: 'Marker rib',
+  board: 'Tool board',
 };
+
+/** A finger hole beside each pocket, to lift the tool out. */
+export const FINGER_HOLE_RADIUS = 1 / 2;
+const TOOL_GAP = 1 / 2;
+
+/**
+ * Lays tools out in rows across the board, biggest first, with a gap around each
+ * (wider when there's a finger hole beside it). Returns a message when they don't fit.
+ */
+export function arrangeTools(tools: ToolPocket[], width: number, depth: number, fingerHoles: boolean): PlacedTool[] | string {
+  const gap = TOOL_GAP;
+  const extra = fingerHoles ? FINGER_HOLE_RADIUS : 0;
+  const sized = tools.map(t => {
+    const rings = t.rotated ? t.rings.map(r => r.map(([x, y]) => [t.height - y, x] as [number, number])) : t.rings;
+    return { name: t.name, rings, width: t.rotated ? t.height : t.width, height: t.rotated ? t.width : t.height };
+  });
+  for (const t of sized) {
+    if (t.width + extra + 2 * gap > width || t.height + 2 * gap > depth) {
+      return `“${t.name}” (${t.width.toFixed(2)}″ × ${t.height.toFixed(2)}″ with clearance) doesn’t fit the ${width.toFixed(2)}″ × ${depth.toFixed(2)}″ board${t.height + 2 * gap <= width ? ' — try turning it' : ''}`;
+    }
+  }
+  // Shelf packing: rows from the front, tallest first, left to right.
+  const order = [...sized].sort((a, b) => b.height - a.height || b.width - a.width);
+  const placed: PlacedTool[] = [];
+  let x = gap;
+  let y = gap;
+  let rowHeight = 0;
+  for (const t of order) {
+    if (x + t.width + extra + gap > width) { x = gap; y += rowHeight + gap; rowHeight = 0; }
+    if (y + t.height + gap > depth) return `the tools don’t all fit on the ${width.toFixed(2)}″ × ${depth.toFixed(2)}″ board — remove one, turn some, or use a bigger drawer`;
+    placed.push({ name: t.name, rings: t.rings.map(r => r.map(([px, py]) => [px + x, py + y] as [number, number])), x, y, width: t.width, height: t.height });
+    x += t.width + extra + gap;
+    rowHeight = Math.max(rowHeight, t.height);
+  }
+  return placed;
+}

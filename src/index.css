@@ -9129,3 +9129,20 @@ tbody td {
   margin: 14px 0 4px;
   font-size: 0.9rem;
 }
+
+.tool-board {
+  fill: color-mix(in srgb, var(--color-action-fill) 22%, var(--color-surface));
+  stroke: var(--color-ink);
+  stroke-width: 0.03;
+}
+
+.tool-pocket {
+  fill: color-mix(in srgb, var(--color-ink) 55%, var(--color-surface));
+  stroke: var(--color-ink);
+  stroke-width: 0.02;
+}
+
+.tool-name {
+  fill: var(--color-surface);
+  font-weight: 700;
+}

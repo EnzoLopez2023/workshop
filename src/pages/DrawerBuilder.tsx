@@ -14,6 +14,7 @@ import { drawerGuideSteps } from '../lib/drawerGuide';
 import { drawerJigs } from '../lib/drawerExport';
 import { quantityLabel } from '../lib/shelfEstimate';
 import GridfinityPlanner from '../components/GridfinityPlanner';
+import ToolInsertEditor from '../components/ToolInsertEditor';
 import { useDrawerEstimate } from '../components/DrawerEstimate';
 import { CostTable, HardwareTable, money } from '../components/ShelfEstimate';
 import { DRAWER_PRICE_LABELS } from '../lib/drawerEstimate';
@@ -104,6 +105,11 @@ const DEFAULT_FORM: FormState = {
   gridColumns: [2, 2, 2, 2, 2],
   gridRows: [2, 2, 2, 2, 2],
   gridfinityBins: [[], [], [], [], []],
+  toolPockets: [[], [], [], [], []],
+  toolBoardThickness: '3/4',
+  toolPocketDepth: '1/2',
+  toolClearance: '1/32',
+  toolFingerHoles: true,
   insertThickness: EXTRA_FIELD_DEFAULTS.insertThickness,
   markerDiameter: lengthToField(MARKER_PRESETS[0].diameter, 'in'),
   markerLength: lengthToField(MARKER_PRESETS[0].length, 'in'),
@@ -133,7 +139,7 @@ const LENGTH_FIELDS = [
   'thickness', 'width', 'height', 'depth', 'gap', 'pullWidth', 'pullDepth',
   'boxThickness', 'bottomThickness', 'backThickness', 'footHeight', 'casterHeight',
   'insertThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
-  'mountHeight', 'cleatHeight',
+  'mountHeight', 'cleatHeight', 'toolBoardThickness', 'toolPocketDepth', 'toolClearance',
 ] as const;
 type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}` | `columnFronts.${number}.${number}` | `columnWidths.${number}`;
 
@@ -226,6 +232,7 @@ function normalizeDrawers(input: FormState): FormState {
     gridColumns: fit(form.gridColumns, 2),
     gridRows: fit(form.gridRows, 2),
     gridfinityBins: fit(form.gridfinityBins, []),
+    toolPockets: fit(form.toolPockets, []),
     drawerSlides: fit(form.drawerSlides, ''),
   };
 }
@@ -299,6 +306,10 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     ? { enabled: true, layout: form.deskLayout, width: num('deskWidth'), height: num('deskHeight'), depth: num('deskDepth'), topLayers: form.deskTopLayers }
     : undefined;
   const usesMarkers = form.insertKinds.slice(0, form.drawers).includes('markers');
+  const usesTools = form.insertKinds.slice(0, form.drawers).includes('tools');
+  const toolBoard = usesTools ? num('toolBoardThickness') : null;
+  const toolDepth = usesTools ? num('toolPocketDepth') : null;
+  if (usesTools) num('toolClearance');
   const marker = usesMarkers
     ? { kind: 'markers' as const, diameter: num('markerDiameter'), length: num('markerLength'), spacing: num('markerSpacing', { allowZero: true }) }
     : null;
@@ -339,6 +350,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
       kind === 'grid' ? { kind: 'grid', columns: form.gridColumns[i] ?? 2, rows: form.gridRows[i] ?? 2 }
         : kind === 'markers' ? marker
           : kind === 'gridfinity' ? { kind: 'gridfinity', bins: form.gridfinityBins[i]?.length ? form.gridfinityBins[i] : undefined }
+            : kind === 'tools' ? { kind: 'tools', tools: form.toolPockets[i] ?? [], boardThickness: toolBoard!, pocketDepth: toolDepth!, fingerHoles: form.toolFingerHoles }
             : null),
     gridfinityBed: Number(form.gridfinityBed) || 256,
     insertThickness: form.insertKinds.slice(0, form.drawers).some(k => k !== 'none') ? num('insertThickness') : 1 / 4,
@@ -727,6 +739,7 @@ export default function DrawerBuilder() {
         gridColumns: regroup(prev.gridColumns),
         gridRows: regroup(prev.gridRows),
         gridfinityBins: regroup(prev.gridfinityBins),
+        toolPockets: regroup(prev.toolPockets),
         drawerSlides: regroup(prev.drawerSlides),
       };
       if (k === 1) { next.drawers = counts[0]; next.frontHeights = fronts[0]; }
@@ -749,6 +762,7 @@ export default function DrawerBuilder() {
         gridColumns: resizeColumnSlice(prev.gridColumns, counts, column, n, last => last ?? 2),
         gridRows: resizeColumnSlice(prev.gridRows, counts, column, n, last => last ?? 2),
         gridfinityBins: resizeColumnSlice(prev.gridfinityBins, counts, column, n, () => []),
+        toolPockets: resizeColumnSlice(prev.toolPockets, counts, column, n, () => []),
         drawerSlides: resizeColumnSlice(prev.drawerSlides, counts, column, n, () => ''),
         columnDrawers: counts.map((c, i) => (i === column ? n : c)),
         columnFronts: prev.columnFronts.map((list, i) => (i !== column ? list
@@ -1273,6 +1287,7 @@ export default function DrawerBuilder() {
                       <option value="grid">Divider grid</option>
                       <option value="markers">Marker tray</option>
                       <option value="gridfinity">Gridfinity baseplate</option>
+                      <option value="tools">Tool shadow board</option>
                       <option value="cubby">Open cubby (no drawer)</option>
                     </select>
                     {kind === 'grid' && (
@@ -1281,6 +1296,16 @@ export default function DrawerBuilder() {
                         <span aria-hidden="true">×</span>
                         <Stepper labelledBy={`insert-${i}`} value={form.gridRows[i] ?? 2} min={1} max={12} onChange={v => setInsert(i, { gridRows: Math.max(1, Math.min(12, v)) })} noun="row" />
                       </span>
+                    )}
+                    {kind === 'tools' && (
+                      <ToolInsertEditor
+                        tools={form.toolPockets[i] ?? []}
+                        onChange={tools => setForm(prev => ({ ...prev, toolPockets: prev.toolPockets.map((v, k) => (k === i ? tools : v)) }))}
+                        board={layout?.toolBoard}
+                        clearance={parseLength(form.toolClearance, units) ?? 1 / 32}
+                        units={units}
+                        label={drawerLabel(i)}
+                      />
                     )}
                     {kind === 'gridfinity' && layout?.gridfinity && !layout.gridfinity.error && (
                       <GridfinityPlanner
@@ -1307,6 +1332,14 @@ export default function DrawerBuilder() {
               <Button variant="ghost" onClick={() => copyInsertToAll()} disabled={form.insertKinds[0] === undefined}>Use drawer 1’s for all</Button>
               <Button variant="ghost" onClick={() => update({ insertKinds: form.insertKinds.map(() => 'none') })}>Clear all</Button>
             </span>
+            {form.insertKinds.slice(0, form.drawers).includes('tools') && (
+              <div className="shelf-field-grid">
+                <LengthField unit={units} label="Shadow board plywood" value={form.toolBoardThickness} error={fieldErrors.toolBoardThickness} onChange={toolBoardThickness => update({ toolBoardThickness })} />
+                <LengthField unit={units} label="Pocket depth" value={form.toolPocketDepth} error={fieldErrors.toolPocketDepth} onChange={toolPocketDepth => update({ toolPocketDepth })} />
+                <LengthField unit={units} label="Clearance around tools" value={form.toolClearance} error={fieldErrors.toolClearance} hint="Applied when you import an outline." onChange={toolClearance => update({ toolClearance })} />
+                <Toggle label="Finger holes" checked={form.toolFingerHoles} hint="A round scoop beside each pocket to lift the tool out." onChange={toolFingerHoles => update({ toolFingerHoles })} />
+              </div>
+            )}
             {form.insertKinds.slice(0, form.drawers).includes('gridfinity') && (
               <label className="form-field">
                 <span className="form-field-label">Printer for the baseplates</span>

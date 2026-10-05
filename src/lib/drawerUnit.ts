@@ -21,8 +21,9 @@ import {
   type Solid,
   type SolidKind,
 } from './shelving.ts';
-import { INSERT_NAMES, layoutInsert, pieceOutline, type DrawerInsert, type InsertLayout } from './drawerInserts.ts';
+import { INSERT_NAMES, INSERT_PLAY, layoutInsert, pieceOutline, type DrawerInsert, type InsertLayout } from './drawerInserts.ts';
 import type { GridfinityBin } from './gridfinity.ts';
+import type { ToolPocket } from './drawerInserts.ts';
 
 export type DrawerBase = 'none' | 'feet' | 'casters';
 /** On the floor (on its base), hung on a French cleat, or hung under an existing desk. */
@@ -828,8 +829,10 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       partOutlines[name] = pieceOutline(piece.length, piece.height, piece.cuts);
       const slots = piece.cuts.length;
       parts.push({
-        name, qty: piece.qty * g.indexes.length, length: piece.length, width: piece.height, thickness: it,
-        note: piece.role === 'rib'
+        name, qty: piece.qty * g.indexes.length, length: piece.length, width: piece.height, thickness: piece.thickness ?? it,
+        note: piece.role === 'board'
+          ? `${g.layout.toolBoard?.placed.length ?? 0} tool pocket${g.layout.toolBoard?.placed.length === 1 ? '' : 's'}, ${f(g.layout.toolBoard?.pocketDepth ?? 0)} deep`
+          : piece.role === 'rib'
           ? `${slots} half-round notch${slots === 1 ? '' : 'es'}; glue to the drawer bottom`
           : slots ? `${slots} slot${slots === 1 ? '' : 's'} from the ${piece.role === 'lengthwise' ? 'top' : 'bottom'}, half its height` : undefined,
         material: 'plywood',
@@ -1022,6 +1025,10 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
       const iz = b;
       const it = config.insertThickness ?? 1 / 4;
       const ribPiece = insert.pieces.find(p => p.role === 'rib');
+      if (insert.toolBoard) {
+        const tb = insert.toolBoard;
+        solids.push(box(`${name} tool board`, 'insert', [ix + INSERT_PLAY / 2, iy, iz + INSERT_PLAY / 2], [ix + INSERT_PLAY / 2 + tb.width, iy + tb.thickness, iz + INSERT_PLAY / 2 + tb.depth]));
+      }
       if (insert.gridfinity) {
         // The baseplate, centred on the floor, as a slab (its pockets are too fine to see at this scale).
         const gf = insert.gridfinity;
@@ -1297,6 +1304,26 @@ function readInsert(raw: unknown): DrawerInsert | null {
       : undefined;
     return bins?.length ? { kind: 'gridfinity', bins } : { kind: 'gridfinity' };
   }
+  if (v.kind === 'tools') {
+    const tools = Array.isArray(v.tools) ? (v.tools as unknown[]).flatMap(t => {
+      if (!t || typeof t !== 'object') return [];
+      const x = t as Record<string, unknown>;
+      const okPt = (p: unknown) => Array.isArray(p) && p.length === 2 && p.every(c => typeof c === 'number' && Number.isFinite(c));
+      const rings = Array.isArray(x.rings) && x.rings.length && x.rings.length <= 20
+        && (x.rings as unknown[]).every(r => Array.isArray(r) && r.length >= 3 && r.length <= 400 && r.every(okPt))
+        ? x.rings as [number, number][][] : null;
+      const width = n(x.width, 0.05, 60);
+      const height = n(x.height, 0.05, 60);
+      if (!rings || width === null || height === null) return [];
+      return [{ name: typeof x.name === 'string' ? x.name.slice(0, 80) : 'Tool', rings, width, height, rotated: x.rotated === true }];
+    }) : [];
+    return {
+      kind: 'tools', tools,
+      boardThickness: n(v.boardThickness, 0.1, 3) ?? 0.75,
+      pocketDepth: n(v.pocketDepth, 0.05, 3) ?? 0.5,
+      fingerHoles: v.fingerHoles !== false,
+    };
+  }
   if (v.kind === 'markers') {
     const diameter = n(v.diameter, 0.05, 4);
     const length = n(v.length, 0.5, 30);
@@ -1355,6 +1382,13 @@ export interface DrawerDesignFields {
   insertKinds: InsertKind[];
   /** Per drawer: the Gridfinity bins planned for it. */
   gridfinityBins: GridfinityBin[][];
+  /** Per drawer: the tools in its shadow board. */
+  toolPockets: ToolPocket[][];
+  /** Shadow boards (one spec per design), as typed. */
+  toolBoardThickness: string;
+  toolPocketDepth: string;
+  toolClearance: string;
+  toolFingerHoles: boolean;
   gridColumns: number[];
   gridRows: number[];
   insertThickness: string;
@@ -1390,7 +1424,7 @@ export interface DrawerDesignFields {
 }
 
 /** What's in each position: an empty drawer, an insert, or an open cubby (no drawer at all). */
-export type InsertKind = 'none' | 'grid' | 'markers' | 'gridfinity' | 'cubby';
+export type InsertKind = 'none' | 'grid' | 'markers' | 'gridfinity' | 'tools' | 'cubby';
 
 /** Form defaults for the inside-the-drawer and desk fields (inch strings). */
 export const EXTRA_FIELD_DEFAULTS = {
@@ -1411,6 +1445,7 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
   const cols = columnsOf(c);
   const fronts = cols.length > 1 ? (cols[0].frontHeights ?? frontHeightsOf({ ...c, drawers: cols[0].drawers, frontHeights: undefined })) : frontHeightsOf(c);
   const marker = c.inserts?.find((x): x is Extract<DrawerInsert, { kind: 'markers' }> => x?.kind === 'markers');
+  const toolSpec = c.inserts?.find((x): x is Extract<DrawerInsert, { kind: 'tools' }> => x?.kind === 'tools');
   return {
     units,
     thickness: L(c.thickness),
@@ -1437,6 +1472,11 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     insertKinds: Array.from({ length: c.drawers }, (_, i) => (c.openSlots?.[i] ? 'cubby' : c.inserts?.[i]?.kind ?? 'none')),
     gridColumns: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'grid' ? x.columns : 2; }),
     gridfinityBins: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'gridfinity' ? x.bins ?? [] : []; }),
+    toolPockets: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'tools' ? x.tools : []; }),
+    toolBoardThickness: L(toolSpec?.boardThickness ?? 0.75),
+    toolPocketDepth: L(toolSpec?.pocketDepth ?? 0.5),
+    toolClearance: L(1 / 32),
+    toolFingerHoles: toolSpec?.fingerHoles ?? true,
     gridRows: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'grid' ? x.rows : 2; }),
     insertThickness: L(c.insertThickness ?? 1 / 4),
     markerDiameter: marker ? L(marker.diameter) : lengthToField(parseFloat(EXTRA_FIELD_DEFAULTS.markerDiameter), units),

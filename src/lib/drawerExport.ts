@@ -151,6 +151,20 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       continue;
     }
 
+    if (part.name.startsWith('Tool board')) {
+      // u = across the drawer from the left, v = back from the front edge, top face up.
+      const tb = plan.inserts[plan.partDrawers[part.name]?.[0] ?? -1]?.toolBoard;
+      const features: Feature[] = [
+        ...(tb?.placed ?? []).map((p): Feature => ({ kind: 'pocketPath', label: p.name, rings: p.rings, depth: tb!.pocketDepth })),
+        ...(tb?.fingerHoles ?? []).map((h): Feature => ({ kind: 'hole', label: 'Finger hole', u: h.x, v: h.y, radius: h.r, depth: tb!.pocketDepth })),
+      ];
+      faces.push({
+        ...base, id: slug(part.name), piece: part.name, face: 'top face', features, rightHanded: true,
+        orientation: 'Top face up, front edge at the bottom of the drawing. Pockets and finger holes are cut to the same depth.',
+      });
+      continue;
+    }
+
     const shaped = plan.partOutlines[part.name];
     if (shaped) {
       // Dividers and marker ribs: the slots and notches are part of the outline cut.
@@ -667,6 +681,8 @@ export function drawerFeatureSummary(face: PartFace): string {
           : f.label.includes('slide') ? 'slide line'
             : f.label.startsWith('Caster') ? 'caster outline'
             : f.label === 'Hand hole' ? 'hand hole'
+              : f.kind === 'pocketPath' ? 'tool pocket'
+                : f.label === 'Finger hole' ? 'finger hole'
               : 'feature';
     counts.set(word, (counts.get(word) ?? 0) + 1);
   }

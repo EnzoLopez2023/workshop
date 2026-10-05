@@ -22,7 +22,9 @@ export type Feature =
   /** A layout line that isn't cut (e.g. where a drawer slide goes): Shaper's guide, DXF layer GUIDE. */
   | { kind: 'guide'; label: string; points: [number, number][]; closed?: boolean }
   /** A closed hole cut right through (e.g. a hand hole): Shaper's inside cut, DXF layer INSIDE_<depth>. */
-  | { kind: 'cutout'; label: string; points: [number, number][] };
+  | { kind: 'cutout'; label: string; points: [number, number][] }
+  /** A shaped pocket (a tool's outline, with any islands as extra rings), cut to `depth`. */
+  | { kind: 'pocketPath'; label: string; rings: [number, number][][]; depth: number };
 
 export interface PartFace {
   /** Stable id, e.g. "divider-1-left". */
@@ -214,6 +216,10 @@ function svgShapes(face: PartFace, place: Place, units: LengthUnit): string {
       return `<path d="${path(f.points, f.closed)}" fill="none" stroke="#0000FF" stroke-width="${units === 'mm' ? 0.5 : 0.02}" `
         + `shaper:cutType="guide"><title>${escapeXml(f.label)}</title></path>`;
     }
+    if (f.kind === 'pocketPath') {
+      return `<path d="${f.rings.map(r => path(r)).join(' ')}" fill="#7F7F7F" fill-rule="evenodd" stroke="none" `
+        + `shaper:cutType="pocket" shaper:cutDepth="${depthLabel(f.depth, units)}"><title>${escapeXml(f.label)}</title></path>`;
+    }
     if (f.kind === 'cutout') {
       return `<path d="${path(f.points)}" fill="#FFFFFF" stroke="#000000" stroke-width="${units === 'mm' ? 0.2 : 0.008}" `
         + `shaper:cutType="inside" shaper:cutDepth="${depthLabel(face.thickness, units)}"><title>${escapeXml(f.label)}</title></path>`;
@@ -286,6 +292,8 @@ function dxfEntities(face: PartFace, topDown: Place, docHeight: number, units: L
   for (const f of face.features) {
     if (f.kind === 'guide') {
       polyline('GUIDE', f.points.map(([u, v]) => place(u, v)), f.closed ?? false);
+    } else if (f.kind === 'pocketPath') {
+      for (const ring of f.rings) polyline(`POCKET_${depthLabel(f.depth, units)}`, ring.map(([u, v]) => place(u, v)));
     } else if (f.kind === 'cutout') {
       polyline(`INSIDE_${depthLabel(face.thickness, units)}`, f.points.map(([u, v]) => place(u, v)));
     } else if (f.kind === 'pocket') {

@@ -94,7 +94,7 @@ test('the drawer design library saves, updates, lists, and deletes, separate fro
   assert.equal(list[0].id, created.id);
 
   assert.equal((await request('/api/drawer-designs', { method: 'POST', body: { name: '', design } })).status, 400);
-  assert.equal((await request('/api/drawer-designs', { method: 'POST', body: { name: 'Huge', design: { ...design, config: { note: 'x'.repeat(25_000) } } } })).status, 413);
+  assert.equal((await request('/api/drawer-designs', { method: 'POST', body: { name: 'Huge', design: { ...design, config: { note: 'x'.repeat(95_000) } } } })).status, 413);
   assert.equal((await request(`/api/drawer-designs/${created.id}`, { user: USER_B, method: 'DELETE' })).status, 404, 'other accounts can’t touch it');
   assert.equal((await request(`/api/drawer-designs/${created.id}`, { method: 'DELETE' })).status, 200);
   assert.equal((await request(`/api/drawer-designs/${created.id}`)).status, 404);

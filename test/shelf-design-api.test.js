@@ -80,7 +80,7 @@ test('malformed designs and missing projects are refused', async () => {
     const res = await request(`/api/projects/${id}/shelf-design`, { method: 'PUT', body });
     assert.equal(res.status, 400, JSON.stringify(body));
   }
-  const huge = { ...design, config: { ...design.config, note: 'x'.repeat(25_000) } };
+  const huge = { ...design, config: { ...design.config, note: 'x'.repeat(95_000) } };
   assert.equal((await request(`/api/projects/${id}/shelf-design`, { method: 'PUT', body: { design: huge } })).status, 413);
   assert.equal((await request('/api/projects/999999/shelf-design')).status, 404);
   assert.equal((await request('/api/projects/999999/shelf-design', { method: 'PUT', body: { design } })).status, 404);
@@ -200,7 +200,7 @@ test('the design library rejects bad input and keeps accounts and demo mode apar
   assert.equal((await post({ name: 'x'.repeat(121), design })).status, 400);
   assert.equal((await post({ name: 'No design' })).status, 400);
   assert.equal((await post({ name: 'Array', design: [] })).status, 400);
-  assert.equal((await post({ name: 'Huge', design: { ...design, config: { ...design.config, note: 'x'.repeat(25_000) } } })).status, 413);
+  assert.equal((await post({ name: 'Huge', design: { ...design, config: { ...design.config, note: 'x'.repeat(95_000) } } })).status, 413);
 
   const mine = await (await post({ name: 'Only mine', design })).json();
   const theirs = await (await request('/api/shelf-designs', { user: USER_B })).json();
