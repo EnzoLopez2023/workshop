@@ -124,11 +124,12 @@ export async function checkMigrationCompatibility() {
         'apple_credentials',
         'account_deletion_files',
         'shelf_designs',
+        'drawer_designs',
       ];
       const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(row => row.name));
       if (!required.every(table => tables.has(table))) throw new Error('candidate schema is missing required tables');
       const projectColumns = new Set(db.prepare('PRAGMA table_info(projects)').all().map(column => column.name));
-      for (const column of ['source_url', 'cut_plan_url', 'cut_plan_config', 'shelf_design', 'is_template', 'template_name']) {
+      for (const column of ['source_url', 'cut_plan_url', 'cut_plan_config', 'shelf_design', 'drawer_design', 'is_template', 'template_name']) {
         if (!projectColumns.has(column)) throw new Error(`candidate projects schema is missing ${column}`);
       }
       const imageColumns = new Set(db.prepare('PRAGMA table_info(project_images)').all().map(column => column.name));

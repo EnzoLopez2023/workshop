@@ -1,6 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AlertCircle, AlertTriangle, ArrowLeft, Check, Clipboard, Printer, RotateCcw } from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, FolderPlus, Loader2, Printer, RotateCcw, Save,
+} from 'lucide-react';
 import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
 import { DimH, DimV, LengthField, Stat, Stepper, Toggle } from '../components/builderControls';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
@@ -8,6 +10,13 @@ import DrawerExport from '../components/DrawerExport';
 import { useDrawerEstimate } from '../components/DrawerEstimate';
 import { CostTable, HardwareTable, money } from '../components/ShelfEstimate';
 import { DRAWER_PRICE_LABELS } from '../lib/drawerEstimate';
+import DrawerAddToProject from '../components/DrawerAddToProject';
+import DrawerBuildGuide from '../components/DrawerBuildGuide';
+import {
+  createLibraryDrawerDesign, getDrawerDesign, getLibraryDrawerDesign, getProject, listLibraryDrawerDesigns, updateLibraryDrawerDesign,
+} from '../services/api';
+import { isDemoMode } from '../demo/demoMode';
+import type { LibraryDrawerDesign } from '../types/project';
 import { decimalString, formatLength, lengthToField, parseLength, type LengthUnit } from '../lib/shelving';
 import {
   buildDrawerPlan,
@@ -20,6 +29,9 @@ import {
   notchedOutline,
   SLIDE_CAPACITY_LB,
   SLIDE_LENGTHS,
+  drawerDesignToFields,
+  readSavedDrawerDesign,
+  toSavedDrawerDesign,
   type DrawerConfig,
   type DrawerDesignFields,
   type DrawerPlan,
@@ -31,6 +43,10 @@ const ShelfViewer3D = lazy(() => import('../components/ShelfViewer3D'));
 
 const STORAGE_KEY = 'workshop-drawer-builder';
 const VIEW_STORAGE_KEY = 'workshop-drawer-builder-view';
+/** Which saved design is open (and its saved state), so returning to the page keeps the link. */
+const SOURCE_STORAGE_KEY = 'workshop-drawer-builder-source';
+/** The design that was in the builder before another was opened over it. */
+const PREVIOUS_STORAGE_KEY = 'workshop-drawer-builder-previous';
 const MAX_DRAWERS = 12;
 
 type FormState = DrawerDesignFields;
@@ -203,6 +219,24 @@ function toCutList(plan: DrawerPlan): CutListItem[] {
   }));
 }
 
+type DesignSource = { kind: 'project' | 'library'; id: number; title: string } | { kind: 'template'; title: string };
+
+function readStoredSource(): { source: DesignSource | null; snapshot: string | null } {
+  try {
+    const raw = localStorage.getItem(SOURCE_STORAGE_KEY);
+    if (!raw) return { source: null, snapshot: null };
+    const parsed = JSON.parse(raw) as { source?: DesignSource; snapshot?: string };
+    // Only a library design is worth remembering: it's the one with "unsaved changes" to track.
+    return parsed.source?.kind === 'library' && typeof parsed.snapshot === 'string'
+      ? { source: parsed.source, snapshot: parsed.snapshot }
+      : { source: null, snapshot: null };
+  } catch {
+    return { source: null, snapshot: null };
+  }
+}
+
+const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'the request failed');
+
 /** Rounds fronts to 1/16" (or 0.5 mm), letting the bottom one take up the difference so the total holds. */
 function roundedFronts(heights: number[], units: LengthUnit): string[] {
   const step = units === 'mm' ? 0.5 / 25.4 : 1 / 16;
@@ -217,7 +251,25 @@ export default function DrawerBuilder() {
   const [form, setForm] = useState<FormState>(readStoredForm);
   const [view, setView] = useState<PreviewMode>(readStoredView);
   const [copyStatus, setCopyStatus] = useState('');
-  const [templateNote, setTemplateNote] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [storedSource] = useState(readStoredSource);
+  /** Where the design on screen came from: a project, a saved library design, or a template. */
+  const [source, setSource] = useState<DesignSource | null>(storedSource.source);
+  /** The open library design as last saved (or opened), to tell when there are unsaved changes. */
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(storedSource.snapshot);
+  const pendingSnapshot = useRef(false);
+  const [naming, setNaming] = useState(false);
+  const [designName, setDesignName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [loadNotice, setLoadNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
+  const [hasPrevious, setHasPrevious] = useState(false);
+  const [library, setLibrary] = useState<LibraryDrawerDesign[]>([]);
+  const [addingToProject, setAddingToProject] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const formRef = useRef(form);
+  formRef.current = form;
+  const demo = isDemoMode();
   const units = form.units;
   const fmt = (inches: number) => formatLength(inches, units);
   const otherUnit = (inches: number) => formatLength(inches, units === 'mm' ? 'in' : 'mm');
@@ -246,12 +298,179 @@ export default function DrawerBuilder() {
     return c ? { plan: buildDrawerPlan(c), pull: c.pull } : null;
   }), []);
 
+  // Opening anything sets the current design aside first, so it can be restored.
+  function applyDesign(fields: FormState, origin: DesignSource) {
+    try {
+      localStorage.setItem(PREVIOUS_STORAGE_KEY, JSON.stringify(formRef.current));
+      setHasPrevious(true);
+    } catch {
+      setHasPrevious(false);
+    }
+    setForm(normalizeDrawers(fields));
+    setSource(origin);
+    // A library design's reference copy is taken from the form once it renders (see below).
+    pendingSnapshot.current = origin.kind === 'library';
+    setSavedSnapshot(null);
+    setNaming(false);
+    setSaveMessage(null);
+    setLoadNotice(null);
+    setAddingToProject(false);
+  }
+
   const applyTemplate = (template: DrawerTemplate) => {
-    const fields = normalizeDrawers({ ...DEFAULT_FORM, ...template.fields, units: 'in' });
-    setForm(convertForm(fields, units));
-    setTemplateNote(template.id.startsWith('alex')
-      ? `Started from ${template.name}. Sizes come from IKEA’s listing and are approximate — measure one if you’re matching it.`
-      : `Started from ${template.name}.`);
+    applyDesign(convertForm(normalizeDrawers({ ...DEFAULT_FORM, ...template.fields, units: 'in' }), units), { kind: 'template', title: template.name });
+  };
+
+  const restorePrevious = () => {
+    try {
+      const raw = localStorage.getItem(PREVIOUS_STORAGE_KEY);
+      if (raw) setForm(normalizeDrawers({ ...DEFAULT_FORM, ...(JSON.parse(raw) as Partial<FormState>) }));
+      localStorage.removeItem(PREVIOUS_STORAGE_KEY);
+    } catch {
+      setLoadNotice({ tone: 'error', text: 'Your previous design couldn’t be restored from this browser.' });
+    }
+    setHasPrevious(false);
+    setSource(null);
+    setAddingToProject(false);
+  };
+
+  // Saved designs, for the "Start from" strip.
+  useEffect(() => {
+    let cancelled = false;
+    listLibraryDrawerDesigns()
+      .then(list => !cancelled && setLibrary(list))
+      .catch(err => console.error('Saved drawer designs failed to load', err));
+    return () => { cancelled = true; };
+  }, [source]);
+
+  // ?design=<id> opens a saved library design to edit (from the Projects page).
+  const designParam = searchParams.get('design');
+  useEffect(() => {
+    if (designParam == null) return;
+    const id = Number(designParam);
+    let cancelled = false;
+    const finish = () => setSearchParams(prev => { prev.delete('design'); return prev; }, { replace: true });
+    if (!Number.isInteger(id) || id <= 0) {
+      setLoadNotice({ tone: 'error', text: `“${designParam}” isn’t a design number, so nothing was opened.` });
+      finish();
+      return;
+    }
+    setLoadNotice({ tone: 'info', text: 'Opening the saved design…' });
+    getLibraryDrawerDesign(id)
+      .then(entry => {
+        if (cancelled) return;
+        const saved = readSavedDrawerDesign(entry.design);
+        if (!saved) {
+          setLoadNotice({ tone: 'error', text: `“${entry.name}” couldn’t be read, so your current design was kept.` });
+          return;
+        }
+        applyDesign(drawerDesignToFields(saved), { kind: 'library', id: entry.id, title: entry.name });
+      })
+      .catch(err => {
+        if (!cancelled) setLoadNotice({ tone: 'error', text: `That design couldn’t be opened (${errorText(err)}), so your current design was kept.` });
+      })
+      .finally(() => !cancelled && finish());
+    return () => { cancelled = true; };
+  }, [designParam, setSearchParams]);
+
+  // ?project=<id> opens that project's saved drawer design (from its 3D preview).
+  const projectParam = searchParams.get('project');
+  useEffect(() => {
+    if (projectParam == null) return;
+    const id = Number(projectParam);
+    let cancelled = false;
+    const finish = () => setSearchParams(prev => { prev.delete('project'); return prev; }, { replace: true });
+    if (!Number.isInteger(id) || id <= 0) {
+      setLoadNotice({ tone: 'error', text: `“${projectParam}” isn’t a project number, so nothing was opened.` });
+      finish();
+      return;
+    }
+    setLoadNotice({ tone: 'info', text: 'Opening the project’s design…' });
+    Promise.all([getProject(id), getDrawerDesign(id)])
+      .then(([project, { design }]) => {
+        if (cancelled) return;
+        const saved = design == null ? null : readSavedDrawerDesign(design);
+        if (!saved) {
+          setLoadNotice({
+            tone: 'error',
+            text: design == null
+              ? `“${project.title}” has no Drawer Builder design saved, so your current design was kept.`
+              : `The design saved on “${project.title}” couldn’t be read, so your current design was kept.`,
+          });
+          return;
+        }
+        applyDesign(drawerDesignToFields(saved), { kind: 'project', id, title: project.title });
+      })
+      .catch(err => {
+        if (!cancelled) setLoadNotice({ tone: 'error', text: `Project ${id}’s design couldn’t be opened (${errorText(err)}), so your current design was kept.` });
+      })
+      .finally(() => !cancelled && finish());
+    return () => { cancelled = true; };
+  }, [projectParam, setSearchParams]);
+
+  // ── Saved design state ─────────────────────────────────────────────────────
+  const currentSnapshot = useMemo(
+    () => (config && valid ? JSON.stringify(toSavedDrawerDesign(config, units, form.heightMode)) : null),
+    [config, valid, units, form.heightMode],
+  );
+  useEffect(() => {
+    if (pendingSnapshot.current && currentSnapshot) {
+      pendingSnapshot.current = false;
+      setSavedSnapshot(currentSnapshot);
+    }
+  }, [currentSnapshot]);
+  useEffect(() => {
+    try {
+      if (source?.kind === 'library' && savedSnapshot) localStorage.setItem(SOURCE_STORAGE_KEY, JSON.stringify({ source, snapshot: savedSnapshot }));
+      else localStorage.removeItem(SOURCE_STORAGE_KEY);
+    } catch { /* convenience only */ }
+  }, [source, savedSnapshot]);
+  const openDesign = source?.kind === 'library' ? source : null;
+  const dirty = Boolean(openDesign && currentSnapshot && savedSnapshot && currentSnapshot !== savedSnapshot);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  const saveDesignChanges = async () => {
+    if (!openDesign || !config || saving) return;
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const snapshot = currentSnapshot;
+      const entry = await updateLibraryDrawerDesign(openDesign.id, { design: toSavedDrawerDesign(config, units, form.heightMode) });
+      setSavedSnapshot(snapshot);
+      setSource({ kind: 'library', id: entry.id, title: entry.name });
+      setSaveMessage({ ok: true, text: `Saved “${entry.name}”.` });
+    } catch (err) {
+      setSaveMessage({ ok: false, text: `Your changes weren’t saved: ${errorText(err)}. They’re still here — try again.` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveDesignAsNew = async () => {
+    if (!config || saving) return;
+    const name = designName.trim();
+    if (!name) { setSaveMessage({ ok: false, text: 'Give the design a name first.' }); return; }
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const snapshot = currentSnapshot;
+      const entry = await createLibraryDrawerDesign(name, toSavedDrawerDesign(config, units, form.heightMode));
+      setSource({ kind: 'library', id: entry.id, title: entry.name });
+      setSavedSnapshot(snapshot);
+      setNaming(false);
+      setDesignName('');
+      setSaveMessage({ ok: true, text: `Saved as “${entry.name}”. Find it on the Projects page or under Start from.` });
+    } catch (err) {
+      setSaveMessage({ ok: false, text: `The design wasn’t saved: ${errorText(err)}` });
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Switching fills the newly active height from the current design, so nothing changes size.
@@ -329,7 +548,7 @@ export default function DrawerBuilder() {
         title="Drawer Builder"
         description="Design an ALEX-style plywood drawer unit with finger-pull fronts, sized to standard IKEA units or any width you need, then take the cut list and sheet layout to the saw."
         actions={(
-          <Button variant="ghost" onClick={() => { setForm(convertForm(DEFAULT_FORM, units)); setTemplateNote(null); }}>
+          <Button variant="ghost" onClick={() => { setForm(convertForm(DEFAULT_FORM, units)); setSource(null); }}>
             <RotateCcw size={16} aria-hidden="true" /> Reset design
           </Button>
         )}
@@ -353,8 +572,112 @@ export default function DrawerBuilder() {
             );
           })}
         </ul>
-        {templateNote && <p className="shelf-group-note" role="status">{templateNote}</p>}
+        {library.length > 0 && (
+          <>
+            <h2>Saved designs</h2>
+            <ul>
+              {library.map(entry => {
+                const saved = readSavedDrawerDesign(entry.design);
+                const p = saved ? buildDrawerPlan(saved.config) : null;
+                return (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      className="drawer-template"
+                      disabled={!saved}
+                      onClick={() => saved && applyDesign(drawerDesignToFields(saved), { kind: 'library', id: entry.id, title: entry.name })}
+                    >
+                      {p && saved && p.errors.length === 0 && <img src={drawerThumbnailDataUrl(p, saved.config.pull, 72)} alt="" />}
+                      <span>
+                        <strong>{entry.name}</strong>
+                        <small>{p ? `${formatLength(p.overallWidth, saved!.units)} × ${formatLength(p.overallHeight, saved!.units)}` : 'Can’t be read'}</small>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
       </section>
+
+      {loadNotice && (
+        <p className={`shelf-source-banner ${loadNotice.tone === 'error' ? 'is-error' : ''}`} role={loadNotice.tone === 'error' ? 'alert' : 'status'}>
+          {loadNotice.tone === 'error' && <AlertCircle size={16} aria-hidden="true" />}
+          <span>{loadNotice.text}</span>
+        </p>
+      )}
+      <div className="shelf-design-bar" role="region" aria-label="Saved design">
+        <div className="shelf-design-bar-name">
+          <Save size={16} aria-hidden="true" />
+          <strong>{openDesign ? openDesign.title : 'Untitled design'}</strong>
+          <span className={`shelf-design-status ${openDesign ? (dirty ? 'is-dirty' : 'is-saved') : ''}`}>
+            {openDesign ? (dirty ? 'Unsaved changes' : 'Saved') : 'Not saved yet'}
+          </span>
+        </div>
+        {demo ? (
+          <span className="is-muted">Demo mode is read-only — sign in to save designs.</span>
+        ) : naming ? (
+          <form className="shelf-design-bar-form" onSubmit={e => { e.preventDefault(); void saveDesignAsNew(); }}>
+            <input value={designName} onChange={e => setDesignName(e.target.value)} placeholder="Name this design" aria-label="Design name" maxLength={120} autoFocus />
+            <Button type="submit" variant="primary" disabled={saving || !config}>
+              {saving ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <Save size={16} aria-hidden="true" />} Save
+            </Button>
+            <Button variant="ghost" onClick={() => { setNaming(false); setSaveMessage(null); }}>Cancel</Button>
+          </form>
+        ) : (
+          <span className="shelf-design-bar-actions">
+            {openDesign && (
+              <Button variant="primary" onClick={() => void saveDesignChanges()} disabled={saving || !dirty || !config}>
+                {saving ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <Save size={16} aria-hidden="true" />} Save
+              </Button>
+            )}
+            <Button
+              variant={openDesign ? 'ghost' : 'primary'}
+              onClick={() => { setNaming(true); setDesignName(openDesign ? `${openDesign.title} copy` : ''); setSaveMessage(null); }}
+              disabled={!config || !valid}
+            >
+              <Save size={16} aria-hidden="true" /> {openDesign ? 'Save as new…' : 'Save design…'}
+            </Button>
+            {openDesign && hasPrevious && (
+              <Button variant="ghost" onClick={restorePrevious}><RotateCcw size={16} aria-hidden="true" /> Restore previous design</Button>
+            )}
+          </span>
+        )}
+        {saveMessage && (
+          <p className={saveMessage.ok ? 'shelf-add-project-ok' : 'shelf-add-project-error'} role="status">
+            {saveMessage.ok ? <Check size={16} aria-hidden="true" /> : <AlertCircle size={16} aria-hidden="true" />}
+            <span>{saveMessage.text}</span>
+          </p>
+        )}
+      </div>
+
+      {source && source.kind !== 'library' && (
+        <div className="shelf-source-banner" role="status">
+          <FolderOpen size={16} aria-hidden="true" />
+          <span>
+            {source.kind === 'project' && (
+              <>Editing the design from <Link to={`/projects/${source.id}`}>“{source.title}”</Link>. Changes stay here until
+              you save them back with <strong>Add to project → Replace them</strong>.</>
+            )}
+            {source.kind === 'template' && (
+              <>Started from {source.title}.{source.title.startsWith('ALEX') ? ' Sizes come from IKEA’s listing and are approximate — measure one if you’re matching it.' : ''}</>
+            )}
+          </span>
+          <span className="shelf-source-actions">
+            {source.kind === 'project' && (
+              <Button variant="ghost" onClick={() => setAddingToProject(true)}>
+                <FolderPlus size={16} aria-hidden="true" /> Save back to project
+              </Button>
+            )}
+            {hasPrevious && (
+              <Button variant="ghost" onClick={restorePrevious}>
+                <RotateCcw size={16} aria-hidden="true" /> Restore previous design
+              </Button>
+            )}
+          </span>
+        </div>
+      )}
 
       <div className="shelf-layout">
         <section className="shelf-config" aria-labelledby="drawer-config-title">
@@ -610,6 +933,14 @@ export default function DrawerBuilder() {
                 </p>
               </div>
               <div className="shelf-section-actions">
+                <Button
+                  variant={addingToProject ? 'secondary' : 'ghost'}
+                  onClick={() => setAddingToProject(open => !open)}
+                  aria-expanded={addingToProject}
+                  aria-controls="drawer-add-project"
+                >
+                  <FolderPlus size={16} aria-hidden="true" /> Add to project
+                </Button>
                 <Button variant="ghost" onClick={() => void copyCutList()}>
                   {copyStatus === 'Cut list copied.' ? <Check size={16} aria-hidden="true" /> : <Clipboard size={16} aria-hidden="true" />}
                   Copy
@@ -646,6 +977,19 @@ export default function DrawerBuilder() {
                 </tbody>
               </table>
             </div>
+            {addingToProject && (
+              <div id="drawer-add-project">
+                <DrawerAddToProject
+                  plan={plan}
+                  config={config}
+                  units={units}
+                  heightMode={form.heightMode}
+                  initialProjectId={source?.kind === 'project' ? source.id : undefined}
+                  costLines={estimate?.estimate.lines}
+                  onClose={() => setAddingToProject(false)}
+                />
+              </div>
+            )}
           </section>
 
           <section className="shelf-section" aria-labelledby="drawer-export-title">
@@ -708,6 +1052,25 @@ export default function DrawerBuilder() {
                 </li>
               ))}
             </ul>
+          </section>
+
+          <section className="shelf-section" aria-labelledby="drawer-guide-title">
+            <header className="shelf-section-head">
+              <div>
+                <h2 id="drawer-guide-title">Build guide</h2>
+                <p>Step-by-step instructions with an illustration of every stage, using this design’s measurements.</p>
+              </div>
+              <div className="shelf-section-actions">
+                <Button variant={showGuide ? 'secondary' : 'primary'} onClick={() => setShowGuide(open => !open)} aria-expanded={showGuide} aria-controls="drawer-guide">
+                  <BookOpen size={16} aria-hidden="true" /> {showGuide ? 'Hide guide' : 'Show build guide'}
+                </Button>
+              </div>
+            </header>
+            {showGuide && (
+              <div id="drawer-guide">
+                <DrawerBuildGuide plan={plan} config={config} units={units} title={source?.title} />
+              </div>
+            )}
           </section>
 
           <section className="shelf-section shelf-optimizer" aria-labelledby="drawer-optimizer-title">

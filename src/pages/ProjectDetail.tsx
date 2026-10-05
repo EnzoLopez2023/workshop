@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, Clock, Layers, DollarSign, Gauge, Trash2, ExternalLink, FileText, X, Scissors,
-  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate, Printer, Download, Check, Hammer, Box, Rows3,
+  BookOpen, Droplets, Link2, Plus, Camera, ChevronUp, LayoutTemplate, Printer, Download, Check, Hammer, Box, Rows3, Archive,
 } from 'lucide-react';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import {
@@ -12,12 +12,14 @@ import {
   addFinishLogEntry, deleteFinishLogEntry,
   addProjectLink, removeProjectLink,
   listProjects, togglePurchased as apiTogglePurchased,
-  saveAsTemplate, getShelfDesign,
+  saveAsTemplate, getShelfDesign, getDrawerDesign,
 } from '../services/api';
 import { buildShelfPlan, formatLength, readSavedShelfDesign, shelfSolids, type SavedShelfDesign } from '../lib/shelving';
+import { buildDrawerPlan, drawerSolids, readSavedDrawerDesign, type SavedDrawerDesign } from '../lib/drawerUnit';
 
 const ShelfViewer3D = lazy(() => import('../components/ShelfViewer3D'));
 const ShelfBuildGuide = lazy(() => import('../components/ShelfBuildGuide'));
+const DrawerBuildGuide = lazy(() => import('../components/DrawerBuildGuide'));
 import type {
   ProjectDetail as Project, FinishLogEntry, ProjectListItem,
 } from '../types/project';
@@ -427,6 +429,7 @@ function ProjectDetailView({ project, heroImage, sketches, inspiration, onNaviga
 
         {/* Shelf Builder 3D preview (only for projects that carry a design) */}
         <ProjectShelfPreview projectId={projectId} projectTitle={project.title} />
+        <ProjectDrawerPreview projectId={projectId} projectTitle={project.title} />
 
         {/* Cut List */}
         {project.cut_list.length > 0 && (
@@ -836,6 +839,95 @@ function ProjectShelfPreview({ projectId, projectTitle }: { projectId: number; p
         </div>
       ) : (
         <p className="project-shelf-summary">Illustrated step-by-step instructions for building this unit, with its measurements.</p>
+      )}
+    </Section>
+    </>
+  );
+}
+
+function ProjectDrawerPreview({ projectId, projectTitle }: { projectId: number; projectTitle: string }) {
+  const [design, setDesign] = useState<SavedDrawerDesign | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDesign(null);
+    getDrawerDesign(projectId)
+      .then(({ design: raw }) => {
+        if (cancelled || raw == null) return;
+        const saved = readSavedDrawerDesign(raw);
+        if (!saved) console.warn('Ignoring a saved drawer design that could not be read', raw);
+        setDesign(saved);
+      })
+      .catch(error => console.error('Drawer design load failed', error));
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  const preview = useMemo(() => {
+    if (!design) return null;
+    const plan = buildDrawerPlan(design.config);
+    return plan.errors.length > 0 ? null : { plan, solids: drawerSolids(plan, design.config) };
+  }, [design]);
+
+  if (!design || !preview) return null;
+  const { plan, solids } = preview;
+  const { config, units } = design;
+  const f = (inches: number) => formatLength(inches, units);
+  const n = plan.drawers.length;
+  const summary = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.overallDepth)} deep`;
+  const base = config.base === 'feet' ? `${plan.supports} leveling feet` : config.base === 'casters' ? `${plan.supports} casters` : 'on the floor';
+  const pull = config.pull.enabled ? `${config.pull.shape === 'arc' ? 'arc' : 'slot'} finger pulls` : 'no finger pulls';
+
+  return (
+    <>
+    <Section
+      title="3D Preview"
+      icon={<Box size={13} />}
+      right={(
+        <Link to={`/drawers?project=${projectId}`} className="btn btn-ghost">
+          <Archive size={13} aria-hidden="true" />
+          <span>Open in Drawer Builder</span>
+        </Link>
+      )}
+    >
+      <p className="project-shelf-summary">
+        {summary} · {n} drawer{n === 1 ? '' : 's'} on {f(plan.slideLength)} slides · {pull} · {f(config.thickness)} plywood · {base}
+      </p>
+      <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
+        <ShelfViewer3D
+          solids={solids}
+          width={plan.overallWidth}
+          height={plan.overallHeight}
+          depth={plan.caseDepth}
+          wallMounted={false}
+          label={`3D view of the drawer unit, ${summary}`}
+        />
+      </Suspense>
+    </Section>
+
+    <Section
+      title="Build Guide"
+      icon={<BookOpen size={13} />}
+      right={(
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => setShowGuide(open => !open)}
+          aria-expanded={showGuide}
+          aria-controls="project-drawer-guide"
+        >
+          {showGuide ? 'Hide' : 'Show guide'}
+        </button>
+      )}
+    >
+      {showGuide ? (
+        <div id="project-drawer-guide">
+          <Suspense fallback={<p className="project-shelf-summary" role="status">Loading the build guide…</p>}>
+            <DrawerBuildGuide plan={plan} config={config} units={units} title={projectTitle} />
+          </Suspense>
+        </div>
+      ) : (
+        <p className="project-shelf-summary">Illustrated step-by-step instructions for building this drawer unit, with its measurements.</p>
       )}
     </Section>
     </>

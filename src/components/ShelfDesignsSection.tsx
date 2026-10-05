@@ -1,17 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Pencil, Plus, Rows3, Trash2 } from 'lucide-react';
+import { Archive, Pencil, Plus, Rows3, Trash2 } from 'lucide-react';
 import { Button, SectionRail } from './ui';
-import { deleteLibraryShelfDesign, listLibraryShelfDesigns } from '../services/api';
+import { deleteLibraryDrawerDesign, deleteLibraryShelfDesign, listLibraryDrawerDesigns, listLibraryShelfDesigns } from '../services/api';
 import { isDemoMode } from '../demo/demoMode';
 import { buildShelfPlan, formatLength, readSavedShelfDesign } from '../lib/shelving';
 import { designThumbnailSvg, thumbnailDataUrl } from '../lib/shelfTemplates';
+import { buildDrawerPlan, readSavedDrawerDesign } from '../lib/drawerUnit';
+import { drawerThumbnailDataUrl } from '../lib/drawerTemplates';
 import type { LibraryShelfDesign } from '../types/project';
 
 type Load = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ready'; designs: LibraryShelfDesign[] };
 
+type Described = { thumb: string; summary: string } | null;
+
 /** Thumbnail and a one-line size summary, or null when the saved design can't be read. */
-function describe(entry: LibraryShelfDesign): { thumb: string; summary: string } | null {
+function describeShelf(entry: LibraryShelfDesign): Described {
   const saved = readSavedShelfDesign(entry.design);
   if (!saved) return null;
   const plan = buildShelfPlan(saved.config);
@@ -24,13 +28,59 @@ function describe(entry: LibraryShelfDesign): { thumb: string; summary: string }
   };
 }
 
+function describeDrawers(entry: LibraryShelfDesign): Described {
+  const saved = readSavedDrawerDesign(entry.design);
+  if (!saved) return null;
+  const plan = buildDrawerPlan(saved.config);
+  if (plan.errors.length) return null;
+  const f = (inches: number) => formatLength(inches, saved.units);
+  const n = plan.drawers.length;
+  const base = saved.config.base === 'feet' ? ' · feet' : saved.config.base === 'casters' ? ' · casters' : '';
+  return {
+    thumb: drawerThumbnailDataUrl(plan, saved.config.pull, 120),
+    summary: `${f(plan.overallWidth)} × ${f(plan.overallHeight)} · ${n} drawer${n === 1 ? '' : 's'}${base}`,
+  };
+}
+
 function savedOn(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? '' : `Saved ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
 }
 
+interface SectionProps {
+  id: string;
+  title: string;
+  icon: ReactNode;
+  /** Builder route, e.g. /shelves. */
+  path: string;
+  builder: string;
+  noun: string;
+  list: () => Promise<LibraryShelfDesign[]>;
+  remove: (id: number) => Promise<unknown>;
+  describe: (entry: LibraryShelfDesign) => Described;
+}
+
 /** Saved Shelf Builder designs on the Projects page, each one click from editing. */
 export default function ShelfDesignsSection() {
+  return (
+    <DesignsSection
+      id="shelf-designs-title" title="Shelf designs" icon={<Rows3 size={16} aria-hidden="true" />} path="/shelves"
+      builder="Shelf Builder" noun="shelf" list={listLibraryShelfDesigns} remove={deleteLibraryShelfDesign} describe={describeShelf}
+    />
+  );
+}
+
+/** Saved Drawer Builder designs, the same way. */
+export function DrawerDesignsSection() {
+  return (
+    <DesignsSection
+      id="drawer-designs-title" title="Drawer designs" icon={<Archive size={16} aria-hidden="true" />} path="/drawers"
+      builder="Drawer Builder" noun="drawer" list={listLibraryDrawerDesigns} remove={deleteLibraryDrawerDesign} describe={describeDrawers}
+    />
+  );
+}
+
+function DesignsSection({ id, title, icon, path, builder, noun, list, remove: removeDesign, describe }: SectionProps) {
   const navigate = useNavigate();
   const demo = isDemoMode();
   const [load, setLoad] = useState<Load>({ state: 'loading' });
@@ -39,16 +89,16 @@ export default function ShelfDesignsSection() {
 
   useEffect(() => {
     let cancelled = false;
-    listLibraryShelfDesigns()
+    list()
       .then(designs => !cancelled && setLoad({ state: 'ready', designs }))
       .catch(err => !cancelled && setLoad({ state: 'error', message: err instanceof Error && err.message ? err.message : 'the request failed' }));
     return () => { cancelled = true; };
-  }, []);
+  }, [list]);
 
   const remove = async (entry: LibraryShelfDesign) => {
     setError(null);
     try {
-      await deleteLibraryShelfDesign(entry.id);
+      await removeDesign(entry.id);
       setLoad(prev => (prev.state === 'ready' ? { state: 'ready', designs: prev.designs.filter(d => d.id !== entry.id) } : prev));
     } catch (err) {
       setError(`“${entry.name}” wasn’t deleted: ${err instanceof Error && err.message ? err.message : 'the request failed'}`);
@@ -60,23 +110,23 @@ export default function ShelfDesignsSection() {
   const designs = load.state === 'ready' ? load.designs : [];
 
   return (
-    <section className="dashboard-section" aria-labelledby="shelf-designs-title">
+    <section className="dashboard-section" aria-labelledby={id}>
       <SectionRail
-        title={<span id="shelf-designs-title"><Rows3 size={16} aria-hidden="true" /> Shelf designs</span>}
+        title={<span id={id}>{icon} {title}</span>}
         count={load.state === 'ready' ? designs.length : '—'}
         actions={(
-          <Button variant="ghost" onClick={() => navigate('/shelves')}>
-            <Plus size={16} aria-hidden="true" /> New shelf design
+          <Button variant="ghost" onClick={() => navigate(path)}>
+            <Plus size={16} aria-hidden="true" /> New {noun} design
           </Button>
         )}
       />
-      {load.state === 'loading' && <p className="is-muted" role="status">Loading your shelf designs…</p>}
+      {load.state === 'loading' && <p className="is-muted" role="status">Loading your {noun} designs…</p>}
       {load.state === 'error' && (
-        <p className="inline-error" role="alert">Your shelf designs couldn’t be loaded: {load.message}</p>
+        <p className="inline-error" role="alert">Your {noun} designs couldn’t be loaded: {load.message}</p>
       )}
       {load.state === 'ready' && designs.length === 0 && (
         <p className="is-muted">
-          Designs you save in the <Link to="/shelves">Shelf Builder</Link> appear here, ready to open and keep editing.
+          Designs you save in the <Link to={path}>{builder}</Link> appear here, ready to open and keep editing.
         </p>
       )}
       {error && <p className="inline-error" role="alert">{error}</p>}
@@ -86,7 +136,7 @@ export default function ShelfDesignsSection() {
             const info = describe(entry);
             return (
               <article key={entry.id} className="card shelf-design-card">
-                <Link to={`/shelves?design=${entry.id}`} aria-label={`Edit ${entry.name}`}>
+                <Link to={`${path}?design=${entry.id}`} aria-label={`Edit ${entry.name}`}>
                   {info ? <img src={info.thumb} alt="" /> : <span className="shelf-library-nothumb" aria-hidden="true" />}
                 </Link>
                 <h3>{entry.name}</h3>
@@ -100,7 +150,7 @@ export default function ShelfDesignsSection() {
                     </>
                   ) : (
                     <>
-                      <Button onClick={() => navigate(`/shelves?design=${entry.id}`)} disabled={!info}>
+                      <Button onClick={() => navigate(`${path}?design=${entry.id}`)} disabled={!info}>
                         <Pencil size={16} aria-hidden="true" /> Edit
                       </Button>
                       {!demo && (

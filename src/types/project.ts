@@ -130,6 +130,15 @@ export interface StoredShelfDesign {
   config: object;
 }
 
+/** A Drawer Builder design saved on a project or in the library (all lengths in inches). */
+export interface StoredDrawerDesign {
+  version: 1;
+  kind: 'drawer-unit';
+  units: 'in' | 'mm';
+  heightMode: 'overall' | 'fronts';
+  config: object;
+}
+
 /** A named design in the Shelf Builder library. */
 export interface LibraryShelfDesign {
   id: number;
@@ -138,6 +147,9 @@ export interface LibraryShelfDesign {
   created_at: string;
   updated_at: string;
 }
+
+/** A named design in the Drawer Builder library (same shape as a shelf design). */
+export type LibraryDrawerDesign = LibraryShelfDesign;
 
 export interface ProjectFormPayload {
   title: string;

@@ -179,6 +179,15 @@ function initSchema(db, { acceptLegacySessionTokens = true } = {}) {
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   );
+
+  -- Drawer Builder design library, the same shape as shelf_designs.
+  CREATE TABLE IF NOT EXISTS drawer_designs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    design     TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
 `);
 
 // Additive column migrations for existing DBs — keep idempotent.
@@ -202,6 +211,11 @@ if (!projectCols.has('cut_plan_config')) {
 // Shelf Builder design (JSON) for projects created from it; drives the 3D preview.
 if (!projectCols.has('shelf_design')) {
   db.exec(`ALTER TABLE projects ADD COLUMN shelf_design TEXT`);
+}
+
+// Drawer Builder design (JSON), the same way.
+if (!projectCols.has('drawer_design')) {
+  db.exec(`ALTER TABLE projects ADD COLUMN drawer_design TEXT`);
 }
 
 if (!imageCols.has('shaper_project_id')) {
@@ -663,6 +677,16 @@ function buildStmts(db) {
   `),
   deleteLibraryShelfDesign: db.prepare(`DELETE FROM shelf_designs WHERE id = ?`),
   saveShelfDesign:   db.prepare(`UPDATE projects SET shelf_design = @design WHERE id = @id`),
+  getDrawerDesign:   db.prepare(`SELECT drawer_design FROM projects WHERE id = ?`),
+  saveDrawerDesign:  db.prepare(`UPDATE projects SET drawer_design = @design WHERE id = @id`),
+  listLibraryDrawerDesigns:  db.prepare(`SELECT * FROM drawer_designs ORDER BY updated_at DESC, id DESC`),
+  getLibraryDrawerDesign:    db.prepare(`SELECT * FROM drawer_designs WHERE id = ?`),
+  insertLibraryDrawerDesign: db.prepare(`INSERT INTO drawer_designs (name, design) VALUES (@name, @design)`),
+  updateLibraryDrawerDesign: db.prepare(`
+    UPDATE drawer_designs SET name = @name, design = @design, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE id = @id
+  `),
+  deleteLibraryDrawerDesign: db.prepare(`DELETE FROM drawer_designs WHERE id = ?`),
 
   // ── Build log ────────────────────────────────────────────────────────────────
   listBuildLog:        db.prepare(`SELECT * FROM build_log_entries WHERE project_id = ? ORDER BY created_at DESC`),
@@ -3454,18 +3478,9 @@ app.put('/api/projects/:id/cut-plan-config', (req, res) => {
   res.json({ success: true });
 });
 
-app.get('/api/projects/:id/shelf-design', (req, res) => {
-  const { stmts } = req;
-  const row = stmts.getShelfDesign.get(Number(req.params.id));
-  if (!row) return res.status(404).json({ error: 'Project not found' });
-  let design = null;
-  try { design = row.shelf_design ? JSON.parse(row.shelf_design) : null; } catch { design = null; }
-  res.json({ design });
-});
+// ── Saved designs (Shelf Builder, Drawer Builder) ─────────────────────────────
 
-// ── Shelf design library ──────────────────────────────────────────────────────
-
-const SHELF_DESIGN_MAX = 20_000;
+const DESIGN_MAX = 20_000;
 
 /** Returns an error message, or null when the name and design are acceptable. */
 function checkLibraryDesign(name, design) {
@@ -3474,7 +3489,7 @@ function checkLibraryDesign(name, design) {
   if (typeof design !== 'object' || design === null || Array.isArray(design) || typeof design.config !== 'object' || design.config === null) {
     return 'design must be an object with a config';
   }
-  if (JSON.stringify(design).length > SHELF_DESIGN_MAX) return 'design is too large';
+  if (JSON.stringify(design).length > DESIGN_MAX) return 'design is too large';
   return null;
 }
 
@@ -3484,56 +3499,73 @@ const libraryDesignRow = (row) => {
   return { id: row.id, name: row.name, design, created_at: row.created_at, updated_at: row.updated_at };
 };
 
-app.get('/api/shelf-designs', (req, res) => {
-  res.json(req.stmts.listLibraryShelfDesigns.all().map(libraryDesignRow));
-});
+/**
+ * A builder's design library (/api/<kind>-designs) and the design saved on a
+ * project (/api/projects/:id/<kind>-design), backed by its own table and column.
+ * `stmt` names the builder's prepared statements, e.g. 'Shelf' → listLibraryShelfDesigns.
+ */
+function registerDesignRoutes(kind, stmt, column) {
+  app.get(`/api/projects/:id/${kind}-design`, (req, res) => {
+    const row = req.stmts[`get${stmt}Design`].get(Number(req.params.id));
+    if (!row) return res.status(404).json({ error: 'Project not found' });
+    let design = null;
+    try { design = row[column] ? JSON.parse(row[column]) : null; } catch { design = null; }
+    res.json({ design });
+  });
 
-app.get('/api/shelf-designs/:id', (req, res) => {
-  const row = req.stmts.getLibraryShelfDesign.get(Number(req.params.id));
-  if (!row) return res.status(404).json({ error: 'Design not found' });
-  res.json(libraryDesignRow(row));
-});
+  app.get(`/api/${kind}-designs`, (req, res) => {
+    res.json(req.stmts[`listLibrary${stmt}Designs`].all().map(libraryDesignRow));
+  });
 
-app.post('/api/shelf-designs', (req, res) => {
-  const { name, design } = req.body ?? {};
-  const problem = checkLibraryDesign(name, design);
-  if (problem) return res.status(problem === 'design is too large' ? 413 : 400).json({ error: problem });
-  const info = req.stmts.insertLibraryShelfDesign.run({ name: name.trim(), design: JSON.stringify(design) });
-  res.status(201).json(libraryDesignRow(req.stmts.getLibraryShelfDesign.get(info.lastInsertRowid)));
-});
+  app.get(`/api/${kind}-designs/:id`, (req, res) => {
+    const row = req.stmts[`getLibrary${stmt}Design`].get(Number(req.params.id));
+    if (!row) return res.status(404).json({ error: 'Design not found' });
+    res.json(libraryDesignRow(row));
+  });
 
-app.put('/api/shelf-designs/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const existing = req.stmts.getLibraryShelfDesign.get(id);
-  if (!existing) return res.status(404).json({ error: 'Design not found' });
-  const name = req.body?.name ?? existing.name;
-  const design = req.body?.design ?? JSON.parse(existing.design);
-  const problem = checkLibraryDesign(name, design);
-  if (problem) return res.status(problem === 'design is too large' ? 413 : 400).json({ error: problem });
-  req.stmts.updateLibraryShelfDesign.run({ id, name: name.trim(), design: JSON.stringify(design) });
-  res.json(libraryDesignRow(req.stmts.getLibraryShelfDesign.get(id)));
-});
+  app.post(`/api/${kind}-designs`, (req, res) => {
+    const { name, design } = req.body ?? {};
+    const problem = checkLibraryDesign(name, design);
+    if (problem) return res.status(problem === 'design is too large' ? 413 : 400).json({ error: problem });
+    const info = req.stmts[`insertLibrary${stmt}Design`].run({ name: name.trim(), design: JSON.stringify(design) });
+    res.status(201).json(libraryDesignRow(req.stmts[`getLibrary${stmt}Design`].get(info.lastInsertRowid)));
+  });
 
-app.delete('/api/shelf-designs/:id', (req, res) => {
-  const info = req.stmts.deleteLibraryShelfDesign.run(Number(req.params.id));
-  if (info.changes === 0) return res.status(404).json({ error: 'Design not found' });
-  res.json({ success: true });
-});
+  app.put(`/api/${kind}-designs/:id`, (req, res) => {
+    const id = Number(req.params.id);
+    const existing = req.stmts[`getLibrary${stmt}Design`].get(id);
+    if (!existing) return res.status(404).json({ error: 'Design not found' });
+    const name = req.body?.name ?? existing.name;
+    const design = req.body?.design ?? JSON.parse(existing.design);
+    const problem = checkLibraryDesign(name, design);
+    if (problem) return res.status(problem === 'design is too large' ? 413 : 400).json({ error: problem });
+    req.stmts[`updateLibrary${stmt}Design`].run({ id, name: name.trim(), design: JSON.stringify(design) });
+    res.json(libraryDesignRow(req.stmts[`getLibrary${stmt}Design`].get(id)));
+  });
 
-// Body: { design: { version, units, config } } or { design: null } to remove it.
-app.put('/api/projects/:id/shelf-design', (req, res) => {
-  const { stmts } = req;
-  const id = Number(req.params.id);
-  if (!stmts.getShelfDesign.get(id)) return res.status(404).json({ error: 'Project not found' });
-  const design = req.body?.design;
-  if (design !== null && (typeof design !== 'object' || Array.isArray(design) || typeof design.config !== 'object' || design.config === null)) {
-    return res.status(400).json({ error: 'design must be an object with a config, or null' });
-  }
-  const json = design === null ? null : JSON.stringify(design);
-  if (json && json.length > 20_000) return res.status(413).json({ error: 'design is too large' });
-  stmts.saveShelfDesign.run({ design: json, id });
-  res.json({ success: true });
-});
+  app.delete(`/api/${kind}-designs/:id`, (req, res) => {
+    const info = req.stmts[`deleteLibrary${stmt}Design`].run(Number(req.params.id));
+    if (info.changes === 0) return res.status(404).json({ error: 'Design not found' });
+    res.json({ success: true });
+  });
+
+  // Body: { design: { version, units, config } } or { design: null } to remove it.
+  app.put(`/api/projects/:id/${kind}-design`, (req, res) => {
+    const id = Number(req.params.id);
+    if (!req.stmts[`get${stmt}Design`].get(id)) return res.status(404).json({ error: 'Project not found' });
+    const design = req.body?.design;
+    if (design !== null && (typeof design !== 'object' || Array.isArray(design) || typeof design.config !== 'object' || design.config === null)) {
+      return res.status(400).json({ error: 'design must be an object with a config, or null' });
+    }
+    const json = design === null ? null : JSON.stringify(design);
+    if (json && json.length > DESIGN_MAX) return res.status(413).json({ error: 'design is too large' });
+    req.stmts[`save${stmt}Design`].run({ design: json, id });
+    res.json({ success: true });
+  });
+}
+
+registerDesignRoutes('shelf', 'Shelf', 'shelf_design');
+registerDesignRoutes('drawer', 'Drawer', 'drawer_design');
 
 // ── Analyze project URL with Claude ──────────────────────────────────────────
 

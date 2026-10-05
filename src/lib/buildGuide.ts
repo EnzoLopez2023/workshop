@@ -58,6 +58,8 @@ export interface GuideStep {
   /** 3D illustration, or null for steps illustrated another way (the sheet layout). */
   scene: GuideScene | null;
   sheets?: GuideSheets;
+  /** Caption for the blue parts, when "Added in this step" isn't right (e.g. "Parts to machine"). */
+  highlightCaption?: string;
 }
 
 export interface BuildGuide {

@@ -2,7 +2,7 @@ import type { IPublicClientApplication } from '@azure/msal-browser';
 import { getApiToken } from '../auth/getToken';
 import { isDemoMode, notifyDemoBlock, DemoBlockedError } from '../demo/demoMode';
 import type {
-  ProjectListItem, ProjectDetail, ProjectFormPayload, StoredShelfDesign, LibraryShelfDesign,
+  ProjectListItem, ProjectDetail, ProjectFormPayload, StoredShelfDesign, LibraryShelfDesign, StoredDrawerDesign, LibraryDrawerDesign,
   CutListItem, Material, AnalyzedProject,
   ShaperProject, ShaperProjectPayload, ShaperAnalysisResult,
   BambuAsset, BambuProject, BambuProjectPayload, BambuAnalysisResult, BambuImportResult,
@@ -192,6 +192,22 @@ export const updateLibraryShelfDesign = (id: number, patch: { name?: string; des
   request<LibraryShelfDesign>(`/shelf-designs/${id}`, json('PUT', patch));
 export const deleteLibraryShelfDesign = (id: number) =>
   request<{ success: boolean }>(`/shelf-designs/${id}`, { method: 'DELETE' });
+
+// ── Drawer Builder design ─────────────────────────────────────────────────────
+
+export const getDrawerDesign = (projectId: number) =>
+  request<{ design: unknown }>(`/projects/${projectId}/drawer-design`);
+export const saveDrawerDesign = (projectId: number, design: StoredDrawerDesign | null) =>
+  request<{ success: boolean }>(`/projects/${projectId}/drawer-design`, json('PUT', { design }));
+
+export const listLibraryDrawerDesigns = () => request<LibraryDrawerDesign[]>('/drawer-designs');
+export const getLibraryDrawerDesign = (id: number) => request<LibraryDrawerDesign>(`/drawer-designs/${id}`);
+export const createLibraryDrawerDesign = (name: string, design: StoredDrawerDesign) =>
+  request<LibraryDrawerDesign>('/drawer-designs', json('POST', { name, design }));
+export const updateLibraryDrawerDesign = (id: number, patch: { name?: string; design?: StoredDrawerDesign }) =>
+  request<LibraryDrawerDesign>(`/drawer-designs/${id}`, json('PUT', patch));
+export const deleteLibraryDrawerDesign = (id: number) =>
+  request<{ success: boolean }>(`/drawer-designs/${id}`, { method: 'DELETE' });
 
 // ── Cut plan config ───────────────────────────────────────────────────────────
 

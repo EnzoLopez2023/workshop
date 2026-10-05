@@ -324,7 +324,9 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     const zoneTop = Math.min(y + h + gap / 2, interiorTop);
     const boxHeight = floor16(zoneTop - zoneBottom - 2 * BOX_CLEARANCE);
     const boxY = zoneBottom + BOX_CLEARANCE;
-    const slideY = boxY + Math.min(boxHeight / 2, 2) - SLIDE_HEIGHT / 2;
+    // Slide centred on the box side (no higher than 2" up), set on a clean 1/16" so it's easy to mark on every box.
+    const slideOffset = Math.max(Math.round((Math.min(boxHeight / 2, 2) - SLIDE_HEIGHT / 2) * 16) / 16, 1 / 8);
+    const slideY = boxY + slideOffset;
     const boxTop = boxY + boxHeight;
     const fingerFloor = y + h - (pull ? pull.depth + FINGER_ROOM : 0);
     const boxNotchDepth = pull && boxTop > fingerFloor ? boxTop - fingerFloor : 0;
