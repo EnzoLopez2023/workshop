@@ -28,6 +28,8 @@ interface Props {
   units?: LengthUnit;
   /** Thickness (inches) new sheets start with; sheets still on it follow when it changes. */
   defaultThickness?: number;
+  /** More design thicknesses (e.g. drawer boxes and bottoms) that each start with a sheet row and follow the same way. */
+  extraThicknesses?: number[];
 }
 
 const PRESETS: Record<LengthUnit, { label: string; length: string; width: string }[]> = {
@@ -181,9 +183,13 @@ ${pages}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function CutPlanOptimizer({ cutList, projectId, units = 'in', defaultThickness }: Props) {
+export default function CutPlanOptimizer({ cutList, projectId, units = 'in', defaultThickness, extraThicknesses }: Props) {
   const thicknessField = () => (defaultThickness ? lengthToField(defaultThickness, units) : '');
-  const [stockRows, setStockRows] = useState<StockRow[]>(() => [makeRow({ thicknessStr: thicknessField() })]);
+  const designThicknesses = [defaultThickness, ...(extraThicknesses ?? [])];
+  const [stockRows, setStockRows] = useState<StockRow[]>(() => [
+    makeRow({ thicknessStr: thicknessField() }),
+    ...(extraThicknesses ?? []).map(t => makeRow({ thicknessStr: lengthToField(t, units) })),
+  ]);
   const [kerfStr, setKerfStr] = useState(DEFAULT_KERF[units]);
   const [result, setResult] = useState<CutPlanResult | null>(null);
   const [colorMap, setColorMap] = useState<Map<string, string>>(new Map());
@@ -233,20 +239,26 @@ export default function CutPlanOptimizer({ cutList, projectId, units = 'in', def
     });
   }, [units]);
 
-  // Sheets still showing the old design thickness follow a new one; typed-in ones stay.
-  const previousThickness = useRef(defaultThickness);
+  // Sheets still showing an old design thickness follow the new one; typed-in ones stay.
+  const thicknessKey = designThicknesses.join(',');
+  const previousThicknesses = useRef(designThicknesses);
   useEffect(() => {
-    const from = previousThickness.current;
-    previousThickness.current = defaultThickness;
-    if (from === defaultThickness || !defaultThickness) return;
+    const before = previousThicknesses.current;
+    previousThicknesses.current = designThicknesses;
+    const moves = designThicknesses
+      .map((to, i) => ({ from: before[i], to }))
+      .filter((m): m is { from: number | undefined; to: number } => m.to !== undefined && m.from !== m.to);
+    if (moves.length === 0) return;
     setStockRows(prev => prev.map(r => {
       const text = r.thicknessStr.trim();
       const current = text ? parseLength(text, units) : null;
-      const followsDesign = text === '' || (from !== undefined && current !== null && Math.abs(current - from) < 1e-4);
-      return followsDesign ? { ...r, thicknessStr: lengthToField(defaultThickness, units) } : r;
+      // Only the main design thickness claims blank rows.
+      const move = moves.find(m => (m.from !== undefined && current !== null && Math.abs(current - m.from) < 1e-4)
+        || (text === '' && m.from === before[0] && m.to === designThicknesses[0]));
+      return move ? { ...r, thicknessStr: lengthToField(move.to, units) } : r;
     }));
-    // Only the design thickness drives this; unit changes are converted separately above.
-  }, [defaultThickness]);
+    // Only the design thicknesses drive this; unit changes are converted separately above.
+  }, [thicknessKey]);
 
   const formatDim = formatterFor(units);
   const unitLabel = units === 'mm' ? 'mm' : 'in';

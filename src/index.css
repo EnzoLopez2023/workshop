@@ -781,6 +781,17 @@ p {
   background: var(--color-action-fill);
 }
 
+/* Seven destinations share a phone's width; keep the longest labels apart. */
+@media (max-width: 400px) {
+  .app-mobile-nav {
+    padding-inline: 2px;
+  }
+
+  .app-mobile-nav-link {
+    letter-spacing: -0.01em;
+  }
+}
+
 .demo-banner {
   display: flex;
   align-items: center;
@@ -4164,7 +4175,8 @@ tbody td {
 
 @media (max-width: 420px) {
   .app-mobile-nav-link {
-    font-size: 0.76rem;
+    /* Seven labels across a phone: shrink with the screen so the longest stay apart. */
+    font-size: min(0.76rem, 2.8vw);
   }
 
   .page-container {
@@ -8717,4 +8729,103 @@ tbody td {
 
 .settings-row:has(.settings-palettes) .settings-row-control {
   justify-self: stretch;
+}
+
+/* ── Drawer Builder ─────────────────────────────────────────────────────── */
+
+.drawer-templates {
+  display: grid;
+  gap: var(--space-2, 8px);
+  margin-bottom: var(--space-4, 16px);
+}
+
+.drawer-templates h2 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  margin: 0;
+}
+
+.drawer-templates ul {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+  overflow-x: auto;
+}
+
+.drawer-template {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 190px;
+  padding: 8px 12px 8px 8px;
+  border: 1px solid var(--color-divider-strong);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.drawer-template:hover,
+.drawer-template:focus-visible {
+  border-color: var(--color-action);
+}
+
+.drawer-template img {
+  width: 44px;
+  height: 56px;
+  object-fit: contain;
+  flex: none;
+}
+
+.drawer-template span {
+  display: grid;
+  gap: 2px;
+}
+
+.drawer-template small {
+  color: var(--color-muted);
+}
+
+.drawer-fronts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.drawer-front-shape {
+  fill: color-mix(in srgb, var(--color-surface) 82%, var(--color-ink));
+  stroke: var(--color-ink);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.drawer-notch {
+  fill: var(--color-recessed);
+  stroke: none;
+}
+
+.drawer-slide {
+  fill: color-mix(in srgb, var(--color-muted) 55%, var(--color-surface));
+  fill-opacity: 0.55;
+  stroke: var(--color-ink);
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.drawer-foot {
+  fill: var(--color-ink);
+  opacity: 0.7;
+}
+
+.drawer-error-list {
+  margin: 0;
+  padding-left: 1.1em;
+  display: grid;
+  gap: 4px;
 }

@@ -600,7 +600,8 @@ function splitBack(height: number, dividerXs: number[], t: number, overallWidth:
 // Visible extents of each part (dado tongues are hidden inside their housings,
 // so they are not modeled). x → right, y → up, z → back from the front edge.
 
-export type SolidKind = 'case' | 'shelf' | 'adjustable' | 'pin' | 'back' | 'cleat' | 'wall-cleat' | 'groove' | 'pinhole' | 'frame' | 'door';
+export type SolidKind = 'case' | 'shelf' | 'adjustable' | 'pin' | 'back' | 'cleat' | 'wall-cleat' | 'groove' | 'pinhole' | 'frame' | 'door'
+  | 'drawer-front' | 'drawer-box' | 'slide' | 'foot' | 'caster';
 
 export type Solid =
   | {
@@ -609,7 +610,9 @@ export type Solid =
     on?: string; face?: 1 | -1;
   }
   /** A profile in the (z, y) plane extruded from x0 to x1 — used for beveled cleats. */
-  | { name: string; kind: SolidKind; shape: 'prism'; x0: number; x1: number; profile: [number, number][] };
+  | { name: string; kind: SolidKind; shape: 'prism'; x0: number; x1: number; profile: [number, number][] }
+  /** An outline in the front (x, y) plane extruded from depth z0 to z1 — used for notched drawer fronts. */
+  | { name: string; kind: SolidKind; shape: 'plate'; z0: number; z1: number; outline: [number, number][] };
 
 export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
   const t = config.thickness;

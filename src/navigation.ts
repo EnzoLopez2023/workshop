@@ -1,4 +1,4 @@
-export type NavigationId = 'projects' | 'shopping' | 'shelves' | 'conversions' | 'notebook' | 'settings';
+export type NavigationId = 'projects' | 'shopping' | 'shelves' | 'drawers' | 'conversions' | 'notebook' | 'settings';
 
 export interface NavigationItem {
   id: NavigationId;
@@ -31,6 +31,13 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     compactLabel: 'Shelves',
     href: '/shelves',
     matchPrefixes: ['/shelves'],
+  },
+  {
+    id: 'drawers',
+    label: 'Drawer Builder',
+    compactLabel: 'Drawers',
+    href: '/drawers',
+    matchPrefixes: ['/drawers'],
   },
   {
     id: 'conversions',
@@ -73,6 +80,7 @@ export const APP_ROUTE_PATHS = [
   '/library/:id',
   '/conversions',
   '/shelves',
+  '/drawers',
   '/shopping-list',
   '/notebook',
   '/notebook/:id',
@@ -97,6 +105,7 @@ export function routeTitleForPath(pathname: string): string {
   if (/^\/library\/[^/]+$/.test(pathname)) return 'Model · Workshop';
   if (pathname === '/conversions') return 'Conversion Tables · Workshop';
   if (pathname === '/shelves') return 'Shelf Builder · Workshop';
+  if (pathname === '/drawers') return 'Drawer Builder · Workshop';
   if (pathname === '/shopping-list') return 'Shopping List · Workshop';
   if (pathname === '/notebook') return 'Notebook · Workshop';
   if (pathname === '/notebook/new') return 'New Notebook Page · Workshop';

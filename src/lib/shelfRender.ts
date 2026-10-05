@@ -20,6 +20,12 @@ export const SOLID_COLORS: Record<SolidKind, number> = {
   pinhole: 0x2b2118,
   frame: 0xb7895a,
   door: 0xe6cfa6,
+  // Drawer units: painted-white fronts like the ALEX, plywood boxes, steel slides.
+  'drawer-front': 0xf4f1ea,
+  'drawer-box': 0xe3c79d,
+  slide: 0x8d969c,
+  foot: 0x3a3f44,
+  caster: 0x2f3337,
 };
 
 /** Doors are drawn see-through so the shelves behind them stay readable. */
@@ -38,6 +44,14 @@ export function solidGeometry(solid: Solid): THREE.BufferGeometry {
     geometry.translate((x0 + x1) / 2, (y0 + y1) / 2, -(z0 + z1) / 2);
     return geometry;
   }
+  if (solid.shape === 'plate') {
+    // Outline is already in the front (x, y) plane; extrude toward the camera, then
+    // shift so it spans depth z0..z1 (three's z is the negative of depth).
+    const shape = new THREE.Shape(solid.outline.map(([x, y]) => new THREE.Vector2(x, y)));
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: solid.z1 - solid.z0, bevelEnabled: false, curveSegments: 4 });
+    geometry.translate(0, 0, -solid.z1);
+    return geometry;
+  }
   // Profile is (z, y); draw it in the shape's (x, y) plane, then extrude along x.
   const shape = new THREE.Shape(solid.profile.map(([z, y]) => new THREE.Vector2(z, y)));
   const geometry = new THREE.ExtrudeGeometry(shape, { depth: solid.x1 - solid.x0, bevelEnabled: false });
@@ -49,6 +63,11 @@ export function solidGeometry(solid: Solid): THREE.BufferGeometry {
 function solidCenter(solid: Solid): [number, number, number] {
   if (solid.shape === 'box') {
     return [0, 1, 2].map(i => (solid.min[i] + solid.max[i]) / 2) as [number, number, number];
+  }
+  if (solid.shape === 'plate') {
+    const xs = solid.outline.map(p => p[0]);
+    const ys = solid.outline.map(p => p[1]);
+    return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2, (solid.z0 + solid.z1) / 2];
   }
   const ys = solid.profile.map(p => p[1]);
   const zs = solid.profile.map(p => p[0]);
