@@ -8935,3 +8935,18 @@ tbody td {
 .shelf-viewer-drawers small {
   color: var(--color-muted);
 }
+
+.drawer-gridfinity {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drawer-gridfinity li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}

@@ -194,6 +194,8 @@ export interface DrawerConfig {
   inserts?: (DrawerInsert | null)[];
   /** Divider and marker-rib stock. */
   insertThickness?: number;
+  /** Printer bed (mm) that Gridfinity baseplate tiles must fit. */
+  gridfinityBed?: number;
   /** One or two units under a plywood desk top. */
   desk?: DeskConfig;
   /** Per-drawer slide length overrides (null: the unit's slide length), e.g. a short pencil drawer. */
@@ -615,7 +617,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     if (!insert) return null;
     const layout = layoutInsert(insert, {
       width: boxInsideWidth, depth: d.box.depth - 2 * b, height: d.box.height - BOTTOM_GROOVE_OFFSET - bt,
-    }, it, f);
+    }, it, f, config.gridfinityBed ?? 256);
     if (layout.error) errors.push(`Drawer ${i + 1}: ${layout.error}.`);
     return layout;
   });
@@ -803,6 +805,15 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
       const iz = b;
       const it = config.insertThickness ?? 1 / 4;
       const ribPiece = insert.pieces.find(p => p.role === 'rib');
+      if (insert.gridfinity) {
+        // The baseplate, centred on the floor, as a slab (its pockets are too fine to see at this scale).
+        const gf = insert.gridfinity;
+        const w = gf.columns * 42 / 25.4;
+        const dd = gf.rows * 42 / 25.4;
+        const x = ix + gf.marginX / 25.4;
+        const z = iz + gf.marginY / 25.4;
+        solids.push(box(`${name} Gridfinity baseplate`, 'insert', [x, iy, z], [x + w, iy + 4.65 / 25.4, z + dd]));
+      }
       insert.placements.forEach((pl, k) => {
         const label = `${name} ${pl.role === 'rib' ? 'marker rib' : 'divider'} ${k + 1}`;
         if (pl.role === 'rib' && ribPiece) {
@@ -956,6 +967,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
         ? Array.from({ length: drawers }, (_, i) => readInsert((c.inserts as unknown[])[i]))
         : undefined,
       insertThickness: num(c.insertThickness, 0.05, 1) ?? 1 / 4,
+      gridfinityBed: num(c.gridfinityBed, 100, 1000) ?? 256,
       desk: readDesk(c.desk),
       slideLengths: Array.isArray(c.slideLengths)
         ? Array.from({ length: drawers }, (_, i) => {
@@ -987,6 +999,7 @@ function readInsert(raw: unknown): DrawerInsert | null {
     const rows = n(v.rows, 1, 20);
     return columns && rows ? { kind: 'grid', columns: Math.floor(columns), rows: Math.floor(rows) } : null;
   }
+  if (v.kind === 'gridfinity') return { kind: 'gridfinity' };
   if (v.kind === 'markers') {
     const diameter = n(v.diameter, 0.05, 4);
     const length = n(v.length, 0.5, 30);
@@ -1061,9 +1074,11 @@ export interface DrawerDesignFields {
   load: DrawerLoad;
   finishFront: string;
   finishCase: string;
+  /** Printer bed in mm, as typed. */
+  gridfinityBed: string;
 }
 
-export type InsertKind = 'none' | 'grid' | 'markers';
+export type InsertKind = 'none' | 'grid' | 'markers' | 'gridfinity';
 
 /** Form defaults for the inside-the-drawer and desk fields (inch strings). */
 export const EXTRA_FIELD_DEFAULTS = {
@@ -1123,5 +1138,6 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     load: c.load ?? 'medium',
     finishFront: c.finish?.front ?? DEFAULT_FINISH.front,
     finishCase: c.finish?.case ?? DEFAULT_FINISH.case,
+    gridfinityBed: String(c.gridfinityBed ?? 256),
   };
 }

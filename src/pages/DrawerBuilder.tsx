@@ -50,6 +50,7 @@ import {
 } from '../lib/drawerUnit';
 import { DRAWER_TEMPLATES, drawerThumbnailDataUrl, type DrawerTemplate } from '../lib/drawerTemplates';
 import { MARKER_PRESETS } from '../lib/drawerInserts';
+import { PRINTER_BEDS } from '../lib/gridfinity';
 import type { CutListItem } from '../types/project';
 
 const ShelfViewer3D = lazy(() => import('../components/ShelfViewer3D'));
@@ -106,6 +107,7 @@ const DEFAULT_FORM: FormState = {
   load: 'medium',
   finishFront: DEFAULT_FINISH.front,
   finishCase: DEFAULT_FINISH.case,
+  gridfinityBed: '256',
 };
 
 const LENGTH_FIELDS = [
@@ -265,7 +267,9 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     inserts: form.insertKinds.slice(0, form.drawers).map((kind, i) =>
       kind === 'grid' ? { kind: 'grid', columns: form.gridColumns[i] ?? 2, rows: form.gridRows[i] ?? 2 }
         : kind === 'markers' ? marker
-          : null),
+          : kind === 'gridfinity' ? { kind: 'gridfinity' }
+            : null),
+    gridfinityBed: Number(form.gridfinityBed) || 256,
     insertThickness: form.insertKinds.slice(0, form.drawers).some(k => k !== 'none') ? num('insertThickness') : 1 / 4,
     desk,
     slideLengths: form.drawerSlides.slice(0, form.drawers).some(Boolean)
@@ -979,7 +983,7 @@ export default function DrawerBuilder() {
 
           <fieldset className="shelf-group">
             <legend>Inside the drawers</legend>
-            <p className="shelf-group-note">An egg-crate divider grid, or a tray of notched ribs that holds markers lying front to back. Parts are added to the cut list and CNC files.</p>
+            <p className="shelf-group-note">An egg-crate divider grid, a tray of notched ribs that holds markers lying front to back, or a printed Gridfinity baseplate for modular bins.</p>
             <div className="drawer-inserts">
               {form.insertKinds.slice(0, form.drawers).map((kind, i) => {
                 const layout = plan?.inserts[i];
@@ -990,6 +994,7 @@ export default function DrawerBuilder() {
                       <option value="none">Empty</option>
                       <option value="grid">Divider grid</option>
                       <option value="markers">Marker tray</option>
+                      <option value="gridfinity">Gridfinity baseplate</option>
                     </select>
                     {kind === 'grid' && (
                       <span className="drawer-insert-grid">
@@ -1000,7 +1005,10 @@ export default function DrawerBuilder() {
                     )}
                     {layout && !layout.error && (
                       <small className="is-muted">
-                        {kind === 'grid' ? `${layout.cells} compartment${layout.cells === 1 ? '' : 's'}` : `Holds ${layout.capacity} marker${layout.capacity === 1 ? '' : 's'}`}
+                        {kind === 'grid' ? `${layout.cells} compartment${layout.cells === 1 ? '' : 's'}`
+                          : kind === 'gridfinity' && layout.gridfinity
+                            ? `${layout.gridfinity.columns} × ${layout.gridfinity.rows} grid · bins up to ${layout.gridfinity.maxUnitsWithLip}u with a lip (${layout.gridfinity.maxUnits}u without)`
+                            : `Holds ${layout.capacity} marker${layout.capacity === 1 ? '' : 's'}`}
                       </small>
                     )}
                   </div>
@@ -1011,7 +1019,16 @@ export default function DrawerBuilder() {
               <Button variant="ghost" onClick={() => copyInsertToAll()} disabled={form.insertKinds[0] === undefined}>Use drawer 1’s for all</Button>
               <Button variant="ghost" onClick={() => update({ insertKinds: form.insertKinds.map(() => 'none') })}>Clear all</Button>
             </span>
-            {form.insertKinds.slice(0, form.drawers).some(k => k !== 'none') && (
+            {form.insertKinds.slice(0, form.drawers).includes('gridfinity') && (
+              <label className="form-field">
+                <span className="form-field-label">Printer for the baseplates</span>
+                <select value={form.gridfinityBed} onChange={e => update({ gridfinityBed: e.target.value })}>
+                  {PRINTER_BEDS.map(b => <option key={b.mm} value={String(b.mm)}>{b.label}</option>)}
+                </select>
+                <small>Baseplates are split into tiles that fit the bed; download the STLs in the CNC section. Bins are standard 42 mm Gridfinity, heights in 7 mm units.</small>
+              </label>
+            )}
+            {form.insertKinds.slice(0, form.drawers).some(k => k === 'grid' || k === 'markers') && (
               <LengthField unit={units} label="Divider and rib plywood" value={form.insertThickness} error={fieldErrors.insertThickness} onChange={insertThickness => update({ insertThickness })} />
             )}
             {form.insertKinds.slice(0, form.drawers).includes('markers') && (

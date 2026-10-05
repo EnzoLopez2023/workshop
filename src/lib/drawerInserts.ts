@@ -5,9 +5,13 @@
 // Inside a box: x runs from the inside face of the left box side, z from the
 // inside face of the box front, y up from the top of the box bottom.
 
+import { layoutGridfinity, type GridfinityLayout } from './gridfinity.ts';
+
 export type DrawerInsert =
   | { kind: 'grid'; columns: number; rows: number }
-  | { kind: 'markers'; diameter: number; length: number; spacing: number };
+  | { kind: 'markers'; diameter: number; length: number; spacing: number }
+  /** A printed Gridfinity baseplate sized to the drawer. */
+  | { kind: 'gridfinity' };
 
 /** A cut into a piece's edge, in the piece's (u along its length, v up its height) frame. */
 export type EdgeCut =
@@ -38,8 +42,10 @@ export interface InsertLayout {
   placements: InsertPlacement[];
   /** Markers held, for a marker tray. */
   capacity: number;
-  /** Cells, for a grid. */
+  /** Cells, for a grid (or Gridfinity units). */
   cells: number;
+  /** The baseplate, for a Gridfinity drawer. */
+  gridfinity?: GridfinityLayout;
   error: string | null;
 }
 
@@ -66,9 +72,17 @@ export function layoutInsert(
   inside: { width: number; depth: number; height: number },
   thickness: number,
   f: (inches: number) => string,
+  /** Printer bed (mm) for splitting Gridfinity baseplates. */
+  bedMm = 256,
 ): InsertLayout {
   const t = thickness;
   const empty: InsertLayout = { pieces: [], placements: [], capacity: 0, cells: 0, error: null };
+
+  if (insert.kind === 'gridfinity') {
+    const mm = 25.4;
+    const gf = layoutGridfinity(inside.width * mm, inside.depth * mm, (inside.height - INSERT_TOP_CLEARANCE) * mm, bedMm);
+    return { ...empty, cells: gf.error ? 0 : gf.columns * gf.rows, gridfinity: gf, error: gf.error };
+  }
 
   if (insert.kind === 'grid') {
     const cols = Math.max(1, Math.floor(insert.columns));
