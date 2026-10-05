@@ -22,7 +22,9 @@ const boxes = (count: number, perBox: number) => Math.max(1, Math.ceil(count / p
 
 export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units: LengthUnit): DrawerHardwareItem[] {
   const f = (inches: number) => formatLength(inches, units);
-  const n = plan.drawers.length;
+  const unitCount = plan.unitCount;
+  const n = plan.drawers.length * unitCount;
+  const supports = plan.supports * unitCount;
   const items: DrawerHardwareItem[] = [];
 
   items.push({
@@ -38,17 +40,17 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
     items.push({
       key: 'feet',
       name: 'MROCO 1/4″-20 leveling feet with T-nuts',
-      qty: Math.ceil(plan.supports / FEET_PER_PACK),
+      qty: Math.ceil(supports / FEET_PER_PACK),
       unit: 'pack of 12',
-      uses: plan.supports,
-      note: `${plan.supports} feet; drill ${f(5 / 16)} for each T-nut.`,
+      uses: supports,
+      note: `${supports} feet; drill ${f(5 / 16)} for each T-nut.`,
       priceKey: 'feetPack',
     });
   } else if (config.base === 'casters') {
     items.push({
       key: 'casters',
       name: `Plate casters, ${f(config.casterHeight)} mounted height`,
-      qty: plan.supports,
+      qty: supports,
       unit: 'ea',
       note: 'Get locking ones for the front pair.',
       priceKey: 'caster',
@@ -58,15 +60,18 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   const partCount = plan.parts.reduce((sum, p) => sum + p.qty, 0);
   items.push({ key: 'glue', name: 'Wood glue (8 oz)', qty: partCount > 40 ? 2 : 1, unit: 'bottle', priceKey: 'glue' });
 
-  // Top and bottom into each side: 4 screws per joint end.
-  const caseScrews = 2 * 2 * 4;
+  // Top and bottom into each side: 4 screws per joint end. A desk top is screwed down
+  // through each unit's top (8 per unit), and a double top is screwed together every 8".
+  const desk = plan.desk;
+  const laminate = desk && config.desk?.topLayers === 2 ? Math.ceil(desk.width / 8) * Math.ceil(desk.depth / 8) : 0;
+  const caseScrews = 2 * 2 * 4 * unitCount + (desk ? 8 * unitCount + laminate : 0);
   items.push({
     key: 'case-screws',
     name: `Wood screws, ${f(config.thickness < 0.6 ? 1.25 : 1.625)}`,
     qty: boxes(caseScrews, 100),
     unit: 'box of 100',
     uses: caseScrews,
-    note: 'Top and bottom into the sides. Pre-drill and countersink.',
+    note: desk ? 'Case corners, the desk top through each unit’s top, and the two top layers together.' : 'Top and bottom into the sides. Pre-drill and countersink.',
     priceKey: 'caseScrews',
   });
 
@@ -84,13 +89,13 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
 
   // Back every 6" around the case; 3 per box corner.
   const perimeter = 2 * (plan.caseHeight + plan.overallWidth);
-  const brads = Math.ceil(perimeter / 6) + n * 4 * 3;
+  const brads = Math.ceil(perimeter / 6) * unitCount + n * 4 * 3;
   items.push({
     key: 'brads', name: `Brad nails, ${f(1.25)}`, qty: boxes(brads, 1000), unit: 'box of 1000', uses: brads,
     note: 'The case back and the drawer-box corners, with glue.', priceKey: 'brads',
   });
 
-  if (config.base !== 'casters' && plan.overallHeight > 30) {
+  if (!desk && config.base !== 'casters' && plan.overallHeight > 30) {
     items.push({ key: 'anti-tip', name: 'Anti-tip furniture strap', qty: 1, unit: 'kit', note: 'Open drawers shift the weight forward; anchor the top to a stud.', priceKey: 'antiTip' });
   }
 

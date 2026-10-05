@@ -601,7 +601,7 @@ function splitBack(height: number, dividerXs: number[], t: number, overallWidth:
 // so they are not modeled). x → right, y → up, z → back from the front edge.
 
 export type SolidKind = 'case' | 'shelf' | 'adjustable' | 'pin' | 'back' | 'cleat' | 'wall-cleat' | 'groove' | 'pinhole' | 'frame' | 'door'
-  | 'drawer-front' | 'drawer-box' | 'slide' | 'foot' | 'caster';
+  | 'drawer-front' | 'drawer-box' | 'slide' | 'foot' | 'caster' | 'insert';
 
 export type Solid =
   | {

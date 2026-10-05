@@ -32,11 +32,14 @@ import {
   drawerDesignToFields,
   readSavedDrawerDesign,
   toSavedDrawerDesign,
+  deskSolids,
+  EXTRA_FIELD_DEFAULTS,
   type DrawerConfig,
   type DrawerDesignFields,
   type DrawerPlan,
 } from '../lib/drawerUnit';
 import { DRAWER_TEMPLATES, drawerThumbnailDataUrl, type DrawerTemplate } from '../lib/drawerTemplates';
+import { MARKER_PRESETS } from '../lib/drawerInserts';
 import type { CutListItem } from '../types/project';
 
 const ShelfViewer3D = lazy(() => import('../components/ShelfViewer3D'));
@@ -74,11 +77,25 @@ const DEFAULT_FORM: FormState = {
   slideLength: 'auto',
   edgeBanding: false,
   bandingThickness: '0.5 mm',
+  insertKinds: ['none', 'none', 'none', 'none', 'none'],
+  gridColumns: [2, 2, 2, 2, 2],
+  gridRows: [2, 2, 2, 2, 2],
+  insertThickness: EXTRA_FIELD_DEFAULTS.insertThickness,
+  markerDiameter: lengthToField(MARKER_PRESETS[0].diameter, 'in'),
+  markerLength: lengthToField(MARKER_PRESETS[0].length, 'in'),
+  markerSpacing: EXTRA_FIELD_DEFAULTS.markerSpacing,
+  desk: false,
+  deskLayout: EXTRA_FIELD_DEFAULTS.deskLayout,
+  deskWidth: EXTRA_FIELD_DEFAULTS.deskWidth,
+  deskHeight: EXTRA_FIELD_DEFAULTS.deskHeight,
+  deskDepth: EXTRA_FIELD_DEFAULTS.deskDepth,
+  deskTopLayers: EXTRA_FIELD_DEFAULTS.deskTopLayers,
 };
 
 const LENGTH_FIELDS = [
   'thickness', 'width', 'height', 'depth', 'gap', 'pullWidth', 'pullDepth',
   'boxThickness', 'bottomThickness', 'backThickness', 'footHeight', 'casterHeight',
+  'insertThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
 ] as const;
 type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}`;
 
@@ -103,6 +120,17 @@ const PULL_OPTIONS = [
   { value: 'slot', label: 'Slot' },
 ] as const;
 
+const DESK_LAYOUT_OPTIONS = [
+  { value: 'both', label: 'Unit at each end' },
+  { value: 'left', label: 'Left only' },
+  { value: 'right', label: 'Right only' },
+] as const;
+
+const TOP_LAYER_OPTIONS = [
+  { value: '2', label: 'Double thickness' },
+  { value: '1', label: 'Single' },
+] as const;
+
 const VIEW_OPTIONS = [
   { value: '3d', label: '3D' },
   { value: 'drawing', label: 'Drawing' },
@@ -125,7 +153,14 @@ function normalizeDrawers(form: FormState): FormState {
   const n = form.drawers;
   const list = Array.isArray(form.frontHeights) ? form.frontHeights : [];
   const last = list[list.length - 1] ?? DEFAULT_FORM.frontHeights[0];
-  return { ...form, frontHeights: Array.from({ length: n }, (_, i) => list[i] ?? last) };
+  const fit = <T,>(values: T[] | undefined, fill: T) => Array.from({ length: n }, (_, i) => values?.[i] ?? fill);
+  return {
+    ...form,
+    frontHeights: Array.from({ length: n }, (_, i) => list[i] ?? last),
+    insertKinds: fit(form.insertKinds, 'none'),
+    gridColumns: fit(form.gridColumns, 2),
+    gridRows: fit(form.gridRows, 2),
+  };
 }
 
 function convertForm(form: FormState, units: LengthUnit): FormState {
@@ -175,11 +210,20 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     return value ?? 0;
   };
   const fronts = form.heightMode === 'fronts';
+  const thickness = num('thickness');
+  const desk = form.desk
+    ? { enabled: true, layout: form.deskLayout, width: num('deskWidth'), height: num('deskHeight'), depth: num('deskDepth'), topLayers: form.deskTopLayers }
+    : undefined;
+  const usesMarkers = form.insertKinds.slice(0, form.drawers).includes('markers');
+  const marker = usesMarkers
+    ? { kind: 'markers' as const, diameter: num('markerDiameter'), length: num('markerLength'), spacing: num('markerSpacing', { allowZero: true }) }
+    : null;
   const config: DrawerConfig = {
     units: form.units,
-    thickness: num('thickness'),
+    thickness,
     width: num('width'),
-    height: fronts ? 0 : num('height'),
+    // Under a desk the units are as tall as the space beneath the top.
+    height: fronts ? 0 : desk ? desk.height - desk.topLayers * thickness : num('height'),
     depth: num('depth'),
     drawers: form.drawers,
     frontHeights: fronts ? form.frontHeights.slice(0, form.drawers).map((_, i) => num(`frontHeights.${i}`)) : undefined,
@@ -199,6 +243,12 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     slideLength: form.slideLength === 'auto' ? undefined : Number(form.slideLength),
     edgeBanding: form.edgeBanding,
     bandingThickness: parseLength(form.bandingThickness, form.units) ?? 0.02,
+    inserts: form.insertKinds.slice(0, form.drawers).map((kind, i) =>
+      kind === 'grid' ? { kind: 'grid', columns: form.gridColumns[i] ?? 2, rows: form.gridRows[i] ?? 2 }
+        : kind === 'markers' ? marker
+          : null),
+    insertThickness: form.insertKinds.slice(0, form.drawers).some(k => k !== 'none') ? num('insertThickness') : 1 / 4,
+    desk,
   };
   if (Object.keys(fieldErrors).length > 0) return { config: null, fieldErrors };
   return { config, fieldErrors };
@@ -284,7 +334,7 @@ export default function DrawerBuilder() {
   const { config, fieldErrors } = useMemo(() => toConfig(form), [form]);
   const plan = useMemo(() => (config ? buildDrawerPlan(config) : null), [config]);
   const valid = plan !== null && plan.errors.length === 0;
-  const solids = useMemo(() => (plan && config && valid ? drawerSolids(plan, config) : []), [plan, config, valid]);
+  const solids = useMemo(() => (plan && config && valid ? (plan.desk ? deskSolids(plan, config) : drawerSolids(plan, config)) : []), [plan, config, valid]);
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
   const estimate = useDrawerEstimate(plan && valid ? plan : null, valid ? config : null, units);
 
@@ -489,6 +539,26 @@ export default function DrawerBuilder() {
     setForm(prev => normalizeDrawers({ ...prev, drawers }));
   };
 
+  const setInsert = (index: number, patch: { insertKinds?: FormState['insertKinds'][number]; gridColumns?: number; gridRows?: number }) => {
+    setCopyStatus('');
+    setForm(prev => {
+      const next = { ...prev };
+      for (const key of Object.keys(patch) as (keyof typeof patch)[]) {
+        const list = [...(prev[key] as unknown[])];
+        list[index] = patch[key];
+        (next as Record<string, unknown>)[key] = list;
+      }
+      return next;
+    });
+  };
+
+  const copyInsertToAll = () => setForm(prev => ({
+    ...prev,
+    insertKinds: prev.insertKinds.map(() => prev.insertKinds[0]),
+    gridColumns: prev.gridColumns.map(() => prev.gridColumns[0]),
+    gridRows: prev.gridRows.map(() => prev.gridRows[0]),
+  }));
+
   const setFront = (index: number, value: string) => {
     setCopyStatus('');
     setForm(prev => ({ ...prev, frontHeights: prev.frontHeights.map((v, i) => (i === index ? value : v)) }));
@@ -497,7 +567,8 @@ export default function DrawerBuilder() {
   // Spread the fronts over the current case height, equally or growing toward the floor.
   const spreadFronts = (kind: 'equal' | 'graduated') => {
     if (!plan || !config) return;
-    const available = plan.caseHeight - form.drawers * config.gap;
+    const caseHeight = plan.desk ? plan.desk.height - plan.desk.topThickness - plan.baseHeight : plan.caseHeight;
+    const available = caseHeight - form.drawers * config.gap;
     const heights = kind === 'equal' ? equalFronts(form.drawers, available) : graduatedFronts(form.drawers, available);
     update({ frontHeights: roundedFronts(heights, units) });
   };
@@ -728,7 +799,7 @@ export default function DrawerBuilder() {
                 hint={plan && plan.slideLength > 0 ? `Fits ${fmt(plan.slideLength)} slides` : 'Fronts included'}
                 onChange={depth => update({ depth })}
               />
-              {form.heightMode === 'overall' && (
+              {form.heightMode === 'overall' && !form.desk && (
                 <LengthField
                   unit={units}
                   label="Overall height"
@@ -813,6 +884,94 @@ export default function DrawerBuilder() {
           </fieldset>
 
           <fieldset className="shelf-group">
+            <legend>Inside the drawers</legend>
+            <p className="shelf-group-note">An egg-crate divider grid, or a tray of notched ribs that holds markers lying front to back. Parts are added to the cut list and CNC files.</p>
+            <div className="drawer-inserts">
+              {form.insertKinds.slice(0, form.drawers).map((kind, i) => {
+                const layout = plan?.inserts[i];
+                return (
+                  <div className="drawer-insert-row" key={i}>
+                    <span className="form-field-label" id={`insert-${i}`}>Drawer {i + 1}</span>
+                    <select aria-labelledby={`insert-${i}`} value={kind} onChange={e => setInsert(i, { insertKinds: e.target.value as FormState['insertKinds'][number] })}>
+                      <option value="none">Empty</option>
+                      <option value="grid">Divider grid</option>
+                      <option value="markers">Marker tray</option>
+                    </select>
+                    {kind === 'grid' && (
+                      <span className="drawer-insert-grid">
+                        <Stepper labelledBy={`insert-${i}`} value={form.gridColumns[i] ?? 2} min={1} max={12} onChange={v => setInsert(i, { gridColumns: Math.max(1, Math.min(12, v)) })} noun="column" />
+                        <span aria-hidden="true">×</span>
+                        <Stepper labelledBy={`insert-${i}`} value={form.gridRows[i] ?? 2} min={1} max={12} onChange={v => setInsert(i, { gridRows: Math.max(1, Math.min(12, v)) })} noun="row" />
+                      </span>
+                    )}
+                    {layout && !layout.error && (
+                      <small className="is-muted">
+                        {kind === 'grid' ? `${layout.cells} compartment${layout.cells === 1 ? '' : 's'}` : `Holds ${layout.capacity} marker${layout.capacity === 1 ? '' : 's'}`}
+                      </small>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <span className="shelf-source-actions">
+              <Button variant="ghost" onClick={() => copyInsertToAll()} disabled={form.insertKinds[0] === undefined}>Use drawer 1’s for all</Button>
+              <Button variant="ghost" onClick={() => update({ insertKinds: form.insertKinds.map(() => 'none') })}>Clear all</Button>
+            </span>
+            {form.insertKinds.slice(0, form.drawers).some(k => k !== 'none') && (
+              <LengthField unit={units} label="Divider and rib plywood" value={form.insertThickness} error={fieldErrors.insertThickness} onChange={insertThickness => update({ insertThickness })} />
+            )}
+            {form.insertKinds.slice(0, form.drawers).includes('markers') && (
+              <>
+                <label className="form-field">
+                  <span className="form-field-label">Marker size</span>
+                  <select
+                    value=""
+                    onChange={e => {
+                      const preset = MARKER_PRESETS.find(p => p.id === e.target.value);
+                      if (preset) update({ markerDiameter: lengthToField(preset.diameter, units), markerLength: lengthToField(preset.length, units) });
+                    }}
+                  >
+                    <option value="">Fill from a typical size…</option>
+                    {MARKER_PRESETS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                  </select>
+                  <small>Brands vary — measure one of yours, at its widest (usually the cap).</small>
+                </label>
+                <div className="shelf-field-grid">
+                  <LengthField unit={units} label="Marker diameter" value={form.markerDiameter} error={fieldErrors.markerDiameter} onChange={markerDiameter => update({ markerDiameter })} />
+                  <LengthField unit={units} label="Marker length" value={form.markerLength} error={fieldErrors.markerLength} onChange={markerLength => update({ markerLength })} />
+                  <LengthField unit={units} label="Space between" value={form.markerSpacing} error={fieldErrors.markerSpacing} onChange={markerSpacing => update({ markerSpacing })} />
+                </div>
+              </>
+            )}
+          </fieldset>
+
+          <fieldset className="shelf-group">
+            <legend>Desk</legend>
+            <Toggle
+              label="Put the units under a desk top"
+              checked={form.desk}
+              hint="Like a desk on two ALEX units: a plywood top on one unit at each end, or one unit at one end. The units are sized to fit under it."
+              onChange={desk => update({ desk })}
+            />
+            {form.desk && (
+              <>
+                <SegmentedControl label="Units" value={form.deskLayout} options={DESK_LAYOUT_OPTIONS} onChange={deskLayout => update({ deskLayout })} />
+                <div className="shelf-field-grid">
+                  <LengthField unit={units} label="Desk width" value={form.deskWidth} error={fieldErrors.deskWidth}
+                    hint={plan?.desk ? `${fmt(plan.desk.knee)} knee space` : undefined} onChange={deskWidth => update({ deskWidth })} />
+                  <LengthField unit={units} label="Desk height" value={form.deskHeight} error={fieldErrors.deskHeight}
+                    hint={plan?.desk ? `Units ${fmt(plan.desk.height - plan.desk.topThickness)} tall` : 'Floor to the top; 29–30″ is typical.'} onChange={deskHeight => update({ deskHeight })} />
+                  <LengthField unit={units} label="Desk depth" value={form.deskDepth} error={fieldErrors.deskDepth} onChange={deskDepth => update({ deskDepth })} />
+                </div>
+                <SegmentedControl label="Top" value={String(form.deskTopLayers) as '1' | '2'} options={TOP_LAYER_OPTIONS} onChange={v => update({ deskTopLayers: v === '1' ? 1 : 2 })} />
+                {form.heightMode === 'fronts' && (
+                  <small>With “Each front”, the fronts must add up to the space under the top — use “Make equal” to fit them.</small>
+                )}
+              </>
+            )}
+          </fieldset>
+
+          <fieldset className="shelf-group">
             <legend>Slides</legend>
             <label className="form-field">
               <span className="form-field-label">LONTAN slide length</span>
@@ -880,20 +1039,32 @@ export default function DrawerBuilder() {
           {plan && config ? (
             <>
               <dl className="shelf-summary">
-                <Stat label="Overall width" value={fmt(plan.overallWidth)} />
-                <Stat label="Overall height" value={fmt(plan.overallHeight)} />
-                <Stat label="Overall depth" value={fmt(plan.overallDepth)} />
-                <Stat label="Slides" value={plan.slideLength > 0 ? `${plan.drawers.length} × ${fmt(plan.slideLength)}` : '—'} accent />
+                {plan.desk ? (
+                  <>
+                    <Stat label="Desk" value={`${fmt(plan.desk.width)} × ${fmt(plan.desk.height)}`} />
+                    <Stat label="Units" value={`${plan.unitCount} × ${fmt(plan.overallWidth)}`} />
+                    <Stat label="Knee space" value={fmt(plan.desk.knee)} />
+                  </>
+                ) : (
+                  <>
+                    <Stat label="Overall width" value={fmt(plan.overallWidth)} />
+                    <Stat label="Overall height" value={fmt(plan.overallHeight)} />
+                    <Stat label="Overall depth" value={fmt(plan.overallDepth)} />
+                  </>
+                )}
+                <Stat label="Slides" value={plan.slideLength > 0 ? `${plan.drawers.length * plan.unitCount} × ${fmt(plan.slideLength)}` : '—'} accent />
               </dl>
               {view === '3d' && valid ? (
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
                   <ShelfViewer3D
                     solids={solids}
-                    width={plan.overallWidth}
-                    height={plan.overallHeight}
-                    depth={plan.caseDepth}
+                    width={plan.desk ? plan.desk.width : plan.overallWidth}
+                    height={plan.desk ? plan.desk.height : plan.overallHeight}
+                    depth={plan.desk ? plan.desk.depth : plan.caseDepth}
                     wallMounted={false}
-                    label={`3D view of a ${fmt(plan.overallWidth)} wide, ${fmt(plan.overallHeight)} tall drawer unit with ${plan.drawers.length} drawers`}
+                    label={plan.desk
+                      ? `3D view of a ${fmt(plan.desk.width)} desk on ${plan.unitCount} drawer unit${plan.unitCount === 1 ? '' : 's'}`
+                      : `3D view of a ${fmt(plan.overallWidth)} wide, ${fmt(plan.overallHeight)} tall drawer unit with ${plan.drawers.length} drawers`}
                   />
                 </Suspense>
               ) : (

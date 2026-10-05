@@ -12,12 +12,14 @@ import {
   BOTTOM_GROOVE_OFFSET,
   BOX_NOTCH_EXTRA,
   notchedOutline,
+  pullProfile,
   supportPositions,
   FOOT_SIZE,
   type DrawerConfig,
   type DrawerPlan,
 } from './drawerUnit.ts';
 import { MM_PER_INCH } from './shelving.ts';
+import { pieceOutline } from './drawerInserts.ts';
 import type { Feature, PartFace } from './shelfExport.ts';
 
 /** A 5/16" hole takes the barrel of a 1/4"-20 T-nut. */
@@ -125,9 +127,134 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       continue;
     }
 
+    const shaped = plan.partOutlines[part.name];
+    if (shaped) {
+      // Dividers and marker ribs: the slots and notches are part of the outline cut.
+      faces.push({
+        ...base, id: slug(part.name), piece: part.name, face: 'face up', features: [], outline: shaped, rightHanded: true,
+        orientation: part.name.startsWith('Marker rib')
+          ? 'Either face up; the notches are along the top edge.'
+          : `Either face up; the slots open toward the ${part.name.startsWith('Lengthwise') ? 'top' : 'bottom'} edge, as drawn.`,
+      });
+      continue;
+    }
+
     faces.push({ ...base, id: slug(part.name), piece: part.name, face: '', features: [], rightHanded: true, orientation: 'Nothing to machine — just cut the outline.' });
   }
   return faces;
+}
+
+// ── Shop jigs ───────────────────────────────────────────────────────────────
+
+/** Jig plates are 1/2" MDF or plywood. */
+export const JIG_STOCK = 1 / 2;
+/** How far a pull template reaches past the top edge it hooks over. */
+export const TEMPLATE_OVERHANG = 1.5;
+/** Template stock below the bottom of the notch. */
+const TEMPLATE_BELOW = 2.5;
+/** Longest template that still registers on both ends of the front. */
+const TEMPLATE_MAX_LENGTH = 36;
+
+export interface DrawerJig {
+  face: PartFace;
+  /** How to make and use it. */
+  steps: string[];
+}
+
+/**
+ * A pattern-bit routing template for a finger pull: a plate as long as the part
+ * (so its ends line up with the part's ends and centre the notch), with the
+ * notch open through its top edge and a guide line where the fence goes.
+ */
+function pullTemplate(id: string, title: string, partLength: number, shape: 'arc' | 'slot', width: number, depth: number): PartFace {
+  const length = partLength <= TEMPLATE_MAX_LENGTH ? partLength : width + 8;
+  const height = TEMPLATE_OVERHANG + depth + TEMPLATE_BELOW;
+  const cx = length / 2;
+  const edge = height - TEMPLATE_OVERHANG; // where the part's top edge sits
+  const notch = pullProfile({ shape, width, depth }).map(([dx, dy]) => [cx + dx, edge + dy] as [number, number]).reverse();
+  const outline: [number, number][] = [[0, 0], [length, 0], [length, height], [cx + width / 2, height], ...notch, [cx - width / 2, height], [0, height]];
+  return {
+    id, part: title, piece: title, face: 'face up', length, width: height, thickness: JIG_STOCK, material: 'plywood', rightHanded: true,
+    outline: outline.filter((pt, i) => i === 0 || Math.hypot(pt[0] - outline[i - 1][0], pt[1] - outline[i - 1][1]) > 1e-9),
+    features: [
+      { kind: 'guide', label: 'Fence line — the part’s top edge', points: [[0, edge], [length, edge]] },
+      { kind: 'guide', label: 'Centre line', points: [[cx, 0], [cx, edge - depth - 0.25]] },
+    ],
+    orientation: 'Face up as drawn; the notch opens through the top edge.',
+  };
+}
+
+export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) => string): DrawerJig[] {
+  const jigs: DrawerJig[] = [];
+  const pull = config.pull.enabled ? config.pull : null;
+  const frontPart = plan.parts.find(p => p.name.startsWith('Drawer front'));
+  const fence = (length: number, width: number) => `Glue a ${f(3 / 4)} × ${f(3 / 4)} fence under the plate on the fence line, one piece each side of the notch (about ${f(Math.max((length - width) / 2 - 0.5, 1))} long each).`;
+
+  if (pull && frontPart) {
+    const face = pullTemplate('pull-template', 'Finger-pull template', frontPart.length, pull.shape, pull.width, pull.depth);
+    const flush = frontPart.length <= TEMPLATE_MAX_LENGTH;
+    jigs.push({
+      face,
+      steps: [
+        `Cut it from ${f(JIG_STOCK)} MDF or plywood. ${fence(face.length, pull.width)}`,
+        flush
+          ? 'Lay it on the front’s outside face with the fence hooked over the top edge and the ends flush with the front’s ends — that centres the notch.'
+          : 'Lay it on the front’s outside face with the fence hooked over the top edge and the centre line on the front’s centre mark.',
+        `Clamp it, jigsaw out most of the waste, then rout with a ${f(1 / 2)} top-bearing pattern bit riding the template.`,
+      ],
+    });
+    // Box fronts get a wider, deeper notch; one template per depth.
+    const depths: { depth: number; drawers: number[] }[] = [];
+    for (const d of plan.drawers) {
+      if (d.boxNotchDepth <= 0) continue;
+      const g = depths.find(x => Math.abs(x.depth - d.boxNotchDepth) < 1 / 64);
+      if (g) g.drawers.push(d.index + 1); else depths.push({ depth: d.boxNotchDepth, drawers: [d.index + 1] });
+    }
+    const boxFront = plan.parts.find(p => p.name.startsWith('Box front'));
+    depths.forEach((g, i) => {
+      const which = depths.length === 1 ? '' : ` (drawer${g.drawers.length === 1 ? '' : 's'} ${g.drawers.join(', ')})`;
+      const face = pullTemplate(`box-template-${i + 1}`, `Box-front notch template${which}`, boxFront?.length ?? 0, pull.shape, pull.width + BOX_NOTCH_EXTRA, g.depth);
+      jigs.push({
+        face,
+        steps: [
+          `${fence(face.length, pull.width + BOX_NOTCH_EXTRA)} Use it the same way on the box front’s inside face, before the box is glued up.`,
+        ],
+      });
+    });
+  }
+
+  // Story stick: stands on the bottom panel inside the case, notched where each slide's bottom edge goes.
+  const T = config.thickness;
+  const stickLength = plan.caseHeight - 2 * T;
+  const marks = plan.drawers.map(d => d.slideMark - T);
+  const stickWidth = 2;
+  const cuts = marks.map(m => ({ kind: 'slot' as const, center: m + 1 / 16, width: 1 / 8, depth: 3 / 8, from: 'top' as const }));
+  jigs.push({
+    face: {
+      id: 'story-stick', part: 'Slide story stick', piece: 'Slide story stick', face: 'face up', length: stickLength, width: stickWidth,
+      thickness: JIG_STOCK, material: 'plywood', rightHanded: true,
+      outline: pieceOutline(stickLength, stickWidth, cuts),
+      features: marks.map((m, i) => ({ kind: 'guide' as const, label: `Drawer ${i + 1} slide`, points: [[m, 0], [m, stickWidth]] as [number, number][] })),
+      orientation: 'The end at the left stands on the bottom panel; each notch’s lower edge is a slide’s bottom edge.',
+    },
+    steps: [
+      `Stand it on the bottom panel inside the case, against the front edge of a side, and tick the side at the bottom of each notch (${marks.map(m => f(m)).join(', ')} up from the bottom panel).`,
+      'Do the other side with the same stick, so both sides match exactly.',
+    ],
+  });
+
+  if (config.gap >= 1 / 16) {
+    jigs.push({
+      face: {
+        id: 'gap-spacer', part: 'Front gap spacer', piece: 'Front gap spacer', face: '', length: 3, width: 1, thickness: config.gap,
+        material: 'plywood', rightHanded: true, features: [], orientation: `Cut four from ${f(config.gap)} stock (hardboard or a thin offcut).`,
+      },
+      steps: [
+        `Four ${f(config.gap)} spacers set the gap between fronts; two ${f(config.gap / 2)} shims (half as thick) set the bottom reveal.`,
+      ],
+    });
+  }
+  return jigs;
 }
 
 /** The bottom groove, a hair wider than the bottom so it slides in. */
@@ -151,6 +278,8 @@ export function drawerFeatureSummary(face: PartFace): string {
     counts.set(word, (counts.get(word) ?? 0) + 1);
   }
   const bits = [...counts].map(([word, n]) => `${n} ${word}${n === 1 ? '' : 's'}`);
-  if (face.outline) bits.unshift('finger-pull notch');
+  if (face.outline && face.part.startsWith('Marker rib')) bits.unshift('notches for markers');
+  else if (face.outline && /divider/.test(face.part)) bits.unshift('lap slots');
+  else if (face.outline) bits.unshift('finger-pull notch');
   return bits.length ? bits.join(', ') : 'Outline only';
 }

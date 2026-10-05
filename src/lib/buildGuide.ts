@@ -17,7 +17,7 @@ import {
 } from './shelving.ts';
 
 /** 'panels' lays the grooved panels flat, grooved face up, as they'd sit on a bench. */
-export type GuideView = 'front' | 'back' | 'exploded' | 'panels';
+export type GuideView = 'front' | 'back' | 'exploded' | 'panels' | 'above';
 
 export interface GuideScene {
   view: GuideView;

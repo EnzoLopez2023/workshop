@@ -8829,3 +8829,35 @@ tbody td {
   display: grid;
   gap: 4px;
 }
+
+.drawer-inserts {
+  display: grid;
+  gap: 10px;
+}
+
+.drawer-insert-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.drawer-insert-row > small,
+.drawer-insert-row > .drawer-insert-grid {
+  grid-column: 2;
+}
+
+.drawer-insert-grid {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.drawer-jigs {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

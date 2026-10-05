@@ -26,6 +26,8 @@ export const SOLID_COLORS: Record<SolidKind, number> = {
   slide: 0x8d969c,
   foot: 0x3a3f44,
   caster: 0x2f3337,
+  // Dividers and marker ribs: lighter than the boxes so they read inside them.
+  insert: 0xf2dfbd,
 };
 
 /** Doors are drawn see-through so the shelves behind them stay readable. */
@@ -93,6 +95,8 @@ const VIEW_DIRECTIONS: Record<GuideScene['view'], THREE.Vector3> = {
   exploded: new THREE.Vector3(0.75, 0.5, 1),
   back: new THREE.Vector3(-0.65, 0.35, -1),
   panels: new THREE.Vector3(0.3, 1.25, 0.85),
+  // Looking down into open drawers.
+  above: new THREE.Vector3(0.35, 1.6, 0.8),
 };
 
 /** Renders each scene to a PNG data URL with a single offscreen WebGL context. */

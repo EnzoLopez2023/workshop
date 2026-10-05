@@ -6,6 +6,7 @@ import {
   BOTTOM_GROOVE_DEPTH,
   BOTTOM_GROOVE_OFFSET,
   BOX_NOTCH_EXTRA,
+  deskSolids,
   drawerSolids,
   FINGER_ROOM,
   FOOT_SIZE,
@@ -19,8 +20,11 @@ import { TNUT_HOLE } from './drawerExport.ts';
 
 export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: LengthUnit): BuildGuide {
   const f = (inches: number) => formatLength(inches, units);
-  const solids = drawerSolids(plan, config);
-  const names = (match: (name: string) => boolean) => solids.filter(s => match(s.name)).map(s => s.name);
+  const unitSolids = drawerSolids(plan, config);
+  // The desk step shows every unit under the top, named apart from the single unit the other steps build.
+  const desk = plan.desk ? deskSolids(plan, config, true) : [];
+  const solids = [...unitSolids, ...desk];
+  const names = (match: (name: string) => boolean) => unitSolids.filter(s => match(s.name)).map(s => s.name);
   const T = config.thickness;
   const b = config.boxThickness;
   const n = plan.drawers.length;
@@ -34,8 +38,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const supports = names(name => name.startsWith('Foot') || name.startsWith('Caster'));
   const slides = names(name => name.endsWith(' slide'));
   const boxes = names(name => / box /.test(name));
-  const fronts = names(name => / front$/.test(name) && !name.includes(' box '));
-  const everything = solids.map(s => s.name);
+  const fronts = unitSolids.filter(s => / front$/.test(s.name) && !s.name.includes(' box ')).map(s => s.name);
+  const everything = unitSolids.map(s => s.name);
+  const insertNames = names(name => / (divider|marker rib) \d+$/.test(name));
 
   const steps: GuideStep[] = [];
 
@@ -52,10 +57,14 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         ? `Instead of handles, each front has a ${pull.shape === 'arc' ? 'shallow arc' : 'rounded slot'} cut into its top edge — ${f(pull.width)} wide and ${f(pull.depth)} deep — and the box front behind it is notched so your fingers can hook the front.`
         : 'The fronts have no finger pull — add knobs or pulls of your choice.',
       `Fronts are ${plan.drawers.map(d => f(d.front.height)).join(', ')} tall (top to bottom), with ${f(config.gap)} gaps.`,
+      ...(plan.desk ? [`${plan.unitCount === 2 ? 'Two units go' : 'The unit goes'} under a ${f(plan.desk.width)} × ${f(plan.desk.depth)} desk top, ${f(plan.desk.height)} off the floor.`] : []),
     ],
     parts: [],
-    tips: ['Read every step before cutting: the T-nuts and slide lines are much easier to do on loose panels.'],
-    cautions: [],
+    tips: [
+      'Read every step before cutting: the T-nuts and slide lines are much easier to do on loose panels.',
+      'Cut the shop jigs from the CNC section first — the pull templates and the slide story stick make every drawer match.',
+    ],
+    cautions: plan.unitCount > 1 ? ['The steps show one unit; the cut list has the parts for both. Build them side by side so they match.'] : [],
     scene: { view: 'front', visible: everything, highlight: [] },
   });
 
@@ -125,7 +134,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         pull.shape === 'arc'
           ? `Lay out the arc: mark the centre of the top edge, ${f(pull.width / 2)} each side of it, and ${f(pull.depth)} down. That’s a circle of ${f(R)} radius.`
           : `Lay out the slot: ${f(pull.width)} wide, ${f(pull.depth)} deep, with rounded inside corners.`,
-        'Make one template from MDF (or cut it from the CNC file), then rout every front with a pattern bit so they’re identical.',
+        'Use the finger-pull template from the shop jigs: hook its fence over the front’s top edge, line its ends up with the front’s, and rout with a pattern bit so every front is identical.',
         notched.length
           ? `Notch the box fronts the same way, ${f(BOX_NOTCH_EXTRA / 2)} wider each side and ${f(FINGER_ROOM)} deeper than the pull, so your fingers reach behind the front.`
           : 'The box fronts sit low enough that they don’t need a notch.',
@@ -212,7 +221,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     summary: `${n} pairs of ${f(plan.slideLength)} slides, front ends flush with the front edge of the case.`,
     instructions: [
       'Pull each slide apart: extend it fully and press the release lever to take off the drawer member.',
-      `Mark the bottom edge of each slide on both sides, measured up from the bottom edge of the side: ${plan.drawers.map(d => `drawer ${d.index + 1} at ${f(d.slideMark)}`).join(', ')}.`,
+      `Mark the bottom edge of each slide on both sides, measured up from the bottom edge of the side: ${plan.drawers.map(d => `drawer ${d.index + 1} at ${f(d.slideMark)}`).join(', ')}. The slide story stick from the shop jigs gives the same marks without measuring.`,
       'Screw each cabinet member on with its bottom on the line and its front end flush with the case front.',
     ],
     parts: [],
@@ -257,6 +266,33 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     scene: { view: 'front', visible: [...caseNames, ...back, ...supports, ...slides], highlight: boxes },
   });
 
+  // 12b ── Inserts
+  const insertParts = plan.parts.filter(p => p.name.startsWith('Lengthwise') || p.name.startsWith('Crosswise') || p.name.startsWith('Marker rib'));
+  if (insertParts.length) {
+    const grids = plan.inserts.some(x => x?.cells);
+    const trays = plan.inserts.filter(x => x?.capacity).reduce((n, x) => n + (x?.capacity ?? 0), 0);
+    steps.push({
+      id: 'inserts',
+      title: 'Fit the dividers and marker trays',
+      summary: [grids ? 'Egg-crate divider grids' : '', trays ? `marker trays holding ${trays} markers per unit` : ''].filter(Boolean).join(' and ') + '.',
+      instructions: [
+        ...(grids ? [
+          'Cut the lap slots: lengthwise dividers are slotted from the top, crosswise ones from the bottom, each half the divider’s height.',
+          'Slide the grid together on the bench, check it drops into its drawer, then glue it only if it rattles.',
+        ] : []),
+        ...(trays ? [
+          'Cut the half-round notches (the CNC rib files have them), sand them smooth so the markers don’t snag.',
+          'Glue the ribs to the drawer bottom in pairs, a marker’s length apart, notches lined up — lay a row of markers in while the glue sets.',
+        ] : []),
+      ],
+      parts: sized(insertParts),
+      tips: ['Cut every divider with one fence setting; a gang of slots cut at once lines up perfectly.'],
+      cautions: [],
+      // From above, without the case, so you can see into the boxes.
+      scene: { view: 'above', visible: boxes, highlight: insertNames },
+    });
+  }
+
   // 13 ── Fronts
   steps.push({
     id: 'fronts',
@@ -273,6 +309,26 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     cautions: [],
     scene: { view: 'front', visible: [...caseNames, ...back, ...supports, ...slides, ...boxes], highlight: fronts },
   });
+
+  // 13b ── Desk top
+  if (plan.desk) {
+    const dk = plan.desk;
+    const layers = config.desk?.topLayers ?? 1;
+    steps.push({
+      id: 'desk',
+      title: 'Put the desk top on',
+      summary: `${f(dk.width)} × ${f(dk.depth)}, ${f(dk.topThickness)} thick, ${f(dk.knee)} of knee space.`,
+      instructions: [
+        ...(layers === 2 ? ['Glue the two top layers face to face and screw them together every 8″ from underneath; let it set flat.'] : []),
+        `Stand the unit${plan.unitCount === 2 ? 's' : ''} in place${plan.unitCount === 2 ? ` with their outside faces at the desk ends, ${f(dk.knee)} apart` : ''}, backs in line.`,
+        'Lay the top on with its back edge flush with the units’ backs, then screw up through each unit’s top panel — 8 screws per unit, short enough not to come through.',
+      ],
+      parts: sized(plan.parts.filter(p => p.name === 'Desk top')),
+      tips: [`The top overhangs the drawer fronts by ${f(dk.depth - plan.overallDepth)} — enough to keep knees off the pulls.`],
+      cautions: [],
+      scene: { view: 'front', visible: desk.filter(s => s.name !== 'Desk top').map(s => s.name), highlight: ['Desk top'] },
+    });
+  }
 
   // 14 ── Finish
   steps.push({

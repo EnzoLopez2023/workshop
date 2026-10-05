@@ -21,6 +21,7 @@ import {
   type Solid,
   type SolidKind,
 } from './shelving.ts';
+import { INSERT_NAMES, layoutInsert, pieceOutline, type DrawerInsert, type InsertLayout } from './drawerInserts.ts';
 
 export type DrawerBase = 'none' | 'feet' | 'casters';
 export type PullShape = 'arc' | 'slot';
@@ -69,6 +70,41 @@ export interface DrawerConfig {
   bandingThickness?: number;
   /** Display unit for notes and messages. Geometry is always inches. */
   units?: LengthUnit;
+  /** What goes inside each drawer, top to bottom (missing or null: nothing). */
+  inserts?: (DrawerInsert | null)[];
+  /** Divider and marker-rib stock. */
+  insertThickness?: number;
+  /** One or two units under a plywood desk top. */
+  desk?: DeskConfig;
+}
+
+export type DeskLayout = 'left' | 'right' | 'both';
+
+export interface DeskConfig {
+  enabled: boolean;
+  /** Where the drawer units go: one at the left or right end, or one at each end. */
+  layout: DeskLayout;
+  width: number;
+  /** Floor to the top of the desk. */
+  height: number;
+  /** Front to back; the back lines up with the backs of the units. */
+  depth: number;
+  /** Layers of case plywood laminated for the top. */
+  topLayers: 1 | 2;
+}
+
+export const MIN_KNEE_SPACE = 20;
+export const COMFORT_KNEE_SPACE = 24;
+
+export interface DeskLayoutPlan {
+  /** Left edge of each drawer unit under the top. */
+  unitXs: number[];
+  width: number;
+  depth: number;
+  height: number;
+  topThickness: number;
+  /** Clear width between the units (or beside the one unit). */
+  knee: number;
 }
 
 /** LONTAN side-mount slides: 1/2" thick, about 45 mm tall, 10–24" long, 100 lb a pair. */
@@ -139,6 +175,13 @@ export interface DrawerPlan {
   supports: number;
   /** Which drawers (0-based) each drawer part is cut for, by part name. */
   partDrawers: Record<string, number[]>;
+  /** Shaped outlines (u, v) for parts that aren't plain rectangles — slotted dividers, notched ribs. */
+  partOutlines: Record<string, [number, number][]>;
+  /** Each drawer's insert, laid out (null when it has none). */
+  inserts: (InsertLayout | null)[];
+  /** Units built: 2 for a desk with a unit at each end. Part quantities already include it. */
+  unitCount: number;
+  desk: DeskLayoutPlan | null;
   banding: { thickness: number; totalLength: number } | null;
 }
 
@@ -411,14 +454,83 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     parts.push({ name: `Box bottom${which}`, qty, length: boxInsideWidth + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY, width: boxInsideDepth + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY,
       thickness: bt, material: 'plywood' });
   }
+  // Inserts: laid out in each box, then grouped so identical ones share a line.
+  const it = config.insertThickness ?? 1 / 4;
+  const partOutlines: Record<string, [number, number][]> = {};
+  const inserts: (InsertLayout | null)[] = drawers.map((d, i) => {
+    const insert = config.inserts?.[i];
+    if (!insert) return null;
+    const layout = layoutInsert(insert, {
+      width: boxInsideWidth, depth: boxInsideDepth, height: d.box.height - BOTTOM_GROOVE_OFFSET - bt,
+    }, it, f);
+    if (layout.error) errors.push(`Drawer ${i + 1}: ${layout.error}.`);
+    return layout;
+  });
+  if (inserts.some(Boolean) && !(it > 0 && it <= 1)) errors.push(`Divider stock ${f(it)} isn’t usable — ${f(1 / 4)} is typical.`);
+  const insertGroups: { key: string; indexes: number[]; layout: InsertLayout }[] = [];
+  inserts.forEach((layout, i) => {
+    if (!layout || layout.error || layout.pieces.length === 0) return;
+    const key = JSON.stringify(layout.pieces);
+    const g = insertGroups.find(g => g.key === key);
+    if (g) g.indexes.push(i); else insertGroups.push({ key, indexes: [i], layout });
+  });
+  for (const g of insertGroups) {
+    for (const piece of g.layout.pieces) {
+      const name = `${INSERT_NAMES[piece.role]} · ${drawerRange(g.indexes)}`;
+      partDrawers[name] = g.indexes;
+      partOutlines[name] = pieceOutline(piece.length, piece.height, piece.cuts);
+      const slots = piece.cuts.length;
+      parts.push({
+        name, qty: piece.qty * g.indexes.length, length: piece.length, width: piece.height, thickness: it,
+        note: piece.role === 'rib'
+          ? `${slots} half-round notch${slots === 1 ? '' : 'es'}; glue to the drawer bottom`
+          : slots ? `${slots} slot${slots === 1 ? '' : 's'} from the ${piece.role === 'lengthwise' ? 'top' : 'bottom'}, half its height` : undefined,
+        material: 'plywood',
+      });
+    }
+  }
+
+  // Desk: units under a laminated top. Everything above is per unit, so multiply it out.
+  let desk: DeskLayoutPlan | null = null;
+  let unitCount = 1;
+  if (config.desk?.enabled) {
+    const dk = config.desk;
+    unitCount = dk.layout === 'both' ? 2 : 1;
+    const topThickness = dk.topLayers * T;
+    const knee = dk.width - unitCount * W;
+    const unitXs = dk.layout === 'both' ? [0, dk.width - W] : dk.layout === 'right' ? [dk.width - W] : [0];
+    desk = { unitXs, width: dk.width, depth: dk.depth, height: dk.height, topThickness, knee };
+    if (knee < MIN_KNEE_SPACE) {
+      errors.push(`A ${f(dk.width)} desk leaves only ${f(Math.max(knee, 0))} of knee space beside ${unitCount === 2 ? 'two' : 'a'} ${f(W)} unit${unitCount === 2 ? 's' : ''} — make it at least ${f(unitCount * W + MIN_KNEE_SPACE)} wide.`);
+    } else if (knee < COMFORT_KNEE_SPACE) {
+      warnings.push(`${f(knee)} of knee space is tight; ${f(COMFORT_KNEE_SPACE)} or more is comfortable.`);
+    }
+    if (dk.depth < D) errors.push(`The ${f(dk.depth)} desk top is shallower than the ${f(D)} units under it — make it at least ${f(D)} deep.`);
+    const needed = dk.height - topThickness;
+    if (Math.abs(H - needed) > 1 / 32) {
+      errors.push(`Under a ${f(dk.height)} desk with a ${f(topThickness)} top, the units must be ${f(needed)} tall, but they’re ${f(H)}. ${config.frontHeights ? 'Use “Make equal” or change the fronts to fit.' : 'Change the desk height.'}`);
+    }
+    if (unitCount > 1) for (const p of parts) p.qty *= unitCount;
+    parts.push({
+      name: 'Desk top', qty: dk.topLayers, length: dk.width, width: dk.depth, thickness: T,
+      note: dk.topLayers === 2 ? 'Two layers glued and screwed together' : undefined, material: 'plywood',
+    });
+  }
+
   if (errors.length === 0) {
     for (const p of parts) {
-      if (!fitsSheet(p.length, p.width)) errors.push(`${p.name} (${f(p.length)} × ${f(p.width)}) is bigger than a 4 × 8 sheet.`);
+      if (!fitsSheet(p.length, p.width)) {
+        errors.push(p.name === 'Desk top'
+          ? `The ${f(p.length)} × ${f(p.width)} desk top is bigger than a 4 × 8 sheet — use a solid-wood or butcher-block top, or make it smaller.`
+          : `${p.name} (${f(p.length)} × ${f(p.width)}) is bigger than a 4 × 8 sheet.`);
+      }
     }
   }
 
   const bandingTotal = banding > 0
-    ? 2 * caseHeight + 2 * interiorWidth + n * 2 * frontWidth + fronts.reduce((a, h) => a + 2 * h, 0)
+    ? (2 * caseHeight + 2 * interiorWidth + n * 2 * frontWidth + fronts.reduce((a, h) => a + 2 * h, 0)) * unitCount
+      // The desk top's front and ends (each layer's edge shows).
+      + (desk ? (desk.width + 2 * desk.depth) * (config.desk?.topLayers ?? 1) : 0)
     : 0;
 
   return {
@@ -437,6 +549,10 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     errors,
     supports,
     partDrawers,
+    partOutlines,
+    inserts,
+    unitCount,
+    desk,
     banding: banding > 0 ? { thickness: banding, totalLength: bandingTotal } : null,
   };
 }
@@ -501,6 +617,25 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     solids.push(box(`${name} box right side`, 'drawer-box', [x1 - b, y0, b], [x1, y1, bx.depth - b]));
     const by = y0 + BOTTOM_GROOVE_OFFSET;
     solids.push(box(`${name} box bottom`, 'drawer-box', [x0 + b, by, b], [x1 - b, by + config.bottomThickness, bx.depth - b]));
+    const insert = plan.inserts[d.index];
+    if (insert && !insert.error) {
+      const ix = x0 + b;
+      const iy = by + config.bottomThickness;
+      const iz = b;
+      const it = config.insertThickness ?? 1 / 4;
+      const ribPiece = insert.pieces.find(p => p.role === 'rib');
+      insert.placements.forEach((pl, k) => {
+        const label = `${name} ${pl.role === 'rib' ? 'marker rib' : 'divider'} ${k + 1}`;
+        if (pl.role === 'rib' && ribPiece) {
+          solids.push({ name: label, kind: 'insert', shape: 'plate', z0: iz + pl.z, z1: iz + pl.z + it,
+            outline: pieceOutline(ribPiece.length, ribPiece.height, ribPiece.cuts).map(([u, v]) => [ix + pl.x + u, iy + v] as [number, number]) });
+        } else if (pl.along === 'z') {
+          solids.push(box(label, 'insert', [ix + pl.x, iy, iz + pl.z], [ix + pl.x + it, iy + pl.height, iz + pl.z + pl.length]));
+        } else {
+          solids.push(box(label, 'insert', [ix + pl.x, iy, iz + pl.z], [ix + pl.x + pl.length, iy + pl.height, iz + pl.z + it]));
+        }
+      });
+    }
     solids.push(box(`${name} left slide`, 'slide', [T, d.slideY, 0], [T + SLIDE_CLEARANCE, d.slideY + SLIDE_HEIGHT, bx.depth]));
     solids.push(box(`${name} right slide`, 'slide', [W - T - SLIDE_CLEARANCE, d.slideY, 0], [W - T, d.slideY + SLIDE_HEIGHT, bx.depth]));
   }
@@ -522,6 +657,30 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     }
   });
   return solids;
+}
+
+/**
+ * The whole desk: each drawer unit under the top. With `prefix`, every unit's
+ * parts are renamed ("Left unit · Drawer 1 front"), so they never clash with a
+ * single unit's names in the build guide.
+ */
+export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = false): Solid[] {
+  const unit = drawerSolids(plan, config);
+  if (!plan.desk) return unit;
+  const dk = plan.desk;
+  const out: Solid[] = [];
+  dk.unitXs.forEach((dx, i) => {
+    const side = dk.unitXs.length === 2 ? (i === 0 ? 'Left unit' : 'Right unit') : 'Unit';
+    const rename = (name: string) => (prefix || i > 0 ? `${side} · ${name}` : name);
+    for (const s of unit) {
+      if (s.shape === 'box') out.push({ ...s, name: rename(s.name), min: [s.min[0] + dx, s.min[1], s.min[2]], max: [s.max[0] + dx, s.max[1], s.max[2]] });
+      else if (s.shape === 'prism') out.push({ ...s, name: rename(s.name), x0: s.x0 + dx, x1: s.x1 + dx });
+      else out.push({ ...s, name: rename(s.name), outline: s.outline.map(([x, y]) => [x + dx, y] as [number, number]) });
+    }
+  });
+  const H = plan.overallHeight;
+  out.push({ name: 'Desk top', kind: 'case', shape: 'box', min: [0, H, plan.caseDepth - dk.depth], max: [dk.width, H + dk.topThickness, plan.caseDepth] });
+  return out;
 }
 
 // ── Project cut list and titles ──────────────────────────────────────────────
@@ -611,7 +770,45 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       edgeBanding: c.edgeBanding === true,
       bandingThickness: num(c.bandingThickness, 0, 0.15) ?? 0.02,
       units,
+      inserts: Array.isArray(c.inserts)
+        ? Array.from({ length: drawers }, (_, i) => readInsert((c.inserts as unknown[])[i]))
+        : undefined,
+      insertThickness: num(c.insertThickness, 0.05, 1) ?? 1 / 4,
+      desk: readDesk(c.desk),
     },
+  };
+}
+
+function readInsert(raw: unknown): DrawerInsert | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const v = raw as Record<string, unknown>;
+  const n = (x: unknown, min: number, max: number) => (typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max ? x : null);
+  if (v.kind === 'grid') {
+    const columns = n(v.columns, 1, 20);
+    const rows = n(v.rows, 1, 20);
+    return columns && rows ? { kind: 'grid', columns: Math.floor(columns), rows: Math.floor(rows) } : null;
+  }
+  if (v.kind === 'markers') {
+    const diameter = n(v.diameter, 0.05, 4);
+    const length = n(v.length, 0.5, 30);
+    return diameter && length ? { kind: 'markers', diameter, length, spacing: n(v.spacing, 0, 2) ?? 1 / 8 } : null;
+  }
+  return null;
+}
+
+function readDesk(raw: unknown): DeskConfig | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  const n = (x: unknown, min: number, max: number) => (typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max ? x : null);
+  const width = n(v.width, 1, 240);
+  const height = n(v.height, 1, 60);
+  const depth = n(v.depth, 1, 60);
+  if (v.enabled !== true || width === null || height === null || depth === null) return undefined;
+  return {
+    enabled: true,
+    layout: v.layout === 'left' || v.layout === 'right' ? v.layout : 'both',
+    width, height, depth,
+    topLayers: v.topLayers === 1 ? 1 : 2,
   };
 }
 
@@ -645,12 +842,43 @@ export interface DrawerDesignFields {
   slideLength: string;
   edgeBanding: boolean;
   bandingThickness: string;
+  /** Per drawer, top to bottom. */
+  insertKinds: InsertKind[];
+  gridColumns: number[];
+  gridRows: number[];
+  insertThickness: string;
+  /** One kind of marker per design. */
+  markerDiameter: string;
+  markerLength: string;
+  markerSpacing: string;
+  desk: boolean;
+  deskLayout: DeskLayout;
+  deskWidth: string;
+  deskHeight: string;
+  deskDepth: string;
+  deskTopLayers: 1 | 2;
 }
+
+export type InsertKind = 'none' | 'grid' | 'markers';
+
+/** Form defaults for the inside-the-drawer and desk fields (inch strings). */
+export const EXTRA_FIELD_DEFAULTS = {
+  insertThickness: '1/4',
+  markerDiameter: '0.63',
+  markerLength: '5.91',
+  markerSpacing: '1/8',
+  deskLayout: 'both' as DeskLayout,
+  deskWidth: '60',
+  deskHeight: '29',
+  deskDepth: '24',
+  deskTopLayers: 2 as 1 | 2,
+};
 
 export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFields {
   const { config: c, units } = saved;
   const L = (inches: number) => lengthToField(inches, units);
   const fronts = frontHeightsOf(c);
+  const marker = c.inserts?.find((x): x is Extract<DrawerInsert, { kind: 'markers' }> => x?.kind === 'markers');
   return {
     units,
     thickness: L(c.thickness),
@@ -674,5 +902,18 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     slideLength: c.slideLength ? String(c.slideLength) : 'auto',
     edgeBanding: c.edgeBanding === true,
     bandingThickness: c.bandingThickness ? `${Math.round(c.bandingThickness * 25.4 * 10) / 10} mm` : '0.5 mm',
+    insertKinds: Array.from({ length: c.drawers }, (_, i) => c.inserts?.[i]?.kind ?? 'none'),
+    gridColumns: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'grid' ? x.columns : 2; }),
+    gridRows: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'grid' ? x.rows : 2; }),
+    insertThickness: L(c.insertThickness ?? 1 / 4),
+    markerDiameter: marker ? L(marker.diameter) : lengthToField(parseFloat(EXTRA_FIELD_DEFAULTS.markerDiameter), units),
+    markerLength: marker ? L(marker.length) : lengthToField(parseFloat(EXTRA_FIELD_DEFAULTS.markerLength), units),
+    markerSpacing: marker ? L(marker.spacing) : L(1 / 8),
+    desk: c.desk?.enabled === true,
+    deskLayout: c.desk?.layout ?? EXTRA_FIELD_DEFAULTS.deskLayout,
+    deskWidth: L(c.desk?.width ?? 60),
+    deskHeight: L(c.desk?.height ?? 29),
+    deskDepth: L(c.desk?.depth ?? 24),
+    deskTopLayers: c.desk?.topLayers ?? 2,
   };
 }
