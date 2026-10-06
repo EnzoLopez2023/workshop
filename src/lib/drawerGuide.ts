@@ -10,6 +10,7 @@ import {
   deskSolids,
   drawerSolids,
   FINGER_ROOM,
+  ALEX_TAPER,
   FOOT_SIZE,
   HANDHOLE_TOP,
   pullWidth,
@@ -59,7 +60,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     summary: `A ${f(plan.overallWidth)} wide, ${f(plan.overallHeight)} tall, ${f(plan.overallDepth)} deep unit with ${n} drawer${n === 1 ? '' : 's'}, ${baseText}.`,
     instructions: [
       `The case is ${f(T)} plywood: full-height sides with the top and bottom fitted between them, and a ${f(config.backThickness)} back let into rabbets in the sides.`,
-      `Each drawer is a ${f(b)} plywood box riding on a pair of ${f(plan.slideLength)} LONTAN soft-close slides, with a ${f(T)} full-overlay front screwed on from inside.`,
+      `Each drawer is a ${f(b)} plywood box riding on a pair of ${f(plan.slideLength)} LONTAN soft-close slides, with a ${f(T)} ${plan.frontInset > 0 ? 'inset front (flush with the case, like the ALEX)' : 'full-overlay front'} screwed on from inside.`,
       !pull ? 'The fronts have no finger pull — add knobs or pulls of your choice.'
         : pull.shape === 'handhole'
           ? `Instead of handles, each front has a ${f(pull.width)} × ${f(pull.depth)} hand hole just below its top edge, and the box front behind it is notched so your fingers can hook the front.`
@@ -150,6 +151,8 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       instructions: [
         pull.shape === 'arc'
           ? `Lay out the arc: mark the centre of the top edge, ${f(pull.width / 2)} each side of it, and ${f(pull.depth)} down. That’s a circle of ${f(R)} radius.`
+          : pull.shape === 'alex'
+            ? `Lay out the ALEX notch: mark the centre of the top edge and ${f(pull.width / 2)} each side of it. The bottom is flat, ${f(pull.depth)} down, across the middle ${f(pull.width * (1 - ALEX_TAPER))}, then curves smoothly up to meet the top edge at each end — trace the finger-pull template rather than drawing the curves by hand.`
           : pull.shape === 'handhole'
             ? `Lay out the hole: ${f(across)} wide and ${f(pull.depth)} tall with round ends, its top ${f(HANDHOLE_TOP)} below the top edge.`
             : `Lay out the slot: ${f(across)} wide, ${f(pull.depth)} deep, with rounded inside corners.`,
@@ -246,11 +249,13 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   steps.push({
     id: 'slides',
     title: 'Mount the slides in the case',
-    summary: `${slideCounts(plan, f)}, front ends flush with the front edge of the case.`,
+    summary: `${slideCounts(plan, f)}, ${plan.frontInset > 0 ? `front ends ${f(plan.frontInset)} back from the case front (room for the inset fronts)` : 'front ends flush with the front edge of the case'}.`,
     instructions: [
       'Pull each slide apart: extend it fully and press the release lever to take off the drawer member.',
       `Mark the bottom edge of each slide on both sides of its opening, measured up from the bottom edge of the case side: ${boxed.map(d => `${d.label.toLowerCase()} at ${f(d.slideMark)}`).join(', ')}${plan.partitionXs.length ? ` (on a partition, ${f(T)} less — it starts on the bottom panel)` : ''}. The slide story stick from the shop jigs gives the same marks without measuring.`,
-      'Screw each cabinet member on with its bottom on the line and its front end flush with the case front.',
+      plan.frontInset > 0
+        ? `Screw each cabinet member on with its bottom on the line and its front end ${f(plan.frontInset)} back from the case front — the slide setback block sets this.`
+        : 'Screw each cabinet member on with its bottom on the line and its front end flush with the case front.',
     ],
     parts: [],
     tips: [
@@ -341,7 +346,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     title: 'Hang the fronts',
     summary: `${f(config.gap)} gaps between fronts, ${f(config.gap / 2)} at the top, bottom and sides.`,
     instructions: [
-      `Start at the bottom: stand the front on ${f(config.gap / 2)} shims, centred side to side, and stick it to the box with two pieces of double-sided tape.`,
+      plan.frontInset > 0
+        ? `Start at the bottom: set the front into its opening on ${f(config.gap / 2)} shims, with ${f(config.gap / 2)} at each side, its face flush with the case edges, and stick it to the box with two pieces of double-sided tape.`
+        : `Start at the bottom: stand the front on ${f(config.gap / 2)} shims, centred side to side, and stick it to the box with two pieces of double-sided tape.`,
       `Pull the drawer out and drive four ${f(Math.floor((b + T * 0.6) * 8) / 8)} screws through the box front into the front.`,
       `Work upward with ${f(config.gap)} spacers between fronts.`,
       'Drill the box-front holes oversize, so each front can shift slightly before you snug the screws.',

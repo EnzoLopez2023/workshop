@@ -91,8 +91,9 @@ const DEFAULT_FORM: FormState = {
   gap: '1/8',
   pullEnabled: true,
   pullShape: DEFAULT_PULL.shape,
-  pullWidth: '4 3/4',
-  pullDepth: '1',
+  pullWidth: '6 1/2',
+  pullDepth: '1 1/8',
+  frontStyle: 'inset',
   boxThickness: '1/2',
   bottomThickness: '1/4',
   backThickness: '1/4',
@@ -167,10 +168,16 @@ const BASE_OPTIONS = [
 ] as const;
 
 const PULL_OPTIONS = [
-  { value: 'arc', label: 'Arc notch (ALEX)', hint: 'A shallow curve cut into the top edge.' },
+  { value: 'alex', label: 'ALEX notch', hint: 'The IKEA ALEX scoop: a flat-bottomed cut-out in the top edge with smooth curves into it at each end.' },
+  { value: 'arc', label: 'Round arc', hint: 'A shallow circular curve cut into the top edge.' },
   { value: 'slot', label: 'Slot notch', hint: 'A rounded-bottom slot in the top edge.' },
   { value: 'wide', label: 'Wide notch', hint: `A long slot across nearly the whole front, stopping 2″ from each end.` },
   { value: 'handhole', label: 'Hand hole', hint: 'A rounded hole cut through the front, just below the top edge.' },
+] as const;
+
+const FRONT_STYLE_OPTIONS = [
+  { value: 'inset', label: 'Inset (ALEX)' },
+  { value: 'overlay', label: 'Full overlay' },
 ] as const;
 
 const COLUMN_WIDTH_OPTIONS = [
@@ -331,6 +338,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
       }))
       : undefined,
     gap: num('gap', { allowZero: true }),
+    frontStyle: form.frontStyle,
     pull: {
       enabled: form.pullEnabled,
       shape: form.pullShape,
@@ -1245,6 +1253,15 @@ export default function DrawerBuilder() {
 
           <fieldset className="shelf-group" data-tour="fs-finger-pull">
             <legend>Finger pull</legend>
+            <div className="shelf-height-mode">
+              <span className="form-field-label">Fronts</span>
+              <SegmentedControl label="Front style" value={form.frontStyle} options={FRONT_STYLE_OPTIONS} onChange={frontStyle => update({ frontStyle })} />
+              <small>
+                {form.frontStyle === 'inset'
+                  ? 'Inset: the fronts sit inside the case, flush with its edges, and the case shows around them — the ALEX look.'
+                  : 'Full overlay: the fronts cover the case edges, with only the gaps showing.'}
+              </small>
+            </div>
             <Toggle
               label="Built-in pull"
               checked={form.pullEnabled}
@@ -1857,7 +1874,9 @@ function DrawerSection({ plan, config, fmt }: { plan: DrawerPlan; config: Drawer
   const top = d.front.y + d.front.height;
   const base = top - Hs + T; // local origin for the cropped section
   const yy = (v: number) => Hs - (v - base);
-  const x = (z: number) => z + T; // fronts start at x = 0
+  // Overlay fronts stand in front of the case (x 0–T); inset ones fill the opening's first T.
+  const zf = plan.frontInset;
+  const x = (z: number) => z + T - zf;
   const pad = depth * 0.12;
   const fs = depth * 0.04;
   const reach = pullReach(config.pull, d.front.width);
@@ -1874,12 +1893,12 @@ function DrawerSection({ plan, config, fmt }: { plan: DrawerPlan; config: Drawer
         {reach > 0 && (hole
           ? <rect className="drawer-notch" x={0} y={yy(top - hole.top)} width={T} height={hole.height} />
           : <rect className="drawer-notch" x={0} y={yy(top)} width={T} height={reach} />)}
-        <rect className="shelf-ply is-shelf" x={x(0)} y={yy(d.box.y + d.box.height)} width={config.boxThickness} height={d.box.height} />
-        {d.boxNotchDepth > 0 && <rect className="drawer-notch" x={x(0)} y={yy(d.box.y + d.box.height)} width={config.boxThickness} height={d.boxNotchDepth} />}
-        <rect className="shelf-ply is-shelf" x={x(slide - config.boxThickness)} y={yy(d.box.y + d.box.height)} width={config.boxThickness} height={d.box.height} />
-        <rect className="shelf-ply" x={x(config.boxThickness)} y={yy(d.box.y + 0.5 + config.bottomThickness)} width={slide - 2 * config.boxThickness} height={config.bottomThickness} />
-        <rect className="drawer-slide" x={x(0)} y={yy(d.slideY + 45 / 25.4)} width={slide} height={45 / 25.4} />
-        <DimH x1={x(0)} x2={x(slide)} y={Hs + pad * 0.6} fs={fs} label={`Slide ${fmt(slide)}`} />
+        <rect className="shelf-ply is-shelf" x={x(zf)} y={yy(d.box.y + d.box.height)} width={config.boxThickness} height={d.box.height} />
+        {d.boxNotchDepth > 0 && <rect className="drawer-notch" x={x(zf)} y={yy(d.box.y + d.box.height)} width={config.boxThickness} height={d.boxNotchDepth} />}
+        <rect className="shelf-ply is-shelf" x={x(zf + slide - config.boxThickness)} y={yy(d.box.y + d.box.height)} width={config.boxThickness} height={d.box.height} />
+        <rect className="shelf-ply" x={x(zf + config.boxThickness)} y={yy(d.box.y + 0.5 + config.bottomThickness)} width={slide - 2 * config.boxThickness} height={config.bottomThickness} />
+        <rect className="drawer-slide" x={x(zf)} y={yy(d.slideY + 45 / 25.4)} width={slide} height={45 / 25.4} />
+        <DimH x1={x(zf)} x2={x(zf + slide)} y={Hs + pad * 0.6} fs={fs} label={`Slide ${fmt(slide)}`} />
         <DimH x1={0} x2={depth} y={Hs + pad * 1.5} fs={fs} label={fmt(depth)} />
       </svg>
       <figcaption>Side section through the top drawer{reach > 0 ? ': the box front is notched below the pull so fingers can hook the front' : ''}</figcaption>

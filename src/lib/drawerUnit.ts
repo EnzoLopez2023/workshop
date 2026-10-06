@@ -1,5 +1,5 @@
 // Drawer unit generator, after the IKEA ALEX: a plywood case full of side-mount
-// slide drawers, each full-overlay front with a finger-pull notch cut into its
+// slide drawers, each inset (or full-overlay) front with a finger-pull notch cut into its
 // top edge instead of a handle. All values are inches.
 //
 // Coordinate model matches the Shelf Builder: x runs left → right from the
@@ -29,8 +29,10 @@ export type DrawerBase = 'none' | 'feet' | 'casters';
 /** On the floor (on its base), hung on a French cleat, or hung under an existing desk. */
 export type DrawerMount = 'floor' | 'wall' | 'under-desk';
 /** Notches cut into the top edge (arc, slot, wide), or a hand hole cut through below it. */
-export type PullShape = 'arc' | 'slot' | 'wide' | 'handhole';
-export type NotchShape = 'arc' | 'slot';
+export type PullShape = 'alex' | 'arc' | 'slot' | 'wide' | 'handhole';
+export type NotchShape = 'alex' | 'arc' | 'slot';
+/** Inset fronts sit inside the case, flush with its front edge (the ALEX look); overlay fronts cover the case edges. */
+export type FrontStyle = 'inset' | 'overlay';
 /** Expected contents, for the slide-capacity and bottom-sag checks. */
 export type DrawerLoad = 'light' | 'medium' | 'heavy';
 /** Whether the overall height is typed (fronts share it equally) or built up from each front's height. */
@@ -52,6 +54,8 @@ export interface NotchSpec {
   depth: number;
 }
 
+/** Share of each half of an ALEX notch that curves up to the top edge (the rest is the flat bottom). */
+export const ALEX_TAPER = 0.55;
 /** A wide pull stops this far from each end of the front. */
 export const WIDE_PULL_MARGIN = 2;
 /** A hand hole's top sits this far below the front's top edge. */
@@ -176,6 +180,8 @@ export interface DrawerConfig {
   frontHeights?: number[];
   /** Gap between neighbouring fronts (half of it shows at the top, bottom and sides). */
   gap: number;
+  /** Inset (default, flush with the case like the ALEX) or full overlay. */
+  frontStyle?: FrontStyle;
   pull: FingerPull;
   /** Drawer-box sides, front and back. */
   boxThickness: number;
@@ -335,6 +341,8 @@ export interface DrawerLayout {
 }
 
 export interface DrawerPlan {
+  /** How far the boxes and slides start behind the case front (the fronts' thickness when inset). */
+  frontInset: number;
   mount: DrawerMount;
   /** How far the unit's bottom sits above the floor in the 3D view (hung units). */
   lift: number;
@@ -383,6 +391,20 @@ export interface DrawerPlan {
 export function pullProfile(pull: NotchSpec, segments = 24): [number, number][] {
   const w = pull.width;
   const d = pull.depth;
+  if (pull.shape === 'alex') {
+    // The ALEX scoop: a flat bottom across the middle and smooth S-curves at each end,
+    // tangent to the top edge — a raised-cosine fall over the outer ALEX_TAPER of each half.
+    const flat = 1 - ALEX_TAPER;
+    const steps = Math.max(segments * 2, 48);
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= steps; i++) {
+      const x = -w / 2 + (w * i) / steps;
+      const t = Math.abs(x) / (w / 2);
+      const fall = t <= flat ? 1 : 0.5 * (1 + Math.cos(Math.PI * (t - flat) / ALEX_TAPER));
+      pts.push([x, -d * fall]);
+    }
+    return pts;
+  }
   if (pull.shape === 'slot') {
     // A rounded-bottom slot: straight sides, corners rounded by up to 1/2".
     const r = Math.min(d, w / 2, 0.5);
@@ -479,15 +501,20 @@ export function baseHeightOf(c: Pick<DrawerConfig, 'base' | 'footHeight' | 'cast
 }
 
 /** Overall height built from front heights: the fronts, a gap per front, and the base. */
-export function overallFromFronts(frontHeights: number[], c: Pick<DrawerConfig, 'gap' | 'base' | 'footHeight' | 'casterHeight'>): number {
-  return frontHeights.reduce((a, b) => a + b, 0) + frontHeights.length * c.gap + baseHeightOf(c);
+/** Height the fronts don't cover: inset fronts sit between the top and bottom panels. */
+export function frontAllowance(c: Pick<DrawerConfig, 'frontStyle' | 'thickness'>): number {
+  return c.frontStyle === 'overlay' ? 0 : 2 * c.thickness;
+}
+
+export function overallFromFronts(frontHeights: number[], c: Pick<DrawerConfig, 'gap' | 'base' | 'footHeight' | 'casterHeight' | 'frontStyle' | 'thickness'> & { mount?: DrawerMount }): number {
+  return frontHeights.reduce((a, b) => a + b, 0) + frontHeights.length * c.gap + frontAllowance(c) + baseHeightOf(c);
 }
 
 /** Front heights for the current config, top to bottom. */
 export function frontHeightsOf(c: DrawerConfig): number[] {
   if (c.frontHeights && c.frontHeights.length === c.drawers) return c.frontHeights;
   const caseHeight = c.height - baseHeightOf(c);
-  return equalFronts(c.drawers, caseHeight - c.drawers * c.gap);
+  return equalFronts(c.drawers, caseHeight - frontAllowance(c) - c.drawers * c.gap);
 }
 
 /** The longest LONTAN slide that fits the inside depth, or null if even 10" doesn't. */
@@ -517,10 +544,14 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const n = cols.reduce((a, c) => a + c.drawers, 0);
   const own = (c: DrawerColumn) => (c.frontHeights && c.frontHeights.length === c.drawers ? c.frontHeights : null);
   const firstFronts = own(cols[0]);
-  const caseHeight = firstFronts ? firstFronts.reduce((a, s) => a + s, 0) + cols[0].drawers * gap : config.height - B;
-  const columnFronts = cols.map(c => own(c) ?? equalFronts(c.drawers, caseHeight - c.drawers * gap));
+  const inset = config.frontStyle !== 'overlay';
+  const edge = frontAllowance(config);
+  const caseHeight = firstFronts ? firstFronts.reduce((a, s) => a + s, 0) + cols[0].drawers * gap + edge : config.height - B;
+  const columnFronts = cols.map(c => own(c) ?? equalFronts(c.drawers, caseHeight - edge - c.drawers * gap));
   const H = caseHeight + B;
-  const caseDepth = D - T;
+  // Inset fronts sit inside the case, so it runs the full depth and the boxes start behind the fronts.
+  const caseDepth = inset ? D : D - T;
+  const frontInset = inset ? T : 0;
   const interiorWidth = W - 2 * T;
   const mount: DrawerMount = config.mount ?? 'floor';
   // A wall-hung unit's back moves forward by the cleat's thickness; the sides hide the cleat.
@@ -586,7 +617,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   }
 
   // Depth and slides.
-  const auto = autoSlideLength(interiorDepth);
+  const auto = autoSlideLength(interiorDepth - frontInset);
   let slideLength = config.slideLength ?? auto ?? 0;
   if (auto === null) {
     errors.push(`The inside depth is ${f(Math.max(interiorDepth, 0))} (overall ${f(D)} less the ${f(T)} fronts and the ${f(backT)} back). The shortest slide is ${f(SLIDE_LENGTHS[0])} and needs ${f(SLIDE_LENGTHS[0] + SLIDE_BACK_CLEARANCE)} — make the unit at least ${f(SLIDE_LENGTHS[0] + SLIDE_BACK_CLEARANCE + T + backT)} deep.`);
@@ -607,7 +638,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   cols.forEach((c, ci) => {
     const fixedFronts = own(c);
     if (ci > 0 && fixedFronts) {
-      const total = fixedFronts.reduce((a, s) => a + s, 0) + c.drawers * gap;
+      const total = fixedFronts.reduce((a, s) => a + s, 0) + c.drawers * gap + edge;
       if (Math.abs(total - caseHeight) > 1 / 32) {
         errors.push(`Column ${ci + 1}’s fronts and gaps add up to ${f(total)}, but column 1 makes the case ${f(caseHeight)} tall. Use “Make equal” on column ${ci + 1}, or change its fronts by ${f(Math.abs(caseHeight - total))}.`);
       }
@@ -622,7 +653,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const interiorBottom = B + T;
   const interiorTop = H - T;
   const pull = config.pull.enabled ? config.pull : null;
-  const frontWidths = cols.map((_, ci) => bounds[ci + 1] - bounds[ci] - gap);
+  const frontWidths = cols.map((_, ci) => (inset ? openings[ci] : bounds[ci + 1] - bounds[ci]) - gap);
   const frontWidth = Math.min(...frontWidths);
   const reach = pullReach(pull, frontWidth);
   const pullName = pull?.shape === 'handhole' ? 'hand hole' : 'finger pull';
@@ -639,7 +670,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     return label(Math.max(ci, 0), Math.max(columns[Math.max(ci, 0)].drawers.indexOf(index), 0));
   };
   cols.forEach((_, ci) => {
-  let top = H - gap / 2;
+  let top = (inset ? H - T : H) - gap / 2;
   columnFronts[ci].forEach((h, row) => {
     const i = columns[ci].drawers[row];
     const open = config.openSlots?.[i] === true;
@@ -660,7 +691,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       index: i,
       column: ci,
       label: name,
-      front: { x: bounds[ci] + gap / 2, y, width: frontWidths[ci], height: h },
+      front: { x: (inset ? columns[ci].x : bounds[ci]) + gap / 2, y, width: frontWidths[ci], height: h },
       box: { x: columns[ci].x + SLIDE_CLEARANCE, y: boxY, width: boxWidths[ci], height: boxHeight, depth: slideFor(i) },
       slideY,
       slideMark: slideY - B,
@@ -910,6 +941,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     : 0;
 
   return {
+    frontInset,
     mount,
     lift,
     cleatGap,
@@ -1002,7 +1034,8 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     const first = solids.length;
     const fr = d.front;
     const hole = handHole(pull);
-    solids.push({ name: `${name} front`, kind: 'drawer-front', shape: 'plate', z0: -T, z1: 0,
+    const zf = plan.frontInset;
+    solids.push({ name: `${name} front`, kind: 'drawer-front', shape: 'plate', z0: zf - T, z1: zf,
       outline: notchedOutline(fr.x, fr.y, fr.width, fr.height, frontNotch(pull, fr.width)),
       holes: hole ? [stadiumOutline(fr.x + fr.width / 2, fr.y + fr.height - hole.top, hole.width, hole.height)] : undefined });
     const bx = d.box;
@@ -1011,18 +1044,18 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     const y0 = bx.y;
     const y1 = bx.y + bx.height;
     const boxNotch = boxNotchSpec(pull, fr.width, d.boxNotchDepth);
-    solids.push({ name: `${name} box front`, kind: 'drawer-box', shape: 'plate', z0: 0, z1: b,
+    solids.push({ name: `${name} box front`, kind: 'drawer-box', shape: 'plate', z0: zf, z1: zf + b,
       outline: notchedOutline(x0, y0, bx.width, bx.height, boxNotch) });
-    solids.push(box(`${name} box back`, 'drawer-box', [x0, y0, bx.depth - b], [x1, y1, bx.depth]));
-    solids.push(box(`${name} box left side`, 'drawer-box', [x0, y0, b], [x0 + b, y1, bx.depth - b]));
-    solids.push(box(`${name} box right side`, 'drawer-box', [x1 - b, y0, b], [x1, y1, bx.depth - b]));
+    solids.push(box(`${name} box back`, 'drawer-box', [x0, y0, zf + bx.depth - b], [x1, y1, zf + bx.depth]));
+    solids.push(box(`${name} box left side`, 'drawer-box', [x0, y0, zf + b], [x0 + b, y1, zf + bx.depth - b]));
+    solids.push(box(`${name} box right side`, 'drawer-box', [x1 - b, y0, zf + b], [x1, y1, zf + bx.depth - b]));
     const by = y0 + BOTTOM_GROOVE_OFFSET;
-    solids.push(box(`${name} box bottom`, 'drawer-box', [x0 + b, by, b], [x1 - b, by + config.bottomThickness, bx.depth - b]));
+    solids.push(box(`${name} box bottom`, 'drawer-box', [x0 + b, by, zf + b], [x1 - b, by + config.bottomThickness, zf + bx.depth - b]));
     const insert = plan.inserts[d.index];
     if (insert && !insert.error) {
       const ix = x0 + b;
       const iy = by + config.bottomThickness;
-      const iz = b;
+      const iz = zf + b;
       const it = config.insertThickness ?? 1 / 4;
       const ribPiece = insert.pieces.find(p => p.role === 'rib');
       if (insert.toolBoard) {
@@ -1053,8 +1086,8 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     // Everything so far for this drawer slides out together; the slides stay put.
     for (const s of solids.slice(first)) { s.group = name; s.travel = d.box.depth * DRAWER_OPEN_FRACTION; }
     // Slides fill the gap between the box and the side or partition on each side.
-    solids.push(box(`${name} left slide`, 'slide', [bx.x - SLIDE_CLEARANCE, d.slideY, 0], [bx.x, d.slideY + SLIDE_HEIGHT, bx.depth]));
-    solids.push(box(`${name} right slide`, 'slide', [bx.x + bx.width, d.slideY, 0], [bx.x + bx.width + SLIDE_CLEARANCE, d.slideY + SLIDE_HEIGHT, bx.depth]));
+    solids.push(box(`${name} left slide`, 'slide', [bx.x - SLIDE_CLEARANCE, d.slideY, zf], [bx.x, d.slideY + SLIDE_HEIGHT, zf + bx.depth]));
+    solids.push(box(`${name} right slide`, 'slide', [bx.x + bx.width, d.slideY, zf], [bx.x + bx.width + SLIDE_CLEARANCE, d.slideY + SLIDE_HEIGHT, zf + bx.depth]));
   }
   // Exploded view: case panels move outward, each drawer's parts spread from the box.
   const spread = Math.max(W, H) / 12;
@@ -1172,7 +1205,8 @@ export interface SavedDrawerDesign {
 }
 
 export function toSavedDrawerDesign(config: DrawerConfig, units: LengthUnit, heightMode: DrawerHeightMode = 'overall'): SavedDrawerDesign {
-  const c: DrawerConfig = { ...config, units, pull: { ...config.pull } };
+  // Written out explicitly: designs saved before inset fronts existed read back as overlay.
+  const c: DrawerConfig = { ...config, units, pull: { ...config.pull }, frontStyle: config.frontStyle ?? 'inset' };
   if (heightMode === 'overall') {
     delete c.frontHeights;
     if (c.columns) c.columns = c.columns.map(col => ({ drawers: col.drawers, ...(col.width ? { width: col.width } : {}) }));
@@ -1218,9 +1252,11 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       thickness, width, height, depth, drawers,
       frontHeights,
       gap: num(c.gap, 0, 1) ?? 1 / 8,
+      // Designs saved before inset fronts existed were overlay.
+      frontStyle: c.frontStyle === 'inset' ? 'inset' : 'overlay',
       pull: {
         enabled: p.enabled !== false,
-        shape: p.shape === 'slot' || p.shape === 'wide' || p.shape === 'handhole' ? p.shape : 'arc',
+        shape: p.shape === 'alex' || p.shape === 'slot' || p.shape === 'wide' || p.shape === 'handhole' ? p.shape : 'arc',
         width: num(p.width, 0, 60) ?? DEFAULT_PULL.width,
         depth: num(p.depth, 0, 20) ?? DEFAULT_PULL.depth,
       },
@@ -1348,7 +1384,8 @@ function readDesk(raw: unknown): DeskConfig | undefined {
   };
 }
 
-export const DEFAULT_PULL: FingerPull = { enabled: true, shape: 'arc', width: 4.75, depth: 1 };
+/** About the size of the IKEA ALEX scoop: roughly 165 × 28 mm. */
+export const DEFAULT_PULL: FingerPull = { enabled: true, shape: 'alex', width: 6.5, depth: 1.125 };
 /** Gap under the case on MROCO leveling feet, before adjusting. */
 export const DEFAULT_FOOT_HEIGHT = 1 / 2;
 export const DEFAULT_CASTER_HEIGHT = 2;
@@ -1364,6 +1401,7 @@ export interface DrawerDesignFields {
   drawers: number;
   frontHeights: string[];
   gap: string;
+  frontStyle: FrontStyle;
   pullEnabled: boolean;
   pullShape: PullShape;
   pullWidth: string;
@@ -1456,6 +1494,7 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     drawers: c.drawers,
     frontHeights: fronts.map(L),
     gap: L(c.gap),
+    frontStyle: c.frontStyle ?? 'inset',
     pullEnabled: c.pull.enabled,
     pullShape: c.pull.shape,
     pullWidth: L(c.pull.width),
@@ -1500,6 +1539,6 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     mount: c.mount ?? 'floor',
     mountHeight: L(c.mountHeight ?? (c.mount === 'under-desk' ? 27.5 : 30)),
     cleatHeight: L(c.cleatHeight ?? 3),
-    columnFronts: cols.map(x => (x.frontHeights ?? equalFronts(x.drawers, c.height - baseHeightOf(c) - x.drawers * c.gap)).map(L)),
+    columnFronts: cols.map(x => (x.frontHeights ?? equalFronts(x.drawers, c.height - baseHeightOf(c) - frontAllowance(c) - x.drawers * c.gap)).map(L)),
   };
 }

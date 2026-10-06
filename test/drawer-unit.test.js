@@ -21,6 +21,7 @@ const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg ?? ''} ${a
 
 // ALEX 5-drawer size, 3/4" case, 1/2" boxes.
 const base = {
+  frontStyle: 'overlay',
   thickness: 0.75, width: 14.125, height: 27.5, depth: 22.875, drawers: 5, gap: 0.125,
   pull: DEFAULT_PULL, boxThickness: 0.5, bottomThickness: 0.25, backThickness: 0.25,
   base: 'none', footHeight: 0.5, casterHeight: 2,

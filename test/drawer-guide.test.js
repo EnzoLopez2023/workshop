@@ -6,6 +6,7 @@ import { guidePrintHtml } from '../src/lib/buildGuide.ts';
 import { formatLength } from '../src/lib/shelving.ts';
 
 const base = {
+  frontStyle: 'overlay',
   thickness: 0.75, width: 14.125, height: 27.5, depth: 22.875, drawers: 5, gap: 0.125,
   pull: DEFAULT_PULL, boxThickness: 0.5, bottomThickness: 0.25, backThickness: 0.25,
   base: 'none', footHeight: 0.5, casterHeight: 2,
@@ -44,7 +45,7 @@ test('the measurements in the steps are this design’s', () => {
   const f = inches => formatLength(inches, 'in');
   const slides = g.steps.find(s => s.id === 'slides');
   for (const d of plan.drawers) assert.ok(slides.instructions.join(' ').includes(f(d.slideMark)), `drawer ${d.index + 1} slide mark`);
-  assert.match(g.steps.find(s => s.id === 'pulls').instructions[0], /2 3\/8"/, 'half the pull width');
+  assert.match(g.steps.find(s => s.id === 'pulls').instructions[0], /3 1\/4" each side/, 'half the pull width');
   assert.match(g.steps.find(s => s.id === 'tnuts').instructions[0], /5\/16"/);
   const html = guidePrintHtml(g, new Map(), 'Desk pedestal', 'sub', f);
   assert.match(html, /Cut the finger pulls/);

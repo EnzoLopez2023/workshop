@@ -406,7 +406,19 @@ function buildJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) =
   }
 
   // 2 ── Front stop: clamped across the case's front edge so each slide's front end butts against it.
-  jigs.push({
+  // With inset fronts the slides start a front's thickness back, so it's a setback block instead.
+  if (plan.frontInset > 0) {
+    jigs.push({
+      face: jigFace('slide-front-stop', 'Slide setback block', plan.frontInset, 2.5, JIG_STOCK, {
+        orientation: `Exactly ${f(plan.frontInset)} long — the thickness of the fronts.`,
+      }),
+      stage: 'slides', make: `2 from ${f(JIG_STOCK)} offcuts, cut exactly ${f(plan.frontInset)} long (a sliver of front plywood works)`,
+      steps: [
+        'Clamp one against the inside face of the side, flush with the case’s front edge.',
+        `Push each slide forward against it before screwing: every slide starts ${f(plan.frontInset)} back, so the inset fronts close flush with the case.`,
+      ],
+    });
+  } else jigs.push({
     face: jigFace('slide-front-stop', 'Slide front stop', 3, T + 1, T, {
       features: [{ kind: 'guide', label: 'Inside face of the side', points: [[0, T], [3, T]] }],
       orientation: 'The blue line lines up with the inside face of the side or partition.',
@@ -659,7 +671,7 @@ function notchesOf(outline: [number, number][], height: number): { center: numbe
 function slideLines(plan: DrawerPlan, column: number, from: number): Feature[] {
   return boxedDrawers(plan).filter(d => d.column === column).map((d): Feature => ({
     kind: 'guide', label: `${d.label} slide, bottom edge`,
-    points: [[d.slideMark - from, 0], [d.slideMark - from, d.box.depth]],
+    points: [[d.slideMark - from, plan.frontInset], [d.slideMark - from, plan.frontInset + d.box.depth]],
   }));
 }
 

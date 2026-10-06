@@ -9,6 +9,7 @@ import { formatLength } from '../src/lib/shelving.ts';
 const f = inches => formatLength(inches, 'in');
 const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg ?? ''} ${a} ≠ ${b}`);
 const base = {
+  frontStyle: 'overlay',
   thickness: 0.75, width: 40, height: 34, depth: 20, drawers: 8, gap: 0.125,
   pull: DEFAULT_PULL, boxThickness: 0.5, bottomThickness: 0.25, backThickness: 0.25,
   base: 'none', footHeight: 0.5, casterHeight: 2,
