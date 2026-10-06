@@ -18,7 +18,7 @@ const guide = (patch = {}) => {
 
 test('steps follow the build order, with the base where it belongs', () => {
   assert.deepEqual(guide().guide.steps.map(s => s.id), [
-    'overview', 'sheets-0.75', 'sheets-0.5', 'sheets-0.25', 'cut', 'joinery', 'pulls', 'case', 'back', 'slides', 'boxes', 'drawers', 'fronts', 'finish',
+    'overview', 'sheets-0.75', 'sheets-0.5', 'sheets-0.25', 'cut', 'joinery', 'box-joints', 'pulls', 'case', 'back', 'slides', 'box-glue', 'box-bottom', 'box-close', 'boxes', 'drawers', 'fronts', 'finish',
   ]);
   const feet = guide({ base: 'feet' }).guide.steps.map(s => s.id);
   assert.ok(feet.indexOf('tnuts') < feet.indexOf('case'), 'T-nuts go into the loose bottom panel');

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Lightbulb, Loader2, Printer, RefreshCw } from 'lucide-react';
 import { Button } from './ui';
 import { toast } from 'sonner';
-import { guidePrintHtml, sheetLayoutDataUrl, type BuildGuide, type GuideSheets, type GuideStep } from '../lib/buildGuide';
+import { guidePrintHtml, sheetLayoutDataUrl, svgDataUrl, type BuildGuide, type GuideSheets, type GuideStep } from '../lib/buildGuide';
 import { formatLength, type LengthUnit, type SolidKind } from '../lib/shelving';
 
 interface Props {
@@ -152,7 +152,7 @@ export default function BuildGuideView({ guide, width, height, depth, wallMounte
                 {url ? (
                   <img
                     src={url}
-                    alt={`Step ${index + 1}: ${step.title}.${step.id === 'dados' ? ' Dados are marked in red on each panel.' : scene.highlight.length ? ' Parts for this step are shown in blue.' : ''}`}
+                    alt={`Step ${index + 1}: ${step.title}.${step.id === 'dados' ? ' Dados are marked in red on each panel.' : step.highlightSwatch === 'groove' ? ` ${step.highlightCaption ?? 'Cuts'} are marked in red.` : scene.highlight.length ? ' Parts for this step are shown in blue.' : ''}`}
                   />
                 ) : (
                   <div className="shelf-guide-placeholder" aria-hidden="true">
@@ -161,7 +161,7 @@ export default function BuildGuideView({ guide, width, height, depth, wallMounte
                 )}
                 {scene.highlight.length > 0 && step.id !== 'cut' && (
                   <figcaption>
-                    <span className={`shelf-guide-swatch ${step.id === 'dados' ? 'is-groove' : ''}`} aria-hidden="true" />
+                    <span className={`shelf-guide-swatch ${step.id === 'dados' || step.highlightSwatch === 'groove' ? 'is-groove' : ''}`} aria-hidden="true" />
                     {step.id === 'dados' ? 'Dados to cut' : step.highlightCaption ?? 'Added in this step'}
                   </figcaption>
                 )}
@@ -210,6 +210,13 @@ function GuideStepBody({ step, index, done, onDone }: { step: GuideStep; index: 
           </tbody>
         </table>
       )}
+
+      {step.details?.map(d => (
+        <figure key={d.title} className="shelf-guide-detail">
+          <img src={svgDataUrl(d.svg)} alt={d.alt} />
+          <figcaption>{d.title}</figcaption>
+        </figure>
+      ))}
 
       {step.cautions.map(c => (
         <p key={c} className="shelf-guide-note is-caution"><AlertTriangle size={15} aria-hidden="true" /> <span>{c}</span></p>

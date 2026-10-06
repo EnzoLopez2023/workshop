@@ -38,6 +38,19 @@ const HIGHLIGHT_COLOR = 0x6fb0d4;
 const INK = 0x15332e;
 
 export function solidGeometry(solid: Solid): THREE.BufferGeometry {
+  const geometry = shapeGeometry(solid);
+  if (solid.pose) {
+    const [rx, ry, rz] = solid.pose.rotate ?? [0, 0, 0];
+    if (rx) geometry.rotateX(rx);
+    if (ry) geometry.rotateY(ry);
+    if (rz) geometry.rotateZ(rz);
+    const [dx, dy, dz] = solid.pose.offset ?? [0, 0, 0];
+    geometry.translate(dx, dy, -dz);
+  }
+  return geometry;
+}
+
+function shapeGeometry(solid: Solid): THREE.BufferGeometry {
   if (solid.shape === 'box') {
     const [x0, y0, z0] = solid.min;
     const [x1, y1, z1] = solid.max;
@@ -100,6 +113,10 @@ const VIEW_DIRECTIONS: Record<GuideScene['view'], THREE.Vector3> = {
   panels: new THREE.Vector3(0.3, 1.25, 0.85),
   // Looking down into open drawers.
   above: new THREE.Vector3(0.35, 1.6, 0.8),
+  // Close-ups of one part or assembly, from the front right and above.
+  detail: new THREE.Vector3(0.95, 0.85, 1),
+  // A joint up close, from the front right, looking at the end grain and the inside face.
+  corner: new THREE.Vector3(0.7, 0.75, 1),
 };
 
 /** Renders each scene to a PNG data URL with a single offscreen WebGL context. */

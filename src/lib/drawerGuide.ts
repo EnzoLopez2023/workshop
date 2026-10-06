@@ -22,13 +22,16 @@ import {
 import { formatLength, type LengthUnit, type ShelfPart } from './shelving.ts';
 import type { InsertLayout } from './drawerInserts.ts';
 import { TNUT_HOLE } from './drawerExport.ts';
+import { boxDetail, boxJointDetail, bottomGrooveWidth } from './drawerBoxDetail.ts';
 
 export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: LengthUnit): BuildGuide {
   const f = (inches: number) => formatLength(inches, units);
   const unitSolids = drawerSolids(plan, config);
   // The desk step shows every unit under the top, named apart from the single unit the other steps build.
   const desk = plan.desk ? deskSolids(plan, config, true) : [];
-  const solids = [...unitSolids, ...desk];
+  // One box up close, with its rabbets and grooves, for the joinery and glue-up steps.
+  const detail = boxDetail(plan, config);
+  const solids = [...unitSolids, ...desk, ...(detail?.solids ?? [])];
   const names = (match: (name: string) => boolean) => unitSolids.filter(s => match(s.name)).map(s => s.name);
   const T = config.thickness;
   const b = config.boxThickness;
@@ -124,7 +127,8 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     instructions: [
       `Case sides: a ${f(config.backThickness)} wide, ${f(T / 2)} deep rabbet along the back inside edge of each side. Make a left and a right.`,
       `Box sides: a ${f(b)} wide, ${f(b / 2)} deep rabbet across the inside face at each end, for the box front and back.`,
-      `All four box parts: a ${f(config.bottomThickness)} groove (just wider — test with an offcut of the bottom), ${f(BOTTOM_GROOVE_DEPTH)} deep, ${f(BOTTOM_GROOVE_OFFSET)} up from the bottom edge, on the inside face.`,
+      `All four box parts: a ${f(bottomGrooveWidth(config.bottomThickness))} groove (just wider than the ${f(config.bottomThickness)} bottom — test with an offcut), ${f(BOTTOM_GROOVE_DEPTH)} deep, ${f(BOTTOM_GROOVE_OFFSET)} up from the bottom edge, on the inside face. It runs the full length, through the rabbets on the sides.`,
+      'Mark the inside face of every box part before you cut: the rabbets and the groove all go on that face, and the sides come out as mirror-image pairs.',
       'Dry-fit one box before cutting the rest.',
     ],
     parts: sized(partsWhere(['Side', 'Box side', 'Box front', 'Box back'])),
@@ -133,9 +137,36 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       'Set the fence and blade height from the setup gauge (shop jigs): one step for each groove and rabbet size.',
     ],
     cautions: [],
-    scene: { view: 'exploded', visible: [...caseNames, ...back], highlight: boxes },
-    highlightCaption: 'Parts to machine',
+    ...(detail
+      ? {
+        scene: detail.scenes.cut,
+        highlightCaption: 'Rabbets and grooves',
+        highlightSwatch: 'groove' as const,
+      }
+      : { scene: { view: 'exploded' as const, visible: [...caseNames, ...back], highlight: boxes }, highlightCaption: 'Parts to machine' }),
   });
+
+  // 4b ── The box joints up close: set up on scrap and test before cutting the real parts
+  if (detail) {
+    steps.push({
+      id: 'box-joints',
+      title: 'Box joints up close',
+      summary: `Every box corner is a rabbet: the side is cut ${f(b / 2)} into its inside face for ${f(b)} at each end, and the box front or back fills it.`,
+      instructions: [
+        `Rabbet: blade (or router bit) ${f(b / 2)} high, cutting ${f(b)} wide — exactly the thickness of the box stock, so the end of the front finishes flush with the outside of the side.`,
+        `Groove: ${f(bottomGrooveWidth(config.bottomThickness))} wide, ${f(BOTTOM_GROOVE_DEPTH)} deep, its lower edge ${f(BOTTOM_GROOVE_OFFSET)} up from the bottom edge. Same fence setting for all four parts.`,
+        'Cut both on scrap of the box plywood and fit them together: the front should press in by hand, flush on the outside and at the top, with the grooves lined up.',
+        'Adjust and re-test until the scrap corner is right, then cut the real parts.',
+      ],
+      parts: [],
+      tips: ['Keep the scrap corner: it’s a set-up gauge for the next batch of boxes.'],
+      cautions: ['Cut the rabbets with the part flat on the saw and the end against the fence or a stop — never trap a short offcut between blade and fence.'],
+      scene: detail.scenes.corner,
+      highlightCaption: 'The cuts',
+      highlightSwatch: 'groove',
+      details: [boxJointDetail(config, f)],
+    });
+  }
 
   // 5 ── Finger pulls
   if (pull) {
@@ -267,16 +298,69 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     scene: { view: 'front', visible: [...caseNames, ...back, ...supports], highlight: slides },
   });
 
-  // 11 ── Boxes
+  // 11 ── Boxes: the first one step by step, up close, then the rest the same way
+  const total = n * plan.unitCount;
+  const widths = [...new Set(boxed.map(d => f(d.box.width)))].join(' or ');
+  if (detail) {
+    const d = detail.drawer;
+    const same = detail.sameAs.length === boxed.length ? 'every drawer' : detail.sameAs.join(', ');
+    const notch = d.boxNotchDepth > 0 ? ' — the notched one goes at the front' : '';
+    steps.push({
+      id: 'box-glue',
+      title: 'First box: front and back into a side',
+      summary: `Shown up close: the ${f(d.box.width)} × ${f(d.box.height)} × ${f(d.box.depth)} box (${same}). Lay the left side inside face up.`,
+      instructions: [
+        `Glue the rabbets and the ends of the box front and back${notch}.`,
+        'Stand the front and back in the side’s rabbets, grooves facing in and lined up with the side’s groove, top edges flush.',
+        `Brad through the side into each end (three per corner), ${f(b / 2)} in from the end so the nails land in the middle of the front and back.`,
+      ],
+      parts: [],
+      tips: ['Glue only the rabbets and the end grain — keep it out of the grooves or the bottom won’t slide in.'],
+      cautions: [],
+      scene: detail.scenes.glue,
+      minutes: 8,
+    });
+    steps.push({
+      id: 'box-bottom',
+      title: 'First box: slide in the bottom',
+      summary: 'The bottom slides in from the open side, riding in the grooves of the front, back and side.',
+      instructions: [
+        'Run a thin bead of glue in the grooves.',
+        `Slide the bottom in until it bottoms out in the side’s groove. It’s ${f(1 / 32)} short of the groove floor each way, so it won’t hold the box open.`,
+        'Check the box sits flat on the bench and the bottom is free of the groove at its open edge.',
+      ],
+      parts: [],
+      tips: ['A square-cut bottom pulls the box square on its own; if it binds, the box is out of square, not the bottom too big.'],
+      cautions: [],
+      scene: detail.scenes.bottom,
+      minutes: 4,
+    });
+    steps.push({
+      id: 'box-close',
+      title: 'First box: close it with the second side',
+      summary: `Glue the right side on and square the box. It must measure exactly ${f(d.box.width)} across.`,
+      instructions: [
+        'Glue the right side’s rabbets and press it on over the front, back and bottom.',
+        'Brad the two corners, three per corner.',
+        'Measure both diagonals across the top; nudge the box until they match, then let it set.',
+        `Check the width across the outside of the sides: ${f(d.box.width)} — its opening less ${f(SLIDE_CLEARANCE * 2)} for the slides.`,
+      ],
+      parts: [],
+      tips: ['Glue it up around the box squaring frame (shop jigs): it can only close square and at its exact size.'],
+      cautions: [],
+      scene: detail.scenes.close,
+      minutes: 8,
+    });
+  }
   steps.push({
     id: 'boxes',
-    title: 'Build the drawer boxes',
-    summary: `${n} boxes, ${[...new Set(boxed.map(d => f(d.box.width)))].join(' or ')} wide and ${[...new Set(boxed.map(d => f(d.box.depth)))].join(' or ')} deep.`,
+    title: total > 1 ? 'Build the other drawer boxes' : 'Build the drawer box',
+    summary: `${total} box${total === 1 ? '' : 'es'} in all, ${widths} wide and ${[...new Set(boxed.map(d => f(d.box.depth)))].join(' or ')} deep, every one built like the first.`,
     instructions: [
-      'Glue the front and back into the side rabbets, slide the bottom into its groove, then add the second side.',
-      'Brad each corner through the side (three per corner).',
+      ...(detail ? [] : ['Glue the front and back into the side rabbets, slide the bottom into its groove, then add the second side.', 'Brad each corner through the side (three per corner).']),
       'Check both diagonals across the top; nudge until they match, then let it set.',
-      `Each box must measure ${[...new Set(boxed.map(d => f(d.box.width)))].join(' or ')} across — exactly its opening less ${f(SLIDE_CLEARANCE * 2)}.`,
+      `Each box must measure ${widths} across — exactly its opening less ${f(SLIDE_CLEARANCE * 2)}.`,
+      'Label each box with its drawer number inside the back as it comes off the frame.',
     ],
     parts: sized(partsWhere(['Box'])),
     tips: [
@@ -439,13 +523,14 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const minutes: Record<string, number> = {
     cut: 3 * pieces,
     joinery: 2 * machined,
+    'box-joints': 15,
     pulls: 15 * n * u,
     tnuts: 20 * u,
     case: (45 + 15 * plan.partitionXs.length + 10 * cubbies.length) * u,
     back: 20 * u,
     casters: 20 * u,
     slides: 15 * n * u,
-    boxes: 20 * n * u,
+    boxes: 20 * n * u - (detail ? 20 : 0),
     drawers: 8 * n * u,
     inserts: 30 * withInserts,
     fronts: 10 * n * u,

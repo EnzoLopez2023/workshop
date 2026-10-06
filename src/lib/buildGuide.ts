@@ -17,7 +17,7 @@ import {
 } from './shelving.ts';
 
 /** 'panels' lays the grooved panels flat, grooved face up, as they'd sit on a bench. */
-export type GuideView = 'front' | 'back' | 'exploded' | 'panels' | 'above';
+export type GuideView = 'front' | 'back' | 'exploded' | 'panels' | 'above' | 'detail' | 'corner';
 
 export interface GuideScene {
   view: GuideView;
@@ -62,7 +62,20 @@ export interface GuideStep {
   highlightCaption?: string;
   /** Rough working time, for the build tracker. */
   minutes?: number;
+  /** 'groove' when the highlighted solids are cuts (drawn red), so the legend says so. */
+  highlightSwatch?: 'groove';
+  /** Dimensioned drawings (SVG markup) shown with the step, e.g. a joint close-up. */
+  details?: GuideDetail[];
 }
+
+export interface GuideDetail {
+  title: string;
+  svg: string;
+  /** Text alternative describing what the drawing shows and its dimensions. */
+  alt: string;
+}
+
+export const svgDataUrl = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
 export interface BuildGuide {
   steps: GuideStep[];
@@ -704,6 +717,7 @@ export function guidePrintHtml(
     if (step.sheets) return printSheetsStep(step, step.sheets, i, formatDim);
     const img = images.get(step.id);
     const legend = step.id === 'dados' ? 'Dados to cut are marked in red.'
+      : step.highlightSwatch === 'groove' ? `${step.highlightCaption ?? 'Cuts'} are marked in red.`
       : step.scene && step.scene.highlight.length > 0 && step.id !== 'cut' ? 'Parts added in this step are shown in blue.' : '';
     const parts = step.parts.length === 0 ? '' : `
       <table><thead><tr><th>Part</th><th>Qty</th><th>Size</th></tr></thead><tbody>
@@ -725,6 +739,7 @@ export function guidePrintHtml(
         ${step.instructions.length ? `<ol>${step.instructions.map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ol>` : ''}
         ${parts}
         ${notes}
+        ${(step.details ?? []).map(d => `<figure class="detail"><img src="${svgDataUrl(d.svg)}" alt="${escapeHtml(d.alt)}"><figcaption>${escapeHtml(d.title)}</figcaption></figure>`).join('')}
       </div>
     </section>`;
   }).join('');
@@ -756,6 +771,9 @@ export function guidePrintHtml(
   .sheet-grid figcaption { color: #58716B; font-size: 8.5pt; }
   .note { margin: 4pt 0 0; padding: 4pt 6pt; border-radius: 4pt; background: #EEF4F2; font-size: 9pt; }
   .caution { background: #FBF0DC; }
+  .detail { margin: 8pt 0 0; break-inside: avoid; }
+  .detail img { width: 100%; border: 0.75pt solid #C9DAD5; border-radius: 4pt; background: #fff; }
+  .detail figcaption { color: #58716B; font-size: 8.5pt; }
   .packet { padding: 10pt 0; border-bottom: 0.75pt solid #C9DAD5; }
   .packet h2 { margin: 0 0 6pt; }
   .packet h3 { margin: 8pt 0 4pt; font-size: 11pt; }

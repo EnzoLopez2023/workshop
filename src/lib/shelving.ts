@@ -612,6 +612,12 @@ export interface SolidMotion {
   travel?: number;
   /** Where the part moves in an exploded view (x right, y up, z back), in inches. */
   explode?: [number, number, number];
+  /**
+   * Turn and move the finished part (close-up guide scenes lay parts flat or slide
+   * them apart): rotations in radians about three.js's x, y, z axes in that order,
+   * then an offset in model inches (x right, y up, z back).
+   */
+  pose?: { rotate?: [number, number, number]; offset?: [number, number, number] };
 }
 
 export type Solid = SolidMotion & (

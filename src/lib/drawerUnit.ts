@@ -305,7 +305,7 @@ export const BOX_NOTCH_EXTRA = 1 / 2;
 export const BOTTOM_GROOVE_OFFSET = 1 / 2;
 export const BOTTOM_GROOVE_DEPTH = 1 / 4;
 /** The bottom floats 1/32" short of the groove bottoms each way. */
-const BOTTOM_PLAY = 1 / 16;
+export const BOTTOM_PLAY = 1 / 16;
 /** MROCO feet thread into T-nuts, which want about this much wood. */
 export const TNUT_MIN_THICKNESS = 5 / 8;
 export const FOOT_SIZE = 1.25;

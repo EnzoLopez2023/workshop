@@ -99,7 +99,8 @@ test('guide steps carry time estimates for the tracker', () => {
   const guide = drawerGuideSteps(buildDrawerPlan(base), base, 'in');
   const timed = guide.steps.filter(s => s.minutes);
   assert.ok(timed.length >= 8);
-  assert.equal(guide.steps.find(s => s.id === 'boxes').minutes, 100, '20 minutes a box');
+  const boxMinutes = ['box-glue', 'box-bottom', 'box-close', 'boxes'].reduce((a, id) => a + guide.steps.find(s => s.id === id).minutes, 0);
+  assert.equal(boxMinutes, 100, '20 minutes a box, the first one step by step');
 });
 
 test('bin packing: big bins first, turned when that fits, and leftovers reported', () => {
