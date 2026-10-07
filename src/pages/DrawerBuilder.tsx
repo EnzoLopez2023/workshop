@@ -70,6 +70,7 @@ import { DRAWER_TEMPLATES, drawerThumbnailDataUrl, type DrawerTemplate } from '.
 import { BOOKCASE_LENGTH_KEYS, bookcaseFromFields, bookcaseToFields, valanceSpan, type BookcasePlan } from '../lib/drawerBookcase';
 import { runFromFields, runToFields } from '../lib/drawerRun';
 import DrawerRunFields from '../components/DrawerRunFields';
+import { useWorkbenchTop } from '../components/useWorkbenchTop';
 import DrawerBookcaseFields from '../components/DrawerBookcaseFields';
 import { MARKER_PRESETS } from '../lib/drawerInserts';
 import { PRINTER_BEDS } from '../lib/gridfinity';
@@ -547,19 +548,7 @@ export default function DrawerBuilder() {
   const valid = plan !== null && plan.errors.length === 0;
   // Desktop workbench: the settings and preview fill the window below the page header.
   const layoutRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = layoutRef.current;
-    if (!el) return;
-    const measure = () => {
-      const top = el.getBoundingClientRect().top + window.scrollY;
-      el.style.setProperty('--workbench-top', `${Math.round(top)}px`);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(document.body);
-    window.addEventListener('resize', measure);
-    return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
-  }, []);
+  useWorkbenchTop(layoutRef);
 
   const solids = useMemo(() => (plan && config && valid ? (plan.run ? runSolids(plan, config) : plan.desk ? deskSolids(plan, config) : drawerSolids(plan, config)) : []), [plan, config, valid]);
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
@@ -1007,7 +996,7 @@ export default function DrawerBuilder() {
   );
 
   return (
-    <PageFrame maxWidth={1200} className="shelf-page drawer-workbench">
+    <PageFrame maxWidth={1200} className="shelf-page builder-workbench">
       <Button variant="ghost" onClick={() => navigate(-1)} className="workflow-back">
         <ArrowLeft size={16} aria-hidden="true" />
         Back
@@ -1028,7 +1017,7 @@ export default function DrawerBuilder() {
 
       <div className="shelf-layout" ref={layoutRef}>
         <section className="shelf-config" aria-labelledby="drawer-config-title">
-          <div className="drawer-config-top">
+          <div className="builder-config-top">
       <section className="drawer-templates" aria-labelledby="drawer-templates-title">
         <h2 id="drawer-templates-title">Start from</h2>
         <ul>
@@ -1779,7 +1768,7 @@ export default function DrawerBuilder() {
                   />
                 </Suspense>
               ) : (
-                <div className="drawer-drawings">
+                <div className="builder-drawings">
                   <DrawerElevation plan={plan} config={config} fmt={fmt} />
                   <DrawerSection plan={plan} config={config} fmt={fmt} />
                 </div>

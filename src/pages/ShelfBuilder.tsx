@@ -12,6 +12,7 @@ import { CostTable, HardwareTable, money, useShelfEstimate } from '../components
 import ShelfExport from '../components/ShelfExport';
 import ShelfLibrary from '../components/ShelfLibrary';
 import { TutorialButton } from '../tour/TourLaunchers';
+import { useWorkbenchTop } from '../components/useWorkbenchTop';
 import type { ShelfTemplate } from '../lib/shelfTemplates';
 import { createLibraryShelfDesign, getLibraryShelfDesign, getProject, getShelfDesign, updateLibraryShelfDesign } from '../services/api';
 import { isDemoMode } from '../demo/demoMode';
@@ -307,6 +308,9 @@ function readStoredSource(): { source: DesignSource | null; snapshot: string | n
 
 export default function ShelfBuilder() {
   const navigate = useNavigate();
+  // Desktop workbench: the settings and preview fill the window below the page header.
+  const layoutRef = useRef<HTMLDivElement>(null);
+  useWorkbenchTop(layoutRef);
   const [form, setForm] = useState<FormState>(readStoredForm);
   const [copyStatus, setCopyStatus] = useState('');
   const [view, setView] = useState<PreviewMode>(readStoredView);
@@ -599,7 +603,7 @@ export default function ShelfBuilder() {
   const cleat = wall && form.frenchCleat;
 
   return (
-    <PageFrame maxWidth={1200} className="shelf-page">
+    <PageFrame maxWidth={1200} className="shelf-page builder-workbench">
       <Button variant="ghost" onClick={() => navigate(-1)} className="workflow-back">
         <ArrowLeft size={16} aria-hidden="true" />
         Back
@@ -640,6 +644,9 @@ export default function ShelfBuilder() {
         </div>
       )}
 
+      <div className="shelf-layout" ref={layoutRef}>
+        <section className="shelf-config" aria-labelledby="shelf-config-title">
+          <div className="builder-config-top">
       {loadNotice && (
         <p className={`shelf-source-banner ${loadNotice.tone === 'error' ? 'is-error' : ''}`} role={loadNotice.tone === 'error' ? 'alert' : 'status'}>
           {loadNotice.tone === 'error' && <AlertCircle size={16} aria-hidden="true" />}
@@ -727,8 +734,7 @@ export default function ShelfBuilder() {
         </div>
       )}
 
-      <div className="shelf-layout">
-        <section className="shelf-config" aria-labelledby="shelf-config-title">
+          </div>
           <h2 id="shelf-config-title" className="sr-only">Design</h2>
 
           <fieldset className="shelf-group" data-tour="fs-units">
@@ -1052,9 +1058,11 @@ export default function ShelfBuilder() {
                   />
                 </Suspense>
               ) : (
-                <FrontElevation plan={plan} thickness={config!.thickness} fmt={fmt} />
+                <div className="builder-drawings">
+                  <FrontElevation plan={plan} thickness={config!.thickness} fmt={fmt} />
+                  <SideSection plan={plan} config={config!} fmt={fmt} />
+                </div>
               )}
-              <SideSection plan={plan} config={config!} fmt={fmt} />
             </>
           ) : (
             <p className="shelf-placeholder">Fix the highlighted measurements to see the drawing.</p>

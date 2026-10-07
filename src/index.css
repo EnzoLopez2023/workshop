@@ -9441,46 +9441,76 @@ tbody td {
 }
 
 /*
- * Drawer Builder on a desktop: a full-width workbench. The settings are a column of
+ * Drawer and Shelf Builders on a desktop: a full-width workbench. The settings are a column of
  * their own beside the app nav that scrolls on its own, and the preview fills the
  * rest of the window — sized to what's visible, never running off the bottom.
  * Everything else (cut list, guide…) follows below at full width.
  */
-.drawer-config-top {
+.builder-config-top {
   display: grid;
   gap: 14px;
   padding: 12px 0 4px;
 }
 
-.drawer-config-top > * {
+.builder-config-top > * {
   margin: 0;
 }
 
-.drawer-drawings {
+.builder-drawings {
   display: grid;
   gap: 16px;
 }
 
 @media (min-width: 1100px) {
-  .shelf-page.drawer-workbench {
+  .shelf-page.builder-workbench {
     width: 100%;
     max-width: none !important;
     padding: 20px 24px 64px;
   }
 
-  .drawer-workbench > .workflow-back {
-    margin-bottom: 6px;
+  /* One compact line: Back, the title, then the actions on the right. */
+  .shelf-page.builder-workbench {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-content: start;
+    column-gap: 12px;
   }
 
-  .drawer-workbench > .page-head {
-    margin-bottom: 14px;
+  .builder-workbench > * {
+    grid-column: 1 / -1;
   }
 
-  .drawer-workbench > .page-head .page-sub {
-    max-width: 72ch;
+  .builder-workbench > .workflow-back {
+    grid-column: 1;
+    align-self: center;
+    margin: 0;
   }
 
-  .drawer-workbench .shelf-layout {
+  .builder-workbench > .page-head {
+    grid-column: 2;
+    align-items: center;
+    margin: 0;
+  }
+
+  .builder-workbench > .page-head .page-title {
+    font-size: 1.5rem;
+  }
+
+  /* The description stays for screen readers; on a desktop the line above says enough. */
+  .builder-workbench > .page-head .page-sub {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .builder-workbench > .shelf-layout {
+    margin-top: 14px;
+  }
+
+  .builder-workbench .shelf-layout {
     --workbench-gap: 16px;
     grid-template-columns: clamp(360px, 28vw, 480px) minmax(0, 1fr);
     align-items: stretch;
@@ -9488,36 +9518,36 @@ tbody td {
     height: max(560px, calc(100dvh - var(--workbench-top, 160px) - 16px));
   }
 
-  .drawer-workbench .shelf-config {
+  .builder-workbench .shelf-config {
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
   }
 
-  .drawer-workbench .shelf-preview {
+  .builder-workbench .shelf-preview {
     position: static;
     display: flex;
     flex-direction: column;
     min-height: 0;
   }
 
-  .drawer-workbench .shelf-preview > * {
+  .builder-workbench .shelf-preview > * {
     flex: none;
   }
 
-  .drawer-workbench .shelf-preview > .shelf-viewer,
-  .drawer-workbench .shelf-preview > .drawer-drawings {
+  .builder-workbench .shelf-preview > .shelf-viewer,
+  .builder-workbench .shelf-preview > .builder-drawings {
     flex: 1 1 auto;
     min-height: 0;
   }
 
-  .drawer-workbench .shelf-preview > .shelf-viewer {
+  .builder-workbench .shelf-preview > .shelf-viewer {
     aspect-ratio: auto;
     max-height: none;
   }
 
-  .drawer-workbench .shelf-preview > .drawer-drawings {
+  .builder-workbench .shelf-preview > .builder-drawings {
     overflow-y: auto;
     align-content: start;
   }
