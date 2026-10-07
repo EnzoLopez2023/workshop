@@ -7,7 +7,8 @@ import { formatLength, type LengthUnit } from './shelving.ts';
 
 export type DrawerPriceKey =
   | 'sheetCase' | 'sheetBox' | 'sheetThin' | 'slidePair' | 'feetPack' | 'caster'
-  | 'glue' | 'caseScrews' | 'frontScrews' | 'brads' | 'antiTip' | 'edgeBanding' | 'finish';
+  | 'glue' | 'caseScrews' | 'frontScrews' | 'brads' | 'antiTip' | 'edgeBanding' | 'finish'
+  | 'shims' | 'baseboardFt';
 
 export type DrawerPrices = Record<DrawerPriceKey, number>;
 
@@ -71,6 +72,21 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
     });
   }
 
+  if (plan.base && plan.base.kind !== 'kick') {
+    items.push({ key: 'shims', name: 'Composite shims', qty: 1, unit: 'pack', note: 'Level the plinth before the case goes on it.', priceKey: 'shims', url: amazonSearch('composite shims') });
+  }
+  const baseboard = plan.parts.filter(p => p.name.startsWith('Baseboard'));
+  if (baseboard.length) {
+    const inches = baseboard.reduce((sum, p) => sum + p.qty * p.length, 0) * unitCount;
+    const bb = plan.base?.baseboard;
+    items.push({
+      key: 'baseboard', name: `Baseboard molding${bb ? `, ${f(bb.height)} × ${f(bb.thickness)}` : ''}`,
+      qty: Math.ceil(inches * 1.1 / 12), unit: 'ft',
+      note: 'Paint-grade, to match the room. Mitred at the corners, plus 10% for the cuts; nail it to the plinth with brads.',
+      priceKey: 'baseboardFt', url: amazonSearch(`baseboard molding ${bb ? Math.round(bb.height * 4) / 4 : 4} inch`),
+    });
+  }
+
   const partCount = plan.parts.reduce((sum, p) => sum + p.qty, 0);
   items.push({ key: 'glue', name: 'Wood glue (8 oz)', qty: partCount > 40 ? 2 : 1, unit: 'bottle', priceKey: 'glue' });
 
@@ -79,7 +95,8 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   const desk = plan.desk;
   const laminate = desk && config.desk?.topLayers === 2 ? Math.ceil(desk.width / 8) * Math.ceil(desk.depth / 8) : 0;
   // Each partition is screwed through the top and bottom: 4 at each end.
-  const caseScrews = (2 * 2 * 4 + plan.partitionXs.length * 2 * 4) * unitCount + (desk ? 8 * unitCount + laminate : 0);
+  // A toe-kick base adds 8: the case down onto a plinth, or the kick board and nailer between the sides.
+  const caseScrews = (2 * 2 * 4 + plan.partitionXs.length * 2 * 4 + (plan.base ? 8 : 0)) * unitCount + (desk ? 8 * unitCount + laminate : 0);
   items.push({
     key: 'case-screws',
     name: `Wood screws, ${f(config.thickness < 0.6 ? 1.25 : 1.625)}`,
@@ -163,6 +180,8 @@ export function defaultDrawerPrices(): DrawerPrices {
     antiTip: 10,
     edgeBanding: 0.35,
     finish: 22,
+    shims: 6,
+    baseboardFt: 1.6,
   };
 }
 
@@ -180,6 +199,8 @@ export const DRAWER_PRICE_LABELS: Record<DrawerPriceKey, string> = {
   antiTip: 'Anti-tip strap, per kit',
   edgeBanding: 'Edge banding, per foot',
   finish: 'Finish, per quart',
+  shims: 'Shims, per pack',
+  baseboardFt: 'Baseboard molding, per foot',
 };
 
 export interface DrawerCostLine {

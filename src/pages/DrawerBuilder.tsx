@@ -53,6 +53,10 @@ import {
   FINISH_COLORS,
   MIN_BOX_HEIGHT,
   BOX_CLEARANCE,
+  BASE_LABELS,
+  isKickBase,
+  sheetParts,
+  type DrawerBase,
   type DrawerConfig,
   type DrawerDesignFields,
   type DrawerPlan,
@@ -100,6 +104,12 @@ const DEFAULT_FORM: FormState = {
   base: 'none',
   footHeight: lengthToField(DEFAULT_FOOT_HEIGHT, 'in'),
   casterHeight: lengthToField(DEFAULT_CASTER_HEIGHT, 'in'),
+  kickHeight: '4',
+  kickSetback: '3',
+  baseboardHeight: '',
+  baseboardThickness: '1/2',
+  exposedLeft: true,
+  exposedRight: true,
   slideLength: 'auto',
   edgeBanding: false,
   bandingThickness: '0.5 mm',
@@ -142,6 +152,7 @@ const LENGTH_FIELDS = [
   'boxThickness', 'bottomThickness', 'backThickness', 'footHeight', 'casterHeight',
   'insertThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
   'mountHeight', 'cleatHeight', 'toolBoardThickness', 'toolPocketDepth', 'toolClearance',
+  'kickHeight', 'kickSetback', 'baseboardHeight', 'baseboardThickness',
 ] as const;
 type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}` | `columnFronts.${number}.${number}` | `columnWidths.${number}`;
 
@@ -161,11 +172,14 @@ const MOUNT_OPTIONS = [
   { value: 'under-desk', label: 'Under a desk' },
 ] as const;
 
-const BASE_OPTIONS = [
-  { value: 'none', label: 'On the floor' },
-  { value: 'feet', label: 'Leveling feet' },
-  { value: 'casters', label: 'Casters' },
-] as const;
+const BASE_HINTS: Record<DrawerBase, string> = {
+  none: 'The case bottom sits right on the floor.',
+  feet: 'MROCO 1/4″-20 levelers thread into T-nuts in the bottom; screw them out to level.',
+  casters: 'Plate casters screw to the bottom; locking ones keep it put.',
+  plinth: 'A plywood box under the case, set back at the front for your toes. Level it with shims before the case goes on.',
+  kick: 'The sides run down to the floor, notched at the front, with a kick board set back between them — one piece, like a kitchen cabinet.',
+  flush: 'A plinth flush with the case, wrapped in baseboard to match the room.',
+};
 
 const PULL_OPTIONS = [
   { value: 'alex', label: 'ALEX notch', hint: 'The IKEA ALEX scoop: a flat-bottomed cut-out in the top edge with smooth curves into it at each end.' },
@@ -351,6 +365,13 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     base: form.base,
     footHeight: form.base === 'feet' ? num('footHeight', { allowZero: true }) : DEFAULT_FOOT_HEIGHT,
     casterHeight: form.base === 'casters' ? num('casterHeight') : DEFAULT_CASTER_HEIGHT,
+    ...(form.mount === 'floor' && isKickBase(form.base) ? {
+      kickHeight: num('kickHeight'),
+      kickSetback: form.base === 'flush' ? undefined : num('kickSetback', { allowZero: true }),
+      baseboardHeight: form.base === 'flush' && form.baseboardHeight.trim() ? num('baseboardHeight') : undefined,
+      baseboardThickness: form.base === 'flush' ? num('baseboardThickness') : undefined,
+    } : {}),
+    exposedSides: { left: form.exposedLeft, right: form.exposedRight },
     slideLength: form.slideLength === 'auto' ? undefined : Number(form.slideLength),
     edgeBanding: form.edgeBanding,
     bandingThickness: parseLength(form.bandingThickness, form.units) ?? 0.02,
@@ -379,7 +400,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
 
 /** Every part comes from sheets; the optimizer matches each to a sheet of its thickness. */
 function toCutList(plan: DrawerPlan): CutListItem[] {
-  return plan.parts.map((part, index) => ({
+  return sheetParts(plan.parts).map((part, index) => ({
     id: index + 1,
     project_id: null,
     part_name: part.name,
@@ -1109,7 +1130,7 @@ export default function DrawerBuilder() {
                   label="Overall height"
                   value={form.height}
                   error={fieldErrors.height}
-                  hint={plan && plan.baseHeight > 0 ? `Includes the ${fmt(plan.baseHeight)} ${form.base === 'feet' ? 'feet' : 'casters'}` : undefined}
+                  hint={plan && plan.baseHeight > 0 ? `Includes the ${fmt(plan.baseHeight)} ${form.base === 'feet' ? 'feet' : form.base === 'casters' ? 'casters' : form.base === 'flush' ? 'plinth' : 'toe kick'}` : undefined}
                   onChange={height => update({ height })}
                 />
               )}
@@ -1473,7 +1494,33 @@ export default function DrawerBuilder() {
               <LengthField unit={units} label="Desk underside above the floor" value={form.mountHeight} error={fieldErrors.mountHeight} hint="It’s screwed up through its top into the desk." onChange={mountHeight => update({ mountHeight })} />
             )}
             {form.mount === 'floor' && (
-            <SegmentedControl label="Base" value={form.base} options={BASE_OPTIONS} onChange={base => update({ base })} />
+              <label className="form-field">
+                <span className="form-field-label">Base</span>
+                <select value={form.base} onChange={e => update({ base: e.target.value as DrawerBase })}>
+                  {(Object.keys(BASE_LABELS) as DrawerBase[]).map(key => <option key={key} value={key}>{BASE_LABELS[key]}</option>)}
+                </select>
+                <small>{BASE_HINTS[form.base]}</small>
+              </label>
+            )}
+            {form.mount === 'floor' && isKickBase(form.base) && (
+              <div className="shelf-field-grid">
+                <LengthField unit={units} label={form.base === 'flush' ? 'Plinth height' : 'Toe-kick height'} value={form.kickHeight} error={fieldErrors.kickHeight} hint="Floor to the underside of the case; 4″ is typical." onChange={kickHeight => update({ kickHeight })} />
+                {form.base !== 'flush' && (
+                  <LengthField unit={units} label="Kick setback" value={form.kickSetback} error={fieldErrors.kickSetback} hint="How far the kick board sits behind the case front." onChange={kickSetback => update({ kickSetback })} />
+                )}
+                {form.base === 'flush' && (
+                  <>
+                    <LengthField unit={units} label="Baseboard height" value={form.baseboardHeight} error={fieldErrors.baseboardHeight} placeholder="Auto" hint={plan?.base?.baseboard ? `Leave blank for ${fmt(plan.base.baseboard.height)}: just over the plinth joint, clear of the fronts.` : 'Leave blank to lap just over the plinth joint.'} onChange={baseboardHeight => update({ baseboardHeight })} />
+                    <LengthField unit={units} label="Baseboard thickness" value={form.baseboardThickness} error={fieldErrors.baseboardThickness} onChange={baseboardThickness => update({ baseboardThickness })} />
+                  </>
+                )}
+              </div>
+            )}
+            {form.mount === 'floor' && (form.base === 'plinth' || form.base === 'flush') && (
+              <div className="shelf-field-grid">
+                <Toggle label="Left end shows" checked={form.exposedLeft} hint={form.base === 'flush' ? 'The baseboard wraps around it.' : 'The plinth sets back on this side too.'} onChange={exposedLeft => update({ exposedLeft })} />
+                <Toggle label="Right end shows" checked={form.exposedRight} hint="Off when it’s against a wall or another cabinet." onChange={exposedRight => update({ exposedRight })} />
+              </div>
             )}
             {form.mount === 'floor' && form.base === 'feet' && (
               <LengthField
@@ -1481,7 +1528,6 @@ export default function DrawerBuilder() {
                 label="Gap under the case"
                 value={form.footHeight}
                 error={fieldErrors.footHeight}
-                hint="MROCO 1/4″-20 levelers thread into T-nuts in the bottom; screw them out to level."
                 onChange={footHeight => update({ footHeight })}
               />
             )}
@@ -1694,7 +1740,7 @@ export default function DrawerBuilder() {
                 <p>The cut list as saw setups — every cut at one fence or stop setting before you move it.</p>
               </div>
             </header>
-            <CuttingOrder parts={plan.parts} units={units} />
+            <CuttingOrder parts={sheetParts(plan.parts)} units={units} />
           </section>
 
           <section className="shelf-section" aria-labelledby="drawer-export-title">
@@ -1813,6 +1859,8 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
   const W = plan.overallWidth;
   const H = plan.overallHeight;
   const B = plan.baseHeight;
+  const T = config.thickness;
+  const bp = plan.base;
   const pad = Math.max(W, H) * 0.12;
   const fs = Math.max(W, H) * 0.03;
   const y = (v: number) => H - v;
@@ -1825,9 +1873,25 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
         aria-label={`Front elevation, ${fmt(W)} wide by ${fmt(H)} tall with ${plan.drawers.length} drawers`}
       >
         <rect className="shelf-ply" x={0} y={0} width={W} height={H - B} />
-        {B > 0 && (config.base === 'feet'
+        {B > 0 && !bp && (config.base === 'feet'
           ? [config.thickness + 1.5, W - config.thickness - 2.75].map(x => <rect key={x} className="drawer-foot" x={x} y={y(B)} width={1.25} height={B} />)
           : [config.thickness + 1.5, W - config.thickness - 4].map(x => <circle key={x} className="drawer-foot" cx={x + 1.25} cy={H - B / 2} r={B / 2 * 0.9} />))}
+        {bp?.kind === 'kick' && (
+          <>
+            <rect className="drawer-foot" x={T} y={y(B)} width={W - 2 * T} height={B} />
+            <rect className="shelf-ply" x={0} y={y(B)} width={T} height={B} />
+            <rect className="shelf-ply" x={W - T} y={y(B)} width={T} height={B} />
+          </>
+        )}
+        {bp && bp.kind !== 'kick' && (
+          <rect className="drawer-foot" x={bp.sideSetbacks[0]} y={y(B)} width={W - bp.sideSetbacks[0] - bp.sideSetbacks[1]} height={B} />
+        )}
+        {bp?.baseboard && (() => {
+          const bb = bp.baseboard;
+          const l = bb.faces.includes('left') ? bb.thickness : 0;
+          const r = bb.faces.includes('right') ? bb.thickness : 0;
+          return <rect className="shelf-ply drawer-baseboard" x={-l} y={y(bb.height)} width={W + l + r} height={bb.height} />;
+        })()}
         {plan.drawers.map(d => {
           const hole = handHole(pull);
           if (d.open) {

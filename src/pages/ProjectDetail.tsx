@@ -15,7 +15,7 @@ import {
   saveAsTemplate, getShelfDesign, getDrawerDesign, getBuildProgress, saveBuildProgress,
 } from '../services/api';
 import { buildShelfPlan, formatLength, readSavedShelfDesign, shelfSolids, type SavedShelfDesign } from '../lib/shelving';
-import { buildDrawerPlan, deskSolids, finishColors, readSavedDrawerDesign, type SavedDrawerDesign } from '../lib/drawerUnit';
+import { baseDescription, buildDrawerPlan, deskSolids, finishColors, readSavedDrawerDesign, type SavedDrawerDesign } from '../lib/drawerUnit';
 
 const ShelfViewer3D = lazy(() => import('../components/ShelfViewer3D'));
 const ShelfBuildGuide = lazy(() => import('../components/ShelfBuildGuide'));
@@ -902,7 +902,7 @@ function ProjectDrawerPreview({ projectId, projectTitle }: { projectId: number; 
   const f = (inches: number) => formatLength(inches, units);
   const n = plan.drawers.filter(d => !d.open).length;
   const summary = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.overallDepth)} deep`;
-  const base = config.base === 'feet' ? `${plan.supports} leveling feet` : config.base === 'casters' ? `${plan.supports} casters` : 'on the floor';
+  const base = baseDescription(config, plan);
   const pull = !config.pull.enabled ? 'no finger pulls'
     : config.pull.shape === 'handhole' ? 'hand holes'
       : `${config.pull.shape === 'arc' ? 'arc' : config.pull.shape === 'wide' ? 'wide' : 'slot'} finger pulls`;

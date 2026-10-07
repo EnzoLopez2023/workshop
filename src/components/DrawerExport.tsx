@@ -4,7 +4,7 @@ import { Button } from './ui';
 import CncExport, { DXF_TYPE, saveFile, SVG_TYPE, svgThumb } from './CncExport';
 import { planSheetsByThickness } from '../lib/buildGuide';
 import { drawerFeatureSummary, drawerJigs, drawerPartFaces, JIG_STAGES } from '../lib/drawerExport';
-import type { DrawerConfig, DrawerPlan } from '../lib/drawerUnit';
+import { sheetParts, type DrawerConfig, type DrawerPlan } from '../lib/drawerUnit';
 import { fileName, partDxf, partSvg } from '../lib/shelfExport';
 import { baseplateStl, binStl, GF_PITCH, GF_UNIT } from '../lib/gridfinity';
 import { formatLength, type LengthUnit } from '../lib/shelving';
@@ -19,7 +19,7 @@ export default function DrawerExport({ plan, config, units }: Props) {
   const f = (inches: number) => formatLength(inches, units);
   const faces = useMemo(() => drawerPartFaces(plan, config), [plan, config]);
   const groups = useMemo(
-    () => planSheetsByThickness(plan.parts, units).map(g => ({ label: formatLength(g.thickness, units), sheets: g.sheets })),
+    () => planSheetsByThickness(sheetParts(plan.parts), units).map(g => ({ label: formatLength(g.thickness, units), sheets: g.sheets })),
     [plan, units],
   );
   // f only depends on units.

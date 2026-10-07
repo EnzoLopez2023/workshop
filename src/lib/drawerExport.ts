@@ -17,6 +17,7 @@ import {
   notchedOutline,
   pullProfile,
   pullWidth,
+  sheetParts,
   stadiumOutline,
   type NotchShape,
   supportPositions,
@@ -43,7 +44,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
   const pull = config.pull.enabled ? config.pull : null;
   const faces: PartFace[] = [];
 
-  for (const part of plan.parts) {
+  for (const part of sheetParts(plan.parts)) {
     const base = { part: part.name, length: part.length, width: part.width, thickness: part.thickness, material: 'plywood' as const };
 
     if (part.name === 'Side') {
@@ -59,8 +60,8 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
           ...slideLines(plan, column, 0),
         ];
         faces.push({
-          ...base, id: slug(`${piece} inside`), piece, face: 'inside face', features, rightHanded,
-          orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, inside face up. Blue lines mark each slide’s bottom edge (not cut).`,
+          ...base, id: slug(`${piece} inside`), piece, face: 'inside face', features, rightHanded, outline: plan.partOutlines.Side,
+          orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, inside face up.${plan.partOutlines.Side ? ' The toe-kick notch is part of the outline cut.' : ''} Blue lines mark each slide’s bottom edge (not cut).`,
         });
       }
       continue;
@@ -72,7 +73,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       const p = part.name === 'Partition' ? 0 : Number(part.name.split(' ')[1]) - 1;
       for (const [side, column, rightHanded] of [['left', p, true], ['right', p + 1, false]] as const) {
         faces.push({
-          ...base, id: slug(`${part.name} ${side}`), piece: part.name, face: `${side} face`, features: slideLines(plan, column, T), rightHanded,
+          ...base, id: slug(`${part.name} ${side}`), piece: part.name, face: `${side} face`, features: slideLines(plan, column, panelTop(plan, T)), rightHanded,
           orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, ${side} face up. Blue lines mark the slides (not cut).`,
         });
       }
@@ -318,7 +319,7 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
   const stickWidth = 2;
   const sticks: { marks: number[]; columns: number[] }[] = [];
   for (const column of plan.columns) {
-    const marks = boxedDrawers(plan).filter(d => d.column === column.index).map(d => d.slideMark - T);
+    const marks = boxedDrawers(plan).filter(d => d.column === column.index).map(d => d.slideMark - panelTop(plan, T));
     const g = sticks.find(x => x.marks.length === marks.length && x.marks.every((m, i) => Math.abs(m - marks[i]) < 1e-6));
     if (g) g.columns.push(column.index + 1); else sticks.push({ marks, columns: [column.index + 1] });
   }
@@ -378,10 +379,10 @@ function buildJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) =
   for (const column of plan.columns) {
     const bottomUp = [...column.drawers].reverse().map(i => plan.drawers[i]);
     const faces: PartFace[] = [];
-    let floor = T; // the bottom panel's top, measured like slide marks (from the side's bottom edge)
+    let floor = panelTop(plan, T); // the bottom panel's top, measured like slide marks (from the side's bottom edge)
     bottomUp.forEach((d, k) => {
       // A cubby has no slide; the next block stands on its shelf (or the bottom panel).
-      if (d.open) { floor = d.shelfY !== null ? d.shelfY + T - plan.baseHeight : floor; return; }
+      if (d.open) { floor = d.shelfY !== null ? d.shelfY + T - plan.sideBottom : floor; return; }
       const height = r32(d.slideMark - floor);
       floor = d.slideMark + SLIDE_HEIGHT;
       if (height <= 0.05) return;
@@ -668,6 +669,9 @@ function notchesOf(outline: [number, number][], height: number): { center: numbe
 }
 
 /** A guide line at each slide's bottom edge for one column, measured from `from` above the side's bottom edge. */
+/** The bottom panel's top face, measured like the slide marks (up from the sides' bottom edges). */
+export const panelTop = (plan: Pick<DrawerPlan, 'baseHeight' | 'sideBottom'>, T: number) => plan.baseHeight + T - plan.sideBottom;
+
 function slideLines(plan: DrawerPlan, column: number, from: number): Feature[] {
   return boxedDrawers(plan).filter(d => d.column === column).map((d): Feature => ({
     kind: 'guide', label: `${d.label} slide, bottom edge`,

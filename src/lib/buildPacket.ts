@@ -5,7 +5,7 @@
 import { escapeHtmlText as esc } from './buildGuide.ts';
 import { cuttingOrder } from './cuttingOrder.ts';
 import type { DrawerJig } from './drawerExport.ts';
-import { boxedDrawers, type DrawerConfig, type DrawerPlan } from './drawerUnit.ts';
+import { BASE_LABELS, boxedDrawers, sheetParts, type DrawerConfig, type DrawerPlan } from './drawerUnit.ts';
 import { GF_PITCH, GF_UNIT } from './gridfinity.ts';
 import { partSvg } from './shelfExport.ts';
 import { formatLength, type LengthUnit } from './shelving.ts';
@@ -47,7 +47,7 @@ export function drawerPacketHtml(input: {
       ${fact('Overall', `${f(plan.overallWidth)} × ${f(plan.overallHeight)} × ${f(plan.overallDepth)}`)}
       ${fact('Drawers', `${boxed.length * plan.unitCount}${plan.columns.length > 1 ? ` in ${plan.columns.length} columns` : ''}`)}
       ${fact('Slides', [...new Set(boxed.map(d => d.box.depth))].map(l => `${f(l)} LONTAN`).join(', ') || '—')}
-      ${fact('Mounting', plan.mount === 'wall' ? 'French cleat' : plan.mount === 'under-desk' ? 'Under a desk' : config.base === 'feet' ? 'Leveling feet' : config.base === 'casters' ? 'Casters' : 'On the floor')}
+      ${fact('Mounting', plan.mount === 'wall' ? 'French cleat' : plan.mount === 'under-desk' ? 'Under a desk' : BASE_LABELS[config.base])}
     </dl>
   </section>`;
 
@@ -59,7 +59,7 @@ export function drawerPacketHtml(input: {
     </tbody></table>
   </section>`;
 
-  const order = cuttingOrder(plan.parts, metric ? 2440 / 25.4 : 96, metric ? 3.2 / 25.4 : 1 / 8);
+  const order = cuttingOrder(sheetParts(plan.parts), metric ? 2440 / 25.4 : 96, metric ? 3.2 / 25.4 : 1 / 8);
   const cutting = `
   <section class="packet">
     <h2>Cutting order</h2>

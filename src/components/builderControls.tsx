@@ -7,7 +7,7 @@ import type { LengthUnit } from '../lib/shelving';
 // ── Controls ──────────────────────────────────────────────────────────────────
 
 export function LengthField({
-  unit, label, value, onChange, hint, error, disabled,
+  unit, label, value, onChange, hint, error, disabled, placeholder,
 }: {
   unit: LengthUnit;
   label: string;
@@ -16,6 +16,7 @@ export function LengthField({
   hint?: string;
   error?: string;
   disabled?: boolean;
+  placeholder?: string;
 }) {
   return (
     <label className="form-field">
@@ -25,6 +26,7 @@ export function LengthField({
           value={value}
           inputMode="decimal"
           disabled={disabled}
+          placeholder={placeholder}
           aria-invalid={error ? true : undefined}
           onChange={e => onChange(e.target.value)}
         />

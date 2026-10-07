@@ -4,7 +4,7 @@ import {
   defaultDrawerPrices, drawerCostEstimate, drawerHardwareList, sheetPriceKey,
   type DrawerPriceKey, type DrawerPrices,
 } from '../lib/drawerEstimate';
-import type { DrawerConfig, DrawerPlan } from '../lib/drawerUnit';
+import { sheetParts, type DrawerConfig, type DrawerPlan } from '../lib/drawerUnit';
 import { formatLength, type LengthUnit } from '../lib/shelving';
 
 const PRICES_KEY = 'workshop-drawer-prices';
@@ -31,7 +31,7 @@ export function useDrawerEstimate(plan: DrawerPlan | null, config: DrawerConfig 
     if (!plan || !config) return null;
     const prices: DrawerPrices = { ...defaultDrawerPrices(), ...overrides };
     const hardware = drawerHardwareList(plan, config, units);
-    const sheets = planSheetsByThickness(plan.parts, units).map(g => ({
+    const sheets = planSheetsByThickness(sheetParts(plan.parts), units).map(g => ({
       thickness: g.thickness,
       count: g.sheets.layouts.length,
       label: `${formatLength(g.thickness, units)} plywood (${g.sheets.sheetSize}) — ${ROLE[sheetPriceKey(g.thickness, config)]}`,

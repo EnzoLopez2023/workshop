@@ -6,7 +6,7 @@ import { deleteLibraryDrawerDesign, deleteLibraryShelfDesign, listLibraryDrawerD
 import { isDemoMode } from '../demo/demoMode';
 import { buildShelfPlan, formatLength, readSavedShelfDesign } from '../lib/shelving';
 import { designThumbnailSvg, thumbnailDataUrl } from '../lib/shelfTemplates';
-import { buildDrawerPlan, readSavedDrawerDesign } from '../lib/drawerUnit';
+import { BASE_LABELS, buildDrawerPlan, readSavedDrawerDesign } from '../lib/drawerUnit';
 import { drawerThumbnailDataUrl } from '../lib/drawerTemplates';
 import type { LibraryShelfDesign } from '../types/project';
 
@@ -35,7 +35,7 @@ function describeDrawers(entry: LibraryShelfDesign): Described {
   if (plan.errors.length) return null;
   const f = (inches: number) => formatLength(inches, saved.units);
   const n = plan.drawers.filter(d => !d.open).length;
-  const base = saved.config.base === 'feet' ? ' · feet' : saved.config.base === 'casters' ? ' · casters' : '';
+  const base = saved.config.base !== 'none' && plan.mount === 'floor' ? ` · ${BASE_LABELS[saved.config.base].toLowerCase()}` : '';
   return {
     thumb: drawerThumbnailDataUrl(plan, saved.config.pull, 120, saved.config.finish?.front),
     summary: `${f(plan.overallWidth)} × ${f(plan.overallHeight)} · ${n} drawer${n === 1 ? '' : 's'}${base}`,

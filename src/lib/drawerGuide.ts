@@ -6,6 +6,7 @@ import {
   BOTTOM_GROOVE_DEPTH,
   BOTTOM_GROOVE_OFFSET,
   BOX_NOTCH_EXTRA,
+  baseDescription,
   boxedDrawers,
   deskSolids,
   drawerSolids,
@@ -14,6 +15,7 @@ import {
   FOOT_SIZE,
   HANDHOLE_TOP,
   pullWidth,
+  sheetParts,
   SLIDE_CLEARANCE,
   supportPositions,
   type DrawerConfig,
@@ -21,7 +23,7 @@ import {
 } from './drawerUnit.ts';
 import { formatLength, type LengthUnit, type ShelfPart } from './shelving.ts';
 import type { InsertLayout } from './drawerInserts.ts';
-import { TNUT_HOLE } from './drawerExport.ts';
+import { panelTop, TNUT_HOLE } from './drawerExport.ts';
 import { boxDetail, boxJointDetail, bottomGrooveWidth } from './drawerBoxDetail.ts';
 
 export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: LengthUnit): BuildGuide {
@@ -44,9 +46,13 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const partsWhere = (prefix: string[]) => plan.parts.filter(p => prefix.some(x => p.name.startsWith(x)));
 
   const partitionNames = names(name => name.startsWith('Partition'));
-  const caseNames = ['Left side', 'Right side', 'Top', 'Bottom', ...partitionNames];
+  // An integrated toe kick's board and nailer go in with the case.
+  const kickNames = names(name => name === 'Toe kick' || name === 'Kick nailer');
+  const caseNames = ['Left side', 'Right side', 'Top', 'Bottom', ...partitionNames, ...kickNames];
+  const plinthNames = names(name => name.startsWith('Plinth'));
+  const baseboardNames = names(name => name.startsWith('Baseboard'));
   const back = ['Back'];
-  const supports = names(name => name.startsWith('Foot') || name.startsWith('Caster'));
+  const supports = [...names(name => name.startsWith('Foot') || name.startsWith('Caster')), ...plinthNames];
   const slides = names(name => name.endsWith(' slide'));
   const boxes = names(name => / box /.test(name));
   const fronts = unitSolids.filter(s => / front$/.test(s.name) && !s.name.includes(' box ')).map(s => s.name);
@@ -56,7 +62,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const steps: GuideStep[] = [];
 
   // 1 ── Overview
-  const baseText = config.base === 'feet' ? `on ${plan.supports} MROCO leveling feet` : config.base === 'casters' ? `on ${plan.supports} casters` : 'standing on the floor';
+  const baseText = baseDescription(config, plan);
   steps.push({
     id: 'overview',
     title: 'What you’re building',
@@ -84,7 +90,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   });
 
   // 2 ── Sheet layouts, one step per plywood thickness
-  for (const group of planSheetsByThickness(plan.parts, units)) {
+  for (const group of planSheetsByThickness(sheetParts(plan.parts), units)) {
     const count = group.sheets.layouts.length;
     steps.push({
       id: `sheets-${group.thickness}`,
@@ -225,17 +231,22 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     title: 'Assemble the case',
     summary: 'Glue and screw the top and bottom between the sides, front edges flush.',
     instructions: [
-      'Lay a side inside face up; stand the top and bottom on it, flush at the front and set back from the rabbet.',
+      plan.base?.kind === 'kick'
+        ? `Lay a side inside face up; stand the top on it at the top end and the bottom ${f(plan.baseHeight)} up from the bottom end (just above the notch), both flush at the front and set back from the rabbet.`
+        : 'Lay a side inside face up; stand the top and bottom on it, flush at the front and set back from the rabbet.',
       'Glue, then drive four screws through the side into each panel. Repeat with the other side.',
       ...(cubbies.some(d => d.shelfY !== null) ? [
-        `Fix the cubby shelves: ${cubbies.filter(d => d.shelfY !== null).map(d => `${d.label.toLowerCase()}’s, its top ${f(d.shelfY! + T - plan.baseHeight)} up from the bottom edge of the side`).join('; ')}. Glue and screw through the sides into their ends.`,
+        `Fix the cubby shelves: ${cubbies.filter(d => d.shelfY !== null).map(d => `${d.label.toLowerCase()}’s, its top ${f(d.shelfY! + T - plan.sideBottom)} up from the bottom edge of the side`).join('; ')}. Glue and screw through the sides into their ends.`,
       ] : []),
       ...(plan.partitionXs.length ? [
         `Stand the partition${plan.partitionXs.length > 1 ? 's' : ''} between the top and bottom at ${plan.partitionXs.map(x => f(x - T)).join(' and ')} from the inside of the left side, front edges flush; glue and screw through the top and bottom into each.`,
       ] : []),
+      ...(plan.base?.kind === 'kick' ? [
+        `Under the bottom, glue and screw the toe kick between the sides ${f(plan.base.setback)} back from the front edge (its face lines up with the back of the notches), and the kick nailer at the back.`,
+      ] : []),
       'Measure both diagonals across the front; they must match before the glue sets.',
     ],
-    parts: sized(partsWhere(['Side', 'Top', 'Bottom', 'Partition'])),
+    parts: sized(partsWhere(['Side', 'Top', 'Bottom', 'Partition', 'Toe kick', 'Kick nailer'])),
     tips: [
       'Clamp a clamping square (shop jigs) inside each corner to hold it at 90° while you screw.',
       ...(plan.partitionXs.length ? ['Stand the partition spacers between the side and each partition so every opening is its exact width.'] : []),
@@ -258,6 +269,27 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     cautions: [],
     scene: { view: 'back', visible: caseNames, highlight: back },
   });
+
+  // 8b ── Plinth: built, levelled in place, and the case set on it
+  if (plan.base && plan.base.kind !== 'kick') {
+    const bp = plan.base;
+    const stretchers = bp.plinthXs.length - 2;
+    steps.push({
+      id: 'plinth',
+      title: bp.kind === 'flush' ? 'Build the base and set the case on it' : 'Build the toe-kick plinth and set the case on it',
+      summary: `A ${f(bp.height)} tall plywood frame${bp.setback > 0 ? `, its front ${f(bp.setback)} back from the case front` : ', flush with the case all round'}.`,
+      instructions: [
+        `Glue and screw the front and back rails to the ends${stretchers > 0 ? ` and ${stretchers} stretcher${stretchers === 1 ? '' : 's'} (evenly spaced)` : ''}: two screws through the rail into each.`,
+        'Check the diagonals match, then let it set.',
+        'Put it where the unit will stand and level it both ways with shims under the rails; snap off the shims flush.',
+        `Lift the case on${bp.setback > 0 ? `, front edge ${f(bp.setback)} ahead of the plinth front` : ', flush at the front and sides'}${bp.sideSetbacks.some(x => x > 0) ? ` and ${f(bp.setback)} past the plinth on the ${bp.sideSetbacks[0] > 0 && bp.sideSetbacks[1] > 0 ? 'exposed ends' : bp.sideSetbacks[0] > 0 ? 'left' : 'right'}` : ''}. Screw down through the bottom into the rails, two per rail.`,
+      ],
+      parts: sized(partsWhere(['Plinth'])),
+      tips: ['Level the plinth, not the cabinet: once it’s true the case sits square and the drawers run straight.'],
+      cautions: ['Use screws shorter than the bottom plus the rail so they don’t come through.'],
+      scene: { view: 'front', visible: [...caseNames, ...back], highlight: plinthNames },
+    });
+  }
 
   // 9 ── Casters, once the case is rigid
   if (config.base === 'casters') {
@@ -283,7 +315,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     summary: `${slideCounts(plan, f)}, ${plan.frontInset > 0 ? `front ends ${f(plan.frontInset)} back from the case front (room for the inset fronts)` : 'front ends flush with the front edge of the case'}.`,
     instructions: [
       'Pull each slide apart: extend it fully and press the release lever to take off the drawer member.',
-      `Mark the bottom edge of each slide on both sides of its opening, measured up from the bottom edge of the case side: ${boxed.map(d => `${d.label.toLowerCase()} at ${f(d.slideMark)}`).join(', ')}${plan.partitionXs.length ? ` (on a partition, ${f(T)} less — it starts on the bottom panel)` : ''}. The slide story stick from the shop jigs gives the same marks without measuring.`,
+      `Mark the bottom edge of each slide on both sides of its opening, measured up from the bottom edge of the case side: ${boxed.map(d => `${d.label.toLowerCase()} at ${f(d.slideMark)}`).join(', ')}${plan.partitionXs.length ? ` (on a partition, ${f(panelTop(plan, T))} less — it starts on the bottom panel)` : ''}. The slide story stick from the shop jigs gives the same marks without measuring.`,
       plan.frontInset > 0
         ? `Screw each cabinet member on with its bottom on the line and its front end ${f(plan.frontInset)} back from the case front — the slide setback block sets this.`
         : 'Screw each cabinet member on with its bottom on the line and its front end flush with the case front.',
@@ -499,6 +531,29 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     });
   }
 
+  // 13d ── Baseboard, once it's in place
+  if (plan.base?.baseboard) {
+    const bb = plan.base.baseboard;
+    const wraps = bb.faces.filter(x => x !== 'front');
+    steps.push({
+      id: 'baseboard',
+      title: 'Wrap the base in baseboard',
+      summary: `${f(bb.height)} baseboard across the front${wraps.length ? ` and around ${wraps.length === 2 ? 'both ends' : `the ${wraps[0]} end`}` : ''}, once the unit is in its final place.`,
+      instructions: [
+        wraps.length
+          ? 'Cut the front piece first, mitring the corners at 45° so its long points line up with the outside of the case sides plus the baseboard thickness.'
+          : 'Cut the front piece to fit tight between the walls.',
+        ...(wraps.length ? ['Mitre the front end of each side piece to meet it, then cut the back end square, tight to the wall.'] : []),
+        `Glue the mitres and nail each piece to the plinth with ${f(1.25)} brads, its bottom on the floor and its top lapping ${f(Math.max(bb.height - plan.baseHeight, 0))} over the case.`,
+        'Fill the nail holes and caulk the top edge where it meets the case.',
+      ],
+      parts: sized(partsWhere(['Baseboard'])),
+      tips: ['If the floor isn’t flat, scribe the bottom of the baseboard to it rather than tilting the top.', 'Paint the baseboard with the room’s trim, or with the case.'],
+      cautions: [],
+      scene: { view: 'front', visible: everything.filter(name => !baseboardNames.includes(name)), highlight: baseboardNames },
+    });
+  }
+
   // 14 ── Finish
   steps.push({
     id: 'finish',
@@ -529,6 +584,8 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     case: (45 + 15 * plan.partitionXs.length + 10 * cubbies.length) * u,
     back: 20 * u,
     casters: 20 * u,
+    plinth: 40 * u,
+    baseboard: 30 * u,
     slides: 15 * n * u,
     boxes: 20 * n * u - (detail ? 20 : 0),
     drawers: 8 * n * u,

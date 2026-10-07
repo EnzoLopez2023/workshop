@@ -25,7 +25,12 @@ import { INSERT_NAMES, INSERT_PLAY, layoutInsert, pieceOutline, type DrawerInser
 import type { GridfinityBin } from './gridfinity.ts';
 import type { ToolPocket } from './drawerInserts.ts';
 
-export type DrawerBase = 'none' | 'feet' | 'casters';
+/**
+ * What the case stands on. Plinth: a separate toe-kick box, set back at the front.
+ * Kick: the sides run to the floor, notched at the front, with a kick board between them.
+ * Flush: a plinth flush with the case, wrapped in baseboard.
+ */
+export type DrawerBase = 'none' | 'feet' | 'casters' | 'plinth' | 'kick' | 'flush';
 /** On the floor (on its base), hung on a French cleat, or hung under an existing desk. */
 export type DrawerMount = 'floor' | 'wall' | 'under-desk';
 /** Notches cut into the top edge (arc, slot, wide), or a hand hole cut through below it. */
@@ -194,6 +199,15 @@ export interface DrawerConfig {
   footHeight: number;
   /** Mounted height of the casters, floor to plate. */
   casterHeight: number;
+  /** Toe-kick, integrated kick and flush bases: height under the case. */
+  kickHeight?: number;
+  /** How far the kick board sits back from the case front. */
+  kickSetback?: number;
+  /** Flush base: baseboard height (unset: just over the plinth joint) and thickness. */
+  baseboardHeight?: number;
+  baseboardThickness?: number;
+  /** Ends that show (not against a wall or another cabinet): the plinth sets back and the baseboard wraps there. */
+  exposedSides?: ExposedSides;
   /** A specific slide length; leave unset to use the longest that fits. */
   slideLength?: number;
   /** Band the case's front edges and the drawer fronts' straight edges. */
@@ -227,6 +241,57 @@ export interface DrawerConfig {
   load?: DrawerLoad;
   /** Finish colours for the 3D view. */
   finish?: DrawerFinish;
+}
+
+export interface ExposedSides {
+  left: boolean;
+  right: boolean;
+}
+
+export const KICK_HEIGHT = 4;
+export const KICK_SETBACK = 3;
+export const BASEBOARD_THICKNESS = 1 / 2;
+/** Plinth stretchers go in so no gap between them is wider than this. */
+export const PLINTH_STRETCHER_SPACING = 24;
+
+/** Bases built of plywood under the case (no hardware). */
+export const isKickBase = (base: DrawerBase) => base === 'plinth' || base === 'kick' || base === 'flush';
+
+export const BASE_LABELS: Record<DrawerBase, string> = {
+  none: 'On the floor',
+  feet: 'Leveling feet',
+  casters: 'Casters',
+  plinth: 'Toe kick (separate plinth)',
+  kick: 'Toe kick (integrated)',
+  flush: 'Flush base with baseboard',
+};
+
+/** "on 4 leveling feet", "on a toe-kick plinth"… for summaries. */
+export function baseDescription(config: Pick<DrawerConfig, 'base'>, plan: Pick<DrawerPlan, 'supports' | 'mount'>): string {
+  if (plan.mount === 'wall') return 'hung on a French cleat';
+  if (plan.mount === 'under-desk') return 'hung under a desk';
+  switch (config.base) {
+    case 'feet': return `on ${plan.supports} leveling feet`;
+    case 'casters': return `on ${plan.supports} casters`;
+    case 'plinth': return 'on a toe-kick plinth';
+    case 'kick': return 'with an integrated toe kick';
+    case 'flush': return 'on a flush base with baseboard';
+    default: return 'standing on the floor';
+  }
+}
+
+export interface BasePlan {
+  kind: 'plinth' | 'kick' | 'flush';
+  height: number;
+  /** Kick board set back from the case front (0 for a flush base). */
+  setback: number;
+  /** Plinth: its ends' setback from each case side. */
+  sideSetbacks: [number, number];
+  /** Plinth: left x of each end and stretcher, left to right. */
+  plinthXs: number[];
+  baseboard: { height: number; thickness: number; faces: ('front' | 'left' | 'right')[] } | null;
+  /** Floor footprint including baseboard. */
+  footprint: { width: number; depth: number };
 }
 
 export interface DrawerColumn {
@@ -357,8 +422,12 @@ export interface DrawerPlan {
   /** Case without the fronts. */
   caseDepth: number;
   caseHeight: number;
-  /** Feet or caster height under the case. */
+  /** Feet, caster or toe-kick height under the case. */
   baseHeight: number;
+  /** Where the case sides' bottom edges are (the floor for an integrated toe kick). Slide marks measure from here. */
+  sideBottom: number;
+  /** Toe-kick, integrated kick and flush bases. */
+  base: BasePlan | null;
   interiorWidth: number;
   interiorDepth: number;
   slideLength: number;
@@ -495,9 +564,15 @@ export function graduatedFronts(count: number, available: number, step = 1.2): n
 }
 
 /** Height under the case. */
-export function baseHeightOf(c: Pick<DrawerConfig, 'base' | 'footHeight' | 'casterHeight'> & { mount?: DrawerMount }): number {
+export function baseHeightOf(c: Pick<DrawerConfig, 'base' | 'footHeight' | 'casterHeight' | 'kickHeight'> & { mount?: DrawerMount }): number {
   if (c.mount && c.mount !== 'floor') return 0;
+  if (isKickBase(c.base)) return c.kickHeight ?? KICK_HEIGHT;
   return c.base === 'feet' ? c.footHeight : c.base === 'casters' ? c.casterHeight : 0;
+}
+
+/** The parts cut from plywood sheets (solid-wood trim like baseboard is bought by length). */
+export function sheetParts(parts: ShelfPart[]): ShelfPart[] {
+  return parts.filter(p => p.material !== 'solid');
 }
 
 /** Overall height built from front heights: the fronts, a gap per front, and the base. */
@@ -506,7 +581,7 @@ export function frontAllowance(c: Pick<DrawerConfig, 'frontStyle' | 'thickness'>
   return c.frontStyle === 'overlay' ? 0 : 2 * c.thickness;
 }
 
-export function overallFromFronts(frontHeights: number[], c: Pick<DrawerConfig, 'gap' | 'base' | 'footHeight' | 'casterHeight' | 'frontStyle' | 'thickness'> & { mount?: DrawerMount }): number {
+export function overallFromFronts(frontHeights: number[], c: Pick<DrawerConfig, 'gap' | 'base' | 'footHeight' | 'casterHeight' | 'kickHeight' | 'frontStyle' | 'thickness'> & { mount?: DrawerMount }): number {
   return frontHeights.reduce((a, b) => a + b, 0) + frontHeights.length * c.gap + frontAllowance(c) + baseHeightOf(c);
 }
 
@@ -554,6 +629,9 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const frontInset = inset ? T : 0;
   const interiorWidth = W - 2 * T;
   const mount: DrawerMount = config.mount ?? 'floor';
+  // An integrated toe kick runs the sides down to the floor; everything else stands the case on its base.
+  const baseKind = mount === 'floor' && isKickBase(config.base) ? config.base as BasePlan['kind'] : null;
+  const sideBottom = baseKind === 'kick' ? 0 : B;
   // A wall-hung unit's back moves forward by the cleat's thickness; the sides hide the cleat.
   const cleatGap = mount === 'wall' ? T : 0;
   const interiorDepth = caseDepth - cleatGap - backT;
@@ -694,7 +772,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       front: { x: (inset ? columns[ci].x : bounds[ci]) + gap / 2, y, width: frontWidths[ci], height: h },
       box: { x: columns[ci].x + SLIDE_CLEARANCE, y: boxY, width: boxWidths[ci], height: boxHeight, depth: slideFor(i) },
       slideY,
-      slideMark: slideY - B,
+      slideMark: slideY - sideBottom,
       boxNotchDepth: open ? 0 : boxNotchDepth,
       open,
       // A cubby needs a floor unless the case bottom is right under it.
@@ -730,7 +808,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   }
 
   // Base.
-  const supports = mount !== 'floor' || config.base === 'none' ? 0 : W > MIDDLE_SUPPORT_WIDTH ? 6 : 4;
+  const supports = mount !== 'floor' || (config.base !== 'feet' && config.base !== 'casters') ? 0 : W > MIDDLE_SUPPORT_WIDTH ? 6 : 4;
   // Hung units: where they sit above the floor (for the 3D view), and their own checks.
   let lift = 0;
   const cleatHeight = config.cleatHeight ?? 3;
@@ -757,18 +835,70 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     warnings.push(`At ${f(H)} tall and only ${f(D)} deep, open drawers can tip the unit. Anchor it to the wall.`);
   }
 
+  // Toe-kick bases: a plinth under the case, or the sides run down with a kick board.
+  let basePlan: BasePlan | null = null;
+  const partOutlines: Record<string, [number, number][]> = {};
+  if (baseKind) {
+    const exposed = config.exposedSides ?? { left: true, right: true };
+    const setback = baseKind === 'flush' ? 0 : config.kickSetback ?? KICK_SETBACK;
+    const sideSetbacks: [number, number] = baseKind === 'plinth' ? [exposed.left ? setback : 0, exposed.right ? setback : 0] : [0, 0];
+    if (B < 1 || B > 12) errors.push(`A ${f(B)} toe kick is outside ${f(1)}–${f(12)}; ${f(4)} is typical.`);
+    else if (B < 2.5 || B > 6) warnings.push(`Toe kicks are usually ${f(3)}–${f(4.5)} tall; ${f(B)} works, but check it suits the room.`);
+    if (setback < 0 || setback > caseDepth / 3) errors.push(`A ${f(setback)} setback is outside ${f(0)}–${f(caseDepth / 3)} for a ${f(caseDepth)} deep case.`);
+    // Plinth ends and stretchers, evenly spread so no gap between them is wider than the spacing.
+    const plinthXs: number[] = [];
+    if (baseKind !== 'kick') {
+      const x0 = sideSetbacks[0];
+      const x1 = W - sideSetbacks[1] - T;
+      const between = Math.max(0, Math.ceil((x1 - x0 - T) / PLINTH_STRETCHER_SPACING) - 1);
+      for (let i = 0; i <= between + 1; i++) plinthXs.push(x0 + (x1 - x0) * i / (between + 1));
+    }
+    let baseboard: BasePlan['baseboard'] = null;
+    if (baseKind === 'flush') {
+      const thickness = config.baseboardThickness ?? BASEBOARD_THICKNESS;
+      // It may lap up over the case, but never over a front, or the drawer couldn't open past it.
+      const fronted = drawers.filter(d => !d.open);
+      const cover = fronted.length ? Math.min(...fronted.map(d => d.front.y)) : B + T;
+      const height = config.baseboardHeight ?? B + Math.max(0, Math.min(1 / 2, cover - B - 1 / 16));
+      if (height < B - EPS) errors.push(`The ${f(height)} baseboard is shorter than the ${f(B)} base it covers — make it at least ${f(B)}.`);
+      else if (height > cover + EPS) errors.push(`A ${f(height)} baseboard would cover the bottom of the lowest drawer front (${f(cover)} up), and the drawer couldn’t open past it. Make it ${f(cover)} or less.`);
+      else if (height < B + 1 / 4 && cover > B + 1 / 4) warnings.push(`Lap the baseboard at least ${f(1 / 4)} over the case (make it ${f(Math.min(B + 1 / 2, cover))}) so the joint above the plinth is hidden.`);
+      if (thickness < 1 / 4 || thickness > 1.5) errors.push(`A ${f(thickness)} baseboard is outside ${f(1 / 4)}–${f(1.5)}; ${f(1 / 2)} is typical.`);
+      baseboard = { height, thickness, faces: ['front', ...(exposed.left ? ['left' as const] : []), ...(exposed.right ? ['right' as const] : [])] };
+    }
+    const wrap = baseboard ? baseboard.thickness : 0;
+    basePlan = {
+      kind: baseKind, height: B, setback, sideSetbacks, plinthXs, baseboard,
+      footprint: {
+        width: W + (baseboard?.faces.includes('left') ? wrap : 0) + (baseboard?.faces.includes('right') ? wrap : 0),
+        depth: Math.max(D, caseDepth + wrap),
+      },
+    };
+  }
+
   // Parts.
   const parts: ShelfPart[] = [];
   const caseBanding = banding;
   const sideHeight = caseHeight;
   const panelLength = interiorWidth;
-  parts.push({ name: 'Side', qty: 2, length: sideHeight, width: caseDepth - caseBanding, thickness: T,
-    note: cleatGap > 0
+  const sideLength = sideHeight + B - sideBottom;
+  parts.push({ name: 'Side', qty: 2, length: sideLength, width: caseDepth - caseBanding, thickness: T,
+    note: [cleatGap > 0
       ? `${f(backT)} × ${f(T / 2)} groove for the back, ${f(cleatGap)} in from the back edge (room for the cleat)`
-      : `${f(backT)} × ${f(T / 2)} rabbet on the back inside edge for the back`, material: 'plywood' });
+      : `${f(backT)} × ${f(T / 2)} rabbet on the back inside edge for the back`,
+    ...(baseKind === 'kick' ? [`${f(basePlan!.setback)} × ${f(B)} toe-kick notch at the front of the bottom end`] : [])].join('; '), material: 'plywood' });
+  if (baseKind === 'kick') {
+    // u = up from the bottom end, v = back from the front edge.
+    const sv = basePlan!.setback - caseBanding;
+    const Wd = caseDepth - caseBanding;
+    partOutlines.Side = [[0, sv], [0, Wd], [sideLength, Wd], [sideLength, 0], [B, 0], [B, sv]];
+  }
   parts.push({ name: 'Top', qty: 1, length: panelLength, width: interiorDepth - caseBanding, thickness: T, material: 'plywood' });
   parts.push({ name: 'Bottom', qty: 1, length: panelLength, width: interiorDepth - caseBanding, thickness: T,
-    note: config.base === 'feet' ? `${supports} T-nuts for the leveling feet` : config.base === 'casters' ? `${supports} casters screw on` : undefined,
+    note: supports > 0 && config.base === 'feet' ? `${supports} T-nuts for the leveling feet`
+      : supports > 0 && config.base === 'casters' ? `${supports} casters screw on`
+        : baseKind === 'kick' ? `Between the sides, ${f(B)} up; the kick board and nailer go under it`
+          : baseKind ? 'Sits on the plinth; screw down through it into the plinth' : undefined,
     material: 'plywood' });
   parts.push({ name: 'Back', qty: 1, length: sideHeight, width: W - T, thickness: backT, note: `Sits in ${f(T / 2)} rabbets in the sides`, material: 'plywood' });
   if (cleatGap > 0) {
@@ -782,6 +912,30 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       note: `Between the top and bottom, ${f(x - T)} in from the left side; slides screw to both faces`, material: 'plywood',
     });
   });
+  if (basePlan) {
+    const bp = basePlan;
+    if (bp.kind === 'kick') {
+      parts.push({ name: 'Toe kick', qty: 1, length: interiorWidth, width: B, thickness: T, note: `Between the sides, ${f(bp.setback)} back from the front edge`, material: 'plywood' });
+      parts.push({ name: 'Kick nailer', qty: 1, length: interiorWidth, width: B, thickness: T, note: 'Between the sides at the back, under the bottom', material: 'plywood' });
+    } else {
+      const railLength = W - bp.sideSetbacks[0] - bp.sideSetbacks[1];
+      parts.push({ name: 'Plinth front and back', qty: 2, length: railLength, width: B, thickness: T,
+        note: bp.setback > 0 ? `The front sits ${f(bp.setback)} back from the case front` : 'Flush with the case front, back and sides', material: 'plywood' });
+      parts.push({ name: 'Plinth ends and stretchers', qty: bp.plinthXs.length, length: caseDepth - bp.setback - 2 * T, width: B, thickness: T,
+        note: `Between the front and back rails, no more than ${f(PLINTH_STRETCHER_SPACING)} apart`, material: 'plywood' });
+    }
+    if (bp.baseboard) {
+      const bb = bp.baseboard;
+      const wraps = bb.faces.filter(x => x !== 'front').length;
+      parts.push({ name: 'Baseboard, front', qty: 1, length: W + wraps * bb.thickness, width: bb.height, thickness: bb.thickness,
+        note: wraps === 2 ? '45° mitre at both ends (long point to long point)' : wraps === 1 ? `45° mitre at the ${bb.faces.includes('left') ? 'left' : 'right'} end, square at the wall` : 'Square ends, tight to the walls',
+        material: 'solid' });
+      if (wraps) {
+        parts.push({ name: 'Baseboard, side', qty: wraps, length: caseDepth + bb.thickness, width: bb.height, thickness: bb.thickness,
+          note: '45° mitre at the front end, square at the wall; cut long and trim to fit', material: 'solid' });
+      }
+    }
+  }
 
   // Drawer parts, grouped by size so identical drawers share a line.
   const groups: { indexes: number[]; front: number; box: number; notch: number; depth: number; frontWidth: number; boxWidth: number }[] = [];
@@ -835,7 +989,6 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
 
   // Inserts: laid out in each box, then grouped so identical ones share a line.
   const it = config.insertThickness ?? 1 / 4;
-  const partOutlines: Record<string, [number, number][]> = {};
   const inserts: (InsertLayout | null)[] = drawers.map((d, i) => {
     const insert = config.inserts?.[i];
     if (!insert || d.open) return null;
@@ -924,7 +1077,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   }
 
   if (errors.length === 0) {
-    for (const p of parts) {
+    for (const p of sheetParts(parts)) {
       if (!fitsSheet(p.length, p.width)) {
         errors.push(p.name === 'Desk top'
           ? `The ${f(p.length)} × ${f(p.width)} desk top is bigger than a 4 × 8 sheet — use a solid-wood or butcher-block top, or make it smaller.`
@@ -953,6 +1106,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     caseDepth,
     caseHeight,
     baseHeight: B,
+    sideBottom,
+    base: basePlan,
     interiorWidth,
     interiorDepth,
     slideLength,
@@ -1016,9 +1171,14 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     ({ name, kind, shape: 'box', min, max });
   const pull = config.pull.enabled ? config.pull : null;
 
+  const bp = plan.base;
+  // An integrated toe kick: the sides run to the floor with a notch at the front.
+  const side = (name: string, x0: number, x1: number): Solid => (bp?.kind === 'kick'
+    ? { name, kind: 'case', shape: 'prism', x0, x1, profile: [[bp.setback, 0], [cd, 0], [cd, H], [0, H], [0, B], [bp.setback, B]] }
+    : box(name, 'case', [x0, B, 0], [x1, H, cd]));
   const solids: Solid[] = [
-    box('Left side', 'case', [0, B, 0], [T, H, cd]),
-    box('Right side', 'case', [W - T, B, 0], [W, H, cd]),
+    side('Left side', 0, T),
+    side('Right side', W - T, W),
     box('Top', 'case', [T, H - T, 0], [W - T, H, id]),
     box('Bottom', 'case', [T, B, 0], [W - T, B + T, id]),
     box('Back', 'back', [T / 2, B, id], [W - T / 2, H, id + config.backThickness]),
@@ -1089,6 +1249,26 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     solids.push(box(`${name} left slide`, 'slide', [bx.x - SLIDE_CLEARANCE, d.slideY, zf], [bx.x, d.slideY + SLIDE_HEIGHT, zf + bx.depth]));
     solids.push(box(`${name} right slide`, 'slide', [bx.x + bx.width, d.slideY, zf], [bx.x + bx.width + SLIDE_CLEARANCE, d.slideY + SLIDE_HEIGHT, zf + bx.depth]));
   }
+  if (bp?.kind === 'kick') {
+    solids.push(box('Toe kick', 'case', [T, 0, bp.setback], [W - T, B, bp.setback + T]));
+    solids.push(box('Kick nailer', 'case', [T, 0, cd - T], [W - T, B, cd]));
+  } else if (bp) {
+    const [l, r] = bp.sideSetbacks;
+    solids.push(box('Plinth front', 'case', [l, 0, bp.setback], [W - r, B, bp.setback + T]));
+    solids.push(box('Plinth back', 'case', [l, 0, cd - T], [W - r, B, cd]));
+    bp.plinthXs.forEach((x, i) => {
+      const name = i === 0 ? 'Plinth left end' : i === bp.plinthXs.length - 1 ? 'Plinth right end' : `Plinth stretcher ${i}`;
+      solids.push(box(name, 'case', [x, 0, bp.setback + T], [x + T, B, cd - T]));
+    });
+    if (bp.baseboard) {
+      const { height: h, thickness: t, faces } = bp.baseboard;
+      const l2 = faces.includes('left') ? t : 0;
+      const r2 = faces.includes('right') ? t : 0;
+      solids.push(box('Baseboard front', 'case', [-l2, 0, -t], [W + r2, h, 0]));
+      if (l2) solids.push(box('Baseboard left', 'case', [-t, 0, 0], [0, h, cd]));
+      if (r2) solids.push(box('Baseboard right', 'case', [W, 0, 0], [W + t, h, cd]));
+    }
+  }
   // Exploded view: case panels move outward, each drawer's parts spread from the box.
   const spread = Math.max(W, H) / 12;
   const explodeOf = (s: Solid): [number, number, number] | undefined => {
@@ -1098,6 +1278,11 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     if (n === 'Top') return [0, spread, 0];
     if (n === 'Bottom') return [0, -spread / 3, 0];
     if (n === 'Back') return [0, 0, spread * 1.5];
+    if (n === 'Toe kick' || n === 'Plinth front' || n === 'Baseboard front') return [0, -spread / 2, -spread * (n === 'Baseboard front' ? 1.4 : 0.7)];
+    if (n === 'Kick nailer' || n === 'Plinth back') return [0, -spread / 2, spread * 0.7];
+    if (n.startsWith('Plinth')) return [0, -spread / 2, 0];
+    if (n === 'Baseboard left') return [-spread * 1.4, -spread / 2, 0];
+    if (n === 'Baseboard right') return [spread * 1.4, -spread / 2, 0];
     if (/ front$/.test(n) && s.kind === 'drawer-front') return [0, 0, -spread * 1.2];
     if (/ box front$/.test(n)) return [0, 0, -spread * 0.5];
     if (/ box back$/.test(n)) return [0, 0, spread * 0.5];
@@ -1263,9 +1448,14 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       boxThickness: num(c.boxThickness, 0.05, 2) ?? 1 / 2,
       bottomThickness: num(c.bottomThickness, 0.05, 2) ?? 1 / 4,
       backThickness: num(c.backThickness, 0.05, 2) ?? 1 / 4,
-      base: c.base === 'feet' || c.base === 'casters' ? c.base : 'none',
+      base: typeof c.base === 'string' && c.base in BASE_LABELS ? c.base as DrawerBase : 'none',
       footHeight: num(c.footHeight, 0, 12) ?? DEFAULT_FOOT_HEIGHT,
       casterHeight: num(c.casterHeight, 0, 12) ?? DEFAULT_CASTER_HEIGHT,
+      kickHeight: num(c.kickHeight, 0, 24) ?? undefined,
+      kickSetback: num(c.kickSetback, 0, 24) ?? undefined,
+      baseboardHeight: num(c.baseboardHeight, 0, 24) ?? undefined,
+      baseboardThickness: num(c.baseboardThickness, 0, 4) ?? undefined,
+      exposedSides: readExposed(c.exposedSides),
       slideLength: slideLength ?? undefined,
       edgeBanding: c.edgeBanding === true,
       bandingThickness: num(c.bandingThickness, 0, 0.15) ?? 0.02,
@@ -1309,6 +1499,12 @@ function readColumns(raw: unknown, drawers: number, fronts: boolean): DrawerColu
     cols.push({ drawers: n, ...(fronts ? { frontHeights: heights } : {}), ...(width ? { width } : {}) });
   }
   return cols.reduce((a, c) => a + c.drawers, 0) === drawers ? cols : undefined;
+}
+
+function readExposed(raw: unknown): ExposedSides | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  return { left: v.left !== false, right: v.right !== false };
 }
 
 function readFinish(raw: unknown): DrawerFinish | undefined {
@@ -1412,6 +1608,13 @@ export interface DrawerDesignFields {
   base: DrawerBase;
   footHeight: string;
   casterHeight: string;
+  kickHeight: string;
+  kickSetback: string;
+  /** '' for automatic (just over the plinth joint). */
+  baseboardHeight: string;
+  baseboardThickness: string;
+  exposedLeft: boolean;
+  exposedRight: boolean;
   /** 'auto' or a length in inches. */
   slideLength: string;
   edgeBanding: boolean;
@@ -1505,6 +1708,12 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     base: c.base,
     footHeight: L(c.footHeight),
     casterHeight: L(c.casterHeight),
+    kickHeight: L(c.kickHeight ?? KICK_HEIGHT),
+    kickSetback: L(c.kickSetback ?? KICK_SETBACK),
+    baseboardHeight: c.baseboardHeight ? L(c.baseboardHeight) : '',
+    baseboardThickness: L(c.baseboardThickness ?? BASEBOARD_THICKNESS),
+    exposedLeft: c.exposedSides?.left ?? true,
+    exposedRight: c.exposedSides?.right ?? true,
     slideLength: c.slideLength ? String(c.slideLength) : 'auto',
     edgeBanding: c.edgeBanding === true,
     bandingThickness: c.bandingThickness ? `${Math.round(c.bandingThickness * 25.4 * 10) / 10} mm` : '0.5 mm',
