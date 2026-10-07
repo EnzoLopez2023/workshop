@@ -149,3 +149,28 @@ test('the built-in template builds with no errors', () => {
   };
   assert.deepEqual(buildDrawerPlan(config).errors, []);
 });
+
+test('open space above the counter: sides run down, bottom and shelves start higher, valance only at the top', () => {
+  const config = { ...base, bookcase: bookcase({ height: 54, openBelow: 16, taskLight: true, valanceHeight: 2 }) };
+  const p = buildDrawerPlan(config);
+  assert.deepEqual(p.errors, []);
+  const solids = drawerSolids(p, config);
+  const side = box(solids, 'Bookcase left side');
+  close(side.min[1], p.bookcase.y0, 'side starts on the counter');
+  close(box(solids, 'Bookcase bottom').min[1], p.bookcase.y0 + 16, 'bottom panel 16" up');
+  const valance = box(solids, 'Bookcase light valance');
+  close(valance.max[1] - valance.min[1], 2, 'valance only 2" tall');
+  close(valance.max[1], p.bookcase.y0 + 16, 'valance under the bottom');
+  close(p.parts.find(x => x.name === 'Bookcase light valance').width, 2, 'cut list valance');
+  assert.ok(Math.min(...p.bookcase.shelfPlan.bays.flatMap(b => [...b.shelfYs, ...b.adjustableYs])) > 16, 'shelves above the space');
+  const guide = drawerGuideSteps(p, config, 'in');
+  const names = new Set(guide.solids.map(s => s.name));
+  for (const step of guide.steps) for (const n of [...(step.scene?.visible ?? []), ...(step.scene?.highlight ?? [])]) assert.ok(names.has(n), `${step.id}: ${n}`);
+  assert.match(guide.steps.find(s => s.id === 'bookcase-case').instructions.join(' '), /open space/);
+  assert.ok(!drawerPartFaces(p, config).some(f => f.part === 'Bookcase light valance' && f.features.length));
+  // No light: no board at all.
+  const dark = buildDrawerPlan({ ...base, bookcase: bookcase({ height: 54, openBelow: 16 }) });
+  assert.ok(!dark.parts.some(x => x.name === 'Bookcase light valance'));
+  assert.ok(!drawerSolids(dark, base).some(s => s.name === 'Bookcase light valance'));
+  assert.match(buildDrawerPlan({ ...base, bookcase: bookcase({ height: 24, openBelow: 16 }) }).errors.join(' '), /room for shelves|less than 12"/);
+});

@@ -18,12 +18,12 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
   {
     id: 'built-in-hutch',
     name: 'Built-in with bookcase',
-    description: 'Two stacks of drawers on an integrated toe kick, a countertop, and a two-bay bookcase above with crown and a task light.',
+    description: 'Two stacks of drawers on an integrated toe kick, a countertop, and a two-bay bookcase above open space, with crown and a task light.',
     fields: {
       width: '36', height: '30', depth: '22 7/8', heightMode: 'overall', drawers: 8, base: 'kick', kickHeight: '4', kickSetback: '3',
       columns: 2, columnWidthMode: 'equal', columnDrawers: [4, 4], columnFronts: [['6', '6', '6', '6'], ['6', '6', '6', '6']],
       bookcase: bookcaseToFields({
-        ...DEFAULT_BOOKCASE, enabled: true, height: 48, depth: 12, bays: 2, shelvesPerBay: 1, adjustablePerBay: 2,
+        ...DEFAULT_BOOKCASE, enabled: true, height: 54, depth: 12, bays: 2, shelvesPerBay: 1, adjustablePerBay: 2, openBelow: 16,
         countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 },
         top: { ...DEFAULT_BOOKCASE.top, style: 'crown' }, taskLight: true,
       }, inches => lengthToField(inches, 'in')),

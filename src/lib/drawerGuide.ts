@@ -25,7 +25,7 @@ import { formatLength, type LengthUnit, type ShelfPart } from './shelving.ts';
 import type { InsertLayout } from './drawerInserts.ts';
 import { panelTop, TNUT_HOLE } from './drawerExport.ts';
 import { boxDetail, boxJointDetail, bottomGrooveWidth } from './drawerBoxDetail.ts';
-import { bookcaseName } from './drawerBookcase.ts';
+import { bookcaseName, withValance } from './drawerBookcase.ts';
 import { buildGuideSteps } from './buildGuide.ts';
 import type { Solid } from './shelving.ts';
 
@@ -41,7 +41,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const benchName = (name: string) => `On the bench · ${bookcaseName(name)}`;
   const bench = bk ? buildGuideSteps(bk.shelfPlan, bk.shelfConfig, units) : null;
   const benchSolids: Solid[] = bench
-    ? bench.solids.map(s => ({ ...s, name: benchName(s.name), ...(s.shape === 'box' && s.on ? { on: benchName(s.on) } : {}) }))
+    ? withValance(bk!.config, bench.solids).map(s => ({ ...s, name: benchName(s.name), ...(s.shape === 'box' && s.on ? { on: benchName(s.on) } : {}) }))
     : [];
   const solids = [...unitSolids, ...desk, ...(detail?.solids ?? []), ...benchSolids];
   const names = (match: (name: string) => boolean) => unitSolids.filter(s => match(s.name)).map(s => s.name);
@@ -494,13 +494,24 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     const cabinet = everything.filter(name => !isBookcase(name));
     const placed = names(name => name.startsWith('Bookcase ') && !/ (door \d+|top cap|crown nailer(, side)?)$/.test(name));
     const keep = new Set(['dados', 'pins', 'banding', 'case', 'dividers', 'shelves', 'back']);
+    const open = bk.config.openBelow > 0;
+    const benchNames = new Set(benchSolids.map(x => x.name));
+    const drawn = (list: string[]) => list.map(benchName).filter(name => benchNames.has(name));
     for (const step of bench.steps.filter(x => keep.has(x.id))) {
+      // With open space below, the shelf model's toe kick is only the valance (or nothing).
+      const instructions = open
+        ? step.instructions.flatMap(line => (!line.startsWith('Fit the toe kick') ? [line]
+          : bk.config.taskLight ? [`Fit the light valance between the sides under the bottom panel, flush at the front, ${f(bk.config.valanceHeight)} tall.`] : []))
+        : step.instructions;
       steps.push({
         ...step,
         id: `bookcase-${step.id}`,
         title: `Bookcase: ${step.title.charAt(0).toLowerCase()}${step.title.slice(1)}`,
-        parts: step.parts.map(p => ({ ...p, name: bookcaseName(p.name) })),
-        scene: step.scene && { ...step.scene, visible: step.scene.visible.map(benchName), highlight: step.scene.highlight.map(benchName) },
+        instructions: step.id === 'case' && open
+          ? [...instructions, `The sides run ${f(bk.config.openBelow)} below the bottom panel to the counter — that’s the open space. Keep the case square while the glue sets: tack a temporary brace across the bottom ends.`]
+          : instructions,
+        parts: step.parts.filter(p => !(open && p.name === 'Toe kick' && !bk.config.taskLight)).map(p => ({ ...p, name: bookcaseName(p.name) })),
+        scene: step.scene && { ...step.scene, visible: drawn(step.scene.visible), highlight: drawn(step.scene.highlight) },
         ...(step.id === 'dados' ? { highlightCaption: 'Dados to cut', highlightSwatch: 'groove' as const } : {}),
         ...(step.id === 'pins' ? { highlightCaption: 'Pin holes', highlightSwatch: 'groove' as const } : {}),
       });

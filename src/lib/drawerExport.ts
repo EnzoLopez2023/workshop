@@ -47,7 +47,10 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
   // The bookcase's dados, pin holes and hinge cups come from the Shelf Builder, renamed to match its parts.
   const bk = plan.bookcase;
   const bookFaces: PartFace[] = bk
-    ? partFaces(bk.shelfPlan, bk.shelfConfig).map(face => ({ ...face, id: `bookcase-${face.id}`, part: bookcaseName(face.part), piece: bookcaseName(face.piece) }))
+    ? partFaces(bk.shelfPlan, bk.shelfConfig)
+      // With open space below, the toe kick becomes a short valance, cut as a plain part.
+      .filter(face => !(bk.config.openBelow > 0 && face.part === 'Toe kick'))
+      .map(face => ({ ...face, id: `bookcase-${face.id}`, part: bookcaseName(face.part), piece: bookcaseName(face.piece) }))
     : [];
 
   for (const part of sheetParts(plan.parts)) {

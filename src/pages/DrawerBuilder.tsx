@@ -62,7 +62,7 @@ import {
   type DrawerPlan,
 } from '../lib/drawerUnit';
 import { DRAWER_TEMPLATES, drawerThumbnailDataUrl, type DrawerTemplate } from '../lib/drawerTemplates';
-import { BOOKCASE_LENGTH_KEYS, bookcaseFromFields, bookcaseToFields } from '../lib/drawerBookcase';
+import { BOOKCASE_LENGTH_KEYS, bookcaseFromFields, bookcaseToFields, valanceSpan } from '../lib/drawerBookcase';
 import DrawerBookcaseFields from '../components/DrawerBookcaseFields';
 import { MARKER_PRESETS } from '../lib/drawerInserts';
 import { PRINTER_BEDS } from '../lib/gridfinity';
@@ -1970,7 +1970,7 @@ function BookcaseElevation({ plan, y }: { plan: DrawerPlan; y: (v: number) => nu
       {rect(W - t, y0, t, top - y0)}
       {rect(t, top - t, W - 2 * t, t)}
       {rect(t, y0 + sp.kick, W - 2 * t, t)}
-      {sp.kick > 0 && rect(t, y0, W - 2 * t, sp.kick, 'drawer-foot')}
+      {(() => { const v = valanceSpan(bk.config); return v && rect(t, y0 + v[0], W - 2 * t, v[1] - v[0], 'drawer-foot'); })()}
       {sp.dividerXs.map(x => <g key={`d${x}`}>{rect(x, y0 + sp.interiorBottom, t, sp.interiorTop - sp.interiorBottom)}</g>)}
       {sp.bays.map(bay => (
         <g key={bay.index}>

@@ -32,6 +32,11 @@ export interface BookcaseConfig {
     overhangSides: number;
   };
   top: { style: BookcaseTop; capProjection: number; crownHeight: number; crownProjection: number };
+  /**
+   * Open space above the counter: the sides run down to it, but the bottom panel and
+   * the shelves start this high (0 for none).
+   */
+  openBelow: number;
   /** A valance under the bookcase bottom hides an LED strip lighting the counter. */
   taskLight: boolean;
   valanceHeight: number;
@@ -50,6 +55,7 @@ export const DEFAULT_BOOKCASE: BookcaseConfig = {
   doors: [],
   countertop: { material: 'plywood', thickness: 1.5, layers: 1, overhangFront: 1, overhangSides: 1 },
   top: { style: 'cap', capProjection: 3 / 4, crownHeight: 3.5, crownProjection: 2.5 },
+  openBelow: 0,
   taskLight: false,
   valanceHeight: 2,
 };
@@ -102,6 +108,26 @@ export function bookcaseName(name: string): string {
   return `Bookcase ${name.charAt(0).toLowerCase()}${name.slice(1)}`;
 }
 
+/** Where the light valance sits, bookcase floor up (null when there's none). */
+export function valanceSpan(bk: Pick<BookcaseConfig, 'openBelow' | 'taskLight' | 'valanceHeight'>): [number, number] | null {
+  if (!bk.taskLight) return null;
+  return bk.openBelow > 0 ? [bk.openBelow - bk.valanceHeight, bk.openBelow] : [0, bk.valanceHeight];
+}
+
+/**
+ * Shelf-model solids with the toe-kick board fixed up: with open space below, the
+ * shelf model draws it full height, but only a valance at the top of the space is wanted.
+ */
+export function withValance(bk: Pick<BookcaseConfig, 'openBelow' | 'taskLight' | 'valanceHeight'>, solids: Solid[]): Solid[] {
+  if (!(bk.openBelow > 0)) return solids;
+  const span = valanceSpan(bk);
+  return solids.flatMap((s): Solid[] => {
+    if (s.name !== 'Toe kick') return [s];
+    if (!span || s.shape !== 'box') return [];
+    return [{ ...s, min: [s.min[0], span[0], s.min[2]], max: [s.max[0], span[1], s.max[2]] }];
+  });
+}
+
 /** The Shelf Builder settings for this bookcase. */
 export function bookcaseShelfConfig(bk: BookcaseConfig, ctx: Pick<BookcaseContext, 'width' | 'thickness' | 'units' | 'edgeBanding' | 'bandingThickness'>): ShelfConfig {
   const T = ctx.thickness;
@@ -121,9 +147,10 @@ export function bookcaseShelfConfig(bk: BookcaseConfig, ctx: Pick<BookcaseContex
     joinery: 'dado',
     dadoDepth: Math.round(T / 3 * 32) / 32,
     backJoint: 'rabbet',
-    // The shelf model's toe kick, set flush at the front, is exactly a light valance.
+    // The shelf model's toe kick lifts the bottom panel with the sides running down past it:
+    // that's the open space. Its front board is the light valance (cut down to size below).
     mounting: 'floor',
-    toeKick: bk.taskLight ? bk.valanceHeight : 0,
+    toeKick: bk.openBelow > 0 ? bk.openBelow : bk.taskLight ? bk.valanceHeight : 0,
     frenchCleat: false,
     cleatHeight: 3,
     pinSystem: ctx.units === 'mm' ? 'metric' : 'imperial',
@@ -191,6 +218,11 @@ export function buildBookcase(bk: BookcaseConfig, ctx: BookcaseContext): Bookcas
     else if (front - countertop.z0 < 6) warnings.push(`Only ${f(Math.max(front - countertop.z0, 0))} of countertop is left in front of the bookcase — not much of a work surface. Make the bookcase shallower.`);
   }
   if (bk.height < 12) errors.push(`A ${f(bk.height)} tall bookcase leaves no room for shelves — make it at least ${f(12)}.`);
+  if (bk.openBelow > 0) {
+    if (bk.openBelow > bk.height - 12) errors.push(`${f(bk.openBelow)} of open space leaves less than ${f(12)} for shelves in a ${f(bk.height)} bookcase — make the bookcase taller or the space lower.`);
+    else if (bk.openBelow < 6) warnings.push(`${f(bk.openBelow)} of open space above the counter is very low; 15–18″ clears most things you’d set there.`);
+    if (bk.taskLight && bk.openBelow < bk.valanceHeight + 2) errors.push(`The ${f(bk.valanceHeight)} light valance doesn’t fit in ${f(bk.openBelow)} of open space.`);
+  }
   if (bk.taskLight && (bk.valanceHeight < 1 || bk.valanceHeight > 4)) errors.push(`A ${f(bk.valanceHeight)} light valance is outside ${f(1)}–${f(4)}; ${f(2)} hides an LED strip.`);
   if (bk.taskLight && !countertop) warnings.push('The light valance lights the case top; it’s meant for a countertop work surface.');
   if (bk.bays >= 1 && shelfConfig.bayWidth < 6) errors.push(`${bk.bays} bays leave each only ${f(Math.max(shelfConfig.bayWidth, 0))} wide — use fewer bays.`);
@@ -205,7 +237,13 @@ export function buildBookcase(bk: BookcaseConfig, ctx: BookcaseContext): Bookcas
   }
 
   for (const p of shelfPlan.parts) {
-    parts.push({ ...p, name: bookcaseName(p.name), note: p.name === 'Toe kick' ? 'Flush with the front under the bottom; an LED strip goes behind it' : p.note });
+    if (p.name === 'Toe kick') {
+      // With open space below it's only the valance (if there's a light), not a board down to the counter.
+      if (!bk.taskLight) continue;
+      parts.push({ ...p, name: bookcaseName(p.name), width: bk.valanceHeight, note: 'Flush with the front under the bottom; an LED strip goes behind it' });
+      continue;
+    }
+    parts.push({ ...p, name: bookcaseName(p.name), note: p.name === 'Side' && bk.openBelow > 0 ? `${p.note ? `${p.note}; ` : ''}runs down past the bottom to the counter` : p.note });
   }
 
   // Top: a plywood cap overhanging the front and ends that show, or crown molding on a nailer.
@@ -282,7 +320,7 @@ export function bookcaseSolids(bp: BookcasePlan, width: number, caseDepth: numbe
   const spread = Math.max(width, bp.totalHeight) / 12;
   const box = (name: string, b: Box3, kind: Solid['kind'] = 'case'): Solid =>
     ({ name, kind, shape: 'box', min: [b.x0, b.y0, b.z0], max: [b.x1, b.y1, b.z1] });
-  const out = placeBookcaseSolids(bp, shelfSolids(bp.shelfPlan, bp.shelfConfig)).map(s => ({ ...s, explode: [0, spread * 2, 0] as [number, number, number] }));
+  const out = placeBookcaseSolids(bp, withValance(bp.config, shelfSolids(bp.shelfPlan, bp.shelfConfig))).map(s => ({ ...s, explode: [0, spread * 2, 0] as [number, number, number] }));
   if (bp.countertop) {
     const c = bp.countertop;
     out.push({ ...box('Countertop', c, 'shelf'), explode: [0, spread, 0] });
@@ -334,6 +372,7 @@ export function readBookcase(raw: unknown): BookcaseConfig | undefined {
       crownHeight: n(t.crownHeight, 0, 24, d.top.crownHeight),
       crownProjection: n(t.crownProjection, 0, 12, d.top.crownProjection),
     },
+    openBelow: n(v.openBelow, 0, 96, 0),
     taskLight: v.taskLight === true,
     valanceHeight: n(v.valanceHeight, 0, 12, d.valanceHeight),
     ceilingHeight: typeof v.ceilingHeight === 'number' && v.ceilingHeight > 0 && v.ceilingHeight < 240 ? v.ceilingHeight : undefined,
@@ -359,6 +398,8 @@ export interface BookcaseFields {
   capProjection: string;
   crownHeight: string;
   crownProjection: string;
+  openSpace: boolean;
+  openHeight: string;
   taskLight: boolean;
   valanceHeight: string;
   /** '' to skip the ceiling checks. */
@@ -366,7 +407,7 @@ export interface BookcaseFields {
 }
 
 export const BOOKCASE_LENGTH_KEYS = [
-  'height', 'depth', 'counterThickness', 'overhangFront', 'overhangSides', 'capProjection', 'crownHeight', 'crownProjection', 'valanceHeight', 'ceilingHeight',
+  'height', 'depth', 'counterThickness', 'overhangFront', 'overhangSides', 'capProjection', 'crownHeight', 'crownProjection', 'openHeight', 'valanceHeight', 'ceilingHeight',
 ] as const;
 
 export function bookcaseToFields(c: BookcaseConfig | undefined, L: (inches: number) => string): BookcaseFields {
@@ -389,6 +430,8 @@ export function bookcaseToFields(c: BookcaseConfig | undefined, L: (inches: numb
     capProjection: L(b.top.capProjection),
     crownHeight: L(b.top.crownHeight),
     crownProjection: L(b.top.crownProjection),
+    openSpace: b.openBelow > 0,
+    openHeight: L(b.openBelow > 0 ? b.openBelow : 18),
     taskLight: b.taskLight,
     valanceHeight: L(b.valanceHeight),
     ceilingHeight: b.ceilingHeight ? L(b.ceilingHeight) : '',
@@ -425,6 +468,7 @@ export function bookcaseFromFields(
       crownHeight: fields.top === 'crown' ? num('crownHeight') : DEFAULT_BOOKCASE.top.crownHeight,
       crownProjection: fields.top === 'crown' ? num('crownProjection') : DEFAULT_BOOKCASE.top.crownProjection,
     },
+    openBelow: fields.openSpace ? num('openHeight') : 0,
     taskLight: fields.taskLight,
     valanceHeight: fields.taskLight ? num('valanceHeight') : DEFAULT_BOOKCASE.valanceHeight,
     ceilingHeight: fields.ceilingHeight.trim() ? num('ceilingHeight') : undefined,

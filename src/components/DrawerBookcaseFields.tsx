@@ -89,6 +89,16 @@ export default function DrawerBookcaseFields({ value: b, units, errors, plan, fm
               <Stepper labelledBy="bookcase-adjustable" value={b.adjustable} min={0} max={8} onChange={adjustable => onChange({ adjustable })} noun="shelf" />
             </div>
           </div>
+          <Toggle
+            label="Open space above the counter"
+            checked={b.openSpace === true}
+            hint="The sides run down to the counter, but the bottom and the shelves start higher — room for a monitor, a lamp or a sewing machine."
+            onChange={openSpace => onChange({ openSpace, openHeight: b.openHeight || '18' })}
+          />
+          {b.openSpace && (
+            <LengthField unit={units} label="Open space height" value={b.openHeight ?? ''} error={errors.openHeight}
+              hint={bp ? `Shelves from ${fmt(bp.y0 + bp.config.openBelow)} up from the floor; 15–18″ is typical.` : '15–18″ is typical.'} onChange={openHeight => onChange({ openHeight })} />
+          )}
           <div className="form-field">
             <span className="form-field-label">Doors</span>
             <div className="shelf-field-grid">
