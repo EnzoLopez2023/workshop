@@ -1384,6 +1384,27 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     errors.push(...bookcase.errors);
     warnings.push(...bookcase.warnings);
     parts.push(...bookcase.parts);
+    // Its doors match the cabinet's fronts: applied Shaker strips go in the cut list too.
+    const p = config.frontProfile;
+    if (p?.style === 'shaker' && p.method === 'applied') {
+      const stiles = new Map<string, { length: number; width: number; qty: number }>();
+      const rails = new Map<string, { length: number; width: number; qty: number }>();
+      for (const dr of bookcase.shelfPlan.doors) {
+        const r = shakerRail(p, dr.width, dr.height);
+        if (!r) continue;
+        for (const [map, length] of [[stiles, dr.height], [rails, dr.width - 2 * r]] as const) {
+          const key = `${length.toFixed(4)}|${r}`;
+          const g = map.get(key);
+          if (g) g.qty += 2; else map.set(key, { length, width: r, qty: 2 });
+        }
+      }
+      for (const [list, what] of [[stiles, 'stile'], [rails, 'rail']] as const) {
+        [...list.values()].forEach((g, k) => parts.push({
+          name: `Bookcase door Shaker ${what}${list.size > 1 ? ` ${k + 1}` : ''}`, qty: g.qty, length: g.length, width: g.width, thickness: p.depth,
+          note: what === 'stile' ? 'Glued and pinned to the bookcase door, flush with its edges' : 'Between the stiles, top and bottom', material: 'plywood',
+        }));
+      }
+    }
   }
 
   // Wall run: copies of this cabinet (and its bookcase) under one countertop, with desk gaps and fillers.
@@ -1683,7 +1704,7 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
       profile: [[z0, top - h], [z1, top - h + bevel], [z1, top - 2 * h + bevel], [z0, top - 2 * h]] });
     solids.push(box('Bottom spacer', 'cleat', [T, B + T, z0], [W - T, B + T + 2, z1]));
   }
-  if (plan.bookcase) solids.push(...bookcaseSolids(plan.bookcase, W, cd, T));
+  if (plan.bookcase) solids.push(...styleBookcaseDoors(bookcaseSolids(plan.bookcase, W, cd, T), plan.bookcase.shelfPlan.doors, config));
   if (plan.mount === 'under-desk') {
     // The desk it hangs from, for context.
     solids.push(box('Desk (existing)', 'back', [-6, H, -T - 2], [W + 6, H + 1.5, cd + 2]));
@@ -1734,6 +1755,33 @@ export function frontSolids(name: string, kind: SolidKind, outline: [number, num
   return out;
 }
 
+/** The bookcase's doors (the Shelf Builder's): a pair hinges outward, a single door on the left. */
+export function bookcaseDoorHinges(doors: { bay: number }[]): ('left' | 'right')[] {
+  return doors.map(d => {
+    const bay = doors.filter(x => x.bay === d.bay);
+    return bay.length === 2 && bay[1] === d ? 'right' : 'left';
+  });
+}
+
+/**
+ * The bookcase's doors (plain boxes from the Shelf Builder, named "… door N") restyled to
+ * match the cabinet: Shaker frame and panel, and the same pulls.
+ */
+export function styleBookcaseDoors(solids: Solid[], doors: { bay: number }[], config: Pick<DrawerConfig, 'frontProfile' | 'hardware'>): Solid[] {
+  const shaker = config.frontProfile?.style === 'shaker';
+  const pulls = config.hardware && config.hardware.kind !== 'none';
+  if (!shaker && !pulls) return solids;
+  const hinges = bookcaseDoorHinges(doors);
+  return solids.flatMap(s => {
+    const m = s.kind === 'door' && s.shape === 'box' ? /door (\d+)$/i.exec(s.name) : null;
+    if (!m || s.shape !== 'box') return [s];
+    const rect = { x: s.min[0], y: s.min[1], width: s.max[0] - s.min[0], height: s.max[1] - s.min[1] };
+    const outline: [number, number][] = [[rect.x, rect.y], [rect.x + rect.width, rect.y], [rect.x + rect.width, rect.y + rect.height], [rect.x, rect.y + rect.height]];
+    return frontSolids(s.name, 'door', outline, rect, s.min[2], s.max[2] - s.min[2], config, { hinge: hinges[Number(m[1]) - 1] ?? 'left' })
+      .map(x => ({ ...x, explode: s.explode, opaque: true }));
+  });
+}
+
 /** A door's leaves, and the shelves or pull-out trays behind it. */
 function doorSolids(d: DrawerLayout, door: DoorPlan, plan: DrawerPlan, config: DrawerConfig): Solid[] {
   const T = config.thickness;
@@ -1747,8 +1795,11 @@ function doorSolids(d: DrawerLayout, door: DoorPlan, plan: DrawerPlan, config: D
   door.leaves.forEach(leaf => {
     const name = door.leaves.length === 1 ? `${d.label}` : `${d.label} ${leaf.hinge === 'left' ? 'left' : 'right'} leaf`;
     const usable = notch && leaf.width > notch.width + 3 ? notch : null;
+    // Finished doors (Shaker or with pulls) are drawn solid; plain ones see-through, to show what's behind.
+    const finished = config.frontProfile?.style === 'shaker' || (config.hardware && config.hardware.kind !== 'none');
     out.push(...frontSolids(name, 'door', notchedOutline(leaf.x, d.front.y, leaf.width, d.front.height, usable, doorNotchCenter(leaf, usable)),
-      { x: leaf.x, y: d.front.y, width: leaf.width, height: d.front.height }, zf - T, T, config, { hinge: leaf.hinge }));
+      { x: leaf.x, y: d.front.y, width: leaf.width, height: d.front.height }, zf - T, T, config, { hinge: leaf.hinge })
+      .map(x => (finished ? { ...x, opaque: true } : x)));
   });
   door.shelfYs.forEach((y, k) => out.push(box(`${d.label} shelf ${k + 1}`, 'adjustable', [c.x + 1 / 32, y, zf], [c.x + c.width - 1 / 32, y + T, id - 1 / 8])));
   if (door.trays.length) {

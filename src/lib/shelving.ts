@@ -618,6 +618,8 @@ export interface SolidMotion {
    * then an offset in model inches (x right, y up, z back).
    */
   pose?: { rotate?: [number, number, number]; offset?: [number, number, number] };
+  /** Doors are drawn see-through so what's behind reads; finished (styled) doors are drawn solid. */
+  opaque?: boolean;
 }
 
 export type Solid = SolidMotion & (

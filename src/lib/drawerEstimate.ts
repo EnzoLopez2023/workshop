@@ -105,7 +105,9 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   const hw = config.hardware;
   if (hw && hw.kind !== 'none') {
     const rail = (w: number, h: number) => shakerRail(config.frontProfile, w, h);
-    const count = plan.drawers.reduce((a, d) => a
+    // The bookcase's doors take the same pulls (one bookcase per cabinet in a wall run).
+    const bookDoors = (plan.bookcase?.shelfPlan.doors ?? []).reduce((a, dr) => a + pullHoles(hw, dr.width, dr.height, { hinge: 'left' }, rail(dr.width, dr.height)).pulls.length, 0);
+    const count = bookDoors * unitCount + plan.drawers.reduce((a, d) => a
       + (d.door ? d.door.leaves.reduce((x, l) => x + pullHoles(hw, l.width, d.front.height, { hinge: l.hinge }, rail(l.width, d.front.height)).pulls.length, 0)
         : d.open ? 0 : pullHoles(hw, d.front.width, d.front.height, null, rail(d.front.width, d.front.height)).pulls.length), 0) * unitCount;
     const what = hw.kind === 'knob' ? 'Cabinet knobs' : hw.kind === 'cup' ? `Cup pulls, ${f(hw.spacing)} centres` : `Bar pulls, ${f(hw.spacing)} centres`;
@@ -173,7 +175,9 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   // The bookcase's own hardware comes from the Shelf Builder's list; glue, banding and finish are already counted above.
   const bk = plan.bookcase;
   if (bk) {
-    const keep: Partial<Record<PriceKey, DrawerPriceKey>> = { caseScrews: 'caseScrews', brads: 'brads', shelfPin: 'shelfPin', hinge: 'hinge', pull: 'doorPull', bumper: 'bumper', pocketScrews: 'caseScrews' };
+    // Its door pulls are counted with the cabinet's when store-bought pulls are chosen.
+    const keep: Partial<Record<PriceKey, DrawerPriceKey>> = { caseScrews: 'caseScrews', brads: 'brads', shelfPin: 'shelfPin', hinge: 'hinge', bumper: 'bumper', pocketScrews: 'caseScrews',
+      ...(config.hardware && config.hardware.kind !== 'none' ? {} : { pull: 'doorPull' as const }) };
     // In a wall run there's one bookcase per cabinet, plus any over the desk gaps.
     const uppers = [{ plan: bk, count: plan.run ? plan.run.cabinetCount : 1 }, ...(plan.run?.sections.filter(x => x.upper).map(x => ({ plan: x.upper!, count: 1 })) ?? [])];
     const merged = new Map<string, DrawerHardwareItem>();

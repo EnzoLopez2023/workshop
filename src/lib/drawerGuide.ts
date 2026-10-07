@@ -9,6 +9,7 @@ import {
   baseDescription,
   boxedDrawers,
   runSolids,
+  styleBookcaseDoors,
   deskSolids,
   drawerSolids,
   FINGER_ROOM,
@@ -49,7 +50,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const benchName = (name: string) => `On the bench · ${bookcaseName(name)}`;
   const bench = bk ? buildGuideSteps(bk.shelfPlan, bk.shelfConfig, units) : null;
   const benchSolids: Solid[] = bench
-    ? withValance(bk!.config, bench.solids).map(s => ({ ...s, name: benchName(s.name), ...(s.shape === 'box' && s.on ? { on: benchName(s.on) } : {}) }))
+    ? styleBookcaseDoors(withValance(bk!.config, bench.solids), bk!.shelfPlan.doors, config).map(s => ({ ...s, name: benchName(s.name), ...(s.shape === 'box' && s.on ? { on: benchName(s.on) } : {}) }))
     : [];
   const run = plan.run;
   const runAll = run ? runSolids(plan, config) : [];
@@ -612,7 +613,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   if (bk && bench) {
     const isBookcase = (name: string) => name.startsWith('Bookcase ') || name === 'Countertop' || name.startsWith('Crown molding');
     const cabinet = everything.filter(name => !isBookcase(name));
-    const placed = names(name => name.startsWith('Bookcase ') && !/ (door \d+|top cap|crown nailer(, side)?)$/.test(name));
+    const placed = names(name => name.startsWith('Bookcase ') && !/ door \d+/.test(name) && !/ (top cap|crown nailer(, side)?)$/.test(name));
     const keep = new Set(['dados', 'pins', 'banding', 'case', 'dividers', 'shelves', 'back']);
     const open = bk.config.openBelow > 0;
     const benchNames = new Set(benchSolids.map(x => x.name));
@@ -664,7 +665,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         minutes: 40,
       });
     }
-    const doorNames = names(name => /^Bookcase door \d+$/.test(name));
+    const doorNames = names(name => /^Bookcase door \d+( |$)/.test(name));
     if (!plan.run) steps.push({
       id: 'bookcase-set',
       title: 'Set the bookcase on',

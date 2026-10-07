@@ -31,6 +31,8 @@ interface Stage {
   wall: THREE.Mesh;
   key: THREE.DirectionalLight;
   materials: Record<SolidKind, THREE.MeshStandardMaterial>;
+  /** Finished (styled) doors: the door colour, drawn solid. */
+  solidDoor: THREE.MeshStandardMaterial;
   edgeMaterial: THREE.LineBasicMaterial;
   render: () => void;
   /** Overall width × height × depth currently framed. */
@@ -113,6 +115,8 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
         }),
       ]),
     ) as Record<SolidKind, THREE.MeshStandardMaterial>;
+    // Finished doors (Shaker or with pulls) are drawn solid, like drawer fronts.
+    const solidDoor = new THREE.MeshStandardMaterial({ color: COLORS.door, roughness: 0.78, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const edgeMaterial = new THREE.LineBasicMaterial({ color: 0x15332e, transparent: true, opacity: 0.55 });
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -204,7 +208,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
       render();
     };
     stageRef.current = {
-      renderer, scene, camera, controls, parts, ground, wall, key, materials, edgeMaterial, render,
+      renderer, scene, camera, controls, parts, ground, wall, key, materials, solidDoor, edgeMaterial, render,
       envelope: null,
       userMoved: false,
       movers: new Map(),
@@ -232,6 +236,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
         }
       });
       Object.values(materials).forEach(m => m.dispose());
+      solidDoor.dispose();
       edgeMaterial.dispose();
       renderer.dispose();
       renderer.domElement.remove();
@@ -243,7 +248,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    const { parts, materials, edgeMaterial } = stage;
+    const { parts, materials, solidDoor, edgeMaterial } = stage;
 
     parts.children.slice().forEach(child => {
       child.traverse(node => {
@@ -258,8 +263,9 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     stage.explodables = [];
     for (const solid of solids) {
       const geometry = solidGeometry(solid);
-      const mesh = new THREE.Mesh(geometry, materials[solid.kind]);
-      mesh.castShadow = solid.kind !== 'door';
+      const opaqueDoor = solid.kind === 'door' && solid.opaque;
+      const mesh = new THREE.Mesh(geometry, opaqueDoor ? solidDoor : materials[solid.kind]);
+      mesh.castShadow = solid.kind !== 'door' || opaqueDoor === true;
       mesh.receiveShadow = true;
       mesh.name = solid.name;
       mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 30), edgeMaterial));
@@ -319,6 +325,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     for (const [kind, material] of Object.entries(stage.materials) as [SolidKind, THREE.MeshStandardMaterial][]) {
       material.color.setHex(colors?.[kind] ?? COLORS[kind]);
     }
+    stage.solidDoor.color.setHex(colors?.door ?? COLORS.door);
     stage.render();
     // colorKey stands in for the colours object.
   }, [colorKey]);

@@ -82,3 +82,27 @@ test('fronts and pulls survive a save and the form', () => {
   assert.equal(fields.profileMethod, 'applied');
   assert.equal(fields.hardwareKind, 'cup');
 });
+
+import { DEFAULT_BOOKCASE } from '../src/lib/drawerBookcase.ts';
+
+test('bookcase doors match the cabinet: Shaker panel, pulls, strips, holes and the count', () => {
+  const bookcase = { ...DEFAULT_BOOKCASE, enabled: true, bays: 2, doors: [true, true] };
+  const pocket = { ...base, frontStyle: 'inset', base: 'kick', bookcase, frontProfile: shaker(), hardware: { kind: 'bar', spacing: 3.75 } };
+  const p = buildDrawerPlan(pocket);
+  assert.deepEqual(p.errors, []);
+  const solids = drawerSolids(p, pocket);
+  assert.ok(solids.some(s => s.name === 'Bookcase door 1 panel'), 'Shaker panel');
+  assert.ok(solids.some(s => s.name === 'Bookcase door 1 pull'), 'pull');
+  const faces = drawerPartFaces(p, pocket).filter(f => f.part.startsWith('Bookcase door'));
+  assert.ok(faces.some(f => f.features.some(x => x.label === 'Hinge cup 1') && f.features.some(x => x.label.startsWith('Pull hole'))));
+  assert.ok(faces.some(f => f.face === 'outside face' && f.features.some(x => x.label === 'Shaker panel')));
+  const hw = drawerHardwareList(p, pocket, 'in');
+  assert.equal(hw.find(i => i.key === 'pulls').qty, 3 + 2, '3 drawers and 2 bookcase doors');
+  assert.ok(!hw.some(i => i.key === 'bookcase-pulls'), 'not counted twice');
+  const guide = drawerGuideSteps(p, pocket, 'in');
+  const names = new Set(guide.solids.map(s => s.name));
+  for (const step of guide.steps) for (const n of [...(step.scene?.visible ?? []), ...(step.scene?.highlight ?? [])]) assert.ok(names.has(n), `${step.id}: ${n}`);
+  assert.ok(guide.steps.find(s => s.id === 'bookcase-doors').scene.highlight.includes('Bookcase door 1 pull'));
+  const applied = buildDrawerPlan({ ...pocket, frontProfile: shaker('applied') });
+  assert.ok(applied.parts.some(x => x.name === 'Bookcase door Shaker stile' && x.qty === 4));
+});

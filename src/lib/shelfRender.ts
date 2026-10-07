@@ -168,7 +168,7 @@ export async function renderGuideScenes(input: GuideRenderInput): Promise<string
         const marking = solid.kind === 'groove' || solid.kind === 'pinhole';
         const base = input.colors?.[solid.kind] ?? SOLID_COLORS[solid.kind];
         const color = marking ? SOLID_COLORS[solid.kind] : highlighted ? HIGHLIGHT_COLOR : base;
-        const door = solid.kind === 'door';
+        const door = solid.kind === 'door' && !solid.opaque;
         const mesh = new THREE.Mesh(geometry, material(`surface-${color}-${door ? 'door' : 'solid'}`, () => {
           const m = surface(color);
           if (door) { m.transparent = true; m.opacity = highlighted ? 0.7 : DOOR_OPACITY; m.depthWrite = false; }

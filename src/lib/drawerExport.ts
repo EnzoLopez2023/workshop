@@ -70,6 +70,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
     ? partFaces(bk.shelfPlan, bk.shelfConfig)
       // With open space below, the toe kick becomes a short valance, cut as a plain part.
       .filter(face => !(bk.config.openBelow > 0 && face.part === 'Toe kick'))
+      .flatMap(face => bookcaseDoorFaces(face, config))
       .map(face => ({
         ...face, id: `bookcase-${face.id}`, part: bookcaseName(face.part), piece: bookcaseName(face.piece),
         // The back drops through the open space as a backsplash.
@@ -820,6 +821,29 @@ function doorLines(plan: DrawerPlan, column: number, edge: 'left' | 'right', fro
       out.push({ kind: 'guide', label: `${d.label} tray spacer panel`, closed: true,
         points: [[u(door.zoneBottom), plan.frontInset], [u(door.zoneTop), plan.frontInset], [u(door.zoneTop), plan.interiorDepth], [u(door.zoneBottom), plan.interiorDepth]] });
     }
+  }
+  return out;
+}
+
+/**
+ * A bookcase door's face (Shelf Builder frame: u up the door from its bottom, v across from
+ * the hinge edge, inside face up, hinged left) with the cabinet's pull holes added, and
+ * a second, outside face for the Shaker panel pocket.
+ */
+function bookcaseDoorFaces(face: PartFace, config: DrawerConfig): PartFace[] {
+  if (!face.part.startsWith('Door')) return [face];
+  const w = face.width;
+  const h = face.length;
+  const rail = shakerRail(config.frontProfile, w, h);
+  const holes: Feature[] = pullHoles(config.hardware, w, h, { hinge: 'left' }, rail).holes
+    .map(([x, y], i): Feature => ({ kind: 'hole', label: `Pull hole ${i + 1}`, u: y, v: x, radius: PULL_HOLE / 2, depth: face.thickness }));
+  const out: PartFace[] = [{ ...face, face: face.face || (holes.length ? 'inside face' : ''), features: [...face.features, ...holes] }];
+  if (rail && config.frontProfile!.method === 'pocket') {
+    out.push({
+      ...face, id: `${face.id}-outside`, piece: `${face.piece} (outside)`, face: 'outside face', rightHanded: !face.rightHanded,
+      features: [{ kind: 'pocket', label: 'Shaker panel', u: rail, v: rail, length: h - 2 * rail, width: w - 2 * rail, depth: config.frontProfile!.depth }],
+      orientation: 'Flip it: outside face up. Pocket the Shaker panel after the hinge cups are bored.',
+    });
   }
   return out;
 }
