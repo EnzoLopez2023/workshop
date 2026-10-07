@@ -9439,3 +9439,86 @@ tbody td {
   gap: 2px;
   justify-self: end;
 }
+
+/*
+ * Drawer Builder on a desktop: a full-width workbench. The settings are a column of
+ * their own beside the app nav that scrolls on its own, and the preview fills the
+ * rest of the window — sized to what's visible, never running off the bottom.
+ * Everything else (cut list, guide…) follows below at full width.
+ */
+.drawer-config-top {
+  display: grid;
+  gap: 14px;
+  padding: 12px 0 4px;
+}
+
+.drawer-config-top > * {
+  margin: 0;
+}
+
+.drawer-drawings {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 1100px) {
+  .shelf-page.drawer-workbench {
+    width: 100%;
+    max-width: none !important;
+    padding: 20px 24px 64px;
+  }
+
+  .drawer-workbench > .workflow-back {
+    margin-bottom: 6px;
+  }
+
+  .drawer-workbench > .page-head {
+    margin-bottom: 14px;
+  }
+
+  .drawer-workbench > .page-head .page-sub {
+    max-width: 72ch;
+  }
+
+  .drawer-workbench .shelf-layout {
+    --workbench-gap: 16px;
+    grid-template-columns: clamp(360px, 28vw, 480px) minmax(0, 1fr);
+    align-items: stretch;
+    gap: var(--workbench-gap);
+    height: max(560px, calc(100dvh - var(--workbench-top, 160px) - 16px));
+  }
+
+  .drawer-workbench .shelf-config {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .drawer-workbench .shelf-preview {
+    position: static;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .drawer-workbench .shelf-preview > * {
+    flex: none;
+  }
+
+  .drawer-workbench .shelf-preview > .shelf-viewer,
+  .drawer-workbench .shelf-preview > .drawer-drawings {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .drawer-workbench .shelf-preview > .shelf-viewer {
+    aspect-ratio: auto;
+    max-height: none;
+  }
+
+  .drawer-workbench .shelf-preview > .drawer-drawings {
+    overflow-y: auto;
+    align-content: start;
+  }
+}

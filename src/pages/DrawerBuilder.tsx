@@ -545,6 +545,22 @@ export default function DrawerBuilder() {
   const { config, fieldErrors } = useMemo(() => toConfig(form), [form]);
   const plan = useMemo(() => (config ? buildDrawerPlan(config) : null), [config]);
   const valid = plan !== null && plan.errors.length === 0;
+  // Desktop workbench: the settings and preview fill the window below the page header.
+  const layoutRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = layoutRef.current;
+    if (!el) return;
+    const measure = () => {
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      el.style.setProperty('--workbench-top', `${Math.round(top)}px`);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.body);
+    window.addEventListener('resize', measure);
+    return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
+  }, []);
+
   const solids = useMemo(() => (plan && config && valid ? (plan.run ? runSolids(plan, config) : plan.desk ? deskSolids(plan, config) : drawerSolids(plan, config)) : []), [plan, config, valid]);
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
   const estimate = useDrawerEstimate(plan && valid ? plan : null, valid ? config : null, units);
@@ -991,7 +1007,7 @@ export default function DrawerBuilder() {
   );
 
   return (
-    <PageFrame maxWidth={1200} className="shelf-page">
+    <PageFrame maxWidth={1200} className="shelf-page drawer-workbench">
       <Button variant="ghost" onClick={() => navigate(-1)} className="workflow-back">
         <ArrowLeft size={16} aria-hidden="true" />
         Back
@@ -1010,6 +1026,9 @@ export default function DrawerBuilder() {
         )}
       />
 
+      <div className="shelf-layout" ref={layoutRef}>
+        <section className="shelf-config" aria-labelledby="drawer-config-title">
+          <div className="drawer-config-top">
       <section className="drawer-templates" aria-labelledby="drawer-templates-title">
         <h2 id="drawer-templates-title">Start from</h2>
         <ul>
@@ -1135,8 +1154,7 @@ export default function DrawerBuilder() {
         </div>
       )}
 
-      <div className="shelf-layout">
-        <section className="shelf-config" aria-labelledby="drawer-config-title">
+          </div>
           <h2 id="drawer-config-title" className="sr-only">Design</h2>
 
           <fieldset className="shelf-group" data-tour="fs-units">
@@ -1761,9 +1779,11 @@ export default function DrawerBuilder() {
                   />
                 </Suspense>
               ) : (
-                <DrawerElevation plan={plan} config={config} fmt={fmt} />
+                <div className="drawer-drawings">
+                  <DrawerElevation plan={plan} config={config} fmt={fmt} />
+                  <DrawerSection plan={plan} config={config} fmt={fmt} />
+                </div>
               )}
-              <DrawerSection plan={plan} config={config} fmt={fmt} />
             </>
           ) : (
             <p className="shelf-placeholder">Fix the highlighted measurements to see the drawing.</p>
