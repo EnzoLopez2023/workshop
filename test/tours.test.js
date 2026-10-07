@@ -5,7 +5,7 @@ import { TOURS } from '../src/tour/tours.ts';
 
 const source = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const pages = {
-  '/drawers': source('src/pages/DrawerBuilder.tsx') + source('src/components/ShelfViewer3D.tsx') + source('src/components/DrawerExport.tsx') + source('src/components/DrawerBookcaseFields.tsx'),
+  '/drawers': source('src/pages/DrawerBuilder.tsx') + source('src/components/ShelfViewer3D.tsx') + source('src/components/DrawerExport.tsx') + source('src/components/DrawerBookcaseFields.tsx') + source('src/components/DrawerRunFields.tsx'),
   '/shelves': source('src/pages/ShelfBuilder.tsx'),
 };
 const shell = source('src/components/AppShell.tsx') + source('src/tour/TourLaunchers.tsx');

@@ -46,6 +46,7 @@ import {
   readSavedDrawerDesign,
   toSavedDrawerDesign,
   deskSolids,
+  runSolids,
   finishColors,
   DEFAULT_FINISH,
   DRAWER_LOADS,
@@ -66,7 +67,9 @@ import {
   type DrawerPlan,
 } from '../lib/drawerUnit';
 import { DRAWER_TEMPLATES, drawerThumbnailDataUrl, type DrawerTemplate } from '../lib/drawerTemplates';
-import { BOOKCASE_LENGTH_KEYS, bookcaseFromFields, bookcaseToFields, valanceSpan } from '../lib/drawerBookcase';
+import { BOOKCASE_LENGTH_KEYS, bookcaseFromFields, bookcaseToFields, valanceSpan, type BookcasePlan } from '../lib/drawerBookcase';
+import { runFromFields, runToFields } from '../lib/drawerRun';
+import DrawerRunFields from '../components/DrawerRunFields';
 import DrawerBookcaseFields from '../components/DrawerBookcaseFields';
 import { MARKER_PRESETS } from '../lib/drawerInserts';
 import { PRINTER_BEDS } from '../lib/gridfinity';
@@ -161,6 +164,7 @@ const DEFAULT_FORM: FormState = {
   mountHeight: '30',
   cleatHeight: '3',
   bookcase: bookcaseToFields(undefined, inches => lengthToField(inches, 'in')),
+  run: runToFields(undefined, inches => lengthToField(inches, 'in')),
 };
 
 const LENGTH_FIELDS = [
@@ -172,7 +176,7 @@ const LENGTH_FIELDS = [
   'hardwareSpacing', 'profileRail', 'profileDepth',
 ] as const;
 type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}` | `columnFronts.${number}.${number}` | `columnWidths.${number}`
-  | `bookcase.${typeof BOOKCASE_LENGTH_KEYS[number]}`;
+  | `bookcase.${typeof BOOKCASE_LENGTH_KEYS[number]}` | `run.${string}`;
 
 const UNIT_OPTIONS = [
   { value: 'in', label: 'Inches' },
@@ -301,6 +305,9 @@ function convertForm(form: FormState, units: LengthUnit): FormState {
   next.frontHeights = form.frontHeights.map(convert);
   next.columnFronts = form.columnFronts.map(list => list.map(convert));
   next.columnWidths = form.columnWidths.map(w => (w.trim() ? convert(w) : w));
+  if (form.run) {
+    next.run = { ...form.run, wallWidth: convert(form.run.wallWidth), sections: form.run.sections.map(x => ({ ...x, width: convert(x.width) })) };
+  }
   if (form.bookcase) {
     next.bookcase = { ...form.bookcase };
     for (const key of BOOKCASE_LENGTH_KEYS) next.bookcase[key] = form.bookcase[key]?.trim() ? convert(form.bookcase[key]) : '';
@@ -441,6 +448,11 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     cleatHeight: form.mount === 'wall' ? num('cleatHeight') : 3,
     finish: { front: form.finishFront, case: form.finishCase },
     bookcase: bookcaseFromFields(form.bookcase, (key, opts) => num(`bookcase.${key}`, opts)),
+    run: runFromFields(form.run, (raw, key) => {
+      const value = parseLength(raw.trim(), form.units);
+      if (value === null || value <= 0) fieldErrors[key as FieldKey] = form.units === 'mm' ? 'Enter millimeters, e.g. 1220' : 'Enter inches, e.g. 48';
+      return value ?? 0;
+    }),
   };
   if (Object.keys(fieldErrors).length > 0) return { config: null, fieldErrors };
   return { config, fieldErrors };
@@ -533,7 +545,7 @@ export default function DrawerBuilder() {
   const { config, fieldErrors } = useMemo(() => toConfig(form), [form]);
   const plan = useMemo(() => (config ? buildDrawerPlan(config) : null), [config]);
   const valid = plan !== null && plan.errors.length === 0;
-  const solids = useMemo(() => (plan && config && valid ? (plan.desk ? deskSolids(plan, config) : drawerSolids(plan, config)) : []), [plan, config, valid]);
+  const solids = useMemo(() => (plan && config && valid ? (plan.run ? runSolids(plan, config) : plan.desk ? deskSolids(plan, config) : drawerSolids(plan, config)) : []), [plan, config, valid]);
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
   const estimate = useDrawerEstimate(plan && valid ? plan : null, valid ? config : null, units);
 
@@ -555,7 +567,7 @@ export default function DrawerBuilder() {
         const { renderGuideScenes } = await import('../lib/shelfRender');
         const drawn = guide.steps.filter(step => step.scene !== null);
         const urls = await renderGuideScenes({
-          solids: guide.solids, scenes: drawn.map(step => step.scene!), width: plan.overallWidth, height: plan.totalHeight + plan.lift,
+          solids: guide.solids, scenes: drawn.map(step => step.scene!), width: plan.run ? plan.run.width : plan.overallWidth, height: plan.totalHeight + plan.lift,
           depth: plan.caseDepth, wallMounted: plan.mount === 'wall', colors: finishColors(config.finish),
         });
         images = new Map(drawn.map((step, i) => [step.id, urls[i]]));
@@ -1638,6 +1650,16 @@ export default function DrawerBuilder() {
             )}
           </fieldset>
 
+          <DrawerRunFields
+            value={form.run}
+            units={units}
+            errors={Object.fromEntries(Object.entries(fieldErrors).filter(([k]) => k.startsWith('run.')).map(([k, v]) => [k.slice(4), v]))}
+            plan={plan}
+            fmt={fmt}
+            cabinetWidth={form.width}
+            onChange={patch => update({ run: { ...form.run, ...patch } })}
+          />
+
           <DrawerBookcaseFields
             value={form.bookcase}
             units={units}
@@ -1710,7 +1732,7 @@ export default function DrawerBuilder() {
                   </>
                 ) : (
                   <>
-                    <Stat label="Overall width" value={fmt(plan.overallWidth)} />
+                    <Stat label={plan.run ? 'Wall run' : 'Overall width'} value={fmt(plan.run ? plan.run.width : plan.overallWidth)} />
                     <Stat label={plan.bookcase ? 'Height with bookcase' : 'Overall height'} value={fmt(plan.totalHeight)} />
                     <Stat label="Overall depth" value={fmt(plan.overallDepth)} />
                   </>
@@ -1728,7 +1750,7 @@ export default function DrawerBuilder() {
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
                   <ShelfViewer3D
                     solids={solids}
-                    width={plan.desk ? plan.desk.width : plan.overallWidth}
+                    width={plan.run ? plan.run.width : plan.desk ? plan.desk.width : plan.overallWidth}
                     height={plan.desk ? plan.desk.height : plan.totalHeight + plan.lift + (plan.mount === 'under-desk' ? 1.5 : 0)}
                     depth={plan.desk ? plan.desk.depth : plan.caseDepth}
                     wallMounted={plan.mount === 'wall'}
@@ -1957,29 +1979,54 @@ export default function DrawerBuilder() {
 // ── Drawings ──────────────────────────────────────────────────────────────────
 
 function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: DrawerConfig; fmt: (inches: number) => string }) {
-  const W = plan.overallWidth;
+  const run = plan.run;
+  const W = run ? run.width : plan.overallWidth;
   const H = plan.overallHeight;
-  const B = plan.baseHeight;
-  const T = config.thickness;
-  const bp = plan.base;
   const bk = plan.bookcase;
   const Ht = plan.totalHeight;
   const pad = Math.max(W, Ht) * 0.12;
   const fs = Math.max(W, Ht) * 0.03;
   const y = (v: number) => Ht - v;
-  const pull = config.pull.enabled ? config.pull : null;
   return (
     <figure className="shelf-drawing">
       <svg
-        viewBox={`${-pad * 0.4} ${-pad * 0.6} ${W + pad * 1.9} ${Ht + pad * 1.6}`}
+        viewBox={`${-pad * 0.4} ${-pad * 0.6} ${W + pad * 2.2} ${Ht + pad * 1.6}`}
         role="img"
-        aria-label={`Front elevation, ${fmt(W)} wide by ${fmt(Ht)} tall with ${plan.drawers.length} drawers${bk ? ' and a bookcase above' : ''}`}
+        aria-label={run
+          ? `Front elevation of a ${fmt(W)} wall run: ${run.cabinetCount} cabinets${run.sections.some(x => x.kind === 'desk') ? ' with desk gaps' : ''}, ${fmt(Ht)} tall`
+          : `Front elevation, ${fmt(W)} wide by ${fmt(Ht)} tall with ${plan.drawers.length} drawers${bk ? ' and a bookcase above' : ''}`}
       >
+        {run ? <RunFront plan={plan} config={config} y={y} /> : (
+          <>
+            {bk && <BookcaseElevation plan={plan} bk={bk} width={plan.overallWidth} y={y} />}
+            <CabinetFront plan={plan} config={config} y={y} />
+          </>
+        )}
+        {!run && plan.drawers.map(d => (
+          <DimV key={d.index} y1={y(d.front.y + d.front.height)} y2={y(d.front.y)} x={W + pad * 0.3} fs={fs * 0.75} label={fmt(d.front.height)} />
+        ))}
+        <DimH x1={0} x2={W} y={Ht + pad * 0.45} fs={fs} label={fmt(W)} />
+        <DimV y1={y(H)} y2={y(0)} x={W + pad * 1.05} fs={fs} label={fmt(H)} />
+        {Ht > H + 1e-6 && <DimV y1={y(Ht)} y2={y(0)} x={W + pad * 1.55} fs={fs} label={fmt(Ht)} />}
+      </svg>
+    </figure>
+  );
+}
+
+/** One cabinet's case, base and fronts, in the front elevation. */
+function CabinetFront({ plan, config, y }: { plan: DrawerPlan; config: DrawerConfig; y: (v: number) => number }) {
+  const W = plan.overallWidth;
+  const H = plan.overallHeight;
+  const B = plan.baseHeight;
+  const T = config.thickness;
+  const bp = plan.base;
+  const pull = config.pull.enabled ? config.pull : null;
+  return (
+    <>
         <rect className="shelf-ply" x={0} y={y(H)} width={W} height={H - B} />
-        {bk && <BookcaseElevation plan={plan} y={y} />}
         {B > 0 && !bp && (config.base === 'feet'
           ? [config.thickness + 1.5, W - config.thickness - 2.75].map(x => <rect key={x} className="drawer-foot" x={x} y={y(B)} width={1.25} height={B} />)
-          : [config.thickness + 1.5, W - config.thickness - 4].map(x => <circle key={x} className="drawer-foot" cx={x + 1.25} cy={H - B / 2} r={B / 2 * 0.9} />))}
+          : [config.thickness + 1.5, W - config.thickness - 4].map(x => <circle key={x} className="drawer-foot" cx={x + 1.25} cy={y(B / 2)} r={B / 2 * 0.9} />))}
         {bp?.kind === 'kick' && (
           <>
             <rect className="drawer-foot" x={T} y={y(B)} width={W - 2 * T} height={B} />
@@ -2044,14 +2091,34 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
             </g>
           );
         })}
-        {plan.drawers.map(d => (
-          <DimV key={d.index} y1={y(d.front.y + d.front.height)} y2={y(d.front.y)} x={W + pad * 0.3} fs={fs * 0.75} label={fmt(d.front.height)} />
-        ))}
-        <DimH x1={0} x2={W} y={Ht + pad * 0.45} fs={fs} label={fmt(W)} />
-        <DimV y1={y(H)} y2={y(0)} x={W + pad * 1.05} fs={fs} label={fmt(H)} />
-        {bk && <DimV y1={y(Ht)} y2={y(0)} x={W + pad * 1.55} fs={fs} label={fmt(Ht)} />}
-      </svg>
-    </figure>
+    </>
+  );
+}
+
+/** A wall run: each cabinet (mirrored where asked) and the uppers, fillers, countertop and trim. */
+function RunFront({ plan, config, y }: { plan: DrawerPlan; config: DrawerConfig; y: (v: number) => number }) {
+  const run = plan.run!;
+  const W = plan.overallWidth;
+  const rect = (x: number, y0: number, w: number, h: number, className = 'shelf-ply') => <rect className={className} x={x} y={y(y0 + h)} width={w} height={h} />;
+  return (
+    <>
+      {run.sections.map((sec, i) => (
+        <g key={i} transform={sec.mirror ? `translate(${sec.x + W} 0) scale(-1 1)` : `translate(${sec.x} 0)`}>
+          {sec.kind === 'cabinet'
+            ? <>{plan.bookcase && <BookcaseElevation plan={plan} bk={plan.bookcase} width={W} y={y} noCounter />}<CabinetFront plan={plan} config={config} y={y} /></>
+            : sec.upper && <BookcaseElevation plan={plan} bk={sec.upper} width={sec.width} y={y} noCounter />}
+        </g>
+      ))}
+      {run.fillers.map(fl => (
+        <g key={fl.side}>
+          {rect(fl.x, 0, fl.width, plan.overallHeight)}
+          {run.uppers && rect(fl.x, run.uppers.y0, fl.width, run.uppers.topY - run.uppers.y0)}
+        </g>
+      ))}
+      {rect(run.countertop.x0, run.countertop.y0, run.countertop.x1 - run.countertop.x0, run.countertop.y1 - run.countertop.y0)}
+      {run.cap && rect(run.cap.x0, run.cap.y0, run.cap.x1 - run.cap.x0, run.cap.y1 - run.cap.y0)}
+      {run.crown && rect(run.crown.x0, run.crown.y0, run.crown.x1 - run.crown.x0, run.crown.height, 'shelf-ply drawer-baseboard')}
+    </>
   );
 }
 
@@ -2078,18 +2145,16 @@ function FrontDecor({ config, x, y0, w, h, door, y }: { config: DrawerConfig; x:
 }
 
 /** The countertop and bookcase above the cabinet, in the front elevation. */
-function BookcaseElevation({ plan, y }: { plan: DrawerPlan; y: (v: number) => number }) {
-  const bk = plan.bookcase!;
+function BookcaseElevation({ bk, width: W, y, noCounter = false }: { plan: DrawerPlan; bk: BookcasePlan; width: number; y: (v: number) => number; noCounter?: boolean }) {
   const sp = bk.shelfPlan;
   const t = bk.shelfConfig.thickness;
-  const W = plan.overallWidth;
   const y0 = bk.y0;
   const top = bk.topY;
   const rect = (x: number, y1: number, w: number, h: number, className = 'shelf-ply') =>
     <rect className={className} x={x} y={y(y1 + h)} width={w} height={h} />;
   return (
     <g>
-      {bk.countertop && rect(bk.countertop.x0, bk.countertop.y0, bk.countertop.x1 - bk.countertop.x0, bk.countertop.y1 - bk.countertop.y0)}
+      {bk.countertop && !noCounter && rect(bk.countertop.x0, bk.countertop.y0, bk.countertop.x1 - bk.countertop.x0, bk.countertop.y1 - bk.countertop.y0)}
       {rect(0, y0, W, top - y0, 'shelf-side-outline')}
       {rect(0, y0, t, top - y0)}
       {rect(W - t, y0, t, top - y0)}
@@ -2104,8 +2169,8 @@ function BookcaseElevation({ plan, y }: { plan: DrawerPlan; y: (v: number) => nu
         </g>
       ))}
       {sp.doors.map(d => <g key={`door${d.bay}-${d.x}`}>{rect(d.x, y0 + d.y, d.width, d.height, 'drawer-front-shape')}</g>)}
-      {bk.cap && rect(bk.cap.x0, bk.cap.y0, bk.cap.x1 - bk.cap.x0, bk.cap.y1 - bk.cap.y0)}
-      {bk.crown && rect(bk.crown.faces.includes('left') ? -bk.crown.projection : 0, top, W + bk.crown.projection * (bk.crown.faces.length - 1), bk.crown.height, 'shelf-ply drawer-baseboard')}
+      {bk.cap && !noCounter && rect(bk.cap.x0, bk.cap.y0, bk.cap.x1 - bk.cap.x0, bk.cap.y1 - bk.cap.y0)}
+      {bk.crown && !noCounter && rect(bk.crown.faces.includes('left') ? -bk.crown.projection : 0, top, W + bk.crown.projection * (bk.crown.faces.length - 1), bk.crown.height, 'shelf-ply drawer-baseboard')}
     </g>
   );
 }

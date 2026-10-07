@@ -227,6 +227,12 @@ export const TOURS: Record<TourId, Tour> = {
         target: fieldset('base-mounting'),
       },
       {
+        title: 'A wall of built-ins',
+        body: ['Line copies of this cabinet along a wall — mirrored where you like — with desk gaps between them and fillers scribed to the walls, under one countertop. The bookcase goes over each, with one crown across the top.'],
+        route: '/drawers',
+        target: fieldset('wall-run'),
+      },
+      {
         title: 'A bookcase above',
         body: ['Turn a floor-standing unit into a built-in hutch: a bookcase on a countertop (or straight on the case) with bays, fixed and adjustable shelves, doors, a cap or crown, and a task light. It’s added to the cut list, CNC files, hardware and build guide.'],
         route: '/drawers',

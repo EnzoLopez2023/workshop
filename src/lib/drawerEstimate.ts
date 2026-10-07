@@ -174,24 +174,44 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   const bk = plan.bookcase;
   if (bk) {
     const keep: Partial<Record<PriceKey, DrawerPriceKey>> = { caseScrews: 'caseScrews', brads: 'brads', shelfPin: 'shelfPin', hinge: 'hinge', pull: 'doorPull', bumper: 'bumper', pocketScrews: 'caseScrews' };
-    for (const item of hardwareList(bk.shelfPlan, bk.shelfConfig, units)) {
-      const priceKey = keep[item.priceKey];
-      if (!priceKey) continue;
-      items.push({ ...item, key: `bookcase-${item.key}`, name: `Bookcase: ${item.name.charAt(0).toLowerCase()}${item.name.slice(1)}`, priceKey });
+    // In a wall run there's one bookcase per cabinet, plus any over the desk gaps.
+    const uppers = [{ plan: bk, count: plan.run ? plan.run.cabinetCount : 1 }, ...(plan.run?.sections.filter(x => x.upper).map(x => ({ plan: x.upper!, count: 1 })) ?? [])];
+    const merged = new Map<string, DrawerHardwareItem>();
+    for (const u of uppers) {
+      for (const item of hardwareList(u.plan.shelfPlan, u.plan.shelfConfig, units)) {
+        const priceKey = keep[item.priceKey];
+        if (!priceKey) continue;
+        const key = `bookcase-${item.key}`;
+        const prev = merged.get(key);
+        if (prev) { prev.qty += item.qty * u.count; if (prev.uses !== undefined && item.uses !== undefined) prev.uses += item.uses * u.count; }
+        else merged.set(key, { ...item, key, qty: item.qty * u.count, uses: item.uses !== undefined ? item.uses * u.count : undefined, name: `Bookcase: ${item.name.charAt(0).toLowerCase()}${item.name.slice(1)}`, priceKey });
+      }
     }
-    items.push({ key: 'bookcase-anchor', name: 'Anti-tip furniture strap', qty: 1, unit: 'kit', note: 'A bookcase on a cabinet is top-heavy: anchor the bookcase to a wall stud.', priceKey: 'antiTip' });
+    items.push(...merged.values());
+    const anchors = uppers.reduce((a, u) => a + u.count, 0);
+    items.push({ key: 'bookcase-anchor', name: 'Anti-tip furniture strap', qty: anchors, unit: 'kit', note: `A bookcase on a cabinet is top-heavy: anchor ${anchors === 1 ? 'the bookcase' : 'each upper'} to a wall stud.`, priceKey: 'antiTip' });
+    const runCrown = plan.parts.filter(p => p.name.startsWith('Run crown molding'));
+    if (runCrown.length && plan.run?.crown) {
+      const inches = runCrown.reduce((sum, p) => sum + p.qty * p.length, 0);
+      items.push({ key: 'crown', name: `Crown molding, ${f(plan.run.crown.height)}`, qty: Math.ceil(inches * 1.1 / 12), unit: 'ft', note: 'Across the whole run, plus 10% for the cuts and any splice.', priceKey: 'crownFt', url: amazonSearch(`crown molding ${Math.round(plan.run.crown.height * 4) / 4} inch`) });
+    }
+    const runButcher = plan.run?.countertop.material === 'butcher' ? plan.run.countertop : null;
+    if (runButcher) {
+      items.push({ key: 'butcher-block', name: `Butcher-block countertop, ${f((runButcher.x1 - runButcher.x0) / runButcher.pieces)} × ${f(runButcher.z1 - runButcher.z0)}`, qty: runButcher.pieces, unit: 'ea', note: 'Buy each slab at least this size; seal both faces.', priceKey: 'butcherBlock', url: amazonSearch('butcher block countertop') });
+      items.push({ key: 'figure8', name: 'Figure-8 tabletop fasteners', qty: 4 + 4 * plan.run!.cabinetCount, unit: 'ea', note: 'Let a solid-wood top move with the seasons.', priceKey: 'figure8' });
+    }
     const crown = plan.parts.filter(p => p.name.startsWith('Crown molding'));
-    if (crown.length && bk.crown) {
+    if (!plan.run && crown.length && bk.crown) {
       const inches = crown.reduce((sum, p) => sum + p.qty * p.length, 0);
       items.push({ key: 'crown', name: `Crown molding, ${f(bk.crown.height)}`, qty: Math.ceil(inches * 1.1 / 12), unit: 'ft', note: 'Mitred at the corners, plus 10% for the cuts.', priceKey: 'crownFt', url: amazonSearch(`crown molding ${Math.round(bk.crown.height * 4) / 4} inch`) });
     }
-    if (bk.countertop?.material === 'butcher') {
+    if (!plan.run && bk.countertop?.material === 'butcher') {
       const c = bk.countertop;
       items.push({ key: 'butcher-block', name: `Butcher-block countertop, ${f(c.x1 - c.x0)} × ${f(c.z1 - c.z0)}`, qty: 1, unit: 'ea', note: 'Buy it at least this size and cut it down; seal both faces.', priceKey: 'butcherBlock', url: amazonSearch('butcher block countertop') });
       items.push({ key: 'figure8', name: 'Figure-8 tabletop fasteners', qty: 8, unit: 'ea', note: 'Let a solid-wood top move with the seasons.', priceKey: 'figure8' });
     }
     if (bk.config.taskLight) {
-      items.push({ key: 'led', name: `LED strip light kit, ${f(Math.ceil(plan.overallWidth / 12) * 12)}`, qty: 1, unit: 'kit', note: 'Under-cabinet strip with a plug-in driver; it sits behind the valance.', priceKey: 'ledStrip', url: amazonSearch('under cabinet LED strip light kit plug in') });
+      items.push({ key: 'led', name: `LED strip light kit, ${f(Math.ceil((plan.run ? plan.run.width : plan.overallWidth) / 12) * 12)}`, qty: 1, unit: 'kit', note: 'Under-cabinet strip with a plug-in driver; it sits behind the valance.', priceKey: 'ledStrip', url: amazonSearch('under cabinet LED strip light kit plug in') });
       if (bk.grommet) items.push({ key: 'grommet', name: `Desk grommet, ${f(bk.grommet.diameter)}`, qty: 1, unit: 'ea', note: 'For the light’s cord through the countertop.', priceKey: 'grommet', url: amazonSearch('2 inch desk grommet') });
     }
   }

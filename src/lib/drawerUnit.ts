@@ -24,6 +24,7 @@ import {
 import { hingePositions } from './shelfExport.ts';
 import { INSERT_NAMES, INSERT_PLAY, layoutInsert, pieceOutline, type DrawerInsert, type InsertLayout } from './drawerInserts.ts';
 import type { GridfinityBin } from './gridfinity.ts';
+import { buildRun, readRun, runToFields, RUN_REPLACED, type RunConfig, type RunFields, type RunPlan } from './drawerRun.ts';
 import { bookcaseSolids, bookcaseToFields, buildBookcase, readBookcase, type BookcaseConfig, type BookcaseFields, type BookcasePlan } from './drawerBookcase.ts';
 import type { ToolPocket } from './drawerInserts.ts';
 
@@ -251,6 +252,8 @@ export interface DrawerConfig {
   finish?: DrawerFinish;
   /** A bookcase on top (a single floor-standing unit only). */
   bookcase?: BookcaseConfig;
+  /** A wall of built-ins: copies of this cabinet, desk gaps and fillers under one countertop. */
+  run?: RunConfig;
 }
 
 export type HardwareKind = 'none' | 'knob' | 'bar' | 'cup';
@@ -550,6 +553,8 @@ export interface DrawerPlan {
   bookcase: BookcasePlan | null;
   /** Floor to the highest point: the cabinet, desk top, or bookcase. */
   totalHeight: number;
+  /** A wall run of copies of this cabinet. */
+  run: RunPlan | null;
   interiorWidth: number;
   interiorDepth: number;
   slideLength: number;
@@ -1381,6 +1386,54 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     parts.push(...bookcase.parts);
   }
 
+  // Wall run: copies of this cabinet (and its bookcase) under one countertop, with desk gaps and fillers.
+  let run: RunPlan | null = null;
+  if (config.run?.enabled) {
+    if (mount !== 'floor') errors.push('A wall run is built of floor-standing cabinets — set the unit on the floor.');
+    if (config.base === 'casters') errors.push('Built-ins don’t go on casters — use a toe kick, a plinth or leveling feet.');
+    if (config.desk?.enabled) errors.push('Use the wall run’s desk gaps instead of the desk option — turn the desk off.');
+    else {
+      const built = buildRun(config.run, {
+        W, H, cd: caseDepth, T, frontProjection: inset ? 0 : T, units, bookcase, bookcaseConfig: config.bookcase?.enabled ? config.bookcase : undefined,
+        edgeBanding: config.edgeBanding, bandingThickness: config.bandingThickness,
+      });
+      run = built.plan;
+      errors.push(...built.errors);
+      warnings.push(...built.warnings);
+      unitCount = run.cabinetCount;
+      const mirrored = run.sections.filter(x => x.kind === 'cabinet' && x.mirror).length;
+      // Every cabinet (with its bookcase) is the same, except mirrored ones hinge their doors the other way.
+      const perUnit = parts.filter(p => !RUN_REPLACED.test(p.name));
+      const swap = (name: string) => name.replace(/hinged (left|right)/, (_, side) => `hinged ${side === 'left' ? 'right' : 'left'}`);
+      const doorQty = new Map(perUnit.filter(p => p.name.startsWith('Door, hinged')).map(p => [p.name, p.qty]));
+      parts.length = 0;
+      for (const p of perUnit) {
+        if (p.name.startsWith('Door, hinged')) {
+          const qty = p.qty * (unitCount - mirrored) + (doorQty.get(swap(p.name)) ?? 0) * mirrored;
+          if (qty > 0) parts.push({ ...p, qty });
+        } else parts.push({ ...p, qty: p.qty * unitCount });
+      }
+      // Doors that only exist mirrored (a unit with only left-hinged doors, some copies mirrored).
+      for (const [name, qty] of doorQty) {
+        const other = swap(name);
+        if (!doorQty.has(other) && mirrored > 0) {
+          const src = perUnit.find(p => p.name === name)!;
+          parts.push({ ...src, name: other, qty: qty * mirrored });
+          partDrawers[other] = partDrawers[name];
+        }
+      }
+      // Uppers over the desk gaps, then the run's countertop, ledgers, fillers and top trim.
+      for (const sec of run.sections) {
+        if (!sec.upper) continue;
+        for (const p of sec.upper.parts) {
+          if (RUN_REPLACED.test(p.name)) continue;
+          parts.push({ ...p, name: p.name.replace(/^Bookcase /, `Desk ${sec.number} upper `) });
+        }
+      }
+      parts.push(...built.parts);
+    }
+  }
+
   const bandingTotal = banding > 0
     ? (2 * caseHeight + 2 * interiorWidth + (k - 1) * (caseHeight - 2 * T)
       + drawers.reduce((a, d) => a + (d.door ? d.door.leaves.reduce((x, l) => x + 2 * l.width + 2 * d.front.height, 0) : 0)
@@ -1406,7 +1459,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     sideBottom,
     base: basePlan,
     bookcase,
-    totalHeight: Math.max(H, desk ? desk.height : 0, bookcase ? bookcase.totalHeight : 0),
+    totalHeight: Math.max(H, desk ? desk.height : 0, bookcase ? bookcase.totalHeight : 0, run ? run.totalHeight : 0),
+    run,
     interiorWidth,
     interiorDepth,
     slideLength,
@@ -1757,6 +1811,88 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
   return out;
 }
 
+/** A solid moved right by dx, mirrored about the unit's centre first when asked. */
+function placeSolid(s: Solid, dx: number, mirrorWidth: number | null): Solid {
+  const fx = (x: number) => (mirrorWidth === null ? x : mirrorWidth - x) + dx;
+  if (s.shape === 'box') {
+    const [a, b2] = [fx(s.min[0]), fx(s.max[0])];
+    return { ...s, min: [Math.min(a, b2), s.min[1], s.min[2]], max: [Math.max(a, b2), s.max[1], s.max[2]] };
+  }
+  if (s.shape === 'prism') {
+    const [a, b2] = [fx(s.x0), fx(s.x1)];
+    return { ...s, x0: Math.min(a, b2), x1: Math.max(a, b2) };
+  }
+  // Mirroring reverses the winding; put it back so faces still point outward.
+  const ring = (pts: [number, number][]) => {
+    const moved = pts.map(([x, y]) => [fx(x), y] as [number, number]);
+    return mirrorWidth === null ? moved : moved.reverse();
+  };
+  return { ...s, outline: ring(s.outline), holes: s.holes?.map(ring) };
+}
+
+/**
+ * The whole wall run: each cabinet (with its bookcase) in place, mirrored where asked,
+ * the uppers over the desk gaps, the fillers, ledgers, countertop and top trim. Every
+ * name is prefixed ("Cabinet 2 · Drawer 1 front") so copies never clash.
+ */
+export function runSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
+  const run = plan.run;
+  if (!run) return drawerSolids(plan, config);
+  const T = config.thickness;
+  const W = plan.overallWidth;
+  const cd = plan.caseDepth;
+  const unit = drawerSolids(plan, config).filter(s => !RUN_REPLACED.test(s.name) && !/^Crown molding, (left|right)$/.test(s.name));
+  const out: Solid[] = [];
+  const box = (name: string, kind: SolidKind, min: [number, number, number], max: [number, number, number], explode?: [number, number, number]): Solid =>
+    ({ name, kind, shape: 'box', min, max, explode });
+  const spread = Math.max(run.width, run.totalHeight) / 14;
+  for (const sec of run.sections) {
+    if (sec.kind === 'cabinet') {
+      const prefix = `Cabinet ${sec.number} · `;
+      for (const s of unit) {
+        const placed = placeSolid(s, sec.x, sec.mirror ? W : null);
+        out.push({ ...placed, name: prefix + s.name, ...(s.group ? { group: prefix + s.group } : {}) });
+      }
+    } else if (sec.upper) {
+      const prefix = `Desk ${sec.number} · `;
+      for (const s of bookcaseSolids(sec.upper, sec.width, cd, T)) {
+        if (RUN_REPLACED.test(s.name) || /^Crown molding/.test(s.name)) continue;
+        out.push({ ...placeSolid(s, sec.x, null), name: prefix + s.name });
+      }
+    }
+    if (sec.kind === 'desk') {
+      const H = plan.overallHeight;
+      out.push(box(`Desk ${sec.number} · ledger`, 'cleat', [sec.x, H - 3, cd - T], [sec.x + sec.width, H, cd]));
+      out.push(box(`Desk ${sec.number} · left cleat`, 'cleat', [sec.x, H - 3, 1], [sec.x + T, H, cd - T]));
+      out.push(box(`Desk ${sec.number} · right cleat`, 'cleat', [sec.x + sec.width - T, H - 3, 1], [sec.x + sec.width, H, cd - T]));
+    }
+  }
+  const ct = run.countertop;
+  out.push(box('Run countertop', 'shelf', [ct.x0, ct.y0, ct.z0], [ct.x1, ct.y1, ct.z1], [0, spread, 0]));
+  for (const fl of run.fillers) {
+    const z0 = plan.frontInset > 0 ? 0 : -T;
+    out.push(box(`Filler ${fl.side}`, 'case', [fl.x, 0, z0], [fl.x + fl.width, plan.overallHeight, z0 + T], [fl.side === 'left' ? -spread : spread, 0, 0]));
+    if (run.uppers) {
+      out.push(box(`Upper filler ${fl.side}`, 'case', [fl.x, run.uppers.y0, cd - (config.bookcase?.depth ?? 12)], [fl.x + fl.width, run.uppers.topY, cd - (config.bookcase?.depth ?? 12) + T], [fl.side === 'left' ? -spread : spread, spread * 2, 0]));
+    }
+  }
+  if (run.cap) {
+    const c = run.cap;
+    out.push(box('Run top cap', 'case', [c.x0, c.y0, c.z0], [c.x1, c.y1, c.z1], [0, spread * 3, 0]));
+  }
+  if (run.crown) {
+    const cr = run.crown;
+    const up: [number, number, number] = [0, spread * 3, 0];
+    out.push(box('Run crown nailer', 'case', [0, cr.y0, cr.front], [run.width, cr.y0 + cr.height, cr.front + T], up));
+    out.push(box('Run crown molding', 'frame', [cr.x0, cr.y0, cr.front - cr.projection], [cr.x1, cr.y0 + cr.height, cr.front], up));
+    for (const side of cr.returns) {
+      const [x0, x1] = side === 'left' ? [-cr.projection, 0] : [run.width, run.width + cr.projection];
+      out.push(box(`Run crown return ${side}`, 'frame', [x0, cr.y0, cr.front], [x1, cr.y0 + cr.height, cd], up));
+    }
+  }
+  return out;
+}
+
 // ── Project cut list and titles ──────────────────────────────────────────────
 
 export function drawerProjectCutItems(plan: DrawerPlan, material = 'Plywood'): ProjectCutItemInput[] {
@@ -1882,6 +2018,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       load: c.load === 'light' || c.load === 'heavy' ? c.load : 'medium',
       finish: readFinish(c.finish),
       bookcase: readBookcase(c.bookcase),
+      run: readRun(c.run),
     },
   };
 }
@@ -2101,6 +2238,7 @@ export interface DrawerDesignFields {
   mountHeight: string;
   cleatHeight: string;
   bookcase: BookcaseFields;
+  run: RunFields;
 }
 
 /** What's in each position: an empty drawer, an insert, or an open cubby (no drawer at all). */
@@ -2197,6 +2335,7 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     mountHeight: L(c.mountHeight ?? (c.mount === 'under-desk' ? 27.5 : 30)),
     cleatHeight: L(c.cleatHeight ?? 3),
     bookcase: bookcaseToFields(c.bookcase, L),
+    run: runToFields(c.run, L),
     columnFronts: cols.map(x => (x.frontHeights ?? equalFronts(x.drawers, c.height - baseHeightOf(c) - frontAllowance(c) - x.drawers * c.gap)).map(L)),
   };
 }

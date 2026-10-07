@@ -22,7 +22,7 @@ export default function DrawerBuildGuide({ plan, config, units, progress, title 
   return (
     <BuildGuideView
       guide={guide}
-      width={plan.overallWidth}
+      width={plan.run ? plan.run.width : plan.overallWidth}
       height={plan.totalHeight}
       depth={plan.caseDepth}
       wallMounted={false}

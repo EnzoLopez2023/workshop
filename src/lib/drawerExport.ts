@@ -55,6 +55,17 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
   const faces: PartFace[] = [];
   // The bookcase's dados, pin holes and hinge cups come from the Shelf Builder, renamed to match its parts.
   const bk = plan.bookcase;
+  // Uppers over a wall run's desk gaps get theirs too, named for their gap.
+  const deskFaces: PartFace[] = (plan.run?.sections ?? []).flatMap(sec => (sec.upper
+    ? partFaces(sec.upper.shelfPlan, sec.upper.shelfConfig)
+      .filter(face => !(sec.upper!.config.openBelow > 0 && face.part === 'Toe kick'))
+      .map(face => ({
+        ...face, id: `desk-${sec.number}-${face.id}`,
+        part: bookcaseName(face.part).replace(/^Bookcase /, `Desk ${sec.number} upper `),
+        piece: bookcaseName(face.piece).replace(/^Bookcase /, `Desk ${sec.number} upper `),
+        ...(sec.upper!.config.openBelow > 0 && face.part.startsWith('Back') ? { length: sec.upper!.config.height } : {}),
+      }))
+    : []));
   const bookFaces: PartFace[] = bk
     ? partFaces(bk.shelfPlan, bk.shelfConfig)
       // With open space below, the toe kick becomes a short valance, cut as a plain part.
@@ -67,7 +78,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
     : [];
 
   for (const part of sheetParts(plan.parts)) {
-    if (bookFaces.some(face => face.part === part.name)) continue;
+    if (bookFaces.some(face => face.part === part.name) || deskFaces.some(face => face.part === part.name)) continue;
     const base = { part: part.name, length: part.length, width: part.width, thickness: part.thickness, material: 'plywood' as const };
 
     if (part.name === 'Side') {
@@ -248,7 +259,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
 
     faces.push({ ...base, id: slug(part.name), piece: part.name, face: '', features: [], rightHanded: true, orientation: 'Nothing to machine — just cut the outline.' });
   }
-  return [...faces, ...bookFaces];
+  return [...faces, ...bookFaces, ...deskFaces];
 }
 
 // ── Shop jigs ───────────────────────────────────────────────────────────────

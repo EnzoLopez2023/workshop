@@ -8,6 +8,7 @@ import {
   BOX_NOTCH_EXTRA,
   baseDescription,
   boxedDrawers,
+  runSolids,
   deskSolids,
   drawerSolids,
   FINGER_ROOM,
@@ -50,7 +51,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const benchSolids: Solid[] = bench
     ? withValance(bk!.config, bench.solids).map(s => ({ ...s, name: benchName(s.name), ...(s.shape === 'box' && s.on ? { on: benchName(s.on) } : {}) }))
     : [];
-  const solids = [...unitSolids, ...desk, ...(detail?.solids ?? []), ...benchSolids];
+  const run = plan.run;
+  const runAll = run ? runSolids(plan, config) : [];
+  const solids = [...unitSolids, ...desk, ...(detail?.solids ?? []), ...benchSolids, ...runAll];
   const names = (match: (name: string) => boolean) => unitSolids.filter(s => match(s.name)).map(s => s.name);
   const T = config.thickness;
   const b = config.boxThickness;
@@ -101,6 +104,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         : `Fronts are ${boxed.map(d => f(d.front.height)).join(', ')} tall (top to bottom), with ${f(config.gap)} gaps.`,
       ...(cubbies.length ? [`${cubbies.length === 1 ? 'One position is an open cubby' : `${cubbies.length} positions are open cubbies`} (${cubbies.map(d => d.label.toLowerCase()).join(', ')}), with a fixed shelf for a floor where it isn’t at the bottom.`] : []),
       ...(plan.desk ? [`${plan.unitCount === 2 ? 'Two units go' : 'The unit goes'} under a ${f(plan.desk.width)} × ${f(plan.desk.depth)} desk top, ${f(plan.desk.height)} off the floor.`] : []),
+      ...(run ? [`A ${f(run.width)} wall run: build this cabinet ${run.cabinetCount} time${run.cabinetCount === 1 ? '' : 's'}${run.sections.some(x => x.mirror) ? ' (mirrored ones hinge their doors the other way)' : ''}${bk ? ', each with its bookcase' : ''}, then set them along the wall${run.sections.some(x => x.kind === 'desk') ? ' with desk gaps between' : ''} under one countertop. The steps below build one; repeat them for the rest.`] : []),
     ],
     parts: [],
     tips: [
@@ -635,7 +639,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       });
     }
     const ct = bk.countertop;
-    if (ct) {
+    if (ct && !plan.run) {
       const butcher = ct.material === 'butcher';
       steps.push({
         id: 'countertop',
@@ -661,7 +665,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       });
     }
     const doorNames = names(name => /^Bookcase door \d+$/.test(name));
-    steps.push({
+    if (!plan.run) steps.push({
       id: 'bookcase-set',
       title: 'Set the bookcase on',
       summary: `On the ${ct ? 'countertop' : 'case top'}, its back flush with the cabinet’s, ${f(bk.y0)} up from the floor.`,
@@ -688,7 +692,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       });
     }
     const trim = names(name => / (top cap|crown nailer|crown nailer, side)$/.test(name) || name.startsWith('Crown molding'));
-    if (bk.cap || bk.crown) {
+    if ((bk.cap || bk.crown) && !plan.run) {
       steps.push({
         id: 'bookcase-top',
         title: bk.cap ? 'Fit the top cap' : 'Fit the crown molding',
@@ -782,6 +786,130 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     });
   }
 
+  // 13c ── The wall run: cabinets along the wall, fillers, desk ledgers, countertop, uppers and trim
+  if (run) {
+    const all = runAll.map(x => x.name);
+    const cabinetsOnly = all.filter(n => n.startsWith('Cabinet ') && !/· Bookcase /.test(n));
+    const fillerNames = all.filter(n => /^(Upper )?[Ff]iller /.test(n));
+    const ledgerNames = all.filter(n => /^Desk \d+ · (ledger|left cleat|right cleat)$/.test(n));
+    const upperNames = all.filter(n => /· Bookcase /.test(n) || (n.startsWith('Desk ') && !ledgerNames.includes(n)));
+    const trimNames = all.filter(n => /^Run (top cap|crown)/.test(n));
+    const lowerFillers = fillerNames.filter(n => !n.startsWith('Upper'));
+    const desks = run.sections.filter(x => x.kind === 'desk');
+    const place = run.sections.map(x => `${x.kind === 'cabinet' ? `cabinet ${x.number}${x.mirror ? ' (mirrored)' : ''}` : `a ${f(x.width)} desk gap`} at ${f(x.x)}`).join(', ');
+    steps.push({
+      id: 'run-cabinets',
+      title: 'Set the cabinets along the wall',
+      summary: `${run.cabinetCount} cabinet${run.cabinetCount === 1 ? '' : 's'} on a ${f(run.width)} wall, level and in line.`,
+      instructions: [
+        `Mark a level line on the wall at ${f(plan.overallHeight)} (the cabinet tops) and find the studs.`,
+        `Mark the sections from the ${run.fillers.some(x => x.side === 'left') ? 'left wall' : 'left end'}: ${place}.`,
+        'Set the first cabinet on its line, shim it level both ways under the base, and screw through the back into the studs.',
+        'Bring each next one up to the line the same way; where two cabinets meet, clamp their faces flush and screw through one side into the other.',
+      ],
+      parts: [],
+      tips: ['Work from the highest spot on the floor: shim the others up to it, never cut a cabinet down.'],
+      cautions: ['Screw into studs, not drywall anchors — the drawers and the uppers hang their weight on these screws.'],
+      scene: { view: 'front', visible: [], highlight: cabinetsOnly },
+      minutes: 30 * run.cabinetCount,
+    });
+    if (run.fillers.length) {
+      steps.push({
+        id: 'run-fillers',
+        title: 'Scribe the fillers to the walls',
+        summary: `${run.fillers.length} filler${run.fillers.length === 1 ? '' : 's'}, ${f(run.fillers[0].width)} showing — cut ${f(run.fillers[0].width + 0.5)} and scribed.`,
+        instructions: [
+          'Glue each filler to its return at right angles, then hold it against the wall, flush with the cabinet face.',
+          'Run a compass or a scribing tool down the wall to copy its wobble onto the filler, and cut or plane to the line.',
+          'Screw through the cabinet side into the return; the filler closes the gap to the wall.',
+        ],
+        parts: sized(partsWhere(['Filler'])),
+        tips: ['Back-bevel the scribed edge slightly so only its face edge touches the wall.'],
+        cautions: [],
+        scene: { view: 'front', visible: cabinetsOnly, highlight: lowerFillers },
+        minutes: 30 * run.fillers.length,
+      });
+    }
+    if (desks.length) {
+      steps.push({
+        id: 'run-desk',
+        title: `Fit the desk ledger${desks.length === 1 ? '' : 's'}`,
+        summary: 'A ledger into the studs at the back and a cleat on each cabinet side carry the countertop over the knee space.',
+        instructions: [
+          `Screw a ledger to the studs along the back of each desk gap, its top on the line at ${f(plan.overallHeight)}.`,
+          'Screw a cleat to each cabinet side facing the gap, flush with the cabinet top.',
+          ...desks.filter(x => x.width > 48).map(x => `Desk gap ${x.number} is ${f(x.width)} wide: glue a ${f(3 / 4)} × ${f(3)} stiffener on edge under the countertop’s front so it doesn’t sag.`),
+        ],
+        parts: sized(partsWhere(['Desk ledger', 'Desk side cleat'])),
+        tips: [],
+        cautions: [],
+        scene: { view: 'front', visible: [...cabinetsOnly, ...lowerFillers], highlight: ledgerNames },
+        minutes: 20 * desks.length,
+      });
+    }
+    const ct = run.countertop;
+    steps.push({
+      id: 'run-countertop',
+      title: 'Fit the countertop',
+      summary: `${f(ct.x1 - ct.x0)} × ${f(ct.z1 - ct.z0)}${ct.pieces > 1 ? ` in ${ct.pieces} pieces` : ''}, across the whole run.`,
+      instructions: [
+        ...(ct.material === 'plywood'
+          ? [
+            ...(ct.pieces > 1 ? ['Make the joints land over a cabinet, and stagger them between the two layers.'] : []),
+            ...(ct.layers === 2 ? ['Glue the layers together and screw them from underneath every 8″.'] : []),
+            'Band the front edge and any open end.',
+            'Screw up through the cabinet tops and down into the ledgers and cleats.',
+          ]
+          : [
+            ...(ct.pieces > 1 ? ['Join the slabs with countertop bolts over a cabinet.'] : []),
+            'Seal both faces, then fasten it down with figure-8 clips so it can move.',
+          ]),
+      ],
+      parts: sized(partsWhere(['Run countertop'])),
+      tips: ['Scribe the back edge to the wall if it isn’t flat, before banding the front.'],
+      cautions: [],
+      scene: { view: 'front', visible: [...cabinetsOnly, ...lowerFillers, ...ledgerNames], highlight: ['Run countertop'] },
+      minutes: 45 + 15 * ct.pieces,
+    });
+    if (run.uppers) {
+      steps.push({
+        id: 'run-uppers',
+        title: 'Set the uppers',
+        summary: `A bookcase over each cabinet${run.sections.some(x => x.upper) ? ' and each desk gap' : ''}, butted together on the countertop, backs to the wall.`,
+        instructions: [
+          'Start at one end: stand the first upper on the countertop, back to the wall, and screw it into the studs through its back.',
+          'Bring each next upper up against it, clamp the faces flush, and screw through one side into the other.',
+          'Screw down through each upper’s bottom into the countertop.',
+          ...(run.fillers.length ? ['Scribe and fit the upper fillers like the lower ones.'] : []),
+        ],
+        parts: sized(partsWhere(['Bookcase ', ...run.sections.filter(x => x.upper).map(x => `Desk ${x.number} upper `)])),
+        tips: [],
+        cautions: ['Anchor every upper to a stud before you load the shelves.'],
+        scene: { view: 'front', visible: [...cabinetsOnly, ...lowerFillers, 'Run countertop'], highlight: [...upperNames, ...fillerNames.filter(n => n.startsWith('Upper'))] },
+        minutes: 30 * (run.cabinetCount + run.sections.filter(x => x.upper).length),
+      });
+    }
+    if (run.cap || run.crown) {
+      steps.push({
+        id: 'run-top',
+        title: run.cap ? 'Fit the top cap' : 'Fit the crown across the run',
+        summary: run.cap ? `One cap${run.cap.pieces > 1 ? ` in ${run.cap.pieces} pieces` : ''} across all the uppers.` : `${f(run.crown!.height)} crown across the whole wall${run.crown!.returns.length ? `, returning at the open end${run.crown!.returns.length > 1 ? 's' : ''}` : ''}.`,
+        instructions: run.cap
+          ? ['Join the pieces over an upper, then screw up through the uppers’ tops.']
+          : [
+            'Screw the nailer across the uppers’ tops, flush with their fronts.',
+            'Cope or butt the crown into the walls; splice long lengths with a scarf joint over the nailer.',
+            ...(run.crown!.returns.length ? ['Mitre the returns at the open ends.'] : []),
+          ],
+        parts: sized(partsWhere(['Run top cap', 'Run crown'])),
+        tips: [],
+        cautions: [],
+        scene: { view: 'front', visible: all.filter(n => !trimNames.includes(n)), highlight: trimNames },
+        minutes: run.cap ? 40 : 90,
+      });
+    }
+  }
+
   // 13d ── Baseboard, once it's in place
   if (plan.base?.baseboard) {
     const bb = plan.base.baseboard;
@@ -818,7 +946,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     parts: [],
     tips: plan.overallHeight > 30 && config.base !== 'casters' ? ['Anchor the top to a wall stud — open drawers shift the weight forward.'] : [],
     cautions: [],
-    scene: { view: 'front', visible: everything, highlight: [] },
+    scene: { view: 'front', visible: run ? runAll.map(x => x.name) : everything, highlight: [] },
   });
 
   // Rough working time per step, for the build tracker (a first build, unhurried).

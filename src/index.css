@@ -9409,3 +9409,33 @@ tbody td {
   .tour-spotlight { transition: none; }
   .tour-spotlight.is-action { animation: none; }
 }
+
+/* Drawer Builder wall run: one row per section, left to right. */
+.drawer-run-sections {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drawer-run-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-compact);
+  background: var(--color-recessed);
+}
+
+.drawer-run-section > .form-field-label {
+  grid-column: 1 / -1;
+}
+
+.drawer-run-actions {
+  display: inline-flex;
+  gap: 2px;
+  justify-self: end;
+}

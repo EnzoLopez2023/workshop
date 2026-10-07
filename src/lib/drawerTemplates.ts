@@ -5,6 +5,7 @@
 import { doorNotch, doorNotchCenter, frontNotch, handHole, notchedOutline, stadiumOutline, type DrawerDesignFields, type DrawerPlan, type FingerPull } from './drawerUnit.ts';
 import { bookcaseToFields, DEFAULT_BOOKCASE } from './drawerBookcase.ts';
 import { lengthToField } from './shelving.ts';
+import { DEFAULT_RUN, runToFields } from './drawerRun.ts';
 
 export interface DrawerTemplate {
   id: string;
@@ -15,6 +16,29 @@ export interface DrawerTemplate {
 }
 
 export const DRAWER_TEMPLATES: DrawerTemplate[] = [
+  {
+    id: 'desk-wall',
+    name: 'Built-in desk wall',
+    description: 'A wall of built-ins: Shaker cabinets (drawers, and a drawer over a door) at each end of a 4′ desk, uppers with crown above, fillers scribed to a 10′ wall.',
+    fields: {
+      width: '30', height: '30', depth: '22 7/8', heightMode: 'fronts', drawers: 6, base: 'kick', kickHeight: '4', kickSetback: '3',
+      columns: 2, columnWidthMode: 'equal', columnDrawers: [4, 2], columnFronts: [['6', '6', '6', '6'], ['6', '18 1/4']],
+      frontHeights: ['6', '6', '6', '6', '6', '18 1/4'],
+      insertKinds: ['none', 'none', 'none', 'none', 'none', 'door'],
+      doorHinges: ['auto', 'auto', 'auto', 'auto', 'auto', 'auto'],
+      doorInside: ['shelves', 'shelves', 'shelves', 'shelves', 'shelves', 'shelves'],
+      doorCounts: [1, 1, 1, 1, 1, 1],
+      pullEnabled: false, hardwareKind: 'bar', hardwareSpacing: '3 3/4',
+      profileStyle: 'shaker', profileMethod: 'pocket', profileRail: '2 1/4', profileDepth: '1/4',
+      finishFront: '#2f4f46', finishCase: '#2f4f46',
+      bookcase: bookcaseToFields({
+        ...DEFAULT_BOOKCASE, enabled: true, height: 48, depth: 12, bays: 2, shelvesPerBay: 1, adjustablePerBay: 2,
+        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 },
+        top: { ...DEFAULT_BOOKCASE.top, style: 'crown' },
+      }, inches => lengthToField(inches, 'in')),
+      run: runToFields({ ...DEFAULT_RUN, enabled: true, wallWidth: 120 }, inches => lengthToField(inches, 'in')),
+    },
+  },
   {
     id: 'built-in-hutch',
     name: 'Built-in with bookcase',
