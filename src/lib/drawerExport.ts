@@ -28,7 +28,8 @@ import {
 } from './drawerUnit.ts';
 import { MM_PER_INCH } from './shelving.ts';
 import { pieceOutline } from './drawerInserts.ts';
-import type { Feature, PartFace } from './shelfExport.ts';
+import { partFaces, type Feature, type PartFace } from './shelfExport.ts';
+import { bookcaseName } from './drawerBookcase.ts';
 
 /** A 5/16" hole takes the barrel of a 1/4"-20 T-nut. */
 export const TNUT_HOLE = 5 / 16;
@@ -43,8 +44,14 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
   const band = plan.banding?.thickness ?? 0;
   const pull = config.pull.enabled ? config.pull : null;
   const faces: PartFace[] = [];
+  // The bookcase's dados, pin holes and hinge cups come from the Shelf Builder, renamed to match its parts.
+  const bk = plan.bookcase;
+  const bookFaces: PartFace[] = bk
+    ? partFaces(bk.shelfPlan, bk.shelfConfig).map(face => ({ ...face, id: `bookcase-${face.id}`, part: bookcaseName(face.part), piece: bookcaseName(face.piece) }))
+    : [];
 
   for (const part of sheetParts(plan.parts)) {
+    if (bookFaces.some(face => face.part === part.name)) continue;
     const base = { part: part.name, length: part.length, width: part.width, thickness: part.thickness, material: 'plywood' as const };
 
     if (part.name === 'Side') {
@@ -98,6 +105,17 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
         orientation: config.base === 'feet'
           ? 'Underside up, left end at the left, front edge at the top. Drill through and tap the T-nuts in from the top face.'
           : 'Underside up, left end at the left, front edge at the top. Blue squares mark the caster plates (not cut).',
+      });
+      continue;
+    }
+
+    if (part.name === 'Countertop' && bk?.grommet && bk.countertop) {
+      // u = from the left end, v = back from the front edge, top face up.
+      const g = bk.grommet;
+      faces.push({
+        ...base, id: 'countertop', piece: 'Countertop', face: 'top face', rightHanded: true,
+        features: [{ kind: 'hole', label: 'Cord grommet', u: g.x - bk.countertop.x0, v: g.z - bk.countertop.z0, radius: g.diameter / 2, depth: part.thickness }],
+        orientation: 'Top face up, front edge at the bottom of the drawing. Cut the grommet hole through every layer.',
       });
       continue;
     }
@@ -180,7 +198,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
 
     faces.push({ ...base, id: slug(part.name), piece: part.name, face: '', features: [], rightHanded: true, orientation: 'Nothing to machine — just cut the outline.' });
   }
-  return faces;
+  return [...faces, ...bookFaces];
 }
 
 // ── Shop jigs ───────────────────────────────────────────────────────────────

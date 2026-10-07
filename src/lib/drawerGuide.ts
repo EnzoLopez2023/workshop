@@ -25,6 +25,9 @@ import { formatLength, type LengthUnit, type ShelfPart } from './shelving.ts';
 import type { InsertLayout } from './drawerInserts.ts';
 import { panelTop, TNUT_HOLE } from './drawerExport.ts';
 import { boxDetail, boxJointDetail, bottomGrooveWidth } from './drawerBoxDetail.ts';
+import { bookcaseName } from './drawerBookcase.ts';
+import { buildGuideSteps } from './buildGuide.ts';
+import type { Solid } from './shelving.ts';
 
 export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: LengthUnit): BuildGuide {
   const f = (inches: number) => formatLength(inches, units);
@@ -33,7 +36,14 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const desk = plan.desk ? deskSolids(plan, config, true) : [];
   // One box up close, with its rabbets and grooves, for the joinery and glue-up steps.
   const detail = boxDetail(plan, config);
-  const solids = [...unitSolids, ...desk, ...(detail?.solids ?? [])];
+  // The bookcase is built on the bench first (its own Shelf Builder steps, drawn on their own), then set on the cabinet.
+  const bk = plan.bookcase;
+  const benchName = (name: string) => `On the bench · ${bookcaseName(name)}`;
+  const bench = bk ? buildGuideSteps(bk.shelfPlan, bk.shelfConfig, units) : null;
+  const benchSolids: Solid[] = bench
+    ? bench.solids.map(s => ({ ...s, name: benchName(s.name), ...(s.shape === 'box' && s.on ? { on: benchName(s.on) } : {}) }))
+    : [];
+  const solids = [...unitSolids, ...desk, ...(detail?.solids ?? []), ...benchSolids];
   const names = (match: (name: string) => boolean) => unitSolids.filter(s => match(s.name)).map(s => s.name);
   const T = config.thickness;
   const b = config.boxThickness;
@@ -478,6 +488,118 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     scene: { view: 'front', visible: [...caseNames, ...back, ...supports, ...slides, ...boxes], highlight: fronts },
   });
 
+  // 13a ── Bookcase: built on the bench, then the countertop, the bookcase on it, its trim and light
+  if (bk && bench) {
+    const isBookcase = (name: string) => name.startsWith('Bookcase ') || name === 'Countertop' || name.startsWith('Crown molding');
+    const cabinet = everything.filter(name => !isBookcase(name));
+    const placed = names(name => name.startsWith('Bookcase ') && !/ (door \d+|top cap|crown nailer(, side)?)$/.test(name));
+    const keep = new Set(['dados', 'pins', 'banding', 'case', 'dividers', 'shelves', 'back']);
+    for (const step of bench.steps.filter(x => keep.has(x.id))) {
+      steps.push({
+        ...step,
+        id: `bookcase-${step.id}`,
+        title: `Bookcase: ${step.title.charAt(0).toLowerCase()}${step.title.slice(1)}`,
+        parts: step.parts.map(p => ({ ...p, name: bookcaseName(p.name) })),
+        scene: step.scene && { ...step.scene, visible: step.scene.visible.map(benchName), highlight: step.scene.highlight.map(benchName) },
+        ...(step.id === 'dados' ? { highlightCaption: 'Dados to cut', highlightSwatch: 'groove' as const } : {}),
+        ...(step.id === 'pins' ? { highlightCaption: 'Pin holes', highlightSwatch: 'groove' as const } : {}),
+      });
+    }
+    const ct = bk.countertop;
+    if (ct) {
+      const butcher = ct.material === 'butcher';
+      steps.push({
+        id: 'countertop',
+        title: 'Fit the countertop',
+        summary: `${f(ct.x1 - ct.x0)} × ${f(ct.z1 - ct.z0)}, overhanging the fronts by ${f(bk.config.countertop.overhangFront)}${ct.x0 < 0 || ct.x1 > plan.overallWidth ? ` and the ends that show by ${f(bk.config.countertop.overhangSides)}` : ''}; its back flush with the cabinet’s.`,
+        instructions: [
+          ...(butcher
+            ? ['Cut the butcher block to size, ease the edges, and seal both faces so it moves evenly.',
+              'Chisel shallow recesses in the top edges of the case sides and screw in figure-8 fasteners, about every 12″.',
+              'Set the top on, flush at the back, and screw up through the fasteners — they let the wood move.']
+            : [
+              ...(ct.layers === 2 ? ['Glue the two layers face to face and screw them together from the underside every 8″, then flush the edges.'] : []),
+              'Band the front edge and any end that shows.',
+              'Set it on the case, flush at the back, and screw up through the case top from inside (take the top drawer out), one every 6–8″.',
+            ]),
+          ...(bk.grommet ? [`Bore the ${f(bk.grommet.diameter)} cord grommet hole ${f(bk.grommet.x - ct.x0)} from the left end and ${f(bk.grommet.z - ct.z0)} back from the front edge.`] : []),
+        ],
+        parts: sized(partsWhere(['Countertop'])),
+        tips: [butcher ? 'Seal the underside as well as the top, or the top cups.' : 'Pre-drill and countersink up through the case top so the screws pull the countertop down tight.'],
+        cautions: [`Screws must be shorter than ${f(T)} plus the countertop, less ${f(1 / 4)}, so they never come through.`],
+        scene: { view: 'front', visible: cabinet, highlight: ['Countertop'] },
+        minutes: 40,
+      });
+    }
+    const doorNames = names(name => /^Bookcase door \d+$/.test(name));
+    steps.push({
+      id: 'bookcase-set',
+      title: 'Set the bookcase on',
+      summary: `On the ${ct ? 'countertop' : 'case top'}, its back flush with the cabinet’s, ${f(bk.y0)} up from the floor.`,
+      instructions: [
+        `With a helper, stand the bookcase on the ${ct ? 'countertop' : 'case'} and slide it back until its back lines up with the cabinet’s back and its sides with the cabinet’s sides.`,
+        `Screw down through the bookcase bottom into the ${ct ? 'countertop' : 'case top'}: two near each end and one per bay.`,
+        'Screw an anti-tip strap from the bookcase top (or the back) into a wall stud.',
+      ],
+      parts: [],
+      tips: ['Shim under the cabinet, not between the bookcase and the counter, if the floor makes it lean.'],
+      cautions: ['A bookcase on a cabinet is top-heavy: anchor it to the wall before loading the shelves.'],
+      scene: { view: 'front', visible: cabinet.concat(ct ? ['Countertop'] : []), highlight: placed },
+      minutes: 30,
+    });
+    const benchDoors = bench.steps.find(x => x.id === 'doors');
+    if (benchDoors && doorNames.length) {
+      steps.push({
+        ...benchDoors,
+        id: 'bookcase-doors',
+        title: `Bookcase: ${benchDoors.title.charAt(0).toLowerCase()}${benchDoors.title.slice(1)}`,
+        parts: benchDoors.parts.map(p => ({ ...p, name: bookcaseName(p.name) })),
+        scene: { view: 'front', visible: cabinet.concat(ct ? ['Countertop'] : [], placed), highlight: doorNames },
+        minutes: 15 * doorNames.length,
+      });
+    }
+    const trim = names(name => / (top cap|crown nailer|crown nailer, side)$/.test(name) || name.startsWith('Crown molding'));
+    if (bk.cap || bk.crown) {
+      steps.push({
+        id: 'bookcase-top',
+        title: bk.cap ? 'Fit the top cap' : 'Fit the crown molding',
+        summary: bk.cap
+          ? `A plywood cap overhanging the front${bk.cap.x0 < 0 || bk.cap.x1 > plan.overallWidth ? ' and the ends that show' : ''} by ${f(bk.config.top.capProjection)}.`
+          : `${f(bk.crown!.height)} crown standing ${f(bk.crown!.projection)} out from the face, on a plywood nailer.`,
+        instructions: bk.cap
+          ? ['Band the front edge and any end that shows.', 'Set it on the bookcase, flush at the back, and screw up through the bookcase top from inside, every 8″.']
+          : [
+            'Screw the nailer strips to the bookcase top, flush with its front and the sides that show.',
+            'Cut the front crown first — upside down and backwards in the mitre saw, against a stop — then mitre the returns to meet it and cut them square at the wall.',
+            'Glue the mitres and nail the crown to the nailer and the case.',
+          ],
+        parts: sized(partsWhere(['Bookcase top cap', 'Bookcase crown nailer', 'Crown molding'])),
+        tips: bk.crown ? ['Cut a short test piece and hold it in place to check the spring angle before cutting the real corners.'] : [],
+        cautions: [],
+        scene: { view: 'front', visible: everything.filter(name => !trim.includes(name)), highlight: trim },
+        minutes: bk.cap ? 30 : 60,
+      });
+    }
+    if (bk.config.taskLight) {
+      const valance = names(name => name === 'Bookcase light valance');
+      steps.push({
+        id: 'light',
+        title: 'Wire the task light',
+        summary: 'An LED strip under the bookcase bottom, hidden by the valance, lights the counter.',
+        instructions: [
+          'Stick the LED strip to the underside of the bookcase bottom, just behind the valance, so it shines down and back.',
+          bk.grommet ? 'Run the cord along the back corner and down through the grommet in the countertop, then fit the grommet cap.' : 'Run the cord along the back corner to the outlet.',
+          'Clip the cord every 8″ so it stays out of sight.',
+        ],
+        parts: [],
+        tips: ['A strip with a diffuser channel gives an even line of light with no dots.'],
+        cautions: ['Use a plug-in, low-voltage strip; anything hard-wired needs an electrician.'],
+        scene: { view: 'front', visible: everything.filter(name => !valance.includes(name)), highlight: valance },
+        minutes: 30,
+      });
+    }
+  }
+
   // 13b ── Desk top
   if (plan.desk) {
     const dk = plan.desk;
@@ -579,6 +701,13 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     cut: 3 * pieces,
     joinery: 2 * machined,
     'box-joints': 15,
+    'bookcase-dados': 40,
+    'bookcase-pins': 30,
+    'bookcase-banding': 30,
+    'bookcase-case': 45,
+    'bookcase-dividers': 20,
+    'bookcase-shelves': 20,
+    'bookcase-back': 20,
     pulls: 15 * n * u,
     tnuts: 20 * u,
     case: (45 + 15 * plan.partitionXs.length + 10 * cubbies.length) * u,

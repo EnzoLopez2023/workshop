@@ -397,10 +397,10 @@ export function bookcaseToFields(c: BookcaseConfig | undefined, L: (inches: numb
 
 /** Fields back to settings; `num` parses (and reports) a length field by key. */
 export function bookcaseFromFields(
-  fields: BookcaseFields,
+  fields: BookcaseFields | undefined,
   num: (key: typeof BOOKCASE_LENGTH_KEYS[number], opts?: { allowZero?: boolean }) => number,
 ): BookcaseConfig | undefined {
-  if (!fields.enabled) return undefined;
+  if (!fields?.enabled) return undefined;
   const butcher = fields.counterMaterial === 'butcher';
   const counter = fields.seat === 'countertop';
   return {

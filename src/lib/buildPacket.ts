@@ -45,6 +45,7 @@ export function drawerPacketHtml(input: {
     <h2>At a glance</h2>
     <dl class="facts">
       ${fact('Overall', `${f(plan.overallWidth)} × ${f(plan.overallHeight)} × ${f(plan.overallDepth)}`)}
+      ${plan.bookcase ? fact('With the bookcase', `${f(plan.totalHeight)} tall; bookcase ${f(plan.bookcase.config.height)} × ${f(plan.bookcase.config.depth)} deep, ${plan.bookcase.shelfPlan.bays.length} bay${plan.bookcase.shelfPlan.bays.length === 1 ? '' : 's'}`) : ''}
       ${fact('Drawers', `${boxed.length * plan.unitCount}${plan.columns.length > 1 ? ` in ${plan.columns.length} columns` : ''}`)}
       ${fact('Slides', [...new Set(boxed.map(d => d.box.depth))].map(l => `${f(l)} LONTAN`).join(', ') || '—')}
       ${fact('Mounting', plan.mount === 'wall' ? 'French cleat' : plan.mount === 'under-desk' ? 'Under a desk' : BASE_LABELS[config.base])}

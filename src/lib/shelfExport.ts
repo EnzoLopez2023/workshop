@@ -176,10 +176,12 @@ function faceForPiece(faces: PartFace[], pieceId: string): PartFace | undefined 
   const part = pieceId.slice(0, dash);
   const index = Number(pieceId.slice(dash + 1));
   const own = faces.filter(f => f.part === part);
-  if (part === 'Side') return own[index];
-  if (part === 'Divider') {
+  // Also matches the Drawer Builder's bookcase ("Bookcase side", "Bookcase divider").
+  const kind = part.toLowerCase().replace(/^bookcase /, '');
+  if (kind === 'side') return own[index];
+  if (kind === 'divider') {
     // The primary (left) face goes face-up on the sheet; the right face needs a flip.
-    return own.find(f => f.piece === `Divider ${index + 1}`);
+    return own.find(f => f.piece.toLowerCase().endsWith(`divider ${index + 1}`));
   }
   return own[0];
 }

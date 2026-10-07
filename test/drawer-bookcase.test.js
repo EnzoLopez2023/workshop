@@ -94,3 +94,58 @@ test('the bookcase settings survive a save and the form', () => {
   assert.deepEqual(back.doors, [true, false, true]);
   assert.equal(back.ceilingHeight, 96);
 });
+
+import { drawerGuideSteps } from '../src/lib/drawerGuide.ts';
+import { drawerPartFaces } from '../src/lib/drawerExport.ts';
+import { drawerHardwareList } from '../src/lib/drawerEstimate.ts';
+import { DRAWER_TEMPLATES } from '../src/lib/drawerTemplates.ts';
+import { parseLength } from '../src/lib/shelving.ts';
+
+test('the guide builds the bookcase on the bench, then the counter, the bookcase on it, trim and light', () => {
+  const config = { ...base, bookcase: bookcase({ bays: 2, doors: [true, true], top: { ...DEFAULT_BOOKCASE.top, style: 'crown' }, taskLight: true }) };
+  const p = buildDrawerPlan(config);
+  const guide = drawerGuideSteps(p, config, 'in');
+  const ids = guide.steps.map(s => s.id);
+  for (const id of ['bookcase-dados', 'bookcase-pins', 'bookcase-case', 'countertop', 'bookcase-set', 'bookcase-doors', 'bookcase-top', 'light']) assert.ok(ids.includes(id), id);
+  assert.ok(ids.indexOf('fronts') < ids.indexOf('bookcase-dados') && ids.indexOf('countertop') < ids.indexOf('bookcase-set') && ids.indexOf('bookcase-set') < ids.indexOf('bookcase-top'));
+  const names = new Set(guide.solids.map(s => s.name));
+  assert.equal(names.size, guide.solids.length, 'names are unique');
+  for (const step of guide.steps) {
+    for (const name of [...(step.scene?.visible ?? []), ...(step.scene?.highlight ?? [])]) assert.ok(names.has(name), `${step.id}: ${name}`);
+  }
+  assert.equal(guide.steps.find(s => s.id === 'bookcase-dados').highlightSwatch, 'groove');
+  assert.ok(guide.steps.find(s => s.id === 'countertop').instructions.join(' ').includes('grommet'));
+});
+
+test('CNC: the bookcase panels carry their dados and pin holes; the countertop its grommet', () => {
+  const config = { ...base, bookcase: bookcase({ bays: 2, taskLight: true }) };
+  const p = buildDrawerPlan(config);
+  const faces = drawerPartFaces(p, config);
+  const sides = faces.filter(f => f.part === 'Bookcase side');
+  assert.equal(sides.length, 2);
+  assert.ok(sides.every(f => f.features.some(x => x.kind === 'pocket')), 'dados');
+  assert.ok(faces.some(f => f.part.startsWith('Bookcase divider')));
+  const counter = faces.find(f => f.part === 'Countertop');
+  assert.ok(counter.features.some(x => x.label === 'Cord grommet'));
+  for (const part of sheetParts(p.parts)) assert.ok(faces.some(f => f.part === part.name), part.name);
+});
+
+test('hardware: pins, hinges, an anchor strap, crown by the foot, butcher block and the light', () => {
+  const config = { ...base, bookcase: bookcase({ bays: 2, doors: [true, false], top: { ...DEFAULT_BOOKCASE.top, style: 'crown' }, taskLight: true,
+    countertop: { ...DEFAULT_BOOKCASE.countertop, material: 'butcher' } }) };
+  const keys = drawerHardwareList(buildDrawerPlan(config), config, 'in').map(i => i.key);
+  for (const key of ['bookcase-pins', 'bookcase-hinges', 'bookcase-anchor', 'crown', 'butcher-block', 'figure8', 'led', 'grommet']) assert.ok(keys.includes(key), key);
+  assert.ok(!keys.includes('anti-tip'), 'one strap, not two');
+});
+
+test('the built-in template builds with no errors', () => {
+  const t = DRAWER_TEMPLATES.find(x => x.id === 'built-in-hutch');
+  const f = t.fields;
+  const P = s => parseLength(s, 'in');
+  const config = {
+    ...base, width: P(f.width), height: P(f.height), depth: P(f.depth), drawers: f.drawers, base: f.base, kickHeight: P(f.kickHeight),
+    columns: f.columnDrawers.map(n => ({ drawers: n })),
+    bookcase: bookcaseFromFields(f.bookcase, key => P(f.bookcase[key])),
+  };
+  assert.deepEqual(buildDrawerPlan(config).errors, []);
+});

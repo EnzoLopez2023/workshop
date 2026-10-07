@@ -274,8 +274,10 @@ function convertForm(form: FormState, units: LengthUnit): FormState {
   next.frontHeights = form.frontHeights.map(convert);
   next.columnFronts = form.columnFronts.map(list => list.map(convert));
   next.columnWidths = form.columnWidths.map(w => (w.trim() ? convert(w) : w));
-  next.bookcase = { ...form.bookcase };
-  for (const key of BOOKCASE_LENGTH_KEYS) next.bookcase[key] = form.bookcase[key].trim() ? convert(form.bookcase[key]) : '';
+  if (form.bookcase) {
+    next.bookcase = { ...form.bookcase };
+    for (const key of BOOKCASE_LENGTH_KEYS) next.bookcase[key] = form.bookcase[key]?.trim() ? convert(form.bookcase[key]) : '';
+  }
   return next;
 }
 

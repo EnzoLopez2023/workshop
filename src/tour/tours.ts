@@ -219,9 +219,18 @@ export const TOURS: Record<TourId, Tour> = {
       },
       {
         title: 'Base and mounting',
-        body: ['Stand it on the floor (on MROCO leveling feet or casters), hang it on the wall on a French cleat, or hang it under a desk.'],
+        body: [
+          'Stand it on the floor (on MROCO leveling feet or casters), hang it on the wall on a French cleat, or hang it under a desk.',
+          'For a built-in look, set it on a toe-kick plinth, run the sides down into an integrated toe kick, or use a flush base wrapped in baseboard.',
+        ],
         route: '/drawers',
         target: fieldset('base-mounting'),
+      },
+      {
+        title: 'A bookcase above',
+        body: ['Turn a floor-standing unit into a built-in hutch: a bookcase on a countertop (or straight on the case) with bays, fixed and adjustable shelves, doors, a cap or crown, and a task light. It’s added to the cut list, CNC files, hardware and build guide.'],
+        route: '/drawers',
+        target: fieldset('bookcase'),
       },
       {
         title: 'Finish colours',
