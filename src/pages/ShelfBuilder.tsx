@@ -13,6 +13,7 @@ import ShelfExport from '../components/ShelfExport';
 import ShelfLibrary from '../components/ShelfLibrary';
 import { TutorialButton } from '../tour/TourLaunchers';
 import { useWorkbenchTop } from '../components/useWorkbenchTop';
+import BuilderStepNav, { type BuilderStep } from '../components/BuilderStepNav';
 import type { ShelfTemplate } from '../lib/shelfTemplates';
 import { createLibraryShelfDesign, getLibraryShelfDesign, getProject, getShelfDesign, updateLibraryShelfDesign } from '../services/api';
 import { isDemoMode } from '../demo/demoMode';
@@ -132,6 +133,24 @@ const UNIT_OPTIONS = [
 ] as const;
 
 const LENGTH_FIELDS = ['thickness', 'bayWidth', 'shelfDepth', 'openingHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight', 'stileWidth', 'railWidth', 'frameThickness'] as const;
+
+/** The settings in design order: how big, the case, what's on the front, how it stands, then materials. */
+const SHELF_STEPS: BuilderStep[] = [
+  { id: 'shelf-step-size', label: 'Size' },
+  { id: 'shelf-step-case', label: 'Case' },
+  { id: 'shelf-step-fronts', label: 'Fronts' },
+  { id: 'shelf-step-mounting', label: 'Mounting' },
+  { id: 'shelf-step-materials', label: 'Materials' },
+];
+
+/** Which step a form field lives in (for the step bar's "to fix" badges). */
+function stepOfField(key: string): string {
+  if (key === 'thickness') return 'shelf-step-materials';
+  if (key === 'dadoDepth') return 'shelf-step-case';
+  if (/^(toeKick|cleatHeight)$/.test(key)) return 'shelf-step-mounting';
+  if (/^(stileWidth|railWidth|frameThickness)$/.test(key)) return 'shelf-step-fronts';
+  return 'shelf-step-size';
+}
 
 const HEIGHT_MODE_OPTIONS = [
   { value: 'opening', label: 'Opening height' },
@@ -310,6 +329,7 @@ export default function ShelfBuilder() {
   const navigate = useNavigate();
   // Desktop workbench: the settings and preview fill the window below the page header.
   const layoutRef = useRef<HTMLDivElement>(null);
+  const configRef = useRef<HTMLElement>(null);
   useWorkbenchTop(layoutRef);
   const [form, setForm] = useState<FormState>(readStoredForm);
   const [copyStatus, setCopyStatus] = useState('');
@@ -462,6 +482,12 @@ export default function ShelfBuilder() {
   }, [view]);
 
   const { config, fieldErrors } = useMemo(() => toConfig(form), [form]);
+  // A field that can't be read flags its step, so it's easy to find.
+  const fieldErrorKeys = Object.keys(fieldErrors).join('|');
+  const steps = useMemo(() => SHELF_STEPS.map(step => {
+    const count = fieldErrorKeys ? fieldErrorKeys.split('|').filter(k => stepOfField(k) === step.id).length : 0;
+    return count ? { ...step, badge: `${count} to fix` } : step;
+  }), [fieldErrorKeys]);
   const plan = useMemo(() => (config ? buildShelfPlan(config) : null), [config]);
   const valid = plan !== null && plan.errors.length === 0;
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
@@ -645,7 +671,8 @@ export default function ShelfBuilder() {
       )}
 
       <div className="shelf-layout" ref={layoutRef}>
-        <section className="shelf-config" aria-labelledby="shelf-config-title">
+        <section className="shelf-config" aria-labelledby="shelf-config-title" ref={configRef}>
+          <BuilderStepNav steps={steps} containerRef={configRef} />
           <div className="builder-config-top">
       {loadNotice && (
         <p className={`shelf-source-banner ${loadNotice.tone === 'error' ? 'is-error' : ''}`} role={loadNotice.tone === 'error' ? 'alert' : 'status'}>
@@ -737,41 +764,14 @@ export default function ShelfBuilder() {
           </div>
           <h2 id="shelf-config-title" className="sr-only">Design</h2>
 
+          <div className="builder-step" id="shelf-step-size">
+            <h3 className="builder-step-title">Size &amp; bays</h3>
           <fieldset className="shelf-group" data-tour="fs-units">
             <legend>Units</legend>
             <SegmentedControl label="Units" value={units} options={UNIT_OPTIONS} onChange={next => setForm(prev => convertForm(prev, next))} />
             <p className="shelf-group-note">
               Switching converts every size. Any box also takes the other unit: type <kbd>18mm</kbd> or <kbd>3/4"</kbd>.
             </p>
-          </fieldset>
-
-          <fieldset className="shelf-group" data-tour="fs-material">
-            <legend>Material</legend>
-            <LengthField
-              unit={units}
-              label="Plywood thickness"
-              value={form.thickness}
-              error={fieldErrors.thickness}
-              hint="Use the actual thickness. The back and French cleat use the same stock."
-              onChange={thickness => update({ thickness })}
-            />
-            <div className="shelf-chips" role="group" aria-label="Common plywood thicknesses">
-              {THICKNESS_PRESETS[units].map(preset => {
-                const inches = parseLength(preset, units)!;
-                const current = parseLength(form.thickness, units);
-                return (
-                  <button
-                    key={preset}
-                    type="button"
-                    className="shelf-chip"
-                    aria-pressed={current !== null && Math.abs(current - inches) < 0.002}
-                    onClick={() => update({ thickness: lengthToField(inches, units) })}
-                  >
-                    {preset}
-                  </button>
-                );
-              })}
-            </div>
           </fieldset>
 
           <fieldset className="shelf-group" data-tour="fs-bays">
@@ -906,7 +906,10 @@ export default function ShelfBuilder() {
               </select>
             </label>
           </fieldset>
+          </div>
 
+          <div className="builder-step" id="shelf-step-case">
+            <h3 className="builder-step-title">Case &amp; joinery</h3>
           <fieldset className="shelf-group" data-tour="fs-case">
             <legend>Case</legend>
             <Toggle label="Top panel" checked={form.topPanel} onChange={topPanel => update({ topPanel })} />
@@ -931,6 +934,24 @@ export default function ShelfBuilder() {
             )}
           </fieldset>
 
+          <fieldset className="shelf-group" data-tour="fs-joinery">
+            <legend>Joinery</legend>
+            <SegmentedControl label="Shelf joinery" value={form.joinery} options={JOINERY_OPTIONS} onChange={joinery => update({ joinery })} />
+            {form.joinery === 'dado' && (
+              <LengthField
+                unit={units}
+                label="Dado depth"
+                value={form.dadoDepth}
+                error={fieldErrors.dadoDepth}
+                hint="Shelves, top, and bottom grow by twice this depth. About 1/3 of the thickness is typical."
+                onChange={dadoDepth => update({ dadoDepth })}
+              />
+            )}
+          </fieldset>
+          </div>
+
+          <div className="builder-step" id="shelf-step-fronts">
+            <h3 className="builder-step-title">Face frame, doors &amp; edges</h3>
           <fieldset className="shelf-group" data-tour="fs-face-frame-doors-edges">
             <legend>Face frame, doors &amp; edges</legend>
             <Toggle
@@ -981,22 +1002,10 @@ export default function ShelfBuilder() {
               </span>
             </div>
           </fieldset>
+          </div>
 
-          <fieldset className="shelf-group" data-tour="fs-joinery">
-            <legend>Joinery</legend>
-            <SegmentedControl label="Shelf joinery" value={form.joinery} options={JOINERY_OPTIONS} onChange={joinery => update({ joinery })} />
-            {form.joinery === 'dado' && (
-              <LengthField
-                unit={units}
-                label="Dado depth"
-                value={form.dadoDepth}
-                error={fieldErrors.dadoDepth}
-                hint="Shelves, top, and bottom grow by twice this depth. About 1/3 of the thickness is typical."
-                onChange={dadoDepth => update({ dadoDepth })}
-              />
-            )}
-          </fieldset>
-
+          <div className="builder-step" id="shelf-step-mounting">
+            <h3 className="builder-step-title">Mounting</h3>
           <fieldset className="shelf-group" data-tour="fs-mounting">
             <legend>Mounting</legend>
             <SegmentedControl label="Mounting" value={form.mounting} options={MOUNTING_OPTIONS} onChange={mounting => update({ mounting })} />
@@ -1031,6 +1040,46 @@ export default function ShelfBuilder() {
               </>
             )}
           </fieldset>
+          </div>
+
+          <div className="builder-step" id="shelf-step-materials">
+            <h3 className="builder-step-title">Materials</h3>
+          <fieldset className="shelf-group" data-tour="fs-material">
+            <legend>Material</legend>
+            <LengthField
+              unit={units}
+              label="Plywood thickness"
+              value={form.thickness}
+              error={fieldErrors.thickness}
+              hint="Use the actual thickness. The back and French cleat use the same stock."
+              onChange={thickness => update({ thickness })}
+            />
+            <div className="shelf-chips" role="group" aria-label="Common plywood thicknesses">
+              {THICKNESS_PRESETS[units].map(preset => {
+                const inches = parseLength(preset, units)!;
+                const current = parseLength(form.thickness, units);
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    className="shelf-chip"
+                    aria-pressed={current !== null && Math.abs(current - inches) < 0.002}
+                    onClick={() => update({ thickness: lengthToField(inches, units) })}
+                  >
+                    {preset}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+          </div>
+
+
+
+
+
+
+
         </section>
 
         <section className="shelf-preview" aria-labelledby="shelf-preview-title">
@@ -1046,6 +1095,19 @@ export default function ShelfBuilder() {
                 <Stat label="Side depth" value={fmt(plan.sideDepth)} accent={plan.sideDepth !== config?.shelfDepth} />
                 <Stat label="Parts" value={String(plan.parts.reduce((s, p) => s + p.qty, 0))} />
               </dl>
+              {(plan.errors.length > 0 || plan.warnings.length + sagWarnings.length > 0) && (
+                <details className="builder-issues" open={plan.errors.length > 0}>
+                  <summary>
+                    {plan.errors.length > 0
+                      ? <><AlertCircle size={16} aria-hidden="true" /> {plan.errors.length} thing{plan.errors.length === 1 ? '' : 's'} to fix</>
+                      : <AlertTriangle size={16} aria-hidden="true" />}
+                    {plan.errors.length > 0 && plan.warnings.length + sagWarnings.length > 0 ? ' · ' : ' '}
+                    {plan.warnings.length + sagWarnings.length > 0 ? `${plan.warnings.length + sagWarnings.length} note${plan.warnings.length + sagWarnings.length === 1 ? '' : 's'}` : ''}
+                  </summary>
+                  {plan.errors.length > 0 && <ul className="drawer-error-list" role="alert">{plan.errors.map(e => <li key={e}>{e}</li>)}</ul>}
+                  {plan.warnings.length + sagWarnings.length > 0 && <ul className="builder-notes" role="status">{[...plan.warnings, ...sagWarnings].map(w => <li key={w}>{w}</li>)}</ul>}
+                </details>
+              )}
               {view === '3d' && valid ? (
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
                   <ShelfViewer3D
@@ -1070,19 +1132,6 @@ export default function ShelfBuilder() {
         </section>
       </div>
 
-      {plan && plan.errors.length > 0 && (
-        <div className="inline-error shelf-banner" role="alert">
-          <AlertCircle size={16} aria-hidden="true" />
-          <span>{plan.errors.join(' ')}</span>
-        </div>
-      )}
-      {plan && plan.warnings.length + sagWarnings.length > 0 && (
-        <ul className="shelf-warnings" role="status">
-          {[...plan.warnings, ...sagWarnings].map(w => (
-            <li key={w}><AlertTriangle size={16} aria-hidden="true" /> {w}</li>
-          ))}
-        </ul>
-      )}
 
       {plan && valid && (
         <>

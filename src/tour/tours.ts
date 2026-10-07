@@ -347,6 +347,12 @@ export const TOURS: Record<TourId, Tour> = {
         actionHint: 'open the library',
       },
       {
+        title: 'Work through the steps',
+        body: ['The settings run in design order: size and bays, the case and joinery, face frame and doors, mounting, then materials. Jump between them here; anything to fix shows at the top of the preview.'],
+        route: '/shelves',
+        target: '.builder-step-nav',
+      },
+      {
         title: 'Units',
         body: ['Inches or millimetres; every size converts, and any box takes the other unit.'],
         route: '/shelves',
