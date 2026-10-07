@@ -22,10 +22,12 @@ interface Props {
   fmt: (inches: number) => string;
   /** The cabinet's width, as typed (every cabinet in the run is this design). */
   cabinetWidth: string;
+  /** Why it can't be turned on right now. */
+  conflict?: string;
   onChange: (patch: Partial<RunFields>) => void;
 }
 
-export default function DrawerRunFields({ value: r, units, errors, plan, fmt, cabinetWidth, onChange }: Props) {
+export default function DrawerRunFields({ value: r, units, errors, plan, fmt, cabinetWidth, conflict, onChange }: Props) {
   const run = plan?.run ?? null;
   const setSection = (i: number, patch: Partial<RunFields['sections'][number]>) =>
     onChange({ sections: r.sections.map((s, k) => (k === i ? { ...s, ...patch } : s)) });
@@ -41,8 +43,10 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
   return (
     <fieldset className="shelf-group" data-tour="fs-wall-run">
       <legend>Wall run</legend>
+      {conflict && !r.enabled && <p className="shelf-group-note">{conflict}</p>}
       <Toggle
         label="Build a wall of built-ins"
+        disabled={!!conflict && !r.enabled}
         checked={r.enabled}
         hint="Copies of this cabinet with desk gaps between them and fillers scribed to the walls, under one countertop — and the bookcase over each, if it’s on."
         onChange={enabled => onChange({ enabled })}

@@ -71,6 +71,7 @@ import { BOOKCASE_LENGTH_KEYS, bookcaseFromFields, bookcaseToFields, valanceSpan
 import { runFromFields, runToFields } from '../lib/drawerRun';
 import DrawerRunFields from '../components/DrawerRunFields';
 import { useWorkbenchTop } from '../components/useWorkbenchTop';
+import BuilderStepNav, { type BuilderStep } from '../components/BuilderStepNav';
 import DrawerBookcaseFields from '../components/DrawerBookcaseFields';
 import { MARKER_PRESETS } from '../lib/drawerInserts';
 import { PRINTER_BEDS } from '../lib/gridfinity';
@@ -211,6 +212,26 @@ const PULL_OPTIONS = [
   { value: 'wide', label: 'Wide notch', hint: `A long slot across nearly the whole front, stopping 2″ from each end.` },
   { value: 'handhole', label: 'Hand hole', hint: 'A rounded hole cut through the front, just below the top edge.' },
 ] as const;
+
+/** The settings, in the order you'd design a cabinet: how big, how it looks, what it stands on, extras, then the details. */
+const DRAWER_STEPS: BuilderStep[] = [
+  { id: 'drawer-step-size', label: 'Size' },
+  { id: 'drawer-step-look', label: 'Fronts' },
+  { id: 'drawer-step-base', label: 'Base' },
+  { id: 'drawer-step-builtins', label: 'Built-ins' },
+  { id: 'drawer-step-inside', label: 'Inside' },
+  { id: 'drawer-step-materials', label: 'Materials' },
+];
+
+/** Which step a form field lives in (for the step bar's "to fix" badges). */
+function stepOfField(key: string): string {
+  if (/^(thickness|boxThickness|bottomThickness|backThickness)$/.test(key)) return 'drawer-step-materials';
+  if (/^(pull|hardware|profile|bandingThickness)/.test(key)) return 'drawer-step-look';
+  if (/^(footHeight|casterHeight|kick|baseboard|mountHeight|cleatHeight)/.test(key)) return 'drawer-step-base';
+  if (/^(bookcase|run|desk)/.test(key)) return 'drawer-step-builtins';
+  if (/^(insertThickness|marker|tool)/.test(key)) return 'drawer-step-inside';
+  return 'drawer-step-size';
+}
 
 const PROFILE_OPTIONS = [
   { value: 'slab', label: 'Slab' },
@@ -548,7 +569,14 @@ export default function DrawerBuilder() {
   const valid = plan !== null && plan.errors.length === 0;
   // Desktop workbench: the settings and preview fill the window below the page header.
   const layoutRef = useRef<HTMLDivElement>(null);
+  const configRef = useRef<HTMLElement>(null);
   useWorkbenchTop(layoutRef);
+  // A field that can't be read flags its step, so it's easy to find in a long column.
+  const fieldErrorKeys = Object.keys(fieldErrors).join('|');
+  const steps = useMemo(() => DRAWER_STEPS.map(step => {
+    const count = fieldErrorKeys ? fieldErrorKeys.split('|').filter(k => stepOfField(k) === step.id).length : 0;
+    return count ? { ...step, badge: `${count} to fix` } : step;
+  }), [fieldErrorKeys]);
 
   const solids = useMemo(() => (plan && config && valid ? (plan.run ? runSolids(plan, config) : plan.desk ? deskSolids(plan, config) : drawerSolids(plan, config)) : []), [plan, config, valid]);
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
@@ -1016,7 +1044,8 @@ export default function DrawerBuilder() {
       />
 
       <div className="shelf-layout" ref={layoutRef}>
-        <section className="shelf-config" aria-labelledby="drawer-config-title">
+        <section className="shelf-config" aria-labelledby="drawer-config-title" ref={configRef}>
+          <BuilderStepNav steps={steps} containerRef={configRef} />
           <div className="builder-config-top">
       <section className="drawer-templates" aria-labelledby="drawer-templates-title">
         <h2 id="drawer-templates-title">Start from</h2>
@@ -1146,30 +1175,14 @@ export default function DrawerBuilder() {
           </div>
           <h2 id="drawer-config-title" className="sr-only">Design</h2>
 
+          <div className="builder-step" id="drawer-step-size">
+            <h3 className="builder-step-title">Size &amp; layout</h3>
           <fieldset className="shelf-group" data-tour="fs-units">
             <legend>Units</legend>
             <SegmentedControl label="Units" value={units} options={UNIT_OPTIONS} onChange={next => setForm(prev => convertForm(prev, next))} />
             <p className="shelf-group-note">
               Switching converts every size. Any box also takes the other unit: type <kbd>18mm</kbd> or <kbd>3/4"</kbd>.
             </p>
-          </fieldset>
-
-          <fieldset className="shelf-group" data-tour="fs-material">
-            <legend>Material</legend>
-            <LengthField
-              unit={units}
-              label="Case and front plywood"
-              value={form.thickness}
-              error={fieldErrors.thickness}
-              hint="Sides, top, bottom and the drawer fronts."
-              onChange={thickness => update({ thickness })}
-            />
-            {thicknessChips('thickness', THICKNESS_PRESETS[units])}
-            <div className="shelf-field-grid">
-              <LengthField unit={units} label="Drawer box plywood" value={form.boxThickness} error={fieldErrors.boxThickness} onChange={boxThickness => update({ boxThickness })} />
-              <LengthField unit={units} label="Drawer bottoms" value={form.bottomThickness} error={fieldErrors.bottomThickness} onChange={bottomThickness => update({ bottomThickness })} />
-              <LengthField unit={units} label="Case back" value={form.backThickness} error={fieldErrors.backThickness} onChange={backThickness => update({ backThickness })} />
-            </div>
           </fieldset>
 
           <fieldset className="shelf-group" data-tour="fs-size">
@@ -1202,10 +1215,15 @@ export default function DrawerBuilder() {
                 />
               )}
             </div>
+            {(form.heightMode !== 'overall' || form.desk) && (
+              <p className="shelf-group-note">
+                Overall height{plan ? ` ${fmt(plan.overallHeight)}` : ''}: {form.desk ? 'set by the desk height (under Built-ins)' : 'the fronts add up to it (under Drawers & doors)'}.
+              </p>
+            )}
           </fieldset>
 
           <fieldset className="shelf-group" data-tour="fs-drawers">
-            <legend>Drawers</legend>
+            <legend>Drawers &amp; doors</legend>
             <div className="shelf-height-mode">
               <SegmentedControl label="Set the height by" value={form.heightMode} options={HEIGHT_MODE_OPTIONS} onChange={setHeightMode} />
               <small>
@@ -1318,6 +1336,46 @@ export default function DrawerBuilder() {
                 Fronts {fmt(plan.drawers[0].front.height)} tall; boxes {[...new Set(plan.drawers.filter(d => !d.open).map(d => fmt(d.box.height)))].join(' and ')}.
               </p>
             )}
+            <div className="form-field">
+              <span className="form-field-label">Each position, top to bottom</span>
+              <div className="drawer-inserts">
+                {form.insertKinds.slice(0, form.drawers).map((kind, i) => {
+                  const type = kind === 'door' ? 'door' : kind === 'cubby' ? 'cubby' : 'drawer';
+                  return (
+                    <div className="drawer-insert-row" key={i}>
+                      <span className="form-field-label" id={`position-${i}`}>{drawerLabel(i)}</span>
+                      <select aria-labelledby={`position-${i}`} value={type}
+                        onChange={e => setInsert(i, { insertKinds: e.target.value === 'drawer' ? 'none' : e.target.value as FormState['insertKinds'][number] })}>
+                        <option value="drawer">Drawer</option>
+                        <option value="door">Door</option>
+                        <option value="cubby">Open cubby</option>
+                      </select>
+                      {kind === 'door' && (
+                        <span className="drawer-insert-grid">
+                          <select aria-label={`${drawerLabel(i)} hinge`} value={form.doorHinges[i] ?? 'auto'} onChange={e => setForm(prev => ({ ...prev, doorHinges: prev.doorHinges.map((v, k) => (k === i ? e.target.value as FormState['doorHinges'][number] : v)) }))}>
+                            <option value="auto">Hinges: automatic</option>
+                            <option value="left">Hinged left</option>
+                            <option value="right">Hinged right</option>
+                            <option value="pair">Pair of doors</option>
+                          </select>
+                          <select aria-label={`${drawerLabel(i)} inside`} value={form.doorInside[i] ?? 'shelves'} onChange={e => setForm(prev => ({ ...prev, doorInside: prev.doorInside.map((v, k) => (k === i ? e.target.value as FormState['doorInside'][number] : v)) }))}>
+                            <option value="empty">Empty inside</option>
+                            <option value="shelves">Adjustable shelves</option>
+                            <option value="trays">Pull-out trays</option>
+                          </select>
+                          {(form.doorInside[i] ?? 'shelves') !== 'empty' && (
+                            <Stepper labelledBy={`position-${i}`} value={form.doorCounts[i] ?? 1} min={1} max={6}
+                              onChange={v => setForm(prev => ({ ...prev, doorCounts: prev.doorCounts.map((c, k) => (k === i ? Math.max(1, Math.min(6, v)) : c)) }))}
+                              noun={(form.doorInside[i] ?? 'shelves') === 'trays' ? 'tray' : 'shelf'} />
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <small>A door can go over any opening — under a drawer, kitchen-style, or a whole column. Open cubbies get a fixed shelf for a floor.</small>
+            </div>
             <span className="shelf-source-actions">
               <Button variant="ghost" onClick={shallowTopDrawer} disabled={!plan || (form.columns > 1 ? form.columnDrawers.some(n => n < 2) : form.drawers < 2)}>
                 Shallow top drawer{form.columns > 1 ? 's' : ''} (pencil tray)
@@ -1338,7 +1396,10 @@ export default function DrawerBuilder() {
               )}
             </label>
           </fieldset>
+          </div>
 
+          <div className="builder-step" id="drawer-step-look">
+            <h3 className="builder-step-title">Fronts &amp; finish</h3>
           <fieldset className="shelf-group" data-tour="fs-finger-pull">
             <legend>Fronts &amp; pulls</legend>
             <div className="shelf-height-mode">
@@ -1405,12 +1466,187 @@ export default function DrawerBuilder() {
             )}
           </fieldset>
 
+          <fieldset className="shelf-group" data-tour="fs-finish">
+            <legend>Finish</legend>
+            {([['finishFront', 'Drawer fronts'], ['finishCase', 'Case and top']] as const).map(([key, label]) => (
+              <div className="shelf-height-mode" key={key}>
+                <span className="form-field-label">{label}</span>
+                <div className="drawer-swatches" role="group" aria-label={`${label} colour`}>
+                  {FINISH_COLORS.map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className="drawer-swatch"
+                      style={{ background: c.hex }}
+                      aria-pressed={form[key].toLowerCase() === c.hex}
+                      aria-label={c.label}
+                      title={c.label}
+                      onClick={() => update({ [key]: c.hex })}
+                    />
+                  ))}
+                  <label className="drawer-swatch is-custom" title="Any colour">
+                    <input type="color" value={form[key]} onChange={e => update({ [key]: e.target.value })} aria-label={`Custom ${label.toLowerCase()} colour`} />
+                  </label>
+                </div>
+              </div>
+            ))}
+            <p className="shelf-group-note">For the 3D view and build guide; the cost estimate counts paint or clear finish either way.</p>
+          </fieldset>
+
+          <fieldset className="shelf-group" data-tour="fs-edges">
+            <legend>Edges</legend>
+            <Toggle
+              label="Edge banding"
+              checked={form.edgeBanding}
+              hint="Bands the case front edges and the straight edges of each drawer front; parts are cut smaller so they finish at size. Sand and finish the pull notch instead."
+              onChange={edgeBanding => update({ edgeBanding })}
+            />
+            {form.edgeBanding && (
+              <div className="shelf-chips" role="group" aria-label="Edge banding thickness">
+                {BANDING_PRESETS.map(p => (
+                  <button key={p.value} type="button" className="shelf-chip" aria-pressed={form.bandingThickness === p.value} onClick={() => update({ bandingThickness: p.value })}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </fieldset>
+          </div>
+
+          <div className="builder-step" id="drawer-step-base">
+            <h3 className="builder-step-title">Base</h3>
+          <fieldset className="shelf-group" data-tour="fs-base-mounting">
+            <legend>Base &amp; mounting</legend>
+            <SegmentedControl
+              label="Mounting"
+              value={form.mount}
+              options={MOUNT_OPTIONS}
+              onChange={mount => update({ mount, mountHeight: form.mount === mount ? form.mountHeight : lengthToField(mount === 'under-desk' ? 27.5 : 30, units) })}
+            />
+            {form.mount === 'wall' && (
+              <div className="shelf-field-grid">
+                <LengthField unit={units} label="Bottom above the floor" value={form.mountHeight} error={fieldErrors.mountHeight} hint="Where it hangs, for the 3D view and the hanging step." onChange={mountHeight => update({ mountHeight })} />
+                <LengthField unit={units} label="Cleat height" value={form.cleatHeight} error={fieldErrors.cleatHeight} hint="The back moves forward by the cleat’s thickness; the sides hide it." onChange={cleatHeight => update({ cleatHeight })} />
+              </div>
+            )}
+            {form.mount === 'under-desk' && (
+              <LengthField unit={units} label="Desk underside above the floor" value={form.mountHeight} error={fieldErrors.mountHeight} hint="It’s screwed up through its top into the desk." onChange={mountHeight => update({ mountHeight })} />
+            )}
+            {form.mount === 'floor' && (
+              <label className="form-field">
+                <span className="form-field-label">Base</span>
+                <select value={form.base} onChange={e => update({ base: e.target.value as DrawerBase })}>
+                  {(Object.keys(BASE_LABELS) as DrawerBase[]).map(key => <option key={key} value={key}>{BASE_LABELS[key]}</option>)}
+                </select>
+                <small>{BASE_HINTS[form.base]}</small>
+              </label>
+            )}
+            {form.mount === 'floor' && isKickBase(form.base) && (
+              <div className="shelf-field-grid">
+                <LengthField unit={units} label={form.base === 'flush' ? 'Plinth height' : 'Toe-kick height'} value={form.kickHeight} error={fieldErrors.kickHeight} hint="Floor to the underside of the case; 4″ is typical." onChange={kickHeight => update({ kickHeight })} />
+                {form.base !== 'flush' && (
+                  <LengthField unit={units} label="Kick setback" value={form.kickSetback} error={fieldErrors.kickSetback} hint="How far the kick board sits behind the case front." onChange={kickSetback => update({ kickSetback })} />
+                )}
+                {form.base === 'flush' && (
+                  <>
+                    <LengthField unit={units} label="Baseboard height" value={form.baseboardHeight} error={fieldErrors.baseboardHeight} placeholder="Auto" hint={plan?.base?.baseboard ? `Leave blank for ${fmt(plan.base.baseboard.height)}: just over the plinth joint, clear of the fronts.` : 'Leave blank to lap just over the plinth joint.'} onChange={baseboardHeight => update({ baseboardHeight })} />
+                    <LengthField unit={units} label="Baseboard thickness" value={form.baseboardThickness} error={fieldErrors.baseboardThickness} onChange={baseboardThickness => update({ baseboardThickness })} />
+                  </>
+                )}
+              </div>
+            )}
+            {form.mount === 'floor' && (form.base === 'plinth' || form.base === 'flush' || form.bookcase.enabled) && (
+              <div className="shelf-field-grid">
+                <Toggle label="Left end shows" checked={form.exposedLeft} hint={form.base === 'flush' ? 'The baseboard wraps around it.' : form.base === 'plinth' ? 'The plinth sets back on this side too.' : 'The countertop and top trim overhang it.'} onChange={exposedLeft => update({ exposedLeft })} />
+                <Toggle label="Right end shows" checked={form.exposedRight} hint="Off when it’s against a wall or another cabinet." onChange={exposedRight => update({ exposedRight })} />
+              </div>
+            )}
+            {form.mount === 'floor' && form.base === 'feet' && (
+              <LengthField
+                unit={units}
+                label="Gap under the case"
+                value={form.footHeight}
+                error={fieldErrors.footHeight}
+                onChange={footHeight => update({ footHeight })}
+              />
+            )}
+            {form.mount === 'floor' && form.base === 'casters' && (
+              <LengthField
+                unit={units}
+                label="Caster height"
+                value={form.casterHeight}
+                error={fieldErrors.casterHeight}
+                hint="Mounted height, floor to the top of the plate."
+                onChange={casterHeight => update({ casterHeight })}
+              />
+            )}
+            {plan && plan.supports > 0 && (
+              <p className="shelf-group-note">{plan.supports} {form.base === 'feet' ? 'feet' : 'casters'}{plan.supports === 6 ? ' — a middle pair, since the unit is wide' : ''}.</p>
+            )}
+          </fieldset>
+          </div>
+
+          <div className="builder-step" id="drawer-step-builtins">
+            <h3 className="builder-step-title">Built-ins</h3>
+          <DrawerBookcaseFields
+            value={form.bookcase}
+            units={units}
+            errors={Object.fromEntries(Object.entries(fieldErrors).filter(([k]) => k.startsWith('bookcase.')).map(([k, v]) => [k.slice(9), v]))}
+            plan={plan}
+            fmt={fmt}
+            onChange={patch => update({ bookcase: { ...form.bookcase, ...patch } })}
+          />
+
+          <DrawerRunFields
+            value={form.run}
+            units={units}
+            errors={Object.fromEntries(Object.entries(fieldErrors).filter(([k]) => k.startsWith('run.')).map(([k, v]) => [k.slice(4), v]))}
+            plan={plan}
+            fmt={fmt}
+            cabinetWidth={form.width}
+            conflict={form.desk ? 'The desk top (below) and a wall run don’t mix — the run’s desk gaps replace it. Turn the desk off to build a run.' : undefined}
+            onChange={patch => update({ run: { ...form.run, ...patch } })}
+          />
+
+          <fieldset className="shelf-group" data-tour="fs-desk">
+            <legend>Desk</legend>
+            {form.run?.enabled && <p className="shelf-group-note">The wall run’s desk gaps do this job — turn the wall run off to use a desk top instead.</p>}
+            <Toggle
+              disabled={form.run?.enabled}
+              label="Put the units under a desk top"
+              checked={form.desk}
+              hint="Like a desk on two ALEX units: a plywood top on one unit at each end, or one unit at one end. The units are sized to fit under it."
+              onChange={desk => update({ desk })}
+            />
+            {form.desk && (
+              <>
+                <SegmentedControl label="Units" value={form.deskLayout} options={DESK_LAYOUT_OPTIONS} onChange={deskLayout => update({ deskLayout })} />
+                <div className="shelf-field-grid">
+                  <LengthField unit={units} label="Desk width" value={form.deskWidth} error={fieldErrors.deskWidth}
+                    hint={plan?.desk ? `${fmt(plan.desk.knee)} knee space` : undefined} onChange={deskWidth => update({ deskWidth })} />
+                  <LengthField unit={units} label="Desk height" value={form.deskHeight} error={fieldErrors.deskHeight}
+                    hint={plan?.desk ? `Units ${fmt(plan.desk.height - plan.desk.topThickness)} tall` : 'Floor to the top; 29–30″ is typical.'} onChange={deskHeight => update({ deskHeight })} />
+                  <LengthField unit={units} label="Desk depth" value={form.deskDepth} error={fieldErrors.deskDepth} onChange={deskDepth => update({ deskDepth })} />
+                </div>
+                <SegmentedControl label="Top" value={String(form.deskTopLayers) as '1' | '2'} options={TOP_LAYER_OPTIONS} onChange={v => update({ deskTopLayers: v === '1' ? 1 : 2 })} />
+                {form.heightMode === 'fronts' && (
+                  <small>With “Each front”, the fronts must add up to the space under the top — use “Make equal” to fit them.</small>
+                )}
+              </>
+            )}
+          </fieldset>
+          </div>
+
+          <div className="builder-step" id="drawer-step-inside">
+            <h3 className="builder-step-title">Inside</h3>
           <fieldset className="shelf-group" data-tour="fs-inside-the-drawers">
             <legend>Inside the drawers</legend>
-            <p className="shelf-group-note">An egg-crate divider grid, a tray of notched ribs that holds markers lying front to back, or a printed Gridfinity baseplate for modular bins.</p>
+            <p className="shelf-group-note">For each drawer: an egg-crate divider grid, a tray of notched ribs that holds markers lying front to back, or a printed Gridfinity baseplate for modular bins.</p>
             <div className="drawer-inserts">
               {form.insertKinds.slice(0, form.drawers).map((kind, i) => {
                 const layout = plan?.inserts[i];
+                // Doors and open cubbies are chosen under Drawers & doors; only drawers take inserts.
+                if (kind === 'cubby' || kind === 'door') return null;
                 return (
                   <div className="drawer-insert-row" key={i}>
                     <span className="form-field-label" id={`insert-${i}`}>{drawerLabel(i)}</span>
@@ -1420,29 +1656,7 @@ export default function DrawerBuilder() {
                       <option value="markers">Marker tray</option>
                       <option value="gridfinity">Gridfinity baseplate</option>
                       <option value="tools">Tool shadow board</option>
-                      <option value="cubby">Open cubby (no drawer)</option>
-                      <option value="door">Door (no drawer)</option>
                     </select>
-                    {kind === 'door' && (
-                      <span className="drawer-insert-grid">
-                        <select aria-label={`${drawerLabel(i)} hinge`} value={form.doorHinges[i] ?? 'auto'} onChange={e => setForm(prev => ({ ...prev, doorHinges: prev.doorHinges.map((v, k) => (k === i ? e.target.value as FormState['doorHinges'][number] : v)) }))}>
-                          <option value="auto">Hinges: automatic</option>
-                          <option value="left">Hinged left</option>
-                          <option value="right">Hinged right</option>
-                          <option value="pair">Pair of doors</option>
-                        </select>
-                        <select aria-label={`${drawerLabel(i)} inside`} value={form.doorInside[i] ?? 'shelves'} onChange={e => setForm(prev => ({ ...prev, doorInside: prev.doorInside.map((v, k) => (k === i ? e.target.value as FormState['doorInside'][number] : v)) }))}>
-                          <option value="empty">Empty inside</option>
-                          <option value="shelves">Adjustable shelves</option>
-                          <option value="trays">Pull-out trays</option>
-                        </select>
-                        {(form.doorInside[i] ?? 'shelves') !== 'empty' && (
-                          <Stepper labelledBy={`insert-${i}`} value={form.doorCounts[i] ?? 1} min={1} max={6}
-                            onChange={v => setForm(prev => ({ ...prev, doorCounts: prev.doorCounts.map((c, k) => (k === i ? Math.max(1, Math.min(6, v)) : c)) }))}
-                            noun={(form.doorInside[i] ?? 'shelves') === 'trays' ? 'tray' : 'shelf'} />
-                        )}
-                      </span>
-                    )}
                     {kind === 'grid' && (
                       <span className="drawer-insert-grid">
                         <Stepper labelledBy={`insert-${i}`} value={form.gridColumns[i] ?? 2} min={1} max={12} onChange={v => setInsert(i, { gridColumns: Math.max(1, Math.min(12, v)) })} noun="column" />
@@ -1530,32 +1744,6 @@ export default function DrawerBuilder() {
             )}
           </fieldset>
 
-          <fieldset className="shelf-group" data-tour="fs-desk">
-            <legend>Desk</legend>
-            <Toggle
-              label="Put the units under a desk top"
-              checked={form.desk}
-              hint="Like a desk on two ALEX units: a plywood top on one unit at each end, or one unit at one end. The units are sized to fit under it."
-              onChange={desk => update({ desk })}
-            />
-            {form.desk && (
-              <>
-                <SegmentedControl label="Units" value={form.deskLayout} options={DESK_LAYOUT_OPTIONS} onChange={deskLayout => update({ deskLayout })} />
-                <div className="shelf-field-grid">
-                  <LengthField unit={units} label="Desk width" value={form.deskWidth} error={fieldErrors.deskWidth}
-                    hint={plan?.desk ? `${fmt(plan.desk.knee)} knee space` : undefined} onChange={deskWidth => update({ deskWidth })} />
-                  <LengthField unit={units} label="Desk height" value={form.deskHeight} error={fieldErrors.deskHeight}
-                    hint={plan?.desk ? `Units ${fmt(plan.desk.height - plan.desk.topThickness)} tall` : 'Floor to the top; 29–30″ is typical.'} onChange={deskHeight => update({ deskHeight })} />
-                  <LengthField unit={units} label="Desk depth" value={form.deskDepth} error={fieldErrors.deskDepth} onChange={deskDepth => update({ deskDepth })} />
-                </div>
-                <SegmentedControl label="Top" value={String(form.deskTopLayers) as '1' | '2'} options={TOP_LAYER_OPTIONS} onChange={v => update({ deskTopLayers: v === '1' ? 1 : 2 })} />
-                {form.heightMode === 'fronts' && (
-                  <small>With “Each front”, the fronts must add up to the space under the top — use “Make equal” to fit them.</small>
-                )}
-              </>
-            )}
-          </fieldset>
-
           <fieldset className="shelf-group" data-tour="fs-slides">
             <legend>Slides</legend>
             <label className="form-field">
@@ -1586,141 +1774,41 @@ export default function DrawerBuilder() {
               </div>
             )}
           </fieldset>
+          </div>
 
-          <fieldset className="shelf-group" data-tour="fs-base-mounting">
-            <legend>Base &amp; mounting</legend>
-            <SegmentedControl
-              label="Mounting"
-              value={form.mount}
-              options={MOUNT_OPTIONS}
-              onChange={mount => update({ mount, mountHeight: form.mount === mount ? form.mountHeight : lengthToField(mount === 'under-desk' ? 27.5 : 30, units) })}
+          <div className="builder-step" id="drawer-step-materials">
+            <h3 className="builder-step-title">Materials</h3>
+          <fieldset className="shelf-group" data-tour="fs-material">
+            <legend>Material</legend>
+            <LengthField
+              unit={units}
+              label="Case and front plywood"
+              value={form.thickness}
+              error={fieldErrors.thickness}
+              hint="Sides, top, bottom and the drawer fronts."
+              onChange={thickness => update({ thickness })}
             />
-            {form.mount === 'wall' && (
-              <div className="shelf-field-grid">
-                <LengthField unit={units} label="Bottom above the floor" value={form.mountHeight} error={fieldErrors.mountHeight} hint="Where it hangs, for the 3D view and the hanging step." onChange={mountHeight => update({ mountHeight })} />
-                <LengthField unit={units} label="Cleat height" value={form.cleatHeight} error={fieldErrors.cleatHeight} hint="The back moves forward by the cleat’s thickness; the sides hide it." onChange={cleatHeight => update({ cleatHeight })} />
-              </div>
-            )}
-            {form.mount === 'under-desk' && (
-              <LengthField unit={units} label="Desk underside above the floor" value={form.mountHeight} error={fieldErrors.mountHeight} hint="It’s screwed up through its top into the desk." onChange={mountHeight => update({ mountHeight })} />
-            )}
-            {form.mount === 'floor' && (
-              <label className="form-field">
-                <span className="form-field-label">Base</span>
-                <select value={form.base} onChange={e => update({ base: e.target.value as DrawerBase })}>
-                  {(Object.keys(BASE_LABELS) as DrawerBase[]).map(key => <option key={key} value={key}>{BASE_LABELS[key]}</option>)}
-                </select>
-                <small>{BASE_HINTS[form.base]}</small>
-              </label>
-            )}
-            {form.mount === 'floor' && isKickBase(form.base) && (
-              <div className="shelf-field-grid">
-                <LengthField unit={units} label={form.base === 'flush' ? 'Plinth height' : 'Toe-kick height'} value={form.kickHeight} error={fieldErrors.kickHeight} hint="Floor to the underside of the case; 4″ is typical." onChange={kickHeight => update({ kickHeight })} />
-                {form.base !== 'flush' && (
-                  <LengthField unit={units} label="Kick setback" value={form.kickSetback} error={fieldErrors.kickSetback} hint="How far the kick board sits behind the case front." onChange={kickSetback => update({ kickSetback })} />
-                )}
-                {form.base === 'flush' && (
-                  <>
-                    <LengthField unit={units} label="Baseboard height" value={form.baseboardHeight} error={fieldErrors.baseboardHeight} placeholder="Auto" hint={plan?.base?.baseboard ? `Leave blank for ${fmt(plan.base.baseboard.height)}: just over the plinth joint, clear of the fronts.` : 'Leave blank to lap just over the plinth joint.'} onChange={baseboardHeight => update({ baseboardHeight })} />
-                    <LengthField unit={units} label="Baseboard thickness" value={form.baseboardThickness} error={fieldErrors.baseboardThickness} onChange={baseboardThickness => update({ baseboardThickness })} />
-                  </>
-                )}
-              </div>
-            )}
-            {form.mount === 'floor' && (form.base === 'plinth' || form.base === 'flush' || form.bookcase.enabled) && (
-              <div className="shelf-field-grid">
-                <Toggle label="Left end shows" checked={form.exposedLeft} hint={form.base === 'flush' ? 'The baseboard wraps around it.' : form.base === 'plinth' ? 'The plinth sets back on this side too.' : 'The countertop and top trim overhang it.'} onChange={exposedLeft => update({ exposedLeft })} />
-                <Toggle label="Right end shows" checked={form.exposedRight} hint="Off when it’s against a wall or another cabinet." onChange={exposedRight => update({ exposedRight })} />
-              </div>
-            )}
-            {form.mount === 'floor' && form.base === 'feet' && (
-              <LengthField
-                unit={units}
-                label="Gap under the case"
-                value={form.footHeight}
-                error={fieldErrors.footHeight}
-                onChange={footHeight => update({ footHeight })}
-              />
-            )}
-            {form.mount === 'floor' && form.base === 'casters' && (
-              <LengthField
-                unit={units}
-                label="Caster height"
-                value={form.casterHeight}
-                error={fieldErrors.casterHeight}
-                hint="Mounted height, floor to the top of the plate."
-                onChange={casterHeight => update({ casterHeight })}
-              />
-            )}
-            {plan && plan.supports > 0 && (
-              <p className="shelf-group-note">{plan.supports} {form.base === 'feet' ? 'feet' : 'casters'}{plan.supports === 6 ? ' — a middle pair, since the unit is wide' : ''}.</p>
-            )}
+            {thicknessChips('thickness', THICKNESS_PRESETS[units])}
+            <div className="shelf-field-grid">
+              <LengthField unit={units} label="Drawer box plywood" value={form.boxThickness} error={fieldErrors.boxThickness} onChange={boxThickness => update({ boxThickness })} />
+              <LengthField unit={units} label="Drawer bottoms" value={form.bottomThickness} error={fieldErrors.bottomThickness} onChange={bottomThickness => update({ bottomThickness })} />
+              <LengthField unit={units} label="Case back" value={form.backThickness} error={fieldErrors.backThickness} onChange={backThickness => update({ backThickness })} />
+            </div>
           </fieldset>
+          </div>
 
-          <DrawerRunFields
-            value={form.run}
-            units={units}
-            errors={Object.fromEntries(Object.entries(fieldErrors).filter(([k]) => k.startsWith('run.')).map(([k, v]) => [k.slice(4), v]))}
-            plan={plan}
-            fmt={fmt}
-            cabinetWidth={form.width}
-            onChange={patch => update({ run: { ...form.run, ...patch } })}
-          />
 
-          <DrawerBookcaseFields
-            value={form.bookcase}
-            units={units}
-            errors={Object.fromEntries(Object.entries(fieldErrors).filter(([k]) => k.startsWith('bookcase.')).map(([k, v]) => [k.slice(9), v]))}
-            plan={plan}
-            fmt={fmt}
-            onChange={patch => update({ bookcase: { ...form.bookcase, ...patch } })}
-          />
 
-          <fieldset className="shelf-group" data-tour="fs-finish">
-            <legend>Finish</legend>
-            {([['finishFront', 'Drawer fronts'], ['finishCase', 'Case and top']] as const).map(([key, label]) => (
-              <div className="shelf-height-mode" key={key}>
-                <span className="form-field-label">{label}</span>
-                <div className="drawer-swatches" role="group" aria-label={`${label} colour`}>
-                  {FINISH_COLORS.map(c => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className="drawer-swatch"
-                      style={{ background: c.hex }}
-                      aria-pressed={form[key].toLowerCase() === c.hex}
-                      aria-label={c.label}
-                      title={c.label}
-                      onClick={() => update({ [key]: c.hex })}
-                    />
-                  ))}
-                  <label className="drawer-swatch is-custom" title="Any colour">
-                    <input type="color" value={form[key]} onChange={e => update({ [key]: e.target.value })} aria-label={`Custom ${label.toLowerCase()} colour`} />
-                  </label>
-                </div>
-              </div>
-            ))}
-            <p className="shelf-group-note">For the 3D view and build guide; the cost estimate counts paint or clear finish either way.</p>
-          </fieldset>
 
-          <fieldset className="shelf-group" data-tour="fs-edges">
-            <legend>Edges</legend>
-            <Toggle
-              label="Edge banding"
-              checked={form.edgeBanding}
-              hint="Bands the case front edges and the straight edges of each drawer front; parts are cut smaller so they finish at size. Sand and finish the pull notch instead."
-              onChange={edgeBanding => update({ edgeBanding })}
-            />
-            {form.edgeBanding && (
-              <div className="shelf-chips" role="group" aria-label="Edge banding thickness">
-                {BANDING_PRESETS.map(p => (
-                  <button key={p.value} type="button" className="shelf-chip" aria-pressed={form.bandingThickness === p.value} onClick={() => update({ bandingThickness: p.value })}>
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </fieldset>
+
+
+
+
+
+
+
+
+
         </section>
 
         <section className="shelf-preview" aria-labelledby="drawer-preview-title">
@@ -1753,6 +1841,19 @@ export default function DrawerBuilder() {
                   accent
                 />
               </dl>
+              {(plan.errors.length > 0 || plan.warnings.length > 0) && (
+                <details className="builder-issues" open={plan.errors.length > 0}>
+                  <summary>
+                    {plan.errors.length > 0
+                      ? <><AlertCircle size={16} aria-hidden="true" /> {plan.errors.length} thing{plan.errors.length === 1 ? '' : 's'} to fix</>
+                      : <AlertTriangle size={16} aria-hidden="true" />}
+                    {plan.errors.length > 0 && plan.warnings.length > 0 ? ' · ' : ' '}
+                    {plan.warnings.length > 0 ? `${plan.warnings.length} note${plan.warnings.length === 1 ? '' : 's'}` : ''}
+                  </summary>
+                  {plan.errors.length > 0 && <ul className="drawer-error-list" role="alert">{plan.errors.map(e => <li key={e}>{e}</li>)}</ul>}
+                  {plan.warnings.length > 0 && <ul className="builder-notes" role="status">{plan.warnings.map(w => <li key={w}>{w}</li>)}</ul>}
+                </details>
+              )}
               {view === '3d' && valid ? (
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
                   <ShelfViewer3D
@@ -1780,19 +1881,6 @@ export default function DrawerBuilder() {
         </section>
       </div>
 
-      {plan && plan.errors.length > 0 && (
-        <div className="inline-error shelf-banner" role="alert">
-          <AlertCircle size={16} aria-hidden="true" />
-          <ul className="drawer-error-list">{plan.errors.map(e => <li key={e}>{e}</li>)}</ul>
-        </div>
-      )}
-      {plan && plan.warnings.length > 0 && (
-        <ul className="shelf-warnings" role="status">
-          {plan.warnings.map(w => (
-            <li key={w}><AlertTriangle size={16} aria-hidden="true" /> {w}</li>
-          ))}
-        </ul>
-      )}
 
       {plan && config && valid && (
         <>

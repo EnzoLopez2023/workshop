@@ -9519,6 +9519,8 @@ tbody td {
   }
 
   .builder-workbench .shelf-config {
+    /* No top padding: the sticky step bar sits flush, with nothing scrolling past above it. */
+    padding-top: 0;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -9551,4 +9553,138 @@ tbody td {
     overflow-y: auto;
     align-content: start;
   }
+}
+
+/* Builder settings as steps: a sticky row of jump links, and a heading per step. */
+.builder-step-nav {
+  position: sticky;
+  top: 64px;
+  z-index: 3;
+  margin: 0 -20px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--color-divider);
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+@media (min-width: 768px) {
+  .builder-step-nav {
+    top: 0;
+  }
+}
+
+.builder-step-nav ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.builder-step-nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 10px 4px 6px;
+  border: 1px solid var(--color-divider);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.builder-step-nav button:hover {
+  border-color: var(--color-line);
+  background: var(--color-recessed);
+}
+
+.builder-step-nav button[aria-current='step'] {
+  border-color: var(--color-action);
+  background: var(--color-action);
+  color: var(--color-on-action);
+}
+
+.builder-step-num {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-recessed);
+  color: var(--color-muted);
+  font-size: 0.74rem;
+}
+
+.builder-step-nav button[aria-current='step'] .builder-step-num {
+  background: color-mix(in srgb, #fff 25%, transparent);
+  color: inherit;
+}
+
+.builder-step-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 0.72rem;
+}
+
+.builder-step {
+  scroll-margin-top: 120px;
+}
+
+@media (min-width: 768px) {
+  .builder-step {
+    scroll-margin-top: 64px;
+  }
+}
+
+.builder-step-title {
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 2px solid var(--color-ink);
+  color: var(--color-ink);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* What needs fixing, right in the preview where you're looking. */
+.builder-issues {
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, var(--color-divider));
+  border-radius: var(--radius-default);
+  background: color-mix(in srgb, var(--color-warning-fill) 10%, var(--color-surface));
+  font-size: 0.86rem;
+}
+
+.builder-issues:has(.drawer-error-list) {
+  border-color: color-mix(in srgb, var(--color-danger) 50%, var(--color-divider));
+  background: color-mix(in srgb, var(--color-danger) 6%, var(--color-surface));
+}
+
+.builder-issues summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.builder-issues ul {
+  display: grid;
+  gap: 6px;
+  max-height: 22vh;
+  margin: 0;
+  padding: 0 14px 10px 32px;
+  overflow-y: auto;
+}
+
+.builder-issues .drawer-error-list {
+  color: var(--color-danger);
 }
