@@ -190,6 +190,10 @@ export interface DrawerConfig {
   /** Inset (default, flush with the case like the ALEX) or full overlay. */
   frontStyle?: FrontStyle;
   pull: FingerPull;
+  /** Store-bought pulls instead of (or as well as) the cut-out: knobs, bar pulls or cup pulls. */
+  hardware?: PullHardware;
+  /** Slab fronts, or Shaker: a frame and a recessed panel, pocketed on a CNC or with strips glued on. */
+  frontProfile?: FrontProfile;
   /** Drawer-box sides, front and back. */
   boxThickness: number;
   /** Drawer-box bottom, in a groove. */
@@ -247,6 +251,54 @@ export interface DrawerConfig {
   finish?: DrawerFinish;
   /** A bookcase on top (a single floor-standing unit only). */
   bookcase?: BookcaseConfig;
+}
+
+export type HardwareKind = 'none' | 'knob' | 'bar' | 'cup';
+export interface PullHardware {
+  kind: HardwareKind;
+  /** Hole centres for bar and cup pulls (e.g. 3", 3 3/4" = 96 mm, 128 mm). */
+  spacing: number;
+}
+export interface FrontProfile {
+  style: 'slab' | 'shaker';
+  method: 'pocket' | 'applied';
+  /** Frame width (stiles and rails); narrow fronts get narrower ones. */
+  rail: number;
+  /** Pocket depth, or the applied strips' thickness. */
+  depth: number;
+}
+export const DEFAULT_PROFILE: FrontProfile = { style: 'slab', method: 'pocket', rail: 2.25, depth: 1 / 4 };
+/** Pull screws go through a 3/16" hole (8-32 machine screws). */
+export const PULL_HOLE = 3 / 16;
+
+/** The Shaker frame width for a front this size: the asked width, but always leaving a panel at least 1 1/2" across. */
+export function shakerRail(profile: FrontProfile | undefined, width: number, height: number): number {
+  if (!profile || profile.style !== 'shaker') return 0;
+  const r = Math.min(profile.rail, (Math.min(width, height) - 1.5) / 2);
+  return r >= 3 / 4 ? Math.floor(r * 16) / 16 : 0;
+}
+
+/**
+ * Where a front's pull holes go, in front coordinates (x from the left edge, y up from
+ * the bottom). Drawers: centred across (two pulls on fronts over 30"), in the middle of
+ * short fronts and 3" from the top of tall ones (the top rail's centre on Shaker fronts).
+ * Doors: a vertical pull near the opening edge, its top 3" from the door's top.
+ */
+export function pullHoles(hw: PullHardware | undefined, w: number, h: number, door: { hinge: 'left' | 'right' } | null, rail = 0): { holes: [number, number][]; pulls: { x: number; y: number; vertical: boolean }[] } {
+  if (!hw || hw.kind === 'none') return { holes: [], pulls: [] };
+  const two = hw.kind !== 'knob';
+  const half = hw.spacing / 2;
+  if (door) {
+    const x = door.hinge === 'left' ? w - (rail ? rail / 2 : 2) : (rail ? rail / 2 : 2);
+    const yc = h - 3 - (two ? half : 0);
+    return { holes: two ? [[x, yc + half], [x, yc - half]] : [[x, yc]], pulls: [{ x, y: yc, vertical: two }] };
+  }
+  const y = rail && h > 9 ? h - rail / 2 : h <= 9 ? h / 2 : h - 3;
+  const xs = w > 30 ? [w / 4, (3 * w) / 4] : [w / 2];
+  return {
+    holes: xs.flatMap(x => (two ? [[x - half, y], [x + half, y]] as [number, number][] : [[x, y]] as [number, number][])),
+    pulls: xs.map(x => ({ x, y, vertical: false })),
+  };
 }
 
 /** Which side a door hinges on; 'auto' hinges on the outside, and pairs doors over wide openings. */
@@ -1172,6 +1224,47 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       note: 'Screwed to the side or partition behind the door; the tray slides mount on it, clear of the hinges', material: 'plywood' });
   }
 
+  // Shaker fronts and pull hardware.
+  const profile = config.frontProfile;
+  if (profile?.style === 'shaker') {
+    if (profile.rail < 1 || profile.rail > 4) errors.push(`A ${f(profile.rail)} Shaker frame is outside ${f(1)}–${f(4)}; ${f(2.25)} is typical.`);
+    if (profile.method === 'pocket' && (profile.depth <= 0 || profile.depth > T / 2)) errors.push(`The ${f(profile.depth)} panel pocket must be less than half the ${f(T)} front — ${f(1 / 4)} is typical.`);
+    if (profile.method === 'applied' && (profile.depth < 1 / 8 || profile.depth > 1 / 2)) errors.push(`${f(profile.depth)} frame strips are outside ${f(1 / 8)}–${f(1 / 2)}; ${f(1 / 4)} is typical.`);
+    if (pull && pull.shape !== 'handhole') warnings.push('The cut-out pull cuts through the top rail of the Shaker frame. Use knobs or pulls instead, or slab fronts.');
+    // Every front and door leaf, by size, for the applied strips.
+    const sizes: { w: number; h: number; qty: number }[] = [];
+    for (const d of drawers) {
+      const list = d.door ? d.door.leaves.map(l => l.width) : d.open ? [] : [d.front.width];
+      for (const w of list) {
+        const g = sizes.find(x => Math.abs(x.w - w) < EPS && Math.abs(x.h - d.front.height) < EPS);
+        if (g) g.qty++; else sizes.push({ w, h: d.front.height, qty: 1 });
+      }
+    }
+    const plain = sizes.filter(x => shakerRail(profile, x.w, x.h) === 0);
+    if (plain.length) warnings.push(`${plain.length === sizes.length ? 'Every front is' : 'Some fronts are'} too small for a Shaker frame (they need about ${f(2 * 0.75 + 1.5)} each way) and stay slab.`);
+    if (profile.method === 'applied') {
+      const stiles: { length: number; width: number; qty: number }[] = [];
+      const rails: { length: number; width: number; qty: number }[] = [];
+      const add = (list: typeof stiles, length: number, width: number, qty: number) => {
+        const g = list.find(x => Math.abs(x.length - length) < EPS && Math.abs(x.width - width) < EPS);
+        if (g) g.qty += qty; else list.push({ length, width, qty });
+      };
+      for (const x of sizes) {
+        const r = shakerRail(profile, x.w, x.h);
+        if (!r) continue;
+        add(stiles, x.h, r, 2 * x.qty);
+        add(rails, x.w - 2 * r, r, 2 * x.qty);
+      }
+      stiles.forEach((g, k) => parts.push({ name: `Shaker stile${stiles.length > 1 ? ` ${k + 1}` : ''}`, qty: g.qty, length: g.length, width: g.width, thickness: profile.depth,
+        note: 'Glued and pinned to the front, flush with its edges', material: 'plywood' }));
+      rails.forEach((g, k) => parts.push({ name: `Shaker rail${rails.length > 1 ? ` ${k + 1}` : ''}`, qty: g.qty, length: g.length, width: g.width, thickness: profile.depth,
+        note: 'Between the stiles, top and bottom', material: 'plywood' }));
+      if (inset) warnings.push(`Applied Shaker strips stand ${f(profile.depth)} proud of the case on inset fronts — that’s the look, but the fronts no longer sit flush.`);
+    }
+  }
+  const hw = config.hardware;
+  if (hw && hw.kind !== 'none' && hw.kind !== 'knob' && (hw.spacing < 1 || hw.spacing > 24)) errors.push(`Pull holes ${f(hw.spacing)} apart are outside ${f(1)}–${f(24)}; 3″, 3 3/4″ (96 mm) and 5″ (128 mm) are common.`);
+
   // Inserts: laid out in each box, then grouped so identical ones share a line.
   const it = config.insertThickness ?? 1 / 4;
   const inserts: (InsertLayout | null)[] = drawers.map((d, i) => {
@@ -1402,9 +1495,8 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     const fr = d.front;
     const hole = handHole(pull);
     const zf = plan.frontInset;
-    solids.push({ name: `${name} front`, kind: 'drawer-front', shape: 'plate', z0: zf - T, z1: zf,
-      outline: notchedOutline(fr.x, fr.y, fr.width, fr.height, frontNotch(pull, fr.width)),
-      holes: hole ? [stadiumOutline(fr.x + fr.width / 2, fr.y + fr.height - hole.top, hole.width, hole.height)] : undefined });
+    solids.push(...frontSolids(`${name} front`, 'drawer-front', notchedOutline(fr.x, fr.y, fr.width, fr.height, frontNotch(pull, fr.width)), fr, zf - T, T, config, null,
+      hole ? [stadiumOutline(fr.x + fr.width / 2, fr.y + fr.height - hole.top, hole.width, hole.height)] : undefined));
     const bx = d.box;
     const x0 = bx.x;
     const x1 = bx.x + bx.width;
@@ -1485,6 +1577,9 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     if (n === 'Top') return [0, spread, 0];
     if (n === 'Bottom') return [0, -spread / 3, 0];
     if (n === 'Back') return [0, 0, spread * 1.5];
+    // Panels, strips and pulls travel with their front.
+    if (s.kind === 'drawer-front' || (s.kind === 'pin' && / front (knob|pull)/.test(n))) return [0, 0, -spread * 1.2];
+    if (s.kind === 'pin' && / (knob|pull)( \d+)?$/.test(n)) return [0, 0, -spread * 1.2];
     if (s.kind === 'door') return [0, 0, -spread * 1.2];
     if (/ tray \d+ /.test(n)) return [0, 0, -spread * 0.6];
     if (n === 'Toe kick' || n === 'Plinth front' || n === 'Baseboard front') return [0, -spread / 2, -spread * (n === 'Baseboard front' ? 1.4 : 0.7)];
@@ -1492,7 +1587,6 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     if (n.startsWith('Plinth')) return [0, -spread / 2, 0];
     if (n === 'Baseboard left') return [-spread * 1.4, -spread / 2, 0];
     if (n === 'Baseboard right') return [spread * 1.4, -spread / 2, 0];
-    if (/ front$/.test(n) && s.kind === 'drawer-front') return [0, 0, -spread * 1.2];
     if (/ box front$/.test(n)) return [0, 0, -spread * 0.5];
     if (/ box back$/.test(n)) return [0, 0, spread * 0.5];
     if (/ box left side$/.test(n)) return [-spread * 0.5, 0, 0];
@@ -1543,6 +1637,49 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
   return plan.lift ? solids.map(s => liftSolid(s, plan.lift)) : solids;
 }
 
+/**
+ * A front (drawer or door leaf) as solids: the slab, or a Shaker frame with its recessed
+ * panel (pocketed) or strips glued on (applied), plus the pull hardware in front of it.
+ */
+export function frontSolids(name: string, kind: SolidKind, outline: [number, number][], rect: { x: number; y: number; width: number; height: number },
+  zFace: number, T: number, config: Pick<DrawerConfig, 'frontProfile' | 'hardware'>, door: { hinge: 'left' | 'right' } | null, holes?: [number, number][][]): Solid[] {
+  const p = config.frontProfile;
+  const rail = shakerRail(p, rect.width, rect.height);
+  const out: Solid[] = [];
+  const inner: [number, number][] = [[rect.x + rail, rect.y + rail], [rect.x + rect.width - rail, rect.y + rail], [rect.x + rect.width - rail, rect.y + rect.height - rail], [rect.x + rail, rect.y + rect.height - rail]];
+  const z1 = zFace + T;
+  if (rail && p!.method === 'pocket') {
+    // The frame at full thickness around a panel set back by the pocket depth.
+    out.push({ name, kind, shape: 'plate', z0: zFace, z1, outline, holes: [inner, ...(holes ?? [])] });
+    out.push({ name: `${name} panel`, kind, shape: 'plate', z0: zFace + p!.depth, z1, outline: inner });
+  } else {
+    out.push({ name, kind, shape: 'plate', z0: zFace, z1, outline, holes });
+    if (rail) {
+      const t = p!.depth;
+      const { x, y, width: w, height: h } = rect;
+      const strip = (n: string, x0: number, y0: number, x1: number, y1: number): Solid => ({ name: `${name} ${n}`, kind, shape: 'box', min: [x0, y0, zFace - t], max: [x1, y1, zFace] });
+      out.push(strip('left stile', x, y, x + rail, y + h), strip('right stile', x + w - rail, y, x + w, y + h),
+        strip('top rail', x + rail, y + h - rail, x + w - rail, y + h), strip('bottom rail', x + rail, y, x + w - rail, y + rail));
+    }
+  }
+  const { pulls } = pullHoles(config.hardware, rect.width, rect.height, door, rail);
+  const hw = config.hardware;
+  const front = zFace - (rail && p!.method === 'applied' ? p!.depth : 0);
+  pulls.forEach((pl, k) => {
+    const cx = rect.x + pl.x;
+    const cy = rect.y + pl.y;
+    const label = `${name} ${hw!.kind === 'knob' ? 'knob' : 'pull'}${pulls.length > 1 ? ` ${k + 1}` : ''}`;
+    if (hw!.kind === 'knob') out.push({ name: label, kind: 'pin', shape: 'box', min: [cx - 0.55, cy - 0.55, front - 1.1], max: [cx + 0.55, cy + 0.55, front] });
+    else {
+      const len = hw!.spacing + (hw!.kind === 'cup' ? 0.6 : 1);
+      const across = hw!.kind === 'cup' ? 1.2 : 0.45;
+      const [dx, dy] = pl.vertical ? [across / 2, len / 2] : [len / 2, across / 2];
+      out.push({ name: label, kind: 'pin', shape: 'box', min: [cx - dx, cy - dy, front - (hw!.kind === 'cup' ? 0.6 : 1.1)], max: [cx + dx, cy + dy, front] });
+    }
+  });
+  return out;
+}
+
 /** A door's leaves, and the shelves or pull-out trays behind it. */
 function doorSolids(d: DrawerLayout, door: DoorPlan, plan: DrawerPlan, config: DrawerConfig): Solid[] {
   const T = config.thickness;
@@ -1555,8 +1692,9 @@ function doorSolids(d: DrawerLayout, door: DoorPlan, plan: DrawerPlan, config: D
   const notch = doorNotch(config.pull);
   door.leaves.forEach(leaf => {
     const name = door.leaves.length === 1 ? `${d.label}` : `${d.label} ${leaf.hinge === 'left' ? 'left' : 'right'} leaf`;
-    out.push({ name, kind: 'door', shape: 'plate', z0: zf - T, z1: zf,
-      outline: notchedOutline(leaf.x, d.front.y, leaf.width, d.front.height, notch && leaf.width > notch.width + 3 ? notch : null, doorNotchCenter(leaf, notch)) });
+    const usable = notch && leaf.width > notch.width + 3 ? notch : null;
+    out.push(...frontSolids(name, 'door', notchedOutline(leaf.x, d.front.y, leaf.width, d.front.height, usable, doorNotchCenter(leaf, usable)),
+      { x: leaf.x, y: d.front.y, width: leaf.width, height: d.front.height }, zf - T, T, config, { hinge: leaf.hinge }));
   });
   door.shelfYs.forEach((y, k) => out.push(box(`${d.label} shelf ${k + 1}`, 'adjustable', [c.x + 1 / 32, y, zf], [c.x + c.width - 1 / 32, y + T, id - 1 / 8])));
   if (door.trays.length) {
@@ -1706,6 +1844,8 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
         width: num(p.width, 0, 60) ?? DEFAULT_PULL.width,
         depth: num(p.depth, 0, 20) ?? DEFAULT_PULL.depth,
       },
+      hardware: readHardware(c.hardware),
+      frontProfile: readProfile(c.frontProfile),
       boxThickness: num(c.boxThickness, 0.05, 2) ?? 1 / 2,
       bottomThickness: num(c.bottomThickness, 0.05, 2) ?? 1 / 4,
       backThickness: num(c.backThickness, 0.05, 2) ?? 1 / 4,
@@ -1762,6 +1902,21 @@ function readColumns(raw: unknown, drawers: number, fronts: boolean): DrawerColu
     cols.push({ drawers: n, ...(fronts ? { frontHeights: heights } : {}), ...(width ? { width } : {}) });
   }
   return cols.reduce((a, c) => a + c.drawers, 0) === drawers ? cols : undefined;
+}
+
+function readHardware(raw: unknown): PullHardware | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  if (v.kind !== 'knob' && v.kind !== 'bar' && v.kind !== 'cup') return undefined;
+  return { kind: v.kind, spacing: typeof v.spacing === 'number' && v.spacing > 0 && v.spacing < 48 ? v.spacing : 3.75 };
+}
+
+function readProfile(raw: unknown): FrontProfile | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  if (v.style !== 'shaker') return undefined;
+  const n = (x: unknown, fallback: number) => (typeof x === 'number' && x > 0 && x < 12 ? x : fallback);
+  return { style: 'shaker', method: v.method === 'applied' ? 'applied' : 'pocket', rail: n(v.rail, DEFAULT_PROFILE.rail), depth: n(v.depth, DEFAULT_PROFILE.depth) };
 }
 
 function readDoor(raw: unknown): DoorSlot | null {
@@ -1875,6 +2030,12 @@ export interface DrawerDesignFields {
   pullShape: PullShape;
   pullWidth: string;
   pullDepth: string;
+  hardwareKind: HardwareKind;
+  hardwareSpacing: string;
+  profileStyle: FrontProfile['style'];
+  profileMethod: FrontProfile['method'];
+  profileRail: string;
+  profileDepth: string;
   boxThickness: string;
   bottomThickness: string;
   backThickness: string;
@@ -1980,6 +2141,12 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     pullShape: c.pull.shape,
     pullWidth: L(c.pull.width),
     pullDepth: L(c.pull.depth),
+    hardwareKind: c.hardware?.kind ?? 'none',
+    hardwareSpacing: L(c.hardware?.spacing ?? 3.75),
+    profileStyle: c.frontProfile?.style ?? 'slab',
+    profileMethod: c.frontProfile?.method ?? DEFAULT_PROFILE.method,
+    profileRail: L(c.frontProfile?.rail ?? DEFAULT_PROFILE.rail),
+    profileDepth: L(c.frontProfile?.depth ?? DEFAULT_PROFILE.depth),
     boxThickness: L(c.boxThickness),
     bottomThickness: L(c.bottomThickness),
     backThickness: L(c.backThickness),

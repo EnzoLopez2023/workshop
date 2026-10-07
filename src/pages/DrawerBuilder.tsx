@@ -56,6 +56,8 @@ import {
   BASE_LABELS,
   doorNotch,
   doorNotchCenter,
+  pullHoles,
+  shakerRail,
   isKickBase,
   sheetParts,
   type DrawerBase,
@@ -102,6 +104,12 @@ const DEFAULT_FORM: FormState = {
   pullWidth: '6 1/2',
   pullDepth: '1 1/8',
   frontStyle: 'inset',
+  hardwareKind: 'none',
+  hardwareSpacing: '3 3/4',
+  profileStyle: 'slab',
+  profileMethod: 'pocket',
+  profileRail: '2 1/4',
+  profileDepth: '1/4',
   boxThickness: '1/2',
   bottomThickness: '1/4',
   backThickness: '1/4',
@@ -161,6 +169,7 @@ const LENGTH_FIELDS = [
   'insertThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
   'mountHeight', 'cleatHeight', 'toolBoardThickness', 'toolPocketDepth', 'toolClearance',
   'kickHeight', 'kickSetback', 'baseboardHeight', 'baseboardThickness',
+  'hardwareSpacing', 'profileRail', 'profileDepth',
 ] as const;
 type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}` | `columnFronts.${number}.${number}` | `columnWidths.${number}`
   | `bookcase.${typeof BOOKCASE_LENGTH_KEYS[number]}`;
@@ -196,6 +205,16 @@ const PULL_OPTIONS = [
   { value: 'slot', label: 'Slot notch', hint: 'A rounded-bottom slot in the top edge.' },
   { value: 'wide', label: 'Wide notch', hint: `A long slot across nearly the whole front, stopping 2″ from each end.` },
   { value: 'handhole', label: 'Hand hole', hint: 'A rounded hole cut through the front, just below the top edge.' },
+] as const;
+
+const PROFILE_OPTIONS = [
+  { value: 'slab', label: 'Slab' },
+  { value: 'shaker', label: 'Shaker' },
+] as const;
+
+const PROFILE_METHOD_OPTIONS = [
+  { value: 'pocket', label: 'CNC pocket' },
+  { value: 'applied', label: 'Applied strips' },
 ] as const;
 
 const FRONT_STYLE_OPTIONS = [
@@ -376,6 +395,12 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
       width: form.pullEnabled ? num('pullWidth') : 0,
       depth: form.pullEnabled ? num('pullDepth') : 0,
     },
+    hardware: form.hardwareKind !== 'none'
+      ? { kind: form.hardwareKind, spacing: form.hardwareKind === 'knob' ? 0 : num('hardwareSpacing') }
+      : undefined,
+    frontProfile: form.profileStyle === 'shaker'
+      ? { style: 'shaker', method: form.profileMethod, rail: num('profileRail'), depth: num('profileDepth') }
+      : undefined,
     boxThickness: num('boxThickness'),
     bottomThickness: num('bottomThickness'),
     backThickness: num('backThickness'),
@@ -1296,7 +1321,7 @@ export default function DrawerBuilder() {
           </fieldset>
 
           <fieldset className="shelf-group" data-tour="fs-finger-pull">
-            <legend>Finger pull</legend>
+            <legend>Fronts &amp; pulls</legend>
             <div className="shelf-height-mode">
               <span className="form-field-label">Fronts</span>
               <SegmentedControl label="Front style" value={form.frontStyle} options={FRONT_STYLE_OPTIONS} onChange={frontStyle => update({ frontStyle })} />
@@ -1306,12 +1331,35 @@ export default function DrawerBuilder() {
                   : 'Full overlay: the fronts cover the case edges, with only the gaps showing.'}
               </small>
             </div>
-            <Toggle
-              label="Built-in pull"
-              checked={form.pullEnabled}
-              hint="The ALEX look: no handles, just a cut-out to hook a finger behind the front. The box front behind gets a matching notch."
-              onChange={pullEnabled => update({ pullEnabled })}
-            />
+            <SegmentedControl label="Front panels" value={form.profileStyle} options={PROFILE_OPTIONS} onChange={profileStyle => update({ profileStyle })} />
+            {form.profileStyle === 'shaker' && (
+              <>
+                <SegmentedControl label="Shaker method" value={form.profileMethod} options={PROFILE_METHOD_OPTIONS} onChange={profileMethod => update({ profileMethod })} />
+                <div className="shelf-field-grid">
+                  <LengthField unit={units} label="Frame width" value={form.profileRail} error={fieldErrors.profileRail} hint="Stiles and rails; narrow fronts get narrower ones." onChange={profileRail => update({ profileRail })} />
+                  <LengthField unit={units} label={form.profileMethod === 'pocket' ? 'Panel pocket depth' : 'Strip thickness'} value={form.profileDepth} error={fieldErrors.profileDepth}
+                    hint={form.profileMethod === 'pocket' ? 'Pocketed on the CNC or Shaper.' : 'Strips glued onto slab fronts; cut from thin plywood or MDF.'} onChange={profileDepth => update({ profileDepth })} />
+                </div>
+              </>
+            )}
+            <label className="form-field">
+              <span className="form-field-label">Pulls</span>
+              <select value={form.pullEnabled && form.hardwareKind === 'none' ? 'cutout' : form.hardwareKind === 'none' ? 'none' : form.hardwareKind}
+                onChange={e => {
+                  const v = e.target.value;
+                  update(v === 'cutout' ? { pullEnabled: true, hardwareKind: 'none' } : { pullEnabled: false, hardwareKind: v as FormState['hardwareKind'] });
+                }}>
+                <option value="cutout">Cut-out finger pull</option>
+                <option value="knob">Knobs</option>
+                <option value="bar">Bar pulls</option>
+                <option value="cup">Cup pulls</option>
+                <option value="none">None (push-to-open)</option>
+              </select>
+              <small>{form.hardwareKind !== 'none' ? 'Holes are drilled through the fronts (CNC files and a drilling jig included).' : form.pullEnabled ? 'The ALEX look: a cut-out to hook a finger behind the front.' : 'No pulls — use push-to-open latches.'}</small>
+            </label>
+            {(form.hardwareKind === 'bar' || form.hardwareKind === 'cup') && (
+              <LengthField unit={units} label="Hole spacing" value={form.hardwareSpacing} error={fieldErrors.hardwareSpacing} hint="Centre to centre: 3″, 3 3/4″ (96 mm) and 5″ (128 mm) are common." onChange={hardwareSpacing => update({ hardwareSpacing })} />
+            )}
             {form.pullEnabled && (
               <>
                 <label className="form-field">
@@ -1961,6 +2009,7 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
                     <g key={l.x}>
                       <polygon className="drawer-front-shape" style={{ fill: config.finish?.front }}
                         points={notchedOutline(l.x, d.front.y, l.width, d.front.height, notch, doorNotchCenter(l, notch)).map(([px, py]) => `${px},${y(py)}`).join(' ')} />
+                      <FrontDecor config={config} x={l.x} y0={d.front.y} w={l.width} h={d.front.height} door={{ hinge: l.hinge }} y={y} />
                       {/* Swing lines: from the free edge's corners to the middle of the hinge edge. */}
                       <polyline className="drawer-door-swing" points={`${freeX},${y(d.front.y + d.front.height)} ${hingeX},${y(d.front.y + d.front.height / 2)} ${freeX},${y(d.front.y)}`} />
                     </g>
@@ -1985,6 +2034,7 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
                 style={{ fill: config.finish?.front }}
                 points={notchedOutline(d.front.x, d.front.y, d.front.width, d.front.height, frontNotch(pull, d.front.width)).map(([px, py]) => `${px},${y(py)}`).join(' ')}
               />
+              <FrontDecor config={config} x={d.front.x} y0={d.front.y} w={d.front.width} h={d.front.height} door={null} y={y} />
               {hole && (
                 <polygon
                   className="drawer-notch"
@@ -2002,6 +2052,28 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
         {bk && <DimV y1={y(Ht)} y2={y(0)} x={W + pad * 1.55} fs={fs} label={fmt(Ht)} />}
       </svg>
     </figure>
+  );
+}
+
+/** A front's Shaker panel outline and its pulls, in the front elevation. */
+function FrontDecor({ config, x, y0, w, h, door, y }: { config: DrawerConfig; x: number; y0: number; w: number; h: number; door: { hinge: 'left' | 'right' } | null; y: (v: number) => number }) {
+  const rail = shakerRail(config.frontProfile, w, h);
+  const hw = config.hardware;
+  const { pulls } = pullHoles(hw, w, h, door, rail);
+  return (
+    <>
+      {rail > 0 && <rect className="drawer-shaker" x={x + rail} y={y(y0 + h - rail)} width={w - 2 * rail} height={h - 2 * rail} />}
+      {pulls.map(p => {
+        const cx = x + p.x;
+        const cy = y(y0 + p.y);
+        if (hw!.kind === 'knob') return <circle key={`${p.x},${p.y}`} className="drawer-foot" cx={cx} cy={cy} r={0.55} />;
+        const len = hw!.spacing + 1;
+        const t = hw!.kind === 'cup' ? 1 : 0.45;
+        return p.vertical
+          ? <rect key={`${p.x},${p.y}`} className="drawer-foot" x={cx - t / 2} y={cy - len / 2} width={t} height={len} rx={t / 2} />
+          : <rect key={`${p.x},${p.y}`} className="drawer-foot" x={cx - len / 2} y={cy - t / 2} width={len} height={t} rx={t / 2} />;
+      })}
+    </>
   );
 }
 

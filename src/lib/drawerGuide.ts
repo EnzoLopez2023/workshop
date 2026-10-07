@@ -17,6 +17,7 @@ import {
   pullWidth,
   sheetParts,
   HINGE_PLATE_SETBACK,
+  PULL_HOLE,
   PIN_DEPTH,
   PIN_HOLE,
   PIN_INSET,
@@ -71,10 +72,11 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const supports = [...names(name => name.startsWith('Foot') || name.startsWith('Caster')), ...plinthNames];
   const slides = names(name => name.endsWith(' slide'));
   const boxes = names(name => / box /.test(name));
-  const fronts = unitSolids.filter(s => / front$/.test(s.name) && s.kind === 'drawer-front').map(s => s.name);
+  // Drawer fronts with their Shaker panels or strips and their pulls.
+  const fronts = unitSolids.filter(s => s.kind === 'drawer-front' || (s.kind === 'pin' && / front (knob|pull)/.test(s.name))).map(s => s.name);
   // Doors and what's behind them.
   const doorSlots = plan.drawers.filter(d => d.door);
-  const doorLeaves = unitSolids.filter(s => s.kind === 'door').map(s => s.name);
+  const doorLeaves = unitSolids.filter(s => s.kind === 'door' || (s.kind === 'pin' && / (knob|pull)( \d+)?$/.test(s.name) && !/ front /.test(s.name))).map(s => s.name);
   const trayNames = names(name => / tray \d+ /.test(name) || / (left|right) spacer$/.test(name));
   const everything = unitSolids.map(s => s.name);
   const insertNames = names(name => / (divider|marker rib) \d+$/.test(name) || name.endsWith('Gridfinity baseplate') || name.endsWith('tool board'));
@@ -515,6 +517,45 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       cautions: [],
       // From above, without the case, so you can see into the boxes.
       scene: { view: 'above', visible: boxes, highlight: insertNames },
+    });
+  }
+
+  // 12c ── Shaker fronts and pull holes
+  const profile = config.frontProfile;
+  const shaker = profile?.style === 'shaker';
+  const hw = config.hardware && config.hardware.kind !== 'none' ? config.hardware : null;
+  if (shaker || hw) {
+    const kindWord = hw?.kind === 'knob' ? 'knob' : 'pull';
+    steps.push({
+      id: 'front-details',
+      title: shaker && hw ? 'Shape the Shaker fronts and drill the pull holes' : shaker ? 'Shape the Shaker fronts' : `Drill the ${kindWord} holes`,
+      summary: [
+        shaker ? (profile!.method === 'pocket'
+          ? `A ${f(profile!.rail)} frame around a panel pocketed ${f(profile!.depth)} deep (narrower on small fronts).`
+          : `${f(profile!.depth)} strips, ${f(profile!.rail)} wide, glued onto each slab front and door.`) : '',
+        hw ? `${hw.kind === 'knob' ? 'One hole' : `Two holes ${f(hw.spacing)} apart`} per ${kindWord}, ${f(PULL_HOLE)} through.` : '',
+      ].filter(Boolean).join(' '),
+      instructions: [
+        ...(shaker && profile!.method === 'pocket' ? [
+          `Pocket the panel ${f(profile!.depth)} deep with a flat-bottomed bit, leaving the ${f(profile!.rail)} frame (the CNC files have every pocket); square the corners with a chisel if you want a crisp Shaker look.`,
+        ] : []),
+        ...(shaker && profile!.method === 'applied' ? [
+          'Glue the stiles on first, flush with the edges, then fit the rails tight between them.',
+          'Pin them with 23-gauge pins while the glue sets, then sand the outer edges flush.',
+        ] : []),
+        ...(hw ? [
+          hw.kind === 'knob'
+            ? 'Drawers: a knob centred across, in the middle of short fronts and 3″ from the top of tall ones (the top rail’s centre on Shaker fronts); two on fronts over 30″.'
+            : `Drawers: the pull centred across at the same height; two on fronts over 30″. Doors: upright, near the opening edge, its top 3″ from the door’s top.`,
+          'Drill with the pull drilling jig so every pull lands in the same place, and back the hole with scrap so the face doesn’t splinter.',
+          'Once the fronts are hung, drill on through the box fronts from inside the drawer, through the same holes.',
+        ] : []),
+      ],
+      parts: sized(partsWhere(['Shaker'])),
+      tips: shaker ? ['Prime the panel pocket or the strip joints before painting so the end grain doesn’t telegraph through.'] : [],
+      cautions: [],
+      scene: { view: 'front', visible: [...caseNames, ...back, ...supports, ...slides, ...boxes], highlight: [...fronts, ...doorLeaves] },
+      minutes: (shaker ? 10 : 0) * (n + doorSlots.length) + (hw ? 5 : 0) * (n + doorSlots.length),
     });
   }
 

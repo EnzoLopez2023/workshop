@@ -1,7 +1,7 @@
 // Hardware list and cost estimate for the Drawer Builder. Quantities come from
 // the plan; prices are rough placeholders the user overrides with what they pay.
 
-import { boxedDrawers, SLIDE_CAPACITY_LB, type DrawerConfig, type DrawerPlan } from './drawerUnit.ts';
+import { boxedDrawers, pullHoles, shakerRail, SLIDE_CAPACITY_LB, type DrawerConfig, type DrawerPlan } from './drawerUnit.ts';
 import { hardwareList, quantityLabel, type HardwareItem, type PriceKey } from './shelfEstimate.ts';
 import { formatLength, type LengthUnit } from './shelving.ts';
 
@@ -99,6 +99,20 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
       key: `hinges-${type.replace(' ', '-')}`, name: `Concealed soft-close hinges, ${type}`, qty: count * unitCount, unit: 'ea',
       note: `35 mm cup, 110°, with ${type === 'inset' ? 'inset' : type} mounting plates. ${type === 'half overlay' ? 'For doors that share a partition.' : ''}`.trim(),
       priceKey: 'hinge', url: amazonSearch(`35mm concealed cabinet hinge soft close ${type}`),
+    });
+  }
+  // Store-bought pulls: one per front (two on wide drawers), one per door leaf.
+  const hw = config.hardware;
+  if (hw && hw.kind !== 'none') {
+    const rail = (w: number, h: number) => shakerRail(config.frontProfile, w, h);
+    const count = plan.drawers.reduce((a, d) => a
+      + (d.door ? d.door.leaves.reduce((x, l) => x + pullHoles(hw, l.width, d.front.height, { hinge: l.hinge }, rail(l.width, d.front.height)).pulls.length, 0)
+        : d.open ? 0 : pullHoles(hw, d.front.width, d.front.height, null, rail(d.front.width, d.front.height)).pulls.length), 0) * unitCount;
+    const what = hw.kind === 'knob' ? 'Cabinet knobs' : hw.kind === 'cup' ? `Cup pulls, ${f(hw.spacing)} centres` : `Bar pulls, ${f(hw.spacing)} centres`;
+    items.push({
+      key: 'pulls', name: what, qty: count, unit: 'ea',
+      note: `Drawer fronts are screwed to the boxes, so the pull screws go through both: get ${f(Math.ceil((config.thickness + config.boxThickness + 0.25) * 4) / 4)} (or breakaway) screws.`,
+      priceKey: 'doorPull', url: amazonSearch(hw.kind === 'knob' ? 'cabinet knobs' : hw.kind === 'cup' ? `cup pulls ${hw.spacing} inch` : `cabinet bar pulls ${hw.spacing} inch center`),
     });
   }
   const doorShelves = doors.reduce((a, d) => a + d.door!.shelfYs.length, 0) * unitCount;

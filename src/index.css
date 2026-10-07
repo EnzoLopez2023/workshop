@@ -8838,6 +8838,13 @@ tbody td {
   vector-effect: non-scaling-stroke;
 }
 
+.drawer-shaker {
+  fill: none;
+  stroke: var(--color-ink);
+  stroke-width: 0.15;
+  opacity: 0.6;
+}
+
 .drawer-door-swing {
   fill: none;
   stroke: var(--color-ink);

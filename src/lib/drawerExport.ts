@@ -15,6 +15,9 @@ import {
   doorNotch,
   frontNotch,
   HINGE_PLATE_SETBACK,
+  PULL_HOLE,
+  pullHoles,
+  shakerRail,
   PIN_DEPTH,
   PIN_HOLE,
   PIN_INSET,
@@ -145,12 +148,13 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       const outline = notch
         ? notchedOutline(0, 0, part.length, part.width, { ...notch, depth: Math.max(notch.depth - band, 0.01) })
         : undefined;
-      const features: Feature[] = hole
-        ? [{ kind: 'cutout', label: 'Hand hole', points: stadiumOutline(part.length / 2, part.width + band - hole.top, hole.width, hole.height) }]
-        : [];
+      const features: Feature[] = [
+        ...(hole ? [{ kind: 'cutout', label: 'Hand hole', points: stadiumOutline(part.length / 2, part.width + band - hole.top, hole.width, hole.height) } as Feature] : []),
+        ...frontFeatures(config, finished, part.width + 2 * band, band, null),
+      ];
       faces.push({
-        ...base, id: slug(part.name), piece: part.name, face: pull ? 'outside face' : '', features, outline, rightHanded: true,
-        orientation: pull ? `Outside face up, top edge (with the ${hole ? 'hand hole' : 'finger pull'}) at the top of the drawing.` : 'Nothing to machine — just cut the outline.',
+        ...base, id: slug(part.name), piece: part.name, face: features.length || outline ? 'outside face' : '', features, outline, rightHanded: true,
+        orientation: features.length || outline ? `Outside face up, top edge at the top of the drawing.${frontNote(config)}` : 'Nothing to machine — just cut the outline.',
       });
       continue;
     }
@@ -167,9 +171,21 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       faces.push({
         ...base, id: slug(part.name), piece: part.name, face: 'back face', rightHanded: true,
         outline: fits ? notchedOutline(0, 0, part.length, part.width, { ...notch, depth: Math.max(notch.depth - band, 0.01) }, centre) : undefined,
-        features: hingePositions(height).map((h, i): Feature => ({ kind: 'hole', label: `Hinge cup ${i + 1}`, u: cupU, v: h - band, radius: HINGE_CUP_RADIUS, depth: HINGE_CUP_DEPTH })),
+        features: [
+          ...hingePositions(height).map((h, i): Feature => ({ kind: 'hole', label: `Hinge cup ${i + 1}`, u: cupU, v: h - band, radius: HINGE_CUP_RADIUS, depth: HINGE_CUP_DEPTH })),
+          // Pull holes go right through, so they're drilled from this face, mirrored.
+          ...frontFeatures(config, part.length + 2 * band, height, band, { hinge }).filter(x => x.kind === 'hole')
+            .map(x => (x.kind === 'hole' ? { ...x, u: part.length - x.u } : x)),
+        ],
         orientation: `Back face up, bottom edge at the bottom of the drawing; the hinge edge is on the ${hinge === 'left' ? 'right' : 'left'} (it’s the door’s ${hinge} edge, seen from behind).`,
       });
+      const pocket = frontFeatures(config, part.length + 2 * band, height, band, { hinge }).filter(x => x.kind === 'pocket');
+      if (pocket.length) {
+        faces.push({
+          ...base, id: slug(`${part.name} outside`), piece: `${part.name} (outside)`, face: 'outside face', rightHanded: true, features: pocket,
+          orientation: 'Flip it: outside face up, bottom edge at the bottom of the drawing. Pocket the Shaker panel after the cups are bored.',
+        });
+      }
       continue;
     }
 
@@ -403,6 +419,29 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
       stage: 'fronts',
       steps: [
         `Four ${f(config.gap)} spacers set the gap between fronts; two ${f(config.gap / 2)} shims (half as thick) set the bottom reveal.`,
+      ],
+    });
+  }
+  // Pull drilling jig: the hole pattern on a plate with a centre line and a fence for the top edge.
+  const hw = config.hardware;
+  if (hw && hw.kind !== 'none') {
+    const plateW = (hw.kind === 'knob' ? 0 : hw.spacing) + 3;
+    const cx = plateW / 2;
+    const holes: Feature[] = hw.kind === 'knob'
+      ? [{ kind: 'hole', label: 'Knob hole', u: cx, v: 2, radius: PULL_HOLE / 2, depth: JIG_STOCK }]
+      : [-1, 1].map((sgn, i): Feature => ({ kind: 'hole', label: `Pull hole ${i + 1}`, u: cx + sgn * hw.spacing / 2, v: 2, radius: PULL_HOLE / 2, depth: JIG_STOCK }));
+    jigs.push({
+      title: 'Pull drilling jig',
+      face: jigFace('pull-jig', 'Pull drilling jig', plateW, 4, JIG_STOCK, {
+        features: [...holes, { kind: 'guide', label: 'Centre line', points: [[cx, 0], [cx, 4]] }],
+        orientation: 'Score the blue centre line; line it up with a pencil mark at the middle of each front.',
+      }),
+      stage: 'fronts',
+      make: `1 from ${f(JIG_STOCK)} MDF or hardwood (drill the holes on a drill press so they stay square)`,
+      steps: [
+        'Mark the middle of each front across its width (and the pull height, or set a fence to it).',
+        'Clamp the jig with its centre line on the mark and drill through with a backer behind the front.',
+        'For doors, turn the jig upright and line it up near the opening edge.',
       ],
     });
   }
@@ -773,6 +812,27 @@ function doorLines(plan: DrawerPlan, column: number, edge: 'left' | 'right', fro
   }
   return out;
 }
+
+/**
+ * The machining on a front's outside face: the Shaker panel pocket and the pull holes.
+ * `w`/`h` are the finished (banded) size; features are measured on the plywood.
+ */
+function frontFeatures(config: DrawerConfig, w: number, h: number, band: number, door: { hinge: 'left' | 'right' } | null): Feature[] {
+  const out: Feature[] = [];
+  const rail = shakerRail(config.frontProfile, w, h);
+  if (rail && config.frontProfile!.method === 'pocket') {
+    out.push({ kind: 'pocket', label: 'Shaker panel', u: rail - band, v: rail - band, length: w - 2 * rail, width: h - 2 * rail, depth: config.frontProfile!.depth });
+  }
+  pullHoles(config.hardware, w, h, door, rail).holes.forEach(([x, y], i) => {
+    out.push({ kind: 'hole', label: `Pull hole ${i + 1}`, u: x - band, v: y - band, radius: PULL_HOLE / 2, depth: config.thickness });
+  });
+  return out;
+}
+
+const frontNote = (config: DrawerConfig) => [
+  config.frontProfile?.style === 'shaker' && config.frontProfile.method === 'pocket' ? ' Pocket the Shaker panel with a flat-bottomed bit.' : '',
+  config.hardware && config.hardware.kind !== 'none' ? ' Drill the pull holes right through.' : '',
+].join('');
 
 /** The bottom panel's top face, measured like the slide marks (up from the sides' bottom edges). */
 export const panelTop = (plan: Pick<DrawerPlan, 'baseHeight' | 'sideBottom'>, T: number) => plan.baseHeight + T - plan.sideBottom;
