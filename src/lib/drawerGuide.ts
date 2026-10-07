@@ -16,6 +16,11 @@ import {
   HANDHOLE_TOP,
   pullWidth,
   sheetParts,
+  HINGE_PLATE_SETBACK,
+  PIN_DEPTH,
+  PIN_HOLE,
+  PIN_INSET,
+  PIN_SPACING,
   SLIDE_CLEARANCE,
   supportPositions,
   type DrawerConfig,
@@ -24,6 +29,7 @@ import {
 import { formatLength, type LengthUnit, type ShelfPart } from './shelving.ts';
 import type { InsertLayout } from './drawerInserts.ts';
 import { panelTop, TNUT_HOLE } from './drawerExport.ts';
+import { HINGE_CUP_INSET } from './shelfExport.ts';
 import { boxDetail, boxJointDetail, bottomGrooveWidth } from './drawerBoxDetail.ts';
 import { bookcaseName, withValance } from './drawerBookcase.ts';
 import { buildGuideSteps } from './buildGuide.ts';
@@ -65,7 +71,11 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const supports = [...names(name => name.startsWith('Foot') || name.startsWith('Caster')), ...plinthNames];
   const slides = names(name => name.endsWith(' slide'));
   const boxes = names(name => / box /.test(name));
-  const fronts = unitSolids.filter(s => / front$/.test(s.name) && !s.name.includes(' box ')).map(s => s.name);
+  const fronts = unitSolids.filter(s => / front$/.test(s.name) && s.kind === 'drawer-front').map(s => s.name);
+  // Doors and what's behind them.
+  const doorSlots = plan.drawers.filter(d => d.door);
+  const doorLeaves = unitSolids.filter(s => s.kind === 'door').map(s => s.name);
+  const trayNames = names(name => / tray \d+ /.test(name) || / (left|right) spacer$/.test(name));
   const everything = unitSolids.map(s => s.name);
   const insertNames = names(name => / (divider|marker rib) \d+$/.test(name) || name.endsWith('Gridfinity baseplate') || name.endsWith('tool board'));
 
@@ -232,6 +242,25 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       tips: ['The T-nut drilling template (shop jigs) hooks on a corner of the bottom and flips for each corner; a drill press keeps the holes square.'],
       cautions: T < 0.6 ? [`Glue a ${f(3 / 4)} block under the bottom at each foot first — ${f(T)} is thin for a T-nut.`] : [],
       scene: { view: 'exploded', visible: [], highlight: ['Bottom'] },
+    });
+  }
+
+  // 6b ── Shelf-pin holes behind doors, before the case goes together
+  const pinned = doorSlots.filter(d => d.door!.pinYs.length);
+  if (pinned.length) {
+    steps.push({
+      id: 'door-pins',
+      title: 'Drill the shelf-pin holes',
+      summary: `${f(PIN_HOLE)} holes, ${f(PIN_DEPTH)} deep, every ${f(PIN_SPACING)}, behind ${pinned.length === 1 ? 'the door' : `${pinned.length} doors`}.`,
+      instructions: [
+        ...pinned.map(d => `${d.label}: two columns (${f(plan.frontInset + PIN_INSET)} from the front edge and ${f(PIN_INSET)} from the back of the opening) on both sides of its opening, from ${f(d.door!.pinYs[0] - plan.sideBottom)} to ${f(d.door!.pinYs[d.door!.pinYs.length - 1] - plan.sideBottom)} up from the side’s bottom edge${plan.partitionXs.length ? ` (${f(panelTop(plan, T))} less on a partition)` : ''}.`),
+        `Set a stop collar at ${f(PIN_DEPTH)} so no hole breaks through; on a partition drilled from both faces, shift one face’s holes half a step.`,
+      ],
+      parts: [],
+      tips: ['A pegboard offcut or a shelf-pin jig keeps every row in line; the CNC files mark every hole.'],
+      cautions: [],
+      scene: { view: 'exploded', visible: [], highlight: ['Left side', 'Right side', ...partitionNames] },
+      minutes: 20 * pinned.length,
     });
   }
 
@@ -431,6 +460,29 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     scene: { view: 'front', visible: [...caseNames, ...back, ...supports, ...slides], highlight: boxes },
   });
 
+  // 12a ── Pull-out trays behind doors
+  const withTrays = doorSlots.filter(d => d.door!.trays.length);
+  if (withTrays.length) {
+    const count = withTrays.reduce((a, d) => a + d.door!.trays.length, 0);
+    const t = withTrays[0].door!.trays[0];
+    steps.push({
+      id: 'trays',
+      title: 'Build and fit the pull-out trays',
+      summary: `${count} tray${count === 1 ? '' : 's'}, ${f(t.width)} wide and ${f(t.height)} tall, on ${f(t.depth)} slides — built like the drawer boxes.`,
+      instructions: [
+        `Screw a spacer panel to each side of the opening behind the door${withTrays.length === 1 ? '' : 's'}: it holds the slides ${f(T)} in from the side, so the trays clear the hinges and the open door.`,
+        `Build each tray like a drawer box: rabbets at the ends of the sides, the bottom in its groove ${f(BOTTOM_GROOVE_OFFSET)} up.`,
+        ...withTrays.flatMap(d => d.door!.trays.map((tr, k) => `${d.label}, tray ${k + 1}: cabinet member’s bottom edge ${f(tr.slideY - d.door!.zoneBottom)} above the floor of the space behind the door.`)),
+        'Fit the drawer members to the trays, flush with the tray front, and slide them in.',
+      ],
+      parts: sized(partsWhere(['Tray'])),
+      tips: ['Mark the slide heights on a stick held against the spacer panel — it’s quicker than measuring each one.'],
+      cautions: ['Open the door fully before pulling a tray out — on concealed hinges the door edge swings into the opening a little.'],
+      scene: { view: 'front', visible: [...caseNames, ...back, ...supports], highlight: trayNames },
+      minutes: 30 * count,
+    });
+  }
+
   // 12b ── Inserts
   const insertParts = plan.parts.filter(p => p.name.startsWith('Lengthwise') || p.name.startsWith('Crosswise') || p.name.startsWith('Marker rib') || p.name.startsWith('Tool board'));
   const toolBoards = plan.inserts.filter(x => x?.toolBoard && !x.error).length;
@@ -487,6 +539,29 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     cautions: [],
     scene: { view: 'front', visible: [...caseNames, ...back, ...supports, ...slides, ...boxes], highlight: fronts },
   });
+
+  // 13a ── Doors on concealed hinges
+  if (doorSlots.length) {
+    const leaves = doorSlots.reduce((a, d) => a + d.door!.leaves.length, 0);
+    const types = [...new Set(doorSlots.flatMap(d => d.door!.leaves.map(l => l.hingeType)))];
+    steps.push({
+      id: 'doors',
+      title: `Hang the door${leaves === 1 ? '' : 's'}`,
+      summary: `${leaves} door${leaves === 1 ? '' : 's'} on 35 mm concealed hinges (${types.join(', ')}), with the same ${f(config.gap)} gaps as the drawer fronts.`,
+      instructions: [
+        `Bore the hinge cups in the back of each door with the hinge cup jig: 35 mm, ${f(1 / 2)} deep, centred ${f(HINGE_CUP_INSET)} from the hinge edge and ${f(3)} from the top and bottom (and one in the middle of doors over ${f(40)}).`,
+        `Screw the mounting plates to the cabinet at the same heights, their centres ${f(plan.frontInset + HINGE_PLATE_SETBACK)} back from the front edge (the CNC files mark them).`,
+        'Press the hinges into the cups, screw them down square to the edge, and clip the doors onto the plates.',
+        `Use the hinges’ three adjustment screws to even the gaps to ${f(config.gap)} and bring each door flush${plan.frontInset > 0 ? ' with the case' : ''}.`,
+        ...doorSlots.filter(d => d.door!.shelfYs.length).map(d => `${d.label}: set ${d.door!.shelfYs.length} shelf${d.door!.shelfYs.length === 1 ? '' : 'ves'} on pins where you want them.`),
+      ],
+      parts: sized(partsWhere(['Door'])),
+      tips: ['Hang the doors before the finish goes on, then take them off to paint — the holes are already right.'],
+      cautions: ['Bore the cups with a Forstner bit and a depth stop: a cup that breaks through ruins the door face.'],
+      scene: { view: 'front', visible: everything.filter(n => !doorLeaves.includes(n)), highlight: doorLeaves },
+      minutes: 25 * leaves,
+    });
+  }
 
   // 13a ── Bookcase: built on the bench, then the countertop, the bookcase on it, its trim and light
   if (bk && bench) {

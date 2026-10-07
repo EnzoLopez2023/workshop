@@ -54,6 +54,8 @@ import {
   MIN_BOX_HEIGHT,
   BOX_CLEARANCE,
   BASE_LABELS,
+  doorNotch,
+  doorNotchCenter,
   isKickBase,
   sheetParts,
   type DrawerBase,
@@ -135,6 +137,9 @@ const DEFAULT_FORM: FormState = {
   deskDepth: EXTRA_FIELD_DEFAULTS.deskDepth,
   deskTopLayers: EXTRA_FIELD_DEFAULTS.deskTopLayers,
   drawerSlides: ['', '', '', '', ''],
+  doorHinges: ['auto', 'auto', 'auto', 'auto', 'auto'],
+  doorInside: ['shelves', 'shelves', 'shelves', 'shelves', 'shelves'],
+  doorCounts: [1, 1, 1, 1, 1],
   load: 'medium',
   finishFront: DEFAULT_FINISH.front,
   finishCase: DEFAULT_FINISH.case,
@@ -260,6 +265,9 @@ function normalizeDrawers(input: FormState): FormState {
     gridfinityBins: fit(form.gridfinityBins, []),
     toolPockets: fit(form.toolPockets, []),
     drawerSlides: fit(form.drawerSlides, ''),
+    doorHinges: fit(form.doorHinges, 'auto'),
+    doorInside: fit(form.doorInside, 'shelves'),
+    doorCounts: fit(form.doorCounts, 1),
   };
 }
 
@@ -385,6 +393,11 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     edgeBanding: form.edgeBanding,
     bandingThickness: parseLength(form.bandingThickness, form.units) ?? 0.02,
     openSlots: form.insertKinds.slice(0, form.drawers).includes('cubby') ? form.insertKinds.slice(0, form.drawers).map(k => k === 'cubby') : undefined,
+    doors: form.insertKinds.slice(0, form.drawers).includes('door')
+      ? form.insertKinds.slice(0, form.drawers).map((k, i) => (k === 'door'
+        ? { hinge: form.doorHinges[i] ?? 'auto', inside: form.doorInside[i] ?? 'shelves', count: form.doorCounts[i] ?? 1 }
+        : null))
+      : undefined,
     inserts: form.insertKinds.slice(0, form.drawers).map((kind, i) =>
       kind === 'grid' ? { kind: 'grid', columns: form.gridColumns[i] ?? 2, rows: form.gridRows[i] ?? 2 }
         : kind === 'markers' ? marker
@@ -1341,7 +1354,28 @@ export default function DrawerBuilder() {
                       <option value="gridfinity">Gridfinity baseplate</option>
                       <option value="tools">Tool shadow board</option>
                       <option value="cubby">Open cubby (no drawer)</option>
+                      <option value="door">Door (no drawer)</option>
                     </select>
+                    {kind === 'door' && (
+                      <span className="drawer-insert-grid">
+                        <select aria-label={`${drawerLabel(i)} hinge`} value={form.doorHinges[i] ?? 'auto'} onChange={e => setForm(prev => ({ ...prev, doorHinges: prev.doorHinges.map((v, k) => (k === i ? e.target.value as FormState['doorHinges'][number] : v)) }))}>
+                          <option value="auto">Hinges: automatic</option>
+                          <option value="left">Hinged left</option>
+                          <option value="right">Hinged right</option>
+                          <option value="pair">Pair of doors</option>
+                        </select>
+                        <select aria-label={`${drawerLabel(i)} inside`} value={form.doorInside[i] ?? 'shelves'} onChange={e => setForm(prev => ({ ...prev, doorInside: prev.doorInside.map((v, k) => (k === i ? e.target.value as FormState['doorInside'][number] : v)) }))}>
+                          <option value="empty">Empty inside</option>
+                          <option value="shelves">Adjustable shelves</option>
+                          <option value="trays">Pull-out trays</option>
+                        </select>
+                        {(form.doorInside[i] ?? 'shelves') !== 'empty' && (
+                          <Stepper labelledBy={`insert-${i}`} value={form.doorCounts[i] ?? 1} min={1} max={6}
+                            onChange={v => setForm(prev => ({ ...prev, doorCounts: prev.doorCounts.map((c, k) => (k === i ? Math.max(1, Math.min(6, v)) : c)) }))}
+                            noun={(form.doorInside[i] ?? 'shelves') === 'trays' ? 'tray' : 'shelf'} />
+                        )}
+                      </span>
+                    )}
                     {kind === 'grid' && (
                       <span className="drawer-insert-grid">
                         <Stepper labelledBy={`insert-${i}`} value={form.gridColumns[i] ?? 2} min={1} max={12} onChange={v => setInsert(i, { gridColumns: Math.max(1, Math.min(12, v)) })} noun="column" />
@@ -1916,6 +1950,25 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
         })()}
         {plan.drawers.map(d => {
           const hole = handHole(pull);
+          if (d.door) {
+            const notch = doorNotch(config.pull);
+            return (
+              <g key={d.index}>
+                {d.door.leaves.map(l => {
+                  const hingeX = l.hinge === 'left' ? l.x : l.x + l.width;
+                  const freeX = l.hinge === 'left' ? l.x + l.width : l.x;
+                  return (
+                    <g key={l.x}>
+                      <polygon className="drawer-front-shape" style={{ fill: config.finish?.front }}
+                        points={notchedOutline(l.x, d.front.y, l.width, d.front.height, notch, doorNotchCenter(l, notch)).map(([px, py]) => `${px},${y(py)}`).join(' ')} />
+                      {/* Swing lines: from the free edge's corners to the middle of the hinge edge. */}
+                      <polyline className="drawer-door-swing" points={`${freeX},${y(d.front.y + d.front.height)} ${hingeX},${y(d.front.y + d.front.height / 2)} ${freeX},${y(d.front.y)}`} />
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          }
           if (d.open) {
             const c = plan.columns[d.column];
             return (

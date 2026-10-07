@@ -78,7 +78,7 @@ test('per-drawer slides: a shorter box, its own slide line, and its own hardware
 });
 
 test('finish colours and shopping links', () => {
-  assert.deepEqual(finishColors({ front: '#f4f1ea', case: '#2e2e2e' }), { 'drawer-front': 0xf4f1ea, case: 0x2e2e2e, back: 0x2e2e2e });
+  assert.deepEqual(finishColors({ front: '#f4f1ea', case: '#2e2e2e' }), { 'drawer-front': 0xf4f1ea, door: 0xf4f1ea, case: 0x2e2e2e, back: 0x2e2e2e });
   assert.deepEqual(finishColors(undefined), {});
   const feet = { ...base, base: 'feet' };
   const items = drawerHardwareList(buildDrawerPlan(feet), feet, 'in');

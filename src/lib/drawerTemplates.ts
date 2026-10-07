@@ -2,7 +2,7 @@
 // IKEA's listings — approximate, so measure one if matching matters) plus a few
 // custom shapes, and a small front elevation used as a thumbnail.
 
-import { frontNotch, handHole, notchedOutline, stadiumOutline, type DrawerDesignFields, type DrawerPlan, type FingerPull } from './drawerUnit.ts';
+import { doorNotch, doorNotchCenter, frontNotch, handHole, notchedOutline, stadiumOutline, type DrawerDesignFields, type DrawerPlan, type FingerPull } from './drawerUnit.ts';
 import { bookcaseToFields, DEFAULT_BOOKCASE } from './drawerBookcase.ts';
 import { lengthToField } from './shelving.ts';
 
@@ -98,6 +98,10 @@ export function drawerThumbnailSvg(plan: DrawerPlan, pull: FingerPull, size = 12
     `<polygon points="${pts.map(([px, py]) => `${px.toFixed(3)},${y(py).toFixed(3)}`).join(' ')}" fill="${fill}" stroke="#15332e" stroke-width="${(W / 90).toFixed(3)}"/>`;
   const hole = handHole(pull);
   const fronts = plan.drawers.map(d => {
+    if (d.door) {
+      const notch = doorNotch(pull);
+      return d.door.leaves.map(l => poly(notchedOutline(l.x, d.front.y, l.width, d.front.height, notch, doorNotchCenter(l, notch)), frontColor)).join('');
+    }
     if (d.open) {
       const pts: [number, number][] = [[d.front.x, d.front.y], [d.front.x + d.front.width, d.front.y], [d.front.x + d.front.width, d.front.y + d.front.height], [d.front.x, d.front.y + d.front.height]];
       return poly(pts, '#5b4a36');

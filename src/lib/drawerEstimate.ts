@@ -35,10 +35,12 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   const supports = plan.supports * unitCount;
   const items: DrawerHardwareItem[] = [];
 
-  // One line per slide length (a shallow drawer can take a shorter pair).
-  const lengths = [...new Set(boxed.map(d => d.box.depth))].sort((a, b) => b - a);
+  // One line per slide length (a shallow drawer can take a shorter pair); pull-out trays behind doors use them too.
+  const trays = plan.drawers.flatMap(d => d.door?.trays ?? []);
+  const runs = [...boxed.map(d => d.box.depth), ...trays.map(t => t.depth)];
+  const lengths = [...new Set(runs)].sort((a, b) => b - a);
   for (const length of lengths) {
-    const pairs = boxed.filter(d => d.box.depth === length).length * unitCount;
+    const pairs = runs.filter(r => r === length).length * unitCount;
     items.push({
       key: lengths.length === 1 ? 'slides' : `slides-${length}`,
       name: `LONTAN soft-close drawer slides, ${f(length)}`,
@@ -86,6 +88,22 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
       note: 'Paint-grade, to match the room. Mitred at the corners, plus 10% for the cuts; nail it to the plinth with brads.',
       priceKey: 'baseboardFt', url: amazonSearch(`baseboard molding ${bb ? Math.round(bb.height * 4) / 4 : 4} inch`),
     });
+  }
+
+  // Doors: concealed hinges by overlay type, and shelf pins for the shelves behind them.
+  const doors = plan.drawers.filter(d => d.door);
+  const hingeTypes = new Map<string, number>();
+  for (const d of doors) for (const leaf of d.door!.leaves) hingeTypes.set(leaf.hingeType, (hingeTypes.get(leaf.hingeType) ?? 0) + d.door!.hinges.length);
+  for (const [type, count] of hingeTypes) {
+    items.push({
+      key: `hinges-${type.replace(' ', '-')}`, name: `Concealed soft-close hinges, ${type}`, qty: count * unitCount, unit: 'ea',
+      note: `35 mm cup, 110°, with ${type === 'inset' ? 'inset' : type} mounting plates. ${type === 'half overlay' ? 'For doors that share a partition.' : ''}`.trim(),
+      priceKey: 'hinge', url: amazonSearch(`35mm concealed cabinet hinge soft close ${type}`),
+    });
+  }
+  const doorShelves = doors.reduce((a, d) => a + d.door!.shelfYs.length, 0) * unitCount;
+  if (doorShelves) {
+    items.push({ key: 'shelf-pins', name: `Shelf pins, ${units === 'mm' ? '5 mm' : '1/4″'}`, qty: doorShelves * 4 + 4, unit: 'ea', note: '4 per shelf plus spares.', priceKey: 'shelfPin' });
   }
 
   const partCount = plan.parts.reduce((sum, p) => sum + p.qty, 0);

@@ -8838,6 +8838,14 @@ tbody td {
   vector-effect: non-scaling-stroke;
 }
 
+.drawer-door-swing {
+  fill: none;
+  stroke: var(--color-ink);
+  stroke-width: 0.25;
+  stroke-dasharray: 0.8 0.6;
+  opacity: 0.55;
+}
+
 .drawer-foot {
   fill: var(--color-ink);
   opacity: 0.7;

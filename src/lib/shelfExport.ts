@@ -54,10 +54,10 @@ export interface PartFace {
   rightHanded: boolean;
 }
 
-const HINGE_CUP_RADIUS = 35 / 2 / MM_PER_INCH;
+export const HINGE_CUP_RADIUS = 35 / 2 / MM_PER_INCH;
 /** Cup centre from the door edge: 17.5 mm radius + ~5 mm boring distance. */
-const HINGE_CUP_INSET = 22.5 / MM_PER_INCH;
-const HINGE_CUP_DEPTH = 13 / MM_PER_INCH;
+export const HINGE_CUP_INSET = 22.5 / MM_PER_INCH;
+export const HINGE_CUP_DEPTH = 13 / MM_PER_INCH;
 const HINGE_END_OFFSET = 3;
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

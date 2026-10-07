@@ -21,6 +21,7 @@ import {
   type Solid,
   type SolidKind,
 } from './shelving.ts';
+import { hingePositions } from './shelfExport.ts';
 import { INSERT_NAMES, INSERT_PLAY, layoutInsert, pieceOutline, type DrawerInsert, type InsertLayout } from './drawerInserts.ts';
 import type { GridfinityBin } from './gridfinity.ts';
 import { bookcaseSolids, bookcaseToFields, buildBookcase, readBookcase, type BookcaseConfig, type BookcaseFields, type BookcasePlan } from './drawerBookcase.ts';
@@ -168,7 +169,7 @@ export const DEFAULT_FINISH: DrawerFinish = { front: '#f4f1ea', case: '#d8b98c' 
 export function finishColors(finish: DrawerFinish | undefined): Partial<Record<SolidKind, number>> {
   if (!finish) return {};
   const hex = (c: string) => parseInt(c.slice(1), 16);
-  return { 'drawer-front': hex(finish.front), case: hex(finish.case), back: hex(finish.case) };
+  return { 'drawer-front': hex(finish.front), door: hex(finish.front), case: hex(finish.case), back: hex(finish.case) };
 }
 
 export interface DrawerConfig {
@@ -236,6 +237,8 @@ export interface DrawerConfig {
   cleatHeight?: number;
   /** Per drawer: true for an open cubby (no drawer); its floor is a fixed shelf unless it's at the bottom. */
   openSlots?: boolean[];
+  /** Per drawer position: a door over that opening instead of a drawer (null: not a door). */
+  doors?: (DoorSlot | null)[];
   /** Per-drawer slide length overrides (null: the unit's slide length), e.g. a short pencil drawer. */
   slideLengths?: (number | null)[];
   /** Expected contents, for the load check. */
@@ -244,6 +247,64 @@ export interface DrawerConfig {
   finish?: DrawerFinish;
   /** A bookcase on top (a single floor-standing unit only). */
   bookcase?: BookcaseConfig;
+}
+
+/** Which side a door hinges on; 'auto' hinges on the outside, and pairs doors over wide openings. */
+export type DoorHinge = 'auto' | 'left' | 'right' | 'pair';
+export type DoorInside = 'empty' | 'shelves' | 'trays';
+
+export interface DoorSlot {
+  hinge: DoorHinge;
+  /** Behind the door: nothing, adjustable shelves on pins, or pull-out trays on slides. */
+  inside: DoorInside;
+  /** How many shelves or trays. */
+  count: number;
+}
+
+/** Doors wider than this are split into a pair. */
+export const PAIR_DOOR_WIDTH = 24;
+/** Pull-out trays: box height, and the spacer panels that carry them clear of the hinges. */
+export const TRAY_HEIGHT = 3;
+/** Shelf-pin holes: diameter, depth, spacing, and their columns' inset from the front and back of the opening. */
+export const PIN_HOLE = 1 / 4;
+export const PIN_DEPTH = 3 / 8;
+export const PIN_SPACING = 1;
+export const PIN_INSET = 1.5;
+/** Concealed-hinge mounting plates sit this far back from the front edge of the cabinet side (37 mm system). */
+export const HINGE_PLATE_SETBACK = 37 / 25.4;
+
+export interface DoorLeaf {
+  x: number;
+  width: number;
+  /** Which edge the hinges are on. */
+  hinge: 'left' | 'right';
+  /** Overlay hinge on a partition (half overlay), on a case side (full overlay), or inset. */
+  hingeType: 'inset' | 'full overlay' | 'half overlay';
+}
+
+export interface TrayLayout {
+  /** Box bottom, height, left edge and width (outside), depth (slide length). */
+  y: number;
+  height: number;
+  x: number;
+  width: number;
+  depth: number;
+  slideY: number;
+}
+
+export interface DoorPlan {
+  leaves: DoorLeaf[];
+  /** Hinge-cup centres up from each leaf's bottom edge. */
+  hinges: number[];
+  inside: DoorInside;
+  /** The clear space behind the door, floor to ceiling. */
+  zoneBottom: number;
+  zoneTop: number;
+  /** Adjustable shelves: bottom faces, from the floor. */
+  shelfYs: number[];
+  /** Shelf-pin hole centres, from the floor (both sides of the opening). */
+  pinYs: number[];
+  trays: TrayLayout[];
 }
 
 export interface ExposedSides {
@@ -406,6 +467,8 @@ export interface DrawerLayout {
   slideMark: number;
   /** Box-front notch depth below the box's top edge (0 when the box already sits low enough). */
   boxNotchDepth: number;
+  /** A door over the opening (the slot is then `open`: no drawer box or slides). */
+  door: DoorPlan | null;
 }
 
 export interface DrawerPlan {
@@ -524,11 +587,13 @@ function dedupe(pts: [number, number][]): [number, number][] {
 export function notchedOutline(
   x0: number, y0: number, width: number, height: number,
   pull: NotchSpec | null,
+  /** Where along the top edge the notch is centred (default: the middle). */
+  centerX?: number,
 ): [number, number][] {
   const x1 = x0 + width;
   const y1 = y0 + height;
   if (!pull || pull.depth <= 0 || pull.width <= 0) return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-  const cx = x0 + width / 2;
+  const cx = centerX ?? x0 + width / 2;
   const notch = pullProfile(pull).map(([dx, dy]) => [cx + dx, y1 + dy] as [number, number]).reverse();
   return [[x0, y0], [x1, y0], [x1, y1], ...notch, [x0, y1]];
 }
@@ -568,6 +633,57 @@ export function graduatedFronts(count: number, available: number, step = 1.2): n
   const weights = Array.from({ length: count }, (_, i) => step ** i);
   const total = weights.reduce((a, b) => a + b, 0);
   return weights.map(w => available * w / total);
+}
+
+/** A door over one opening: its leaves and hinges, and the shelves or trays behind it. */
+function layoutDoor(slot: DoorSlot, c: {
+  front: { x: number; y: number; width: number; height: number };
+  column: number; columns: number; inset: boolean; gap: number; T: number; slideLength: number;
+  opening: { x: number; width: number };
+  zoneBottom: number; zoneTop: number;
+  name: string; f: (inches: number) => string; errors: string[]; warnings: string[];
+}): DoorPlan {
+  const { front, f } = c;
+  const pair = slot.hinge === 'pair' || (slot.hinge === 'auto' && front.width > PAIR_DOOR_WIDTH);
+  // A single door hinges on the outside: the left in the left column, otherwise the right.
+  const single: 'left' | 'right' = slot.hinge === 'left' || slot.hinge === 'right' ? slot.hinge : c.column === 0 && c.columns > 1 ? 'left' : c.column === c.columns - 1 && c.columns > 1 ? 'right' : 'left';
+  const type = (side: 'left' | 'right'): DoorLeaf['hingeType'] => {
+    if (c.inset) return 'inset';
+    const outside = side === 'left' ? c.column === 0 : c.column === c.columns - 1;
+    return outside ? 'full overlay' : 'half overlay';
+  };
+  const half = (front.width - c.gap) / 2;
+  const leaves: DoorLeaf[] = pair
+    ? [{ x: front.x, width: half, hinge: 'left', hingeType: type('left') }, { x: front.x + half + c.gap, width: half, hinge: 'right', hingeType: type('right') }]
+    : [{ x: front.x, width: front.width, hinge: single, hingeType: type(single) }];
+  if (leaves.some(l => l.width > 30)) c.warnings.push(`${c.name}’s door${pair ? 's are' : ' is'} ${f(Math.max(...leaves.map(l => l.width)))} wide — wide doors sag on concealed hinges. Make it a pair or narrow the column.`);
+  if (front.height > 60) c.warnings.push(`${c.name} is ${f(front.height)} tall; doors that tall can warp — consider two doors stacked.`);
+
+  // Shelves on pins, spread evenly through the space behind the door.
+  const zoneH = c.zoneTop - c.zoneBottom;
+  const count = Math.max(0, Math.floor(slot.count));
+  const shelfYs = slot.inside === 'shelves'
+    ? Array.from({ length: count }, (_, k) => Math.round((c.zoneBottom + zoneH * (k + 1) / (count + 1) - c.T / 2) * 16) / 16)
+    : [];
+  const pinYs: number[] = [];
+  if (shelfYs.length) for (let y = c.zoneBottom + 2; y <= c.zoneTop - 2 + EPS; y += PIN_SPACING) pinYs.push(Math.round(y * 32) / 32);
+  if (slot.inside === 'shelves' && count > 0 && zoneH / (count + 1) < 3) c.errors.push(`${c.name}: ${count} shelves leave less than ${f(3)} between them — use fewer.`);
+
+  // Pull-out trays: shallow boxes on slides, screwed to spacer panels that carry them past the hinges.
+  const trays: TrayLayout[] = [];
+  if (slot.inside === 'trays' && count > 0) {
+    const pitch = zoneH / count;
+    const height = Math.min(TRAY_HEIGHT, floor16(pitch - 1));
+    const width = c.opening.width - 2 * c.T - 2 * SLIDE_CLEARANCE;
+    if (height < MIN_BOX_HEIGHT) c.errors.push(`${c.name}: ${count} pull-out trays need at least ${f((MIN_BOX_HEIGHT + 1) * count)} behind the door; there’s ${f(zoneH)}. Use fewer trays.`);
+    if (width < MIN_BOX_WIDTH) c.errors.push(`${c.name}: the opening is too narrow for pull-out trays once the spacer panels (${f(c.T)} each side) and slides go in.`);
+    for (let k = 0; k < count; k++) {
+      const y = c.zoneBottom + k * pitch + 1 / 2;
+      const slideOffset = Math.max(Math.round((Math.min(height / 2, 2) - SLIDE_HEIGHT / 2) * 16) / 16, 1 / 8);
+      trays.push({ y, height, x: c.opening.x + c.T + SLIDE_CLEARANCE, width, depth: c.slideLength, slideY: y + slideOffset });
+    }
+  }
+  return { leaves, hinges: hingePositions(front.height), inside: slot.inside, zoneBottom: c.zoneBottom, zoneTop: c.zoneTop, shelfYs, pinYs, trays };
 }
 
 /** Height under the case. */
@@ -758,8 +874,10 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   let top = (inset ? H - T : H) - gap / 2;
   columnFronts[ci].forEach((h, row) => {
     const i = columns[ci].drawers[row];
-    const open = config.openSlots?.[i] === true;
-    const name = open ? (k > 1 ? `Column ${ci + 1} cubby ${row + 1}` : `Cubby ${row + 1}`) : label(ci, row);
+    const doorSlot = config.doors?.[i] ?? null;
+    const open = config.openSlots?.[i] === true || doorSlot !== null;
+    const name = doorSlot ? (k > 1 ? `Column ${ci + 1} door ${row + 1}` : `Door ${row + 1}`)
+      : open ? (k > 1 ? `Column ${ci + 1} cubby ${row + 1}` : `Cubby ${row + 1}`) : label(ci, row);
     const y = top - h;
     top = y - gap;
     const zoneBottom = Math.max(y - gap / 2, interiorBottom);
@@ -784,6 +902,13 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       open,
       // A cubby needs a floor unless the case bottom is right under it.
       shelfY: open && zoneBottom > interiorBottom + EPS ? zoneBottom : null,
+      door: doorSlot ? layoutDoor(doorSlot, {
+        front: { x: (inset ? columns[ci].x : bounds[ci]) + gap / 2, y, width: frontWidths[ci], height: h },
+        column: ci, columns: k, inset, gap, T, slideLength,
+        opening: { x: columns[ci].x, width: openings[ci] },
+        zoneBottom: zoneBottom > interiorBottom + EPS ? zoneBottom + T : zoneBottom, zoneTop,
+        name, f, errors, warnings,
+      }) : null,
     });
     if (open) {
       if (zoneTop - zoneBottom - (zoneBottom > interiorBottom + EPS ? T : 0) < 1) errors.push(`${name} is only ${f(Math.max(zoneTop - zoneBottom, 0))} tall — too small to be useful.`);
@@ -980,18 +1105,71 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       thickness: bt, material: 'plywood' });
   }
   // Cubby shelves: a fixed panel under each cubby that isn't at the bottom, one line per opening width.
-  const shelves: { width: number; indexes: number[] }[] = [];
+  const shelves: { width: number; indexes: number[]; door: boolean }[] = [];
   for (const d of drawers) {
     if (!d.open || d.shelfY === null) continue;
     const w = columns[d.column].width;
-    const g = shelves.find(x => Math.abs(x.width - w) < EPS);
-    if (g) g.indexes.push(d.index); else shelves.push({ width: w, indexes: [d.index] });
+    const g = shelves.find(x => Math.abs(x.width - w) < EPS && x.door === !!d.door);
+    if (g) g.indexes.push(d.index); else shelves.push({ width: w, indexes: [d.index], door: !!d.door });
   }
   for (const g of shelves) {
-    const name = shelves.length === 1 ? 'Cubby shelf' : `Cubby shelf · ${range(g.indexes)}`;
+    const kind = g.door ? 'Fixed shelf under door' : 'Cubby shelf';
+    const name = shelves.filter(x => x.door === g.door).length === 1 ? kind : `${kind} · ${range(g.indexes)}`;
     partDrawers[name] = g.indexes;
     parts.push({ name, qty: g.indexes.length, length: g.width, width: interiorDepth - caseBanding, thickness: T,
       note: 'Fixed: glue and screw through the sides (or partition) into its ends', material: 'plywood' });
+  }
+
+  // Doors: one line per leaf size and hinge side (their cup holes differ), then shelves and trays behind them.
+  const doorGroups: { width: number; height: number; hinge: 'left' | 'right'; indexes: number[]; count: number }[] = [];
+  const doorShelves: { length: number; count: number; indexes: number[] }[] = [];
+  const trayGroups: { width: number; height: number; depth: number; count: number; indexes: number[] }[] = [];
+  let spacerPanels: { height: number; count: number }[] = [];
+  const depthBehind = interiorDepth - frontInset;
+  for (const d of drawers) {
+    if (!d.door) continue;
+    for (const leaf of d.door.leaves) {
+      const g = doorGroups.find(x => Math.abs(x.width - leaf.width) < EPS && Math.abs(x.height - d.front.height) < EPS && x.hinge === leaf.hinge);
+      if (g) { g.count++; if (!g.indexes.includes(d.index)) g.indexes.push(d.index); }
+      else doorGroups.push({ width: leaf.width, height: d.front.height, hinge: leaf.hinge, indexes: [d.index], count: 1 });
+    }
+    if (d.door.shelfYs.length) {
+      const length = columns[d.column].width - 1 / 16;
+      const g = doorShelves.find(x => Math.abs(x.length - length) < EPS);
+      if (g) { g.count += d.door.shelfYs.length; g.indexes.push(d.index); } else doorShelves.push({ length, count: d.door.shelfYs.length, indexes: [d.index] });
+    }
+    for (const t of d.door.trays) {
+      const g = trayGroups.find(x => Math.abs(x.width - t.width) < EPS && Math.abs(x.height - t.height) < EPS && x.depth === t.depth);
+      if (g) { g.count++; if (!g.indexes.includes(d.index)) g.indexes.push(d.index); } else trayGroups.push({ width: t.width, height: t.height, depth: t.depth, count: 1, indexes: [d.index] });
+    }
+    if (d.door.trays.length) {
+      const height = d.door.zoneTop - d.door.zoneBottom;
+      const g = spacerPanels.find(x => Math.abs(x.height - height) < EPS);
+      if (g) g.count += 2; else spacerPanels = [...spacerPanels, { height, count: 2 }];
+    }
+  }
+  for (const g of doorGroups) {
+    const name = `Door, hinged ${g.hinge}${doorGroups.length === 1 ? '' : ` · ${range(g.indexes).replace(/drawer/g, 'position')}`}`;
+    partDrawers[name] = g.indexes;
+    parts.push({ name, qty: g.count, length: g.width - 2 * banding, width: g.height - 2 * banding, thickness: T,
+      note: `${hingePositions(g.height).length} concealed-hinge cups (35 mm) on the back, along the ${g.hinge} edge`, material: 'plywood' });
+  }
+  for (const g of doorShelves) {
+    const name = doorShelves.length === 1 ? 'Door shelf' : `Door shelf · ${f(g.length)}`;
+    parts.push({ name, qty: g.count, length: g.length, width: depthBehind - 1 / 8 - caseBanding, thickness: T,
+      note: `Loose, on shelf pins; ${f(1 / 16)} short of the opening so it lifts out`, material: 'plywood' });
+  }
+  for (const g of trayGroups) {
+    const which = trayGroups.length === 1 ? '' : ` · ${f(g.width)} × ${f(g.height)}`;
+    const inside = g.width - 2 * b;
+    parts.push({ name: `Tray side${which}`, qty: g.count * 2, length: g.depth, width: g.height, thickness: b,
+      note: `${f(b)} × ${f(b / 2)} rabbet at each end; bottom groove ${f(BOTTOM_GROOVE_OFFSET)} up`, material: 'plywood' });
+    parts.push({ name: `Tray front and back${which}`, qty: g.count * 2, length: g.width - b, width: g.height, thickness: b, note: 'Bottom groove', material: 'plywood' });
+    parts.push({ name: `Tray bottom${which}`, qty: g.count, length: inside + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY, width: g.depth - 2 * b + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY, thickness: bt, material: 'plywood' });
+  }
+  for (const g of spacerPanels) {
+    parts.push({ name: spacerPanels.length === 1 ? 'Tray spacer panel' : `Tray spacer panel · ${f(g.height)}`, qty: g.count, length: depthBehind, width: g.height, thickness: T,
+      note: 'Screwed to the side or partition behind the door; the tray slides mount on it, clear of the hinges', material: 'plywood' });
   }
 
   // Inserts: laid out in each box, then grouped so identical ones share a line.
@@ -1112,7 +1290,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
 
   const bandingTotal = banding > 0
     ? (2 * caseHeight + 2 * interiorWidth + (k - 1) * (caseHeight - 2 * T)
-      + drawers.reduce((a, d) => a + (d.open ? (d.shelfY !== null ? columns[d.column].width : 0) : 2 * d.front.width + 2 * d.front.height), 0)) * unitCount
+      + drawers.reduce((a, d) => a + (d.door ? d.door.leaves.reduce((x, l) => x + 2 * l.width + 2 * d.front.height, 0) : 0)
+        + (d.open ? (d.shelfY !== null ? columns[d.column].width : 0) : 2 * d.front.width + 2 * d.front.height), 0)) * unitCount
       // The desk top's front and ends (each layer's edge shows).
       + (desk ? (desk.width + 2 * desk.depth) * (config.desk?.topLayers ?? 1) : 0)
       + (bookcase?.shelfPlan.banding?.totalLength ?? 0)
@@ -1216,6 +1395,7 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     if (d.open) {
       const c = plan.columns[d.column];
       if (d.shelfY !== null) solids.push(box(`${name} shelf`, 'shelf', [c.x, d.shelfY, 0], [c.x + c.width, d.shelfY + T, id]));
+      if (d.door) solids.push(...doorSolids(d, d.door, plan, config));
       continue;
     }
     const first = solids.length;
@@ -1305,6 +1485,8 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     if (n === 'Top') return [0, spread, 0];
     if (n === 'Bottom') return [0, -spread / 3, 0];
     if (n === 'Back') return [0, 0, spread * 1.5];
+    if (s.kind === 'door') return [0, 0, -spread * 1.2];
+    if (/ tray \d+ /.test(n)) return [0, 0, -spread * 0.6];
     if (n === 'Toe kick' || n === 'Plinth front' || n === 'Baseboard front') return [0, -spread / 2, -spread * (n === 'Baseboard front' ? 1.4 : 0.7)];
     if (n === 'Kick nailer' || n === 'Plinth back') return [0, -spread / 2, spread * 0.7];
     if (n.startsWith('Plinth')) return [0, -spread / 2, 0];
@@ -1359,6 +1541,57 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     solids.push(box('Desk (existing)', 'back', [-6, H, -T - 2], [W + 6, H + 1.5, cd + 2]));
   }
   return plan.lift ? solids.map(s => liftSolid(s, plan.lift)) : solids;
+}
+
+/** A door's leaves, and the shelves or pull-out trays behind it. */
+function doorSolids(d: DrawerLayout, door: DoorPlan, plan: DrawerPlan, config: DrawerConfig): Solid[] {
+  const T = config.thickness;
+  const b = config.boxThickness;
+  const zf = plan.frontInset;
+  const id = plan.interiorDepth;
+  const c = plan.columns[d.column];
+  const out: Solid[] = [];
+  const box = (name: string, kind: SolidKind, min: [number, number, number], max: [number, number, number]): Solid => ({ name, kind, shape: 'box', min, max });
+  const notch = doorNotch(config.pull);
+  door.leaves.forEach(leaf => {
+    const name = door.leaves.length === 1 ? `${d.label}` : `${d.label} ${leaf.hinge === 'left' ? 'left' : 'right'} leaf`;
+    out.push({ name, kind: 'door', shape: 'plate', z0: zf - T, z1: zf,
+      outline: notchedOutline(leaf.x, d.front.y, leaf.width, d.front.height, notch && leaf.width > notch.width + 3 ? notch : null, doorNotchCenter(leaf, notch)) });
+  });
+  door.shelfYs.forEach((y, k) => out.push(box(`${d.label} shelf ${k + 1}`, 'adjustable', [c.x + 1 / 32, y, zf], [c.x + c.width - 1 / 32, y + T, id - 1 / 8])));
+  if (door.trays.length) {
+    out.push(box(`${d.label} left spacer`, 'case', [c.x, door.zoneBottom, zf], [c.x + T, door.zoneTop, id]));
+    out.push(box(`${d.label} right spacer`, 'case', [c.x + c.width - T, door.zoneBottom, zf], [c.x + c.width, door.zoneTop, id]));
+  }
+  door.trays.forEach((t, k) => {
+    const n = `${d.label} tray ${k + 1}`;
+    const z0 = zf;
+    const z1 = zf + t.depth;
+    const x1 = t.x + t.width;
+    const parts: Solid[] = [
+      box(`${n} front`, 'drawer-box', [t.x, t.y, z0], [x1, t.y + t.height, z0 + b]),
+      box(`${n} back`, 'drawer-box', [t.x, t.y, z1 - b], [x1, t.y + t.height, z1]),
+      box(`${n} left side`, 'drawer-box', [t.x, t.y, z0 + b], [t.x + b, t.y + t.height, z1 - b]),
+      box(`${n} right side`, 'drawer-box', [x1 - b, t.y, z0 + b], [x1, t.y + t.height, z1 - b]),
+      box(`${n} bottom`, 'drawer-box', [t.x + b, t.y + BOTTOM_GROOVE_OFFSET, z0 + b], [x1 - b, t.y + BOTTOM_GROOVE_OFFSET + config.bottomThickness, z1 - b]),
+    ];
+    out.push(...parts, box(`${n} left slide`, 'slide', [t.x - SLIDE_CLEARANCE, t.slideY, zf], [t.x, t.slideY + SLIDE_HEIGHT, zf + t.depth]),
+      box(`${n} right slide`, 'slide', [x1, t.slideY, zf], [x1 + SLIDE_CLEARANCE, t.slideY + SLIDE_HEIGHT, zf + t.depth]));
+  });
+  return out;
+}
+
+/** Doors with a cut-out pull get it near the opening edge, sized for a door. */
+export function doorNotch(pull: FingerPull): NotchSpec | null {
+  if (!pull.enabled || pull.shape === 'handhole' || pull.depth <= 0) return null;
+  return { shape: pull.shape === 'wide' ? 'slot' : pull.shape, width: Math.min(pull.width, 4), depth: Math.min(pull.depth, 1) };
+}
+
+/** The notch's centre on a leaf's top edge: 1 1/2" in from the opening (non-hinge) edge. */
+export function doorNotchCenter(leaf: DoorLeaf, notch: NotchSpec | null): number | undefined {
+  if (!notch) return undefined;
+  const offset = notch.width / 2 + 1.5;
+  return leaf.hinge === 'left' ? leaf.x + leaf.width - offset : leaf.x + offset;
 }
 
 /**
@@ -1499,6 +1732,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       mountHeight: num(c.mountHeight, 0, 120) ?? undefined,
       cleatHeight: num(c.cleatHeight, 0.5, 12) ?? 3,
       openSlots: Array.isArray(c.openSlots) ? Array.from({ length: drawers }, (_, i) => (c.openSlots as unknown[])[i] === true) : undefined,
+      doors: Array.isArray(c.doors) ? Array.from({ length: drawers }, (_, i) => readDoor((c.doors as unknown[])[i])) : undefined,
       slideLengths: Array.isArray(c.slideLengths)
         ? Array.from({ length: drawers }, (_, i) => {
           const v = (c.slideLengths as unknown[])[i];
@@ -1528,6 +1762,16 @@ function readColumns(raw: unknown, drawers: number, fronts: boolean): DrawerColu
     cols.push({ drawers: n, ...(fronts ? { frontHeights: heights } : {}), ...(width ? { width } : {}) });
   }
   return cols.reduce((a, c) => a + c.drawers, 0) === drawers ? cols : undefined;
+}
+
+function readDoor(raw: unknown): DoorSlot | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const v = raw as Record<string, unknown>;
+  return {
+    hinge: v.hinge === 'left' || v.hinge === 'right' || v.hinge === 'pair' ? v.hinge : 'auto',
+    inside: v.inside === 'shelves' || v.inside === 'trays' ? v.inside : 'empty',
+    count: typeof v.count === 'number' && Number.isInteger(v.count) && v.count >= 0 && v.count <= 8 ? v.count : 0,
+  };
 }
 
 function readExposed(raw: unknown): ExposedSides | undefined {
@@ -1674,6 +1918,10 @@ export interface DrawerDesignFields {
   deskTopLayers: 1 | 2;
   /** Per drawer: '' for the unit's slide length, or a length in inches. */
   drawerSlides: string[];
+  /** Per position, for doors: hinge side, what's behind it, and how many shelves or trays. */
+  doorHinges: DoorHinge[];
+  doorInside: DoorInside[];
+  doorCounts: number[];
   load: DrawerLoad;
   finishFront: string;
   finishCase: string;
@@ -1695,7 +1943,7 @@ export interface DrawerDesignFields {
 }
 
 /** What's in each position: an empty drawer, an insert, or an open cubby (no drawer at all). */
-export type InsertKind = 'none' | 'grid' | 'markers' | 'gridfinity' | 'tools' | 'cubby';
+export type InsertKind = 'none' | 'grid' | 'markers' | 'gridfinity' | 'tools' | 'cubby' | 'door';
 
 /** Form defaults for the inside-the-drawer and desk fields (inch strings). */
 export const EXTRA_FIELD_DEFAULTS = {
@@ -1747,7 +1995,10 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     slideLength: c.slideLength ? String(c.slideLength) : 'auto',
     edgeBanding: c.edgeBanding === true,
     bandingThickness: c.bandingThickness ? `${Math.round(c.bandingThickness * 25.4 * 10) / 10} mm` : '0.5 mm',
-    insertKinds: Array.from({ length: c.drawers }, (_, i) => (c.openSlots?.[i] ? 'cubby' : c.inserts?.[i]?.kind ?? 'none')),
+    insertKinds: Array.from({ length: c.drawers }, (_, i) => (c.doors?.[i] ? 'door' : c.openSlots?.[i] ? 'cubby' : c.inserts?.[i]?.kind ?? 'none')),
+    doorHinges: Array.from({ length: c.drawers }, (_, i) => c.doors?.[i]?.hinge ?? 'auto'),
+    doorInside: Array.from({ length: c.drawers }, (_, i) => c.doors?.[i]?.inside ?? 'shelves'),
+    doorCounts: Array.from({ length: c.drawers }, (_, i) => c.doors?.[i]?.count ?? 1),
     gridColumns: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'grid' ? x.columns : 2; }),
     gridfinityBins: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'gridfinity' ? x.bins ?? [] : []; }),
     toolPockets: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'tools' ? x.tools : []; }),

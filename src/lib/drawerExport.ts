@@ -12,7 +12,13 @@ import {
   BOTTOM_GROOVE_OFFSET,
   boxedDrawers,
   boxNotchSpec,
+  doorNotch,
   frontNotch,
+  HINGE_PLATE_SETBACK,
+  PIN_DEPTH,
+  PIN_HOLE,
+  PIN_INSET,
+  PIN_SPACING,
   handHole,
   notchedOutline,
   pullProfile,
@@ -28,7 +34,7 @@ import {
 } from './drawerUnit.ts';
 import { MM_PER_INCH } from './shelving.ts';
 import { pieceOutline } from './drawerInserts.ts';
-import { partFaces, type Feature, type PartFace } from './shelfExport.ts';
+import { hingePositions, HINGE_CUP_DEPTH, HINGE_CUP_INSET, HINGE_CUP_RADIUS, partFaces, type Feature, type PartFace } from './shelfExport.ts';
 import { bookcaseName } from './drawerBookcase.ts';
 
 /** A 5/16" hole takes the barrel of a 1/4"-20 T-nut. */
@@ -72,6 +78,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
             ? { kind: 'pocket', label: 'Back groove', u: 0, v: part.width - plan.cleatGap - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 }
             : { kind: 'pocket', label: 'Back rabbet', u: 0, v: part.width - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 },
           ...slideLines(plan, column, 0),
+          ...doorLines(plan, column, rightHanded ? 'right' : 'left', 0, false),
         ];
         faces.push({
           ...base, id: slug(`${piece} inside`), piece, face: 'inside face', features, rightHanded, outline: plan.partOutlines.Side,
@@ -87,7 +94,9 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       const p = part.name === 'Partition' ? 0 : Number(part.name.split(' ')[1]) - 1;
       for (const [side, column, rightHanded] of [['left', p, true], ['right', p + 1, false]] as const) {
         faces.push({
-          ...base, id: slug(`${part.name} ${side}`), piece: part.name, face: `${side} face`, features: slideLines(plan, column, panelTop(plan, T)), rightHanded,
+          ...base, id: slug(`${part.name} ${side}`), piece: part.name, face: `${side} face`, rightHanded,
+          // The partition's right face holds the column to its right, whose left edge it is.
+          features: [...slideLines(plan, column, panelTop(plan, T)), ...doorLines(plan, column, side === 'left' ? 'right' : 'left', panelTop(plan, T), side === 'right')],
           orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, ${side} face up. Blue lines mark the slides (not cut).`,
         });
       }
@@ -146,7 +155,25 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       continue;
     }
 
-    if (part.name.startsWith('Box front') || part.name.startsWith('Box back')) {
+    if (part.name.startsWith('Door, hinged')) {
+      // Back face up: seen from behind, a left-hinged door has its hinge edge on the right.
+      // u = across the back face from its left edge, v = up from the bottom edge.
+      const hinge = part.name.startsWith('Door, hinged left') ? 'left' : 'right';
+      const height = part.width + 2 * band;
+      const cupU = hinge === 'left' ? part.length - (HINGE_CUP_INSET - band) : HINGE_CUP_INSET - band;
+      const notch = doorNotch(config.pull);
+      const fits = notch && part.length > notch.width + 3;
+      const centre = fits ? (hinge === 'left' ? notch.width / 2 + 1.5 - band : part.length - (notch.width / 2 + 1.5 - band)) : undefined;
+      faces.push({
+        ...base, id: slug(part.name), piece: part.name, face: 'back face', rightHanded: true,
+        outline: fits ? notchedOutline(0, 0, part.length, part.width, { ...notch, depth: Math.max(notch.depth - band, 0.01) }, centre) : undefined,
+        features: hingePositions(height).map((h, i): Feature => ({ kind: 'hole', label: `Hinge cup ${i + 1}`, u: cupU, v: h - band, radius: HINGE_CUP_RADIUS, depth: HINGE_CUP_DEPTH })),
+        orientation: `Back face up, bottom edge at the bottom of the drawing; the hinge edge is on the ${hinge === 'left' ? 'right' : 'left'} (it’s the door’s ${hinge} edge, seen from behind).`,
+      });
+      continue;
+    }
+
+    if (part.name.startsWith('Box front') || part.name.startsWith('Box back') || part.name.startsWith('Tray front and back')) {
       // u = along the piece, v = up from the bottom edge, inside face up.
       const features: Feature[] = [groove(part.length, bt)];
       let outline: [number, number][] | undefined;
@@ -162,7 +189,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       continue;
     }
 
-    if (part.name.startsWith('Box side')) {
+    if (part.name.startsWith('Box side') || part.name.startsWith('Tray side')) {
       // Rabbets at each end for the front and back, and the bottom groove — the same
       // for the left and right sides, since everything is symmetric end to end.
       const features: Feature[] = [
@@ -376,6 +403,24 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
       stage: 'fronts',
       steps: [
         `Four ${f(config.gap)} spacers set the gap between fronts; two ${f(config.gap / 2)} shims (half as thick) set the bottom reveal.`,
+      ],
+    });
+  }
+  // Hinge-cup jig: a plate with a 35 mm hole at the cup inset from a fence edge and 3" from an end stop.
+  if (plan.drawers.some(d => d.door)) {
+    const fence = 3 / 4;
+    jigs.push({
+      title: 'Hinge cup jig',
+      face: jigFace('hinge-cup-jig', 'Hinge cup jig', 8, 5, JIG_STOCK, {
+        features: [{ kind: 'hole', label: '35 mm cup guide', u: 3, v: fence + HINGE_CUP_INSET, radius: HINGE_CUP_RADIUS + 1 / 32, depth: JIG_STOCK }],
+        orientation: `Glue a ${f(fence)} fence strip along the bottom edge and a stop across the left end; the hole’s centre is ${f(HINGE_CUP_INSET)} from the fence’s face and ${f(3)} from the stop.`,
+      }),
+      stage: 'fronts',
+      make: `1 from ${f(JIG_STOCK)} MDF or plywood, plus a fence and a stop`,
+      steps: [
+        'Lay the door face down. Hook the fence over the hinge edge and the stop on the top end; clamp it.',
+        'Bore the cup through the jig’s hole with a 35 mm Forstner bit, 1/2″ deep (a depth stop or collar on the bit).',
+        'Flip the jig to the bottom end for the next cup; for a middle hinge, mark the centre and line the hole up on it.',
       ],
     });
   }
@@ -694,6 +739,41 @@ function notchesOf(outline: [number, number][], height: number): { center: numbe
 }
 
 /** A guide line at each slide's bottom edge for one column, measured from `from` above the side's bottom edge. */
+/**
+ * Shelf-pin holes and hinge-plate marks for the doors in one column, on the panel at
+ * its `edge`. Measured like slide lines: u up from the panel's bottom (less `from`), v back
+ * from the front edge. `stagger` shifts pin holes half a step so ones drilled from the
+ * other face of a partition never meet.
+ */
+function doorLines(plan: DrawerPlan, column: number, edge: 'left' | 'right', from: number, stagger: boolean): Feature[] {
+  const out: Feature[] = [];
+  const u = (y: number) => y - plan.sideBottom - from;
+  for (const d of plan.drawers) {
+    if (d.column !== column || !d.door) continue;
+    const door = d.door;
+    const back = plan.interiorDepth - PIN_INSET;
+    door.pinYs.forEach((y, k) => {
+      const at = u(y) + (stagger ? PIN_SPACING / 2 : 0);
+      if (stagger && y + PIN_SPACING / 2 > door.zoneTop - 2 + 1e-6) return;
+      out.push({ kind: 'hole', label: `Shelf pin ${k + 1} (front)`, u: at, v: plan.frontInset + PIN_INSET, radius: PIN_HOLE / 2, depth: PIN_DEPTH });
+      out.push({ kind: 'hole', label: `Shelf pin ${k + 1} (back)`, u: at, v: back, radius: PIN_HOLE / 2, depth: PIN_DEPTH });
+    });
+    for (const leaf of door.leaves) {
+      if (leaf.hinge !== edge) continue;
+      const v = plan.frontInset + HINGE_PLATE_SETBACK;
+      door.hinges.forEach((h, k) => {
+        const at = u(d.front.y + h);
+        out.push({ kind: 'guide', label: `${d.label} hinge plate ${k + 1}`, points: [[at, v - 0.75], [at, v + 1.5]] });
+      });
+    }
+    if (door.trays.length) {
+      out.push({ kind: 'guide', label: `${d.label} tray spacer panel`, closed: true,
+        points: [[u(door.zoneBottom), plan.frontInset], [u(door.zoneTop), plan.frontInset], [u(door.zoneTop), plan.interiorDepth], [u(door.zoneBottom), plan.interiorDepth]] });
+    }
+  }
+  return out;
+}
+
 /** The bottom panel's top face, measured like the slide marks (up from the sides' bottom edges). */
 export const panelTop = (plan: Pick<DrawerPlan, 'baseHeight' | 'sideBottom'>, T: number) => plan.baseHeight + T - plan.sideBottom;
 
