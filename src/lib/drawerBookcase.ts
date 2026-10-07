@@ -115,13 +115,15 @@ export function valanceSpan(bk: Pick<BookcaseConfig, 'openBelow' | 'taskLight' |
 }
 
 /**
- * Shelf-model solids with the toe-kick board fixed up: with open space below, the
- * shelf model draws it full height, but only a valance at the top of the space is wanted.
+ * Shelf-model solids fixed up for open space below: the shelf model draws its toe-kick
+ * board full height, but only a valance at the top of the space is wanted, and the back
+ * runs down to the counter as a backsplash.
  */
 export function withValance(bk: Pick<BookcaseConfig, 'openBelow' | 'taskLight' | 'valanceHeight'>, solids: Solid[]): Solid[] {
   if (!(bk.openBelow > 0)) return solids;
   const span = valanceSpan(bk);
   return solids.flatMap((s): Solid[] => {
+    if (s.kind === 'back' && s.shape === 'box') return [{ ...s, min: [s.min[0], 0, s.min[2]] }];
     if (s.name !== 'Toe kick') return [s];
     if (!span || s.shape !== 'box') return [];
     return [{ ...s, min: [s.min[0], span[0], s.min[2]], max: [s.max[0], span[1], s.max[2]] }];
@@ -241,6 +243,11 @@ export function buildBookcase(bk: BookcaseConfig, ctx: BookcaseContext): Bookcas
       // With open space below it's only the valance (if there's a light), not a board down to the counter.
       if (!bk.taskLight) continue;
       parts.push({ ...p, name: bookcaseName(p.name), width: bk.valanceHeight, note: 'Flush with the front under the bottom; an LED strip goes behind it' });
+      continue;
+    }
+    if (bk.openBelow > 0 && p.name.startsWith('Back')) {
+      // The back runs down through the open space to the counter as a backsplash.
+      parts.push({ ...p, name: bookcaseName(p.name), length: bk.height, note: `${p.note ? `${p.note}; ` : ''}runs down to the counter as a backsplash` });
       continue;
     }
     parts.push({ ...p, name: bookcaseName(p.name), note: p.name === 'Side' && bk.openBelow > 0 ? `${p.note ? `${p.note}; ` : ''}runs down past the bottom to the counter` : p.note });

@@ -167,6 +167,12 @@ test('open space above the counter: sides run down, bottom and shelves start hig
   const names = new Set(guide.solids.map(s => s.name));
   for (const step of guide.steps) for (const n of [...(step.scene?.visible ?? []), ...(step.scene?.highlight ?? [])]) assert.ok(names.has(n), `${step.id}: ${n}`);
   assert.match(guide.steps.find(s => s.id === 'bookcase-case').instructions.join(' '), /open space/);
+  // The back runs down through the open space to the counter as a backsplash.
+  const back = solids.find(s => s.kind === 'back' && s.name.startsWith('Bookcase'));
+  close(back.min[1], p.bookcase.y0, 'back reaches the counter');
+  assert.ok(p.parts.filter(x => x.name.startsWith('Bookcase back')).every(x => x.length === 54 && /backsplash/.test(x.note)));
+  assert.ok(drawerPartFaces(p, config).filter(f => f.part.startsWith('Bookcase back')).every(f => f.length === 54));
+  assert.match(guide.steps.find(s => s.id === 'bookcase-back').instructions.join(' '), /backsplash/);
   assert.ok(!drawerPartFaces(p, config).some(f => f.part === 'Bookcase light valance' && f.features.length));
   // No light: no board at all.
   const dark = buildDrawerPlan({ ...base, bookcase: bookcase({ height: 54, openBelow: 16 }) });

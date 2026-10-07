@@ -509,7 +509,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         title: `Bookcase: ${step.title.charAt(0).toLowerCase()}${step.title.slice(1)}`,
         instructions: step.id === 'case' && open
           ? [...instructions, `The sides run ${f(bk.config.openBelow)} below the bottom panel to the counter — that’s the open space. Keep the case square while the glue sets: tack a temporary brace across the bottom ends.`]
-          : instructions,
+          : step.id === 'back' && open
+            ? [...instructions, `The back runs the full ${f(bk.config.height)}, down past the bottom panel to the bottom ends of the sides — a backsplash behind the open space. Take the temporary brace off once it’s on.`]
+            : instructions,
         parts: step.parts.filter(p => !(open && p.name === 'Toe kick' && !bk.config.taskLight)).map(p => ({ ...p, name: bookcaseName(p.name) })),
         scene: step.scene && { ...step.scene, visible: drawn(step.scene.visible), highlight: drawn(step.scene.highlight) },
         ...(step.id === 'dados' ? { highlightCaption: 'Dados to cut', highlightSwatch: 'groove' as const } : {}),

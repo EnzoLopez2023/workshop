@@ -50,7 +50,11 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
     ? partFaces(bk.shelfPlan, bk.shelfConfig)
       // With open space below, the toe kick becomes a short valance, cut as a plain part.
       .filter(face => !(bk.config.openBelow > 0 && face.part === 'Toe kick'))
-      .map(face => ({ ...face, id: `bookcase-${face.id}`, part: bookcaseName(face.part), piece: bookcaseName(face.piece) }))
+      .map(face => ({
+        ...face, id: `bookcase-${face.id}`, part: bookcaseName(face.part), piece: bookcaseName(face.piece),
+        // The back drops through the open space as a backsplash.
+        ...(bk.config.openBelow > 0 && face.part.startsWith('Back') ? { length: bk.config.height } : {}),
+      }))
     : [];
 
   for (const part of sheetParts(plan.parts)) {
