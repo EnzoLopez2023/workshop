@@ -17,13 +17,13 @@ interface Props {
 export default function DrawerBuildGuide({ plan, config, units, progress, title = 'Drawer unit' }: Props) {
   const guide = useMemo(() => drawerGuideSteps(plan, config, units), [plan, config, units]);
   const f = (inches: number) => formatLength(inches, units);
-  const subtitle = `${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.overallDepth)} deep · `
+  const subtitle = `${f(plan.overallWidth)} wide × ${f(plan.totalHeight)} tall × ${f(plan.overallDepth)} deep · `
     + `${boxedDrawers(plan).length} drawer${boxedDrawers(plan).length === 1 ? '' : 's'} on ${f(plan.slideLength)} slides · ${f(config.thickness)} case, ${f(config.boxThickness)} boxes`;
   return (
     <BuildGuideView
       guide={guide}
       width={plan.overallWidth}
-      height={plan.overallHeight}
+      height={plan.totalHeight}
       depth={plan.caseDepth}
       wallMounted={false}
       units={units}

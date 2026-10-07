@@ -23,6 +23,7 @@ import {
 } from './shelving.ts';
 import { INSERT_NAMES, INSERT_PLAY, layoutInsert, pieceOutline, type DrawerInsert, type InsertLayout } from './drawerInserts.ts';
 import type { GridfinityBin } from './gridfinity.ts';
+import { bookcaseSolids, bookcaseToFields, buildBookcase, readBookcase, type BookcaseConfig, type BookcaseFields, type BookcasePlan } from './drawerBookcase.ts';
 import type { ToolPocket } from './drawerInserts.ts';
 
 /**
@@ -241,6 +242,8 @@ export interface DrawerConfig {
   load?: DrawerLoad;
   /** Finish colours for the 3D view. */
   finish?: DrawerFinish;
+  /** A bookcase on top (a single floor-standing unit only). */
+  bookcase?: BookcaseConfig;
 }
 
 export interface ExposedSides {
@@ -428,6 +431,10 @@ export interface DrawerPlan {
   sideBottom: number;
   /** Toe-kick, integrated kick and flush bases. */
   base: BasePlan | null;
+  /** The bookcase on top, with its countertop and trim. */
+  bookcase: BookcasePlan | null;
+  /** Floor to the highest point: the cabinet, desk top, or bookcase. */
+  totalHeight: number;
   interiorWidth: number;
   interiorDepth: number;
   slideLength: number;
@@ -1086,11 +1093,29 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     }
   }
 
+  // Bookcase: built from the Shelf Builder's model and set on the cabinet.
+  let bookcase: BookcasePlan | null = null;
+  if (config.bookcase?.enabled) {
+    const blockers: string[] = [];
+    if (mount !== 'floor') blockers.push('A bookcase on top needs a floor-standing unit — stand it on the floor or turn the bookcase off.');
+    if (config.base === 'casters') blockers.push('Don’t put a bookcase on a unit on casters — it would tip. Use feet, a toe kick or a plinth.');
+    if (config.desk?.enabled) blockers.push('The bookcase goes on a single unit — turn off the desk or the bookcase.');
+    bookcase = buildBookcase(config.bookcase, {
+      width: W, cabinetHeight: H, caseDepth, frontProjection: inset ? 0 : T, thickness: T,
+      exposed: config.exposedSides ?? { left: true, right: true },
+      edgeBanding: config.edgeBanding, bandingThickness: config.bandingThickness, units, blockers,
+    });
+    errors.push(...bookcase.errors);
+    warnings.push(...bookcase.warnings);
+    parts.push(...bookcase.parts);
+  }
+
   const bandingTotal = banding > 0
     ? (2 * caseHeight + 2 * interiorWidth + (k - 1) * (caseHeight - 2 * T)
       + drawers.reduce((a, d) => a + (d.open ? (d.shelfY !== null ? columns[d.column].width : 0) : 2 * d.front.width + 2 * d.front.height), 0)) * unitCount
       // The desk top's front and ends (each layer's edge shows).
       + (desk ? (desk.width + 2 * desk.depth) * (config.desk?.topLayers ?? 1) : 0)
+      + (bookcase?.shelfPlan.banding?.totalLength ?? 0)
     : 0;
 
   return {
@@ -1108,6 +1133,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     baseHeight: B,
     sideBottom,
     base: basePlan,
+    bookcase,
+    totalHeight: Math.max(H, desk ? desk.height : 0, bookcase ? bookcase.totalHeight : 0),
     interiorWidth,
     interiorDepth,
     slideLength,
@@ -1326,6 +1353,7 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
       profile: [[z0, top - h], [z1, top - h + bevel], [z1, top - 2 * h + bevel], [z0, top - 2 * h]] });
     solids.push(box('Bottom spacer', 'cleat', [T, B + T, z0], [W - T, B + T + 2, z1]));
   }
+  if (plan.bookcase) solids.push(...bookcaseSolids(plan.bookcase, W, cd, T));
   if (plan.mount === 'under-desk') {
     // The desk it hangs from, for context.
     solids.push(box('Desk (existing)', 'back', [-6, H, -T - 2], [W + 6, H + 1.5, cd + 2]));
@@ -1479,6 +1507,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
         : undefined,
       load: c.load === 'light' || c.load === 'heavy' ? c.load : 'medium',
       finish: readFinish(c.finish),
+      bookcase: readBookcase(c.bookcase),
     },
   };
 }
@@ -1662,6 +1691,7 @@ export interface DrawerDesignFields {
   /** Wall: bottom above the floor; under a desk: the desk's underside. As typed. */
   mountHeight: string;
   cleatHeight: string;
+  bookcase: BookcaseFields;
 }
 
 /** What's in each position: an empty drawer, an insert, or an open cubby (no drawer at all). */
@@ -1748,6 +1778,7 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     mount: c.mount ?? 'floor',
     mountHeight: L(c.mountHeight ?? (c.mount === 'under-desk' ? 27.5 : 30)),
     cleatHeight: L(c.cleatHeight ?? 3),
+    bookcase: bookcaseToFields(c.bookcase, L),
     columnFronts: cols.map(x => (x.frontHeights ?? equalFronts(x.drawers, c.height - baseHeightOf(c) - frontAllowance(c) - x.drawers * c.gap)).map(L)),
   };
 }
