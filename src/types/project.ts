@@ -151,6 +151,43 @@ export interface LibraryShelfDesign {
 /** A named design in the Drawer Builder library (same shape as a shelf design). */
 export type LibraryDrawerDesign = LibraryShelfDesign;
 
+/** A Built-in Studio project as listed: its cabinets are counted, not loaded. */
+export interface BuiltinProjectSummary {
+  id: number;
+  name: string;
+  has_room: boolean;
+  cabinet_count: number;
+  placed_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Where a cabinet sits in the room's top view: its footprint centre in inches and a clockwise turn. */
+export interface BuiltinPlacement {
+  x: number;
+  y: number;
+  rotation: 0 | 90 | 180 | 270;
+}
+
+/** One cabinet in a project — a saved design, placed or not. Several can share a design. */
+export interface BuiltinProjectCabinet {
+  id: number;
+  design_id: number;
+  label: string;
+  placement: BuiltinPlacement | null;
+  design: { id: number; name: string; design: unknown; updated_at: string };
+}
+
+export interface BuiltinProject {
+  id: number;
+  name: string;
+  /** The room, read with readRoom() in src/lib/builtinRoom.ts; null until one is set up. */
+  room: unknown;
+  cabinets: BuiltinProjectCabinet[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProjectFormPayload {
   title: string;
   description: string;

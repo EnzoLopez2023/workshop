@@ -188,6 +188,27 @@ function initSchema(db, { acceptLegacySessionTokens = true } = {}) {
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   );
+
+  -- Built-in Studio projects: a group of saved built-in designs, optionally laid out in a room.
+  CREATE TABLE IF NOT EXISTS builtin_projects (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    room       TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
+
+  -- One placed cabinet; the same saved design may appear many times. Deleting the design removes its cabinets.
+  CREATE TABLE IF NOT EXISTS builtin_project_cabinets (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES builtin_projects(id) ON DELETE CASCADE,
+    design_id  INTEGER NOT NULL REFERENCES drawer_designs(id) ON DELETE CASCADE,
+    label      TEXT NOT NULL DEFAULT '',
+    placement  TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_builtin_project_cabinets_project ON builtin_project_cabinets(project_id);
 `);
 
 // Additive column migrations for existing DBs — keep idempotent.
@@ -694,6 +715,33 @@ function buildStmts(db) {
     WHERE id = @id
   `),
   deleteLibraryDrawerDesign: db.prepare(`DELETE FROM drawer_designs WHERE id = ?`),
+
+  // ── Built-in Studio projects ─────────────────────────────────────────────────
+  listBuiltinProjects: db.prepare(`
+    SELECT p.id, p.name, p.room IS NOT NULL AS has_room, p.created_at, p.updated_at,
+      (SELECT COUNT(*) FROM builtin_project_cabinets c WHERE c.project_id = p.id) AS cabinet_count,
+      (SELECT COUNT(*) FROM builtin_project_cabinets c WHERE c.project_id = p.id AND c.placement IS NOT NULL) AS placed_count
+    FROM builtin_projects p ORDER BY p.updated_at DESC, p.id DESC
+  `),
+  getBuiltinProject:    db.prepare(`SELECT * FROM builtin_projects WHERE id = ?`),
+  insertBuiltinProject: db.prepare(`INSERT INTO builtin_projects (name) VALUES (?)`),
+  updateBuiltinProject: db.prepare(`
+    UPDATE builtin_projects SET name = @name, room = @room, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = @id
+  `),
+  touchBuiltinProject:  db.prepare(`UPDATE builtin_projects SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`),
+  deleteBuiltinProject: db.prepare(`DELETE FROM builtin_projects WHERE id = ?`),
+  listBuiltinCabinets:  db.prepare(`
+    SELECT c.*, d.name AS design_name, d.design AS design_json, d.updated_at AS design_updated_at
+    FROM builtin_project_cabinets c JOIN drawer_designs d ON d.id = c.design_id
+    WHERE c.project_id = ? ORDER BY c.sort_order, c.id
+  `),
+  getBuiltinCabinet:    db.prepare(`SELECT * FROM builtin_project_cabinets WHERE id = ?`),
+  insertBuiltinCabinet: db.prepare(`
+    INSERT INTO builtin_project_cabinets (project_id, design_id, label, sort_order)
+    VALUES (@project_id, @design_id, @label, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM builtin_project_cabinets WHERE project_id = @project_id))
+  `),
+  updateBuiltinCabinet: db.prepare(`UPDATE builtin_project_cabinets SET label = @label, placement = @placement WHERE id = @id`),
+  deleteBuiltinCabinet: db.prepare(`DELETE FROM builtin_project_cabinets WHERE id = ?`),
 
   // ── Build log ────────────────────────────────────────────────────────────────
   listBuildLog:        db.prepare(`SELECT * FROM build_log_entries WHERE project_id = ? ORDER BY created_at DESC`),
@@ -3606,6 +3654,182 @@ app.put('/api/projects/:id/build-progress', (req, res) => {
   res.json({ progress });
 });
 registerDesignRoutes('drawer', 'Drawer', 'drawer_design');
+
+// ── Built-in Studio projects ──────────────────────────────────────────────────
+// A project groups saved built-in designs (drawer_designs) and may hold one room.
+// The room and each cabinet's placement are JSON the client reads strictly
+// (src/lib/builtinRoom.ts); the server checks shape and bounds so nothing absurd is stored.
+
+const ROOM_MAX = 30_000;
+const ROOM_WALLS = ['north', 'east', 'south', 'west'];
+const ROOM_OPENING_KINDS = new Set(['window', 'door', 'closet', 'opening']);
+const ROTATIONS = new Set([0, 90, 180, 270]);
+const finiteIn = (v, min, max) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
+
+/** Returns an error message, or null when the room is acceptable. Lengths are inches. */
+function checkBuiltinRoom(room) {
+  if (room === null) return null;
+  if (typeof room !== 'object' || Array.isArray(room)) return 'room must be an object or null';
+  if (JSON.stringify(room).length > ROOM_MAX) return 'room is too large';
+  if (!finiteIn(room.width, 12, 1200) || !finiteIn(room.depth, 12, 1200)) return 'room width and depth must be between 1 and 100 feet';
+  if (!finiteIn(room.height, 24, 360)) return 'wall height must be between 2 and 30 feet';
+  const walls = room.walls;
+  if (!walls || typeof walls !== 'object' || !ROOM_WALLS.every(w => typeof walls[w] === 'boolean')) return 'walls must say which of north, east, south and west exist';
+  if (!ROOM_WALLS.some(w => walls[w])) return 'a room needs at least one wall';
+  if (!Array.isArray(room.openings) || room.openings.length > 60) return 'openings must be a list of 60 or fewer';
+  for (const o of room.openings) {
+    if (!o || typeof o !== 'object' || !ROOM_OPENING_KINDS.has(o.kind) || !ROOM_WALLS.includes(o.wall)) return 'each opening needs a kind and a wall';
+    if (!finiteIn(o.offset, 0, 1200) || !finiteIn(o.width, 1, 1200) || !finiteIn(o.height, 1, 360) || !finiteIn(o.sill ?? 0, 0, 360)) {
+      return 'each opening needs an offset, width and height';
+    }
+  }
+  return null;
+}
+
+function checkPlacement(p) {
+  if (p === null) return null;
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return 'placement must be an object or null';
+  if (!finiteIn(p.x, -5000, 5000) || !finiteIn(p.y, -5000, 5000) || !ROTATIONS.has(p.rotation)) return 'placement needs x, y and a rotation of 0, 90, 180 or 270';
+  return null;
+}
+
+const parseJson = (text) => {
+  if (text == null) return null;
+  try { return JSON.parse(text); } catch { return null; }
+};
+
+const builtinCabinetRow = (row) => ({
+  id: row.id,
+  design_id: row.design_id,
+  label: row.label,
+  placement: parseJson(row.placement),
+  design: { id: row.design_id, name: row.design_name, design: parseJson(row.design_json), updated_at: row.design_updated_at },
+});
+
+function builtinProjectBody(stmts, row) {
+  return {
+    id: row.id,
+    name: row.name,
+    room: parseJson(row.room),
+    cabinets: stmts.listBuiltinCabinets.all(row.id).map(builtinCabinetRow),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function checkProjectName(name) {
+  if (typeof name !== 'string' || !name.trim()) return 'name is required';
+  if (name.trim().length > 120) return 'name must be 120 characters or fewer';
+  return null;
+}
+
+app.get('/api/builtin-projects', (req, res) => {
+  res.json(req.stmts.listBuiltinProjects.all().map(r => ({ ...r, has_room: Boolean(r.has_room) })));
+});
+
+app.post('/api/builtin-projects', (req, res) => {
+  const problem = checkProjectName(req.body?.name);
+  if (problem) return res.status(400).json({ error: problem });
+  const info = req.stmts.insertBuiltinProject.run(req.body.name.trim());
+  res.status(201).json(builtinProjectBody(req.stmts, req.stmts.getBuiltinProject.get(info.lastInsertRowid)));
+});
+
+app.get('/api/builtin-projects/:id', (req, res) => {
+  const row = req.stmts.getBuiltinProject.get(Number(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Project not found' });
+  res.json(builtinProjectBody(req.stmts, row));
+});
+
+// Body: { name?, room? } — room null removes it (cabinet placements are kept).
+app.put('/api/builtin-projects/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const row = req.stmts.getBuiltinProject.get(id);
+  if (!row) return res.status(404).json({ error: 'Project not found' });
+  const name = req.body?.name ?? row.name;
+  const nameProblem = checkProjectName(name);
+  if (nameProblem) return res.status(400).json({ error: nameProblem });
+  let room = row.room;
+  if (req.body && 'room' in req.body) {
+    const problem = checkBuiltinRoom(req.body.room);
+    if (problem) return res.status(problem === 'room is too large' ? 413 : 400).json({ error: problem });
+    room = req.body.room === null ? null : JSON.stringify(req.body.room);
+  }
+  req.stmts.updateBuiltinProject.run({ id, name: name.trim(), room });
+  res.json(builtinProjectBody(req.stmts, req.stmts.getBuiltinProject.get(id)));
+});
+
+app.delete('/api/builtin-projects/:id', (req, res) => {
+  const info = req.stmts.deleteBuiltinProject.run(Number(req.params.id));
+  if (info.changes === 0) return res.status(404).json({ error: 'Project not found' });
+  res.json({ success: true });
+});
+
+// Body: { design_id, label? } — adds one cabinet built from a saved design.
+app.post('/api/builtin-projects/:id/cabinets', (req, res) => {
+  const id = Number(req.params.id);
+  if (!req.stmts.getBuiltinProject.get(id)) return res.status(404).json({ error: 'Project not found' });
+  const designId = Number(req.body?.design_id);
+  if (!Number.isInteger(designId) || !req.stmts.getLibraryDrawerDesign.get(designId)) return res.status(400).json({ error: 'design_id must be a saved built-in design' });
+  const label = req.body?.label ?? '';
+  if (typeof label !== 'string' || label.length > 120) return res.status(400).json({ error: 'label must be 120 characters or fewer' });
+  if (req.stmts.listBuiltinCabinets.all(id).length >= 100) return res.status(400).json({ error: 'a project holds up to 100 cabinets' });
+  const info = req.stmts.insertBuiltinCabinet.run({ project_id: id, design_id: designId, label: label.trim() });
+  req.stmts.touchBuiltinProject.run(id);
+  const row = req.stmts.listBuiltinCabinets.all(id).find(r => r.id === Number(info.lastInsertRowid));
+  res.status(201).json(builtinCabinetRow(row));
+});
+
+// Body: { label?, placement? } — placement null takes the cabinet out of the room.
+app.put('/api/builtin-projects/:id/cabinets/:cabinetId', (req, res) => {
+  const id = Number(req.params.id);
+  const cabinet = req.stmts.getBuiltinCabinet.get(Number(req.params.cabinetId));
+  if (!cabinet || cabinet.project_id !== id) return res.status(404).json({ error: 'Cabinet not found' });
+  const label = req.body?.label ?? cabinet.label;
+  if (typeof label !== 'string' || label.length > 120) return res.status(400).json({ error: 'label must be 120 characters or fewer' });
+  let placement = cabinet.placement;
+  if (req.body && 'placement' in req.body) {
+    const problem = checkPlacement(req.body.placement);
+    if (problem) return res.status(400).json({ error: problem });
+    placement = req.body.placement === null ? null : JSON.stringify(req.body.placement);
+  }
+  req.stmts.updateBuiltinCabinet.run({ id: cabinet.id, label: label.trim(), placement });
+  req.stmts.touchBuiltinProject.run(id);
+  res.json(builtinCabinetRow(req.stmts.listBuiltinCabinets.all(id).find(r => r.id === cabinet.id)));
+});
+
+app.delete('/api/builtin-projects/:id/cabinets/:cabinetId', (req, res) => {
+  const id = Number(req.params.id);
+  const cabinet = req.stmts.getBuiltinCabinet.get(Number(req.params.cabinetId));
+  if (!cabinet || cabinet.project_id !== id) return res.status(404).json({ error: 'Cabinet not found' });
+  req.stmts.deleteBuiltinCabinet.run(cabinet.id);
+  req.stmts.touchBuiltinProject.run(id);
+  res.json({ success: true });
+});
+
+// Body: { placements: [{ id, placement }] } — the whole layout at once, all or nothing.
+// Ids that aren't (or are no longer) cabinets in this project are skipped, so a save
+// racing a cabinet's removal can't fail; nothing outside the project is ever touched.
+app.put('/api/builtin-projects/:id/layout', (req, res) => {
+  const id = Number(req.params.id);
+  if (!req.stmts.getBuiltinProject.get(id)) return res.status(404).json({ error: 'Project not found' });
+  const list = req.body?.placements;
+  if (!Array.isArray(list) || list.length > 100) return res.status(400).json({ error: 'placements must be a list' });
+  const cabinets = new Map(req.stmts.listBuiltinCabinets.all(id).map(r => [r.id, r]));
+  for (const entry of list) {
+    if (!entry || typeof entry !== 'object' || !Number.isInteger(entry.id)) return res.status(400).json({ error: 'every placement needs a cabinet id' });
+    const problem = checkPlacement(entry.placement ?? null);
+    if (problem) return res.status(400).json({ error: problem });
+  }
+  req.db.transaction(() => {
+    for (const entry of list) {
+      const cabinet = cabinets.get(entry.id);
+      if (!cabinet) continue;
+      req.stmts.updateBuiltinCabinet.run({ id: cabinet.id, label: cabinet.label, placement: entry.placement ? JSON.stringify(entry.placement) : null });
+    }
+    req.stmts.touchBuiltinProject.run(id);
+  })();
+  res.json(builtinProjectBody(req.stmts, req.stmts.getBuiltinProject.get(id)));
+});
 
 // ── Analyze project URL with Claude ──────────────────────────────────────────
 

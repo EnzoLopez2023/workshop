@@ -20,6 +20,8 @@ const ConversionTables = lazy(() => import('./pages/ConversionTables'));
 const ShoppingList = lazy(() => import('./pages/ShoppingList'));
 const ShelfBuilder = lazy(() => import('./pages/ShelfBuilder'));
 const DrawerBuilder = lazy(() => import('./pages/DrawerBuilder'));
+const BuiltinProjects = lazy(() => import('./pages/BuiltinProjects'));
+const BuiltinProjectPage = lazy(() => import('./pages/BuiltinProjectPage'));
 const NotebookList = lazy(() => import('./pages/NotebookList'));
 const NotebookPage = lazy(() => import('./pages/NotebookPage'));
 const Settings = lazy(() => import('./pages/Settings'));
@@ -88,6 +90,8 @@ function AppRoutes() {
               <Route path="/conversions"       element={<ConversionTables />} />
               <Route path="/shelves"           element={<ShelfBuilder />} />
               <Route path="/built-ins"         element={<DrawerBuilder />} />
+              <Route path="/built-ins/projects" element={<BuiltinProjects />} />
+              <Route path="/built-ins/projects/:id" element={<BuiltinProjectPage />} />
               {/* The Built-in Studio was the Drawer Builder; old links (and their ?design= or ?project=) still work. */}
               <Route path="/drawers"           element={<RedirectKeepingQuery to="/built-ins" />} />
               <Route path="/shopping-list"     element={<ShoppingList />} />

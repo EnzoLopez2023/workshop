@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, FolderPlus, Loader2, Printer, RotateCcw, Save,
+  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, FolderPlus, LayoutGrid, Loader2, Printer, RotateCcw, Save,
 } from 'lucide-react';
 import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
 import { DimH, DimV, LengthField, Stat, Stepper, Toggle } from '../components/builderControls';
@@ -1045,6 +1045,9 @@ export default function DrawerBuilder() {
         actions={(
           <>
           <TutorialButton tour="drawers" />
+          <Link className="btn btn-ghost" to="/built-ins/projects">
+            <LayoutGrid size={16} aria-hidden="true" /> Projects &amp; rooms
+          </Link>
           <Button variant="ghost" onClick={() => { setForm(convertForm(DEFAULT_FORM, units)); setSource(null); }}>
             <RotateCcw size={16} aria-hidden="true" /> Reset design
           </Button>

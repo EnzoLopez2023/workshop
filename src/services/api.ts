@@ -3,6 +3,7 @@ import { getApiToken } from '../auth/getToken';
 import { isDemoMode, notifyDemoBlock, DemoBlockedError } from '../demo/demoMode';
 import type {
   ProjectListItem, ProjectDetail, ProjectFormPayload, StoredShelfDesign, LibraryShelfDesign, StoredDrawerDesign, LibraryDrawerDesign,
+  BuiltinProjectSummary, BuiltinProject, BuiltinProjectCabinet, BuiltinPlacement,
   CutListItem, Material, AnalyzedProject,
   ShaperProject, ShaperProjectPayload, ShaperAnalysisResult,
   BambuAsset, BambuProject, BambuProjectPayload, BambuAnalysisResult, BambuImportResult,
@@ -217,6 +218,25 @@ export const updateLibraryDrawerDesign = (id: number, patch: { name?: string; de
   request<LibraryDrawerDesign>(`/drawer-designs/${id}`, json('PUT', patch));
 export const deleteLibraryDrawerDesign = (id: number) =>
   request<{ success: boolean }>(`/drawer-designs/${id}`, { method: 'DELETE' });
+
+// ── Built-in Studio projects ──────────────────────────────────────────────────
+
+export const listBuiltinProjects = () => request<BuiltinProjectSummary[]>('/builtin-projects');
+export const getBuiltinProject = (id: number) => request<BuiltinProject>(`/builtin-projects/${id}`);
+export const createBuiltinProject = (name: string) =>
+  request<BuiltinProject>('/builtin-projects', json('POST', { name }));
+export const updateBuiltinProject = (id: number, patch: { name?: string; room?: object | null }) =>
+  request<BuiltinProject>(`/builtin-projects/${id}`, json('PUT', patch));
+export const deleteBuiltinProject = (id: number) =>
+  request<{ success: boolean }>(`/builtin-projects/${id}`, { method: 'DELETE' });
+export const addBuiltinCabinet = (projectId: number, designId: number, label = '') =>
+  request<BuiltinProjectCabinet>(`/builtin-projects/${projectId}/cabinets`, json('POST', { design_id: designId, label }));
+export const updateBuiltinCabinet = (projectId: number, cabinetId: number, patch: { label?: string; placement?: BuiltinPlacement | null }) =>
+  request<BuiltinProjectCabinet>(`/builtin-projects/${projectId}/cabinets/${cabinetId}`, json('PUT', patch));
+export const deleteBuiltinCabinet = (projectId: number, cabinetId: number) =>
+  request<{ success: boolean }>(`/builtin-projects/${projectId}/cabinets/${cabinetId}`, { method: 'DELETE' });
+export const saveBuiltinLayout = (projectId: number, placements: { id: number; placement: BuiltinPlacement | null }[]) =>
+  request<BuiltinProject>(`/builtin-projects/${projectId}/layout`, json('PUT', { placements }));
 
 // ── Cut plan config ───────────────────────────────────────────────────────────
 

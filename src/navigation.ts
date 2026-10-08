@@ -81,6 +81,8 @@ export const APP_ROUTE_PATHS = [
   '/conversions',
   '/shelves',
   '/built-ins',
+  '/built-ins/projects',
+  '/built-ins/projects/:id',
   '/drawers',
   '/shopping-list',
   '/notebook',
@@ -107,6 +109,8 @@ export function routeTitleForPath(pathname: string): string {
   if (pathname === '/conversions') return 'Conversion Tables · Workshop';
   if (pathname === '/shelves') return 'Shelf Builder · Workshop';
   if (pathname === '/built-ins' || pathname === '/drawers') return 'Built-in Studio · Workshop';
+  if (pathname === '/built-ins/projects') return 'Built-in Projects · Workshop';
+  if (/^\/built-ins\/projects\/[^/]+$/.test(pathname)) return 'Built-in Project · Workshop';
   if (pathname === '/shopping-list') return 'Shopping List · Workshop';
   if (pathname === '/notebook') return 'Notebook · Workshop';
   if (pathname === '/notebook/new') return 'New Notebook Page · Workshop';
