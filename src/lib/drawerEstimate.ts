@@ -168,8 +168,6 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
     const full = plan.loads.reduce((a, l) => a + l.pounds, 0);
     items.push({ key: 'structural', name: '3″ (75 mm) structural screws', qty: studs * 2, unit: 'ea',
       note: `Wall cleat into about ${studs} studs. Full, the drawers could hold about ${Math.round(full)} lb — studs only, never drywall anchors.`, priceKey: 'caseScrews' });
-  } else if (plan.mount === 'under-desk') {
-    items.push({ key: 'desk-screws', name: `Wood screws, ${f(1.25)}`, qty: 8, unit: 'ea', note: 'Up through the unit’s top into the desk, two near each corner. Check they won’t come through the desk top.', priceKey: 'caseScrews' });
   }
 
   // The bookcase's own hardware comes from the Shelf Builder's list; glue, banding and finish are already counted above.

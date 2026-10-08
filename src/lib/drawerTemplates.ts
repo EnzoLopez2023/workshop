@@ -54,6 +54,15 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
     },
   },
   {
+    id: 'lagkapten-alex',
+    name: 'Desk on two ALEX',
+    description: 'Like IKEA’s LAGKAPTEN/ALEX desk: a 140 × 60 cm (55 1/8″ × 23 5/8″) top, 73 cm (28 3/4″) high, on an ALEX 5-drawer unit at each end with 27″ to sit in between.',
+    fields: {
+      width: '14 1/8', height: '27 1/4', depth: '22 7/8', heightMode: 'overall', drawers: 5, base: 'none',
+      desk: true, deskLayout: 'both', deskWidth: '55 1/8', deskHeight: '28 3/4', deskDepth: '23 5/8', deskTopLayers: 2,
+    },
+  },
+  {
     id: 'alex-5',
     name: 'ALEX 5-drawer',
     description: 'The classic desk pedestal: five equal drawers, 36 × 70 cm (14 1/8″ × 27 1/2″), 58 cm deep.',

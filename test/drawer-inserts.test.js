@@ -106,7 +106,7 @@ test('a desk doubles the units, adds the top, and checks knee space and height',
   assert.equal(drawerHardwareList(plan, { ...base, desk }, 'in').find(i => i.key === 'slides').qty, 10);
   assert.equal(drawerHardwareList(single, base, 'in').find(i => i.key === 'slides').qty, 5);
 
-  assert.match(buildDrawerPlan({ ...base, desk: { ...desk, width: 40 } }).errors.join(' '), /knee space/);
+  assert.match(buildDrawerPlan({ ...base, desk: { ...desk, width: 40 } }).errors.join(' '), /for your legs/);
   assert.match(buildDrawerPlan({ ...base, height: 30, desk }).errors.join(' '), /must be 27 1\/2" tall/);
   assert.match(buildDrawerPlan({ ...base, height: 27.5, desk: { ...desk, width: 100 } }).errors.join(' '), /butcher-block/);
 });

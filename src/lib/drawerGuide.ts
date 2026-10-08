@@ -773,16 +773,19 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   } else if (plan.mount === 'under-desk') {
     steps.push({
       id: 'install',
-      title: 'Hang it under the desk',
-      summary: `Screwed up through its top into the desk, ${f(plan.lift)} off the floor.`,
+      title: 'Set it under the desk',
+      summary: `It stands on the floor at the side of the desk, just clear of the underside (${f(config.mountHeight ?? 28)} up).`,
       instructions: [
-        'Take the drawers out. With a helper, hold the unit up under the desk where you want it (clamp a scrap across the desk front as a stop).',
-        `Drive eight ${f(1.25)} screws up through the unit’s top into the desk, two near each corner — short enough not to come through the desk top.`,
-        'Put the drawers back.',
+        'Slide it under the desk at one side, clear of where your legs go, its front lined up with the desk front or set back a little.',
+        config.base === 'feet'
+          ? 'Screw the leveling feet out until it’s level and the top is just below the desk — it shouldn’t carry the desk.'
+          : config.base === 'casters'
+            ? 'Lock the front casters; it rolls out when you need the space.'
+            : 'Check it’s level; shim under the base if the floor isn’t.',
       ],
       parts: [],
-      tips: ['Pre-drill the top panel and countersink from inside the case.'],
-      cautions: ['Check the desk top is solid wood or thick plywood; screws pull out of thin particleboard.'],
+      tips: ['A pedestal on casters can live under the desk and roll out beside your chair while you work.'],
+      cautions: [],
       scene: { view: 'front', visible: everything.filter(n => n !== 'Desk (existing)'), highlight: names(n => n === 'Desk (existing)') },
     });
   }

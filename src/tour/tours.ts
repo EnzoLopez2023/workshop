@@ -209,7 +209,7 @@ export const TOURS: Record<TourId, Tour> = {
       {
         title: 'Base and mounting',
         body: [
-          'Stand it on the floor (on MROCO leveling feet or casters), hang it on the wall on a French cleat, or hang it under a desk.',
+          'Stand it on the floor (on MROCO leveling feet or casters), hang it on the wall on a French cleat, or stand it under a desk you already have — it’s sized to slide in under it.',
           'For a built-in look, set it on a toe-kick plinth, run the sides down into an integrated toe kick, or use a flush base wrapped in baseboard.',
         ],
         route: '/drawers',

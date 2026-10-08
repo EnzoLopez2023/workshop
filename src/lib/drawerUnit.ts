@@ -367,6 +367,8 @@ export interface ExposedSides {
   right: boolean;
 }
 
+/** Under an existing desk the unit is sized to stand this far below its underside. */
+export const UNDER_DESK_CLEARANCE = 1 / 4;
 export const KICK_HEIGHT = 4;
 export const KICK_SETBACK = 3;
 export const BASEBOARD_THICKNESS = 1 / 2;
@@ -388,7 +390,7 @@ export const BASE_LABELS: Record<DrawerBase, string> = {
 /** "on 4 leveling feet", "on a toe-kick plinth"… for summaries. */
 export function baseDescription(config: Pick<DrawerConfig, 'base'>, plan: Pick<DrawerPlan, 'supports' | 'mount'>): string {
   if (plan.mount === 'wall') return 'hung on a French cleat';
-  if (plan.mount === 'under-desk') return 'hung under a desk';
+  if (plan.mount === 'under-desk') return 'standing under a desk';
   switch (config.base) {
     case 'feet': return `on ${plan.supports} leveling feet`;
     case 'casters': return `on ${plan.supports} casters`;
@@ -745,7 +747,8 @@ function layoutDoor(slot: DoorSlot, c: {
 
 /** Height under the case. */
 export function baseHeightOf(c: Pick<DrawerConfig, 'base' | 'footHeight' | 'casterHeight' | 'kickHeight'> & { mount?: DrawerMount }): number {
-  if (c.mount && c.mount !== 'floor') return 0;
+  // Only a wall-hung unit has nothing under it; under a desk it stands on the floor.
+  if (c.mount === 'wall') return 0;
   if (isKickBase(c.base)) return c.kickHeight ?? KICK_HEIGHT;
   return c.base === 'feet' ? c.footHeight : c.base === 'casters' ? c.casterHeight : 0;
 }
@@ -810,7 +813,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const interiorWidth = W - 2 * T;
   const mount: DrawerMount = config.mount ?? 'floor';
   // An integrated toe kick runs the sides down to the floor; everything else stands the case on its base.
-  const baseKind = mount === 'floor' && isKickBase(config.base) ? config.base as BasePlan['kind'] : null;
+  const baseKind = mount !== 'wall' && isKickBase(config.base) ? config.base as BasePlan['kind'] : null;
   const sideBottom = baseKind === 'kick' ? 0 : B;
   // A wall-hung unit's back moves forward by the cleat's thickness; the sides hide the cleat.
   const cleatGap = mount === 'wall' ? T : 0;
@@ -997,7 +1000,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   }
 
   // Base.
-  const supports = mount !== 'floor' || (config.base !== 'feet' && config.base !== 'casters') ? 0 : W > MIDDLE_SUPPORT_WIDTH ? 6 : 4;
+  const supports = mount === 'wall' || (config.base !== 'feet' && config.base !== 'casters') ? 0 : W > MIDDLE_SUPPORT_WIDTH ? 6 : 4;
   // Hung units: where they sit above the floor (for the 3D view), and their own checks.
   let lift = 0;
   const cleatHeight = config.cleatHeight ?? 3;
@@ -1006,11 +1009,12 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     if (cleatHeight < 1.5 || cleatHeight > caseHeight / 3) errors.push(`A ${f(cleatHeight)} cleat doesn’t suit a ${f(caseHeight)} tall case — use ${f(2)}–${f(Math.max(2, Math.floor(caseHeight / 3)))}.`);
     if (config.desk?.enabled) errors.push('A desk top needs floor-standing units — turn off the desk or stand the unit on the floor.');
   } else if (mount === 'under-desk') {
-    const underside = config.mountHeight ?? 27.5;
-    lift = underside - H;
-    if (lift < 4) errors.push(`Hung under a desk whose underside is ${f(underside)} up, a ${f(H)} tall unit would leave ${f(Math.max(lift, 0))} above the floor. Keep it at least ${f(4)} clear — make it shorter.`);
-    else if (lift < 18 && W > 20) warnings.push(`It hangs only ${f(lift)} above the floor — check it clears your knees.`);
-    if (config.desk?.enabled) errors.push('Use either the desk top or hang the unit under an existing desk, not both.');
+    // Stands on the floor under a desk you already have, just clear of its underside.
+    const underside = config.mountHeight ?? 28;
+    if (H > underside - UNDER_DESK_CLEARANCE + EPS) {
+      errors.push(`At ${f(H)} tall it won’t fit under the desk — its underside is ${f(underside)} up. Make the unit ${f(underside - UNDER_DESK_CLEARANCE)} tall or less (${f(UNDER_DESK_CLEARANCE)} clear so it slides in).`);
+    }
+    if (config.desk?.enabled) errors.push('Use either the desk top or an existing desk, not both.');
   }
   if (config.base === 'feet' && T < TNUT_MIN_THICKNESS) {
     warnings.push(`The leveling feet’s T-nuts want about ${f(TNUT_MIN_THICKNESS)} of wood and the bottom is ${f(T)}. Glue a ${f(3 / 4)} block under the bottom at each foot.`);
@@ -1343,9 +1347,9 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     const unitXs = dk.layout === 'both' ? [0, dk.width - W] : dk.layout === 'right' ? [dk.width - W] : [0];
     desk = { unitXs, width: dk.width, depth: dk.depth, height: dk.height, topThickness, knee };
     if (knee < MIN_KNEE_SPACE) {
-      errors.push(`A ${f(dk.width)} desk leaves only ${f(Math.max(knee, 0))} of knee space beside ${unitCount === 2 ? 'two' : 'a'} ${f(W)} unit${unitCount === 2 ? 's' : ''} — make it at least ${f(unitCount * W + MIN_KNEE_SPACE)} wide.`);
+      errors.push(`${unitCount === 2 ? 'Between the two units' : 'Beside the unit'} there’s only ${f(Math.max(knee, 0))} for your legs — you need at least ${f(MIN_KNEE_SPACE)} to sit there. Make the desk ${f(unitCount * W + MIN_KNEE_SPACE)} wide or more${unitCount === 2 ? ', put a unit at one end only,' : ''} or use a narrower unit.`);
     } else if (knee < COMFORT_KNEE_SPACE) {
-      warnings.push(`${f(knee)} of knee space is tight; ${f(COMFORT_KNEE_SPACE)} or more is comfortable.`);
+      warnings.push(`${f(knee)} to sit in ${unitCount === 2 ? 'between the units' : 'beside the unit'} is tight; ${f(COMFORT_KNEE_SPACE)} or more is comfortable.`);
     }
     if (dk.depth < D) errors.push(`The ${f(dk.depth)} desk top is shallower than the ${f(D)} units under it — make it at least ${f(D)} deep.`);
     const needed = dk.height - topThickness;
@@ -1480,7 +1484,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     sideBottom,
     base: basePlan,
     bookcase,
-    totalHeight: Math.max(H, desk ? desk.height : 0, bookcase ? bookcase.totalHeight : 0, run ? run.totalHeight : 0),
+    totalHeight: Math.max(H, desk ? desk.height : 0, bookcase ? bookcase.totalHeight : 0, run ? run.totalHeight : 0,
+      mount === 'under-desk' ? (config.mountHeight ?? 28) + 1.5 : 0),
     run,
     interiorWidth,
     interiorDepth,
@@ -1706,8 +1711,9 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
   }
   if (plan.bookcase) solids.push(...styleBookcaseDoors(bookcaseSolids(plan.bookcase, W, cd, T), plan.bookcase.shelfPlan.doors, config));
   if (plan.mount === 'under-desk') {
-    // The desk it hangs from, for context.
-    solids.push(box('Desk (existing)', 'back', [-6, H, -T - 2], [W + 6, H + 1.5, cd + 2]));
+    // The desk it stands under, for context.
+    const underside = config.mountHeight ?? 28;
+    solids.push(box('Desk (existing)', 'back', [-6, underside, -T - 2], [W + 6, underside + 1.5, cd + 2]));
   }
   return plan.lift ? solids.map(s => liftSolid(s, plan.lift)) : solids;
 }
@@ -2383,7 +2389,7 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     columnWidths: cols.map(x => (x.width ? L(x.width) : '')),
     columnDrawers: cols.map(x => x.drawers),
     mount: c.mount ?? 'floor',
-    mountHeight: L(c.mountHeight ?? (c.mount === 'under-desk' ? 27.5 : 30)),
+    mountHeight: L(c.mountHeight ?? (c.mount === 'under-desk' ? 28 : 30)),
     cleatHeight: L(c.cleatHeight ?? 3),
     bookcase: bookcaseToFields(c.bookcase, L),
     run: runToFields(c.run, L),

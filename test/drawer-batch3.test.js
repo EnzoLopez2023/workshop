@@ -84,15 +84,19 @@ test('wall-hung: French cleat behind a grooved-in back, lifted off the floor, sc
   assert.match(buildDrawerPlan({ ...config, desk: { enabled: true, layout: 'both', width: 60, height: 29, depth: 24, topLayers: 2 } }).errors.join(' '), /floor-standing/);
 });
 
-test('under a desk: hung from the desk’s underside, and too tall a unit is refused', () => {
-  const config = { ...base, height: 20, mount: 'under-desk', mountHeight: 28 };
+test('under a desk: stands on the floor beside your knees, and too tall a unit is refused', () => {
+  const config = { ...base, height: 27.75, mount: 'under-desk', mountHeight: 28, base: 'casters', casterHeight: 2 };
   const plan = buildDrawerPlan(config);
   assert.deepEqual(plan.errors, []);
-  close(plan.lift, 8);
+  assert.deepEqual(plan.warnings.filter(w => /knees|hangs/.test(w)), [], 'no knee warning: it stands at the side');
+  close(plan.lift, 0);
+  assert.equal(plan.baseHeight, 2, 'casters still go under it');
+  assert.equal(plan.supports, 4);
   const solids = drawerSolids(plan, config);
   const desk = solids.find(s => s.name === 'Desk (existing)');
-  close(desk.min[1], 28, 'the desk sits on top of the unit');
-  assert.match(buildDrawerPlan({ ...config, height: 26 }).errors.join(' '), /at least 4"/);
+  close(desk.min[1], 28, 'the desk is above it');
+  assert.ok(Math.max(...solids.filter(s => s.shape === 'box' && s.kind === 'case').map(s => s.max[1])) <= 28);
+  assert.match(buildDrawerPlan({ ...config, height: 28.5 }).errors.join(' '), /won’t fit under the desk/);
 });
 
 test('guide steps carry time estimates for the tracker', () => {

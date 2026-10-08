@@ -55,6 +55,7 @@ import {
   MIN_BOX_HEIGHT,
   BOX_CLEARANCE,
   BASE_LABELS,
+  UNDER_DESK_CLEARANCE,
   doorNotch,
   doorNotchCenter,
   pullHoles,
@@ -405,7 +406,9 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     thickness,
     width: num('width'),
     // Under a desk the units are as tall as the space beneath the top.
-    height: fronts ? 0 : desk ? desk.height - desk.topLayers * thickness : num('height'),
+    // Under a desk top, or an existing desk, the unit is as tall as the space beneath it.
+    height: fronts ? 0 : desk ? desk.height - desk.topLayers * thickness
+      : form.mount === 'under-desk' ? num('mountHeight') - UNDER_DESK_CLEARANCE : num('height'),
     depth: num('depth'),
     drawers: form.drawers,
     frontHeights: fronts && form.columns <= 1 ? form.frontHeights.slice(0, form.drawers).map((_, i) => num(`frontHeights.${i}`)) : undefined,
@@ -436,7 +439,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     base: form.base,
     footHeight: form.base === 'feet' ? num('footHeight', { allowZero: true }) : DEFAULT_FOOT_HEIGHT,
     casterHeight: form.base === 'casters' ? num('casterHeight') : DEFAULT_CASTER_HEIGHT,
-    ...(form.mount === 'floor' && isKickBase(form.base) ? {
+    ...(form.mount !== 'wall' && isKickBase(form.base) ? {
       kickHeight: num('kickHeight'),
       kickSetback: form.base === 'flush' ? undefined : num('kickSetback', { allowZero: true }),
       baseboardHeight: form.base === 'flush' && form.baseboardHeight.trim() ? num('baseboardHeight') : undefined,
@@ -1204,7 +1207,7 @@ export default function DrawerBuilder() {
                 hint={plan && plan.slideLength > 0 ? `Fits ${fmt(plan.slideLength)} slides` : 'Fronts included'}
                 onChange={depth => update({ depth })}
               />
-              {form.heightMode === 'overall' && !form.desk && (
+              {form.heightMode === 'overall' && !form.desk && form.mount !== 'under-desk' && (
                 <LengthField
                   unit={units}
                   label="Overall height"
@@ -1215,9 +1218,10 @@ export default function DrawerBuilder() {
                 />
               )}
             </div>
-            {(form.heightMode !== 'overall' || form.desk) && (
+            {(form.heightMode !== 'overall' || form.desk || form.mount === 'under-desk') && (
               <p className="shelf-group-note">
-                Overall height{plan ? ` ${fmt(plan.overallHeight)}` : ''}: {form.desk ? 'set by the desk height (under Built-ins)' : 'the fronts add up to it (under Drawers & doors)'}.
+                Overall height{plan ? ` ${fmt(plan.overallHeight)}` : ''}: {form.heightMode !== 'overall' ? 'the fronts add up to it (under Drawers & doors)'
+                  : form.desk ? 'set by the desk height (under Built-ins)' : 'sized to fit under your desk (under Base)'}.
               </p>
             )}
           </fieldset>
@@ -1530,9 +1534,10 @@ export default function DrawerBuilder() {
               </div>
             )}
             {form.mount === 'under-desk' && (
-              <LengthField unit={units} label="Desk underside above the floor" value={form.mountHeight} error={fieldErrors.mountHeight} hint="It’s screwed up through its top into the desk." onChange={mountHeight => update({ mountHeight })} />
+              <LengthField unit={units} label="Desk underside above the floor" value={form.mountHeight} error={fieldErrors.mountHeight}
+                hint={`It stands on the floor beside your knees, sized to ${fmt(UNDER_DESK_CLEARANCE)} below this so it slides under.`} onChange={mountHeight => update({ mountHeight })} />
             )}
-            {form.mount === 'floor' && (
+            {form.mount !== 'wall' && (
               <label className="form-field">
                 <span className="form-field-label">Base</span>
                 <select value={form.base} onChange={e => update({ base: e.target.value as DrawerBase })}>
@@ -1541,7 +1546,7 @@ export default function DrawerBuilder() {
                 <small>{BASE_HINTS[form.base]}</small>
               </label>
             )}
-            {form.mount === 'floor' && isKickBase(form.base) && (
+            {form.mount !== 'wall' && isKickBase(form.base) && (
               <div className="shelf-field-grid">
                 <LengthField unit={units} label={form.base === 'flush' ? 'Plinth height' : 'Toe-kick height'} value={form.kickHeight} error={fieldErrors.kickHeight} hint="Floor to the underside of the case; 4″ is typical." onChange={kickHeight => update({ kickHeight })} />
                 {form.base !== 'flush' && (
@@ -1555,13 +1560,13 @@ export default function DrawerBuilder() {
                 )}
               </div>
             )}
-            {form.mount === 'floor' && (form.base === 'plinth' || form.base === 'flush' || form.bookcase.enabled) && (
+            {form.mount !== 'wall' && (form.base === 'plinth' || form.base === 'flush' || form.bookcase.enabled) && (
               <div className="shelf-field-grid">
                 <Toggle label="Left end shows" checked={form.exposedLeft} hint={form.base === 'flush' ? 'The baseboard wraps around it.' : form.base === 'plinth' ? 'The plinth sets back on this side too.' : 'The countertop and top trim overhang it.'} onChange={exposedLeft => update({ exposedLeft })} />
                 <Toggle label="Right end shows" checked={form.exposedRight} hint="Off when it’s against a wall or another cabinet." onChange={exposedRight => update({ exposedRight })} />
               </div>
             )}
-            {form.mount === 'floor' && form.base === 'feet' && (
+            {form.mount !== 'wall' && form.base === 'feet' && (
               <LengthField
                 unit={units}
                 label="Gap under the case"
@@ -1570,7 +1575,7 @@ export default function DrawerBuilder() {
                 onChange={footHeight => update({ footHeight })}
               />
             )}
-            {form.mount === 'floor' && form.base === 'casters' && (
+            {form.mount !== 'wall' && form.base === 'casters' && (
               <LengthField
                 unit={units}
                 label="Caster height"
@@ -1623,11 +1628,19 @@ export default function DrawerBuilder() {
                 <SegmentedControl label="Units" value={form.deskLayout} options={DESK_LAYOUT_OPTIONS} onChange={deskLayout => update({ deskLayout })} />
                 <div className="shelf-field-grid">
                   <LengthField unit={units} label="Desk width" value={form.deskWidth} error={fieldErrors.deskWidth}
-                    hint={plan?.desk ? `${fmt(plan.desk.knee)} knee space` : undefined} onChange={deskWidth => update({ deskWidth })} />
+                    hint={plan?.desk ? `${fmt(Math.max(plan.desk.knee, 0))} to sit in ${form.deskLayout === 'both' ? 'between the units' : 'beside the unit'}` : undefined} onChange={deskWidth => update({ deskWidth })} />
                   <LengthField unit={units} label="Desk height" value={form.deskHeight} error={fieldErrors.deskHeight}
                     hint={plan?.desk ? `Units ${fmt(plan.desk.height - plan.desk.topThickness)} tall` : 'Floor to the top; 29–30″ is typical.'} onChange={deskHeight => update({ deskHeight })} />
                   <LengthField unit={units} label="Desk depth" value={form.deskDepth} error={fieldErrors.deskDepth} onChange={deskDepth => update({ deskDepth })} />
                 </div>
+                {plan?.desk && plan.desk.knee < 24 && (
+                  <p className="shelf-group-note">
+                    You sit {form.deskLayout === 'both' ? 'between the units' : 'beside the unit'}, so that space needs {fmt(24)} or so (at least {fmt(20)}).{' '}
+                    <Button variant="ghost" onClick={() => update({ deskWidth: lengthToField(plan.desk!.width - plan.desk!.knee + 24, units) })}>
+                      Widen the desk to {fmt(plan.desk.width - plan.desk.knee + 24)}
+                    </Button>
+                  </p>
+                )}
                 <SegmentedControl label="Top" value={String(form.deskTopLayers) as '1' | '2'} options={TOP_LAYER_OPTIONS} onChange={v => update({ deskTopLayers: v === '1' ? 1 : 2 })} />
                 {form.heightMode === 'fronts' && (
                   <small>With “Each front”, the fronts must add up to the space under the top — use “Make equal” to fit them.</small>
@@ -1828,7 +1841,7 @@ export default function DrawerBuilder() {
                 ) : (
                   <>
                     <Stat label={plan.run ? 'Wall run' : 'Overall width'} value={fmt(plan.run ? plan.run.width : plan.overallWidth)} />
-                    <Stat label={plan.bookcase ? 'Height with bookcase' : 'Overall height'} value={fmt(plan.totalHeight)} />
+                    <Stat label={plan.bookcase ? 'Height with bookcase' : 'Overall height'} value={fmt(plan.bookcase || plan.run ? plan.totalHeight : plan.overallHeight)} />
                     <Stat label="Overall depth" value={fmt(plan.overallDepth)} />
                   </>
                 )}
@@ -1859,7 +1872,7 @@ export default function DrawerBuilder() {
                   <ShelfViewer3D
                     solids={solids}
                     width={plan.run ? plan.run.width : plan.desk ? plan.desk.width : plan.overallWidth}
-                    height={plan.desk ? plan.desk.height : plan.totalHeight + plan.lift + (plan.mount === 'under-desk' ? 1.5 : 0)}
+                    height={plan.desk ? plan.desk.height : plan.totalHeight + plan.lift}
                     depth={plan.desk ? plan.desk.depth : plan.caseDepth}
                     wallMounted={plan.mount === 'wall'}
                     colors={finishColors(config.finish)}
