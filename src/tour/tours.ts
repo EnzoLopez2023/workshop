@@ -1,4 +1,4 @@
-// The tours: an app walkthrough, and hands-on tutorials for the Drawer Builder
+// The tours: an app walkthrough, and hands-on tutorials for the Built-in Studio
 // and Shelf Builder. Targets are CSS selectors; the first visible match is used.
 
 export type TourId = 'app' | 'drawers' | 'shelves';
@@ -67,7 +67,7 @@ export const TOURS: Record<TourId, Tour> = {
       },
       {
         title: 'Saved designs',
-        body: ['Designs you save in the Shelf Builder and Drawer Builder show up on the Projects page, one click from editing.'],
+        body: ['Designs you save in the Shelf Builder and Built-in Studio show up on the Projects page, one click from editing.'],
         route: '/',
         target: section('shelf-designs-title'),
         missingHint: 'they appear once the page has loaded',
@@ -88,14 +88,14 @@ export const TOURS: Record<TourId, Tour> = {
         links: [{ label: 'Shelf Builder tutorial', tour: 'shelves' }],
       },
       {
-        title: 'Drawer Builder',
+        title: 'Built-in Studio',
         body: [
           'ALEX-style drawer units with finger-pull fronts — any size, in columns, with dividers, Gridfinity, tool shadow boards, desk tops, shop jigs and a printable build packet.',
           'It has the most to explore, so it has its own hands-on tutorial.',
         ],
-        route: '/drawers',
+        route: '/built-ins',
         target: head,
-        links: [{ label: 'Drawer Builder tutorial', tour: 'drawers' }],
+        links: [{ label: 'Built-in Studio tutorial', tour: 'drawers' }],
       },
       {
         title: 'Conversion tables',
@@ -130,7 +130,7 @@ export const TOURS: Record<TourId, Tour> = {
         title: 'That’s Workshop',
         body: ['Happy building! Want a hands-on walk through one of the builders?'],
         links: [
-          { label: 'Drawer Builder', tour: 'drawers' },
+          { label: 'Built-in Studio', tour: 'drawers' },
           { label: 'Shelf Builder', tour: 'shelves' },
         ],
       },
@@ -138,22 +138,22 @@ export const TOURS: Record<TourId, Tour> = {
   },
 
   drawers: {
-    title: 'Drawer Builder tutorial',
+    title: 'Built-in Studio tutorial',
     description: 'Hands-on: design a drawer unit and see everything it makes.',
     steps: [
       {
-        title: 'The Drawer Builder',
+        title: 'The Built-in Studio',
         body: [
           'Design a plywood drawer unit like the IKEA ALEX — but better built and any size — and get everything you need to make it.',
           'Some steps are hands-on: when you see “Try it”, do it and the tutorial moves on. Your design is kept in this browser as you go.',
         ],
-        route: '/drawers',
+        route: '/built-ins',
         target: head,
       },
       {
         title: 'Start from a template',
         body: ['The ALEX sizes and a few custom designs are here, and your saved designs appear beside them.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: '.drawer-templates',
         action: 'click',
         actionHint: 'pick a template — ALEX 5-drawer is a good start',
@@ -161,25 +161,25 @@ export const TOURS: Record<TourId, Tour> = {
       {
         title: 'Name and save it',
         body: ['Save the design to your library to come back to it, or save new versions as you go. It shows when there are unsaved changes.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: '.shelf-design-bar',
       },
       {
         title: 'Work through the steps',
         body: ['The settings run in the order you’d design a cabinet: size and layout, fronts, base, built-ins, inside, then materials. Jump between them here; anything to fix shows at the top of the preview.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: '.builder-step-nav',
       },
       {
         title: 'Inches or millimetres',
         body: ['Switch units and every size converts. Any box also takes the other unit — type 18mm or 3/4".'],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('units'),
       },
       {
         title: 'Size',
         body: ['Overall width and depth (fronts included). The hints tell you how wide the boxes come out and which slides fit.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('size'),
       },
       {
@@ -189,19 +189,19 @@ export const TOURS: Record<TourId, Tour> = {
           'Each position can be a drawer, a door (with shelves or pull-out trays behind it) or an open cubby.',
           '“Shallow top drawer” makes a pencil tray in one click; the load setting checks slides and bottoms against what you’ll store.',
         ],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('drawers'),
       },
       {
         title: 'Fronts and pulls',
         body: ['Slab or Shaker fronts, and the ALEX cut-out pull (or a slot, wide notch or hand hole) — or knobs, bar pulls or cup pulls. The bookcase doors match.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('finger-pull'),
       },
       {
         title: 'Finish colours',
         body: ['Colours for the fronts and the case, in the 3D view and the build guide.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('finish'),
         action: 'click',
         actionHint: 'pick a colour',
@@ -212,25 +212,25 @@ export const TOURS: Record<TourId, Tour> = {
           'Stand it on the floor (on MROCO leveling feet or casters), hang it on the wall on a French cleat, or stand it under a desk you already have — it’s sized to slide in under it.',
           'For a built-in look, set it on a toe-kick plinth, run the sides down into an integrated toe kick, or use a flush base wrapped in baseboard.',
         ],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('base-mounting'),
       },
       {
         title: 'A bookcase above',
         body: ['Turn a floor-standing unit into a built-in hutch: a bookcase on a countertop (or straight on the case) with bays, fixed and adjustable shelves, doors, a cap or crown, and a task light. It’s added to the cut list, CNC files, hardware and build guide.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('bookcase'),
       },
       {
         title: 'A wall of built-ins',
         body: ['Line copies of this cabinet along a wall — mirrored where you like — with desk gaps between them and fillers scribed to the walls, under one countertop. The bookcase goes over each, with one crown across the top.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('wall-run'),
       },
       {
         title: 'Desk top',
         body: ['Put one unit at each end (or one at one end) under a plywood desk top — the units are sized to fit under it and knee space is checked.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('desk'),
       },
       {
@@ -238,32 +238,32 @@ export const TOURS: Record<TourId, Tour> = {
         body: [
           'Per drawer: an egg-crate divider grid, a marker tray, a Gridfinity baseplate (with a bin planner and STLs), a tool shadow board from SVG/DXF outlines.',
         ],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('inside-the-drawers'),
       },
       {
         title: 'Slides',
         body: ['LONTAN soft-close, full-extension slides: the longest that fits is picked for you. Shorter ones per drawer are an option.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('slides'),
       },
       {
         title: 'Plywood',
         body: ['Last, the details: case and front plywood, drawer-box plywood, bottoms and the back. Use the real measured thickness — plywood is rarely nominal.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: fieldset('material'),
       },
       {
         title: 'See it in 3D',
         body: ['Drag to orbit, scroll or pinch to zoom, and hover to name a part. Switch to Drawing for a dimensioned elevation.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: '.shelf-viewer',
         missingHint: needsValid,
       },
       {
         title: 'Open it up',
         body: ['Click a drawer to slide it out, or open them all — and Explode pulls every part apart to show how it goes together.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: '.shelf-viewer-drawers',
         action: 'click',
         actionHint: 'press Open drawers or Explode',
@@ -272,35 +272,35 @@ export const TOURS: Record<TourId, Tour> = {
       {
         title: 'Cut list',
         body: ['Every part with its size and notes. Copy it, print it, or add it to a project — with the materials and costs, and the design for its 3D preview.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: section('drawer-cutlist-title'),
         missingHint: needsValid,
       },
       {
         title: 'Cutting order',
         body: ['The cut list as saw setups: everything at one fence setting, then one stop setting, before you move it.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: section('drawer-order-title'),
         missingHint: needsValid,
       },
       {
         title: 'CNC and Shaper files',
         body: ['SVG and DXF for whole sheets and every part — notches, rabbets, grooves and pockets included — plus Gridfinity STLs.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: section('drawer-export-title'),
         missingHint: needsValid,
       },
       {
         title: 'Shop jigs',
         body: ['Templates, story sticks, spacer blocks, squaring frames and more, sized from your design and grouped by build stage.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: '.drawer-jig-stage',
         missingHint: needsValid,
       },
       {
         title: 'Hardware and cost',
         body: ['Slides, feet, screws and finish counted from the design, with links to buy them and prices you can edit.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: section('drawer-hardware-title'),
         missingHint: needsValid,
       },
@@ -309,20 +309,20 @@ export const TOURS: Record<TourId, Tour> = {
         body: [
           'An illustrated, step-by-step guide with this design’s measurements. Tick off steps as you build — with time to go — and “Print build packet” puts the cut list, jigs and guide in one printout.',
         ],
-        route: '/drawers',
+        route: '/built-ins',
         target: section('drawer-guide-title'),
         missingHint: needsValid,
       },
       {
         title: 'Sheet layout',
         body: ['Add your sheets and generate a cutting plan — there’s a row for each plywood thickness.'],
-        route: '/drawers',
+        route: '/built-ins',
         target: section('drawer-optimizer-title'),
         missingHint: needsValid,
       },
       {
         title: 'You’re ready to build',
-        body: ['That’s the Drawer Builder. Start the tutorial again any time from the Tutorial button at the top of the page.'],
+        body: ['That’s the Built-in Studio. Start the tutorial again any time from the Tutorial button at the top of the page.'],
         links: [{ label: 'Workshop tour', tour: 'app' }],
       },
     ],
@@ -405,7 +405,7 @@ export const TOURS: Record<TourId, Tour> = {
       {
         title: 'Done',
         body: ['That’s the Shelf Builder. The Tutorial button at the top brings this back any time.'],
-        links: [{ label: 'Drawer Builder tutorial', tour: 'drawers' }],
+        links: [{ label: 'Built-in Studio tutorial', tour: 'drawers' }],
       },
     ],
   },

@@ -914,9 +914,9 @@ function ProjectDrawerPreview({ projectId, projectTitle }: { projectId: number; 
       title="3D Preview"
       icon={<Box size={13} />}
       right={(
-        <Link to={`/drawers?project=${projectId}`} className="btn btn-ghost">
+        <Link to={`/built-ins?project=${projectId}`} className="btn btn-ghost">
           <Archive size={13} aria-hidden="true" />
-          <span>Open in Drawer Builder</span>
+          <span>Open in Built-in Studio</span>
         </Link>
       )}
     >

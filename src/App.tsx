@@ -87,7 +87,9 @@ function AppRoutes() {
               <Route path="/library/:id"       element={<LibraryModelDetail />} />
               <Route path="/conversions"       element={<ConversionTables />} />
               <Route path="/shelves"           element={<ShelfBuilder />} />
-              <Route path="/drawers"           element={<DrawerBuilder />} />
+              <Route path="/built-ins"         element={<DrawerBuilder />} />
+              {/* The Built-in Studio was the Drawer Builder; old links (and their ?design= or ?project=) still work. */}
+              <Route path="/drawers"           element={<RedirectKeepingQuery to="/built-ins" />} />
               <Route path="/shopping-list"     element={<ShoppingList />} />
               <Route path="/notebook"          element={<NotebookList />} />
               <Route path="/notebook/:id"      element={<NotebookPage />} />
@@ -144,4 +146,10 @@ function RouteLoading() {
       <span>Opening workspace…</span>
     </div>
   );
+}
+
+/** A permanent move that keeps the query string, so saved ?design= and ?project= links still open. */
+function RedirectKeepingQuery({ to }: { to: string }) {
+  const { search, hash } = useLocation();
+  return <Navigate to={`${to}${search}${hash}`} replace />;
 }

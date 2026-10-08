@@ -160,9 +160,9 @@ export default function CommandPalette({ open, onClose, returnFocusTo }: Props) 
                   <PaletteItem icon={<ShoppingCart size={15} />} label="Shopping List" onSelect={() => go('/shopping-list')} />
                   <PaletteItem icon={<Ruler size={15} />} label="Conversions" onSelect={() => go('/conversions')} />
                   <PaletteItem icon={<Rows3 size={15} />} label="Shelf Builder" onSelect={() => go('/shelves')} />
-                  <PaletteItem icon={<Archive size={15} />} label="Drawer Builder" onSelect={() => go('/drawers')} />
+                  <PaletteItem icon={<Archive size={15} />} label="Built-in Studio" onSelect={() => go('/built-ins')} />
                   <PaletteItem icon={<Compass size={15} />} label="Take the Workshop tour" onSelect={() => startTour('app')} />
-                  <PaletteItem icon={<Compass size={15} />} label="Drawer Builder tutorial" onSelect={() => startTour('drawers')} />
+                  <PaletteItem icon={<Compass size={15} />} label="Built-in Studio tutorial" onSelect={() => startTour('drawers')} />
                   <PaletteItem icon={<Compass size={15} />} label="Shelf Builder tutorial" onSelect={() => startTour('shelves')} />
                   <PaletteItem icon={<BookOpen size={15} />} label="Notebook" onSelect={() => go('/notebook')} />
                   <PaletteItem icon={<Cpu size={15} />} label="Add Shaper Hub Project" onSelect={() => go('/shaper/new')} />

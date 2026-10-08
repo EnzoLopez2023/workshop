@@ -34,10 +34,10 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
   },
   {
     id: 'drawers',
-    label: 'Drawer Builder',
-    compactLabel: 'Drawers',
-    href: '/drawers',
-    matchPrefixes: ['/drawers'],
+    label: 'Built-in Studio',
+    compactLabel: 'Built-ins',
+    href: '/built-ins',
+    matchPrefixes: ['/built-ins', '/drawers'],
   },
   {
     id: 'conversions',
@@ -80,6 +80,7 @@ export const APP_ROUTE_PATHS = [
   '/library/:id',
   '/conversions',
   '/shelves',
+  '/built-ins',
   '/drawers',
   '/shopping-list',
   '/notebook',
@@ -105,7 +106,7 @@ export function routeTitleForPath(pathname: string): string {
   if (/^\/library\/[^/]+$/.test(pathname)) return 'Model · Workshop';
   if (pathname === '/conversions') return 'Conversion Tables · Workshop';
   if (pathname === '/shelves') return 'Shelf Builder · Workshop';
-  if (pathname === '/drawers') return 'Drawer Builder · Workshop';
+  if (pathname === '/built-ins' || pathname === '/drawers') return 'Built-in Studio · Workshop';
   if (pathname === '/shopping-list') return 'Shopping List · Workshop';
   if (pathname === '/notebook') return 'Notebook · Workshop';
   if (pathname === '/notebook/new') return 'New Notebook Page · Workshop';

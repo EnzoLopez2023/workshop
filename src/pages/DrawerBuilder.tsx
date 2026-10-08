@@ -750,7 +750,7 @@ export default function DrawerBuilder() {
           setLoadNotice({
             tone: 'error',
             text: design == null
-              ? `“${project.title}” has no Drawer Builder design saved, so your current design was kept.`
+              ? `“${project.title}” has no Built-in Studio design saved, so your current design was kept.`
               : `The design saved on “${project.title}” couldn’t be read, so your current design was kept.`,
           });
           return;
@@ -1040,8 +1040,8 @@ export default function DrawerBuilder() {
       </Button>
 
       <PageHeader
-        title="Drawer Builder"
-        description="Design an ALEX-style plywood drawer unit with finger-pull fronts, sized to standard IKEA units or any width you need, then take the cut list and sheet layout to the saw."
+        title="Built-in Studio"
+        description="Design drawer units, cabinets, desks and whole walls of built-ins — ALEX-style or Shaker, on toe kicks or legs, with bookcases above — then take the cut list, CNC files and build guide to the shop."
         actions={(
           <>
           <TutorialButton tour="drawers" />

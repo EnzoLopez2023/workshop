@@ -70,12 +70,12 @@ export default function ShelfDesignsSection() {
   );
 }
 
-/** Saved Drawer Builder designs, the same way. */
+/** Saved Built-in Studio designs, the same way. */
 export function DrawerDesignsSection() {
   return (
     <DesignsSection
-      id="drawer-designs-title" title="Drawer designs" icon={<Archive size={16} aria-hidden="true" />} path="/drawers"
-      builder="Drawer Builder" noun="drawer" list={listLibraryDrawerDesigns} remove={deleteLibraryDrawerDesign} describe={describeDrawers}
+      id="drawer-designs-title" title="Built-in designs" icon={<Archive size={16} aria-hidden="true" />} path="/built-ins"
+      builder="Built-in Studio" noun="built-in" list={listLibraryDrawerDesigns} remove={deleteLibraryDrawerDesign} describe={describeDrawers}
     />
   );
 }

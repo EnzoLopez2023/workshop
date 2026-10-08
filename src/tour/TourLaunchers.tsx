@@ -58,7 +58,7 @@ export function FirstVisitOffer() {
   useEffect(() => {
     if (active) { setOffer(null); return; }
     const seen = toursSeen();
-    const want: TourId | null = pathname === '/drawers' ? 'drawers' : pathname === '/shelves' ? 'shelves' : 'app';
+    const want: TourId | null = pathname === '/built-ins' || pathname === '/drawers' ? 'drawers' : pathname === '/shelves' ? 'shelves' : 'app';
     setOffer(want && !seen.includes(want) ? want : null);
   }, [pathname, active]);
   if (!offer) return null;

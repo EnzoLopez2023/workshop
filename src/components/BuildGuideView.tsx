@@ -36,7 +36,7 @@ type Images = { state: 'idle' } | { state: 'drawing'; done: number; total: numbe
 /** Redraw this long after the last design change, so typing doesn't redraw on every key. */
 const REDRAW_DELAY_MS = 700;
 
-/** The illustrated, printable step list used by the Shelf Builder and the Drawer Builder. */
+/** The illustrated, printable step list used by the Shelf Builder and the Built-in Studio. */
 export default function BuildGuideView({ guide, width, height, depth, wallMounted, units, title, subtitle, colors, progress }: Props) {
   const done = new Set(progress?.done ?? []);
   const doneCount = guide.steps.filter(s => done.has(s.id)).length;
