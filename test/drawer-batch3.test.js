@@ -163,7 +163,8 @@ test('one-unit desk: legs (or an end panel) hold up the other end and count agai
   const solids = deskSolids(plan, config);
   const legs = solids.filter(s => s.name.startsWith('Desk leg'));
   assert.equal(legs.length, 2);
-  assert.ok(legs.every(l => l.max[0] <= 55.125 && l.min[0] > 50 && Math.abs(l.max[1] - 27.25) < 1e-6));
+  // Round: an upright cylinder 27 1/4" tall, 2" in from the right end.
+  assert.ok(legs.every(l => l.shape === 'prism' && Math.abs(l.x1 - l.x0 - 27.25) < 1e-6 && Math.abs(l.pose.offset[0] - (55.125 - 2 - 0.75)) < 1e-6));
   assert.ok(drawerHardwareList(plan, config, 'in').some(i => i.key === 'desk-legs' && i.qty === 2));
   const panel = buildDrawerPlan({ ...config, desk: { ...desk, openEnd: 'panel' } });
   assert.ok(panel.parts.some(p => p.name === 'Desk end panel') && panel.parts.some(p => p.name === 'Desk back rail'));

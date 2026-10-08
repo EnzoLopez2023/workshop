@@ -457,7 +457,7 @@ export interface DeskConfig {
 }
 
 export type DeskOpenEnd = 'legs' | 'panel';
-/** Bought desk legs: square-ish footprint, set in from the corners. */
+/** Bought desk legs: round, this diameter, set in from the corners. */
 export const DESK_LEG_SIZE = 1.5;
 export const DESK_LEG_INSET = 2;
 /** The end panel's back rail, under the top between the unit and the panel. */
@@ -1895,9 +1895,16 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
     const z1 = plan.caseDepth;
     const out2 = Math.max(dk.width, H) / 10;
     if (end.kind === 'legs') {
-      const x = end.side === 'right' ? dk.width - DESK_LEG_INSET - DESK_LEG_SIZE : DESK_LEG_INSET;
-      for (const [n, z] of [['front', z0 + DESK_LEG_INSET], ['back', z1 - DESK_LEG_INSET - DESK_LEG_SIZE]] as const) {
-        out.push({ name: `Desk leg (${n})`, kind: 'pin', shape: 'box', min: [x, 0, z], max: [x + DESK_LEG_SIZE, end.height, z + DESK_LEG_SIZE], explode: [end.side === 'right' ? out2 : -out2, 0, 0] });
+      // Round legs: a circle extruded along x, stood upright (x → y) and moved into place.
+      const r = DESK_LEG_SIZE / 2;
+      const circle: [number, number][] = Array.from({ length: 24 }, (_, k) => {
+        const a = (k / 24) * Math.PI * 2;
+        return [r * Math.cos(a), r * Math.sin(a)];
+      });
+      const cx = end.side === 'right' ? dk.width - DESK_LEG_INSET - r : DESK_LEG_INSET + r;
+      for (const [n, cz] of [['front', z0 + DESK_LEG_INSET + r], ['back', z1 - DESK_LEG_INSET - r]] as const) {
+        out.push({ name: `Desk leg (${n})`, kind: 'pin', shape: 'prism', x0: 0, x1: end.height, profile: circle,
+          pose: { rotate: [0, 0, Math.PI / 2], offset: [cx, 0, cz] }, explode: [end.side === 'right' ? out2 : -out2, 0, 0] });
       }
     } else {
       const T = config.thickness;
