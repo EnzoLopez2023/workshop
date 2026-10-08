@@ -8,6 +8,7 @@ import {
   BOX_NOTCH_EXTRA,
   baseDescription,
   boxedDrawers,
+  DESK_LEG_INSET,
   runSolids,
   styleBookcaseDoors,
   deskSolids,
@@ -746,8 +747,13 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         ...(layers === 2 ? ['Glue the two top layers face to face and screw them together every 8″ from underneath; let it set flat.'] : []),
         `Stand the unit${plan.unitCount === 2 ? 's' : ''} in place${plan.unitCount === 2 ? ` with their outside faces at the desk ends, ${f(dk.knee)} apart` : ''}, backs in line.`,
         'Lay the top on with its back edge flush with the units’ backs, then screw up through each unit’s top panel — 8 screws per unit, short enough not to come through.',
+        ...(dk.openEnd?.kind === 'legs' ? [
+          `With the top upside down, screw the two leg plates under the ${dk.openEnd.side} end, ${f(DESK_LEG_INSET)} in from the end and the front and back edges; thread the legs in, then turn the desk over onto the unit.`,
+        ] : dk.openEnd?.kind === 'panel' ? [
+          `Screw the back rail to the end panel and the unit’s side, under where the top goes, then stand the panel at the ${dk.openEnd.side} end and screw down through the top into it and the rail.`,
+        ] : []),
       ],
-      parts: sized(plan.parts.filter(p => p.name === 'Desk top')),
+      parts: sized(plan.parts.filter(p => p.name.startsWith('Desk '))),
       tips: [`The top overhangs the drawer fronts by ${f(dk.depth - plan.overallDepth)} — enough to keep knees off the pulls.`],
       cautions: [],
       scene: { view: 'front', visible: desk.filter(s => s.name !== 'Desk top').map(s => s.name), highlight: ['Desk top'] },

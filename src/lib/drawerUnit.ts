@@ -452,7 +452,16 @@ export interface DeskConfig {
   depth: number;
   /** Layers of case plywood laminated for the top. */
   topLayers: 1 | 2;
+  /** With one unit: what holds up the other end — two bought legs, or a plywood end panel. */
+  openEnd?: DeskOpenEnd;
 }
+
+export type DeskOpenEnd = 'legs' | 'panel';
+/** Bought desk legs: square-ish footprint, set in from the corners. */
+export const DESK_LEG_SIZE = 1.5;
+export const DESK_LEG_INSET = 2;
+/** The end panel's back rail, under the top between the unit and the panel. */
+export const DESK_RAIL_HEIGHT = 4;
 
 export const MIN_KNEE_SPACE = 20;
 export const COMFORT_KNEE_SPACE = 24;
@@ -464,8 +473,10 @@ export interface DeskLayoutPlan {
   depth: number;
   height: number;
   topThickness: number;
-  /** Clear width between the units (or beside the one unit). */
+  /** Clear width between the units (or beside the one unit, inside its legs or end panel). */
   knee: number;
+  /** One unit: the legs or end panel at the other end (null with a unit at each end). */
+  openEnd: { kind: DeskOpenEnd; side: 'left' | 'right'; height: number } | null;
 }
 
 /** LONTAN side-mount slides: 1/2" thick, about 45 mm tall, 10–24" long, 100 lb a pair. */
@@ -1343,11 +1354,17 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     const dk = config.desk;
     unitCount = dk.layout === 'both' ? 2 : 1;
     const topThickness = dk.topLayers * T;
-    const knee = dk.width - unitCount * W;
+    // One unit: legs (or an end panel) hold up the other end and take a little of the width.
+    const openKind: DeskOpenEnd | null = unitCount === 1 ? dk.openEnd ?? 'legs' : null;
+    const endWidth = openKind === 'legs' ? DESK_LEG_INSET + DESK_LEG_SIZE : openKind === 'panel' ? T : 0;
+    const knee = dk.width - unitCount * W - endWidth;
     const unitXs = dk.layout === 'both' ? [0, dk.width - W] : dk.layout === 'right' ? [dk.width - W] : [0];
-    desk = { unitXs, width: dk.width, depth: dk.depth, height: dk.height, topThickness, knee };
+    desk = {
+      unitXs, width: dk.width, depth: dk.depth, height: dk.height, topThickness, knee,
+      openEnd: openKind ? { kind: openKind, side: dk.layout === 'left' ? 'right' : 'left', height: dk.height - topThickness } : null,
+    };
     if (knee < MIN_KNEE_SPACE) {
-      errors.push(`${unitCount === 2 ? 'Between the two units' : 'Beside the unit'} there’s only ${f(Math.max(knee, 0))} for your legs — you need at least ${f(MIN_KNEE_SPACE)} to sit there. Make the desk ${f(unitCount * W + MIN_KNEE_SPACE)} wide or more${unitCount === 2 ? ', put a unit at one end only,' : ''} or use a narrower unit.`);
+      errors.push(`${unitCount === 2 ? 'Between the two units' : 'Beside the unit'} there’s only ${f(Math.max(knee, 0))} for your legs — you need at least ${f(MIN_KNEE_SPACE)} to sit there. Make the desk ${f(unitCount * W + endWidth + MIN_KNEE_SPACE)} wide or more${unitCount === 2 ? ', put a unit at one end only,' : ''} or use a narrower unit.`);
     } else if (knee < COMFORT_KNEE_SPACE) {
       warnings.push(`${f(knee)} to sit in ${unitCount === 2 ? 'between the units' : 'beside the unit'} is tight; ${f(COMFORT_KNEE_SPACE)} or more is comfortable.`);
     }
@@ -1361,6 +1378,12 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       name: 'Desk top', qty: dk.topLayers, length: dk.width, width: dk.depth, thickness: T,
       note: dk.topLayers === 2 ? 'Two layers glued and screwed together' : undefined, material: 'plywood',
     });
+    if (openKind === 'panel') {
+      parts.push({ name: 'Desk end panel', qty: 1, length: dk.height - topThickness, width: dk.depth, thickness: T,
+        note: 'Holds up the open end; screwed up into the top', material: 'plywood' });
+      parts.push({ name: 'Desk back rail', qty: 1, length: dk.width - W - T, width: DESK_RAIL_HEIGHT, thickness: T,
+        note: 'Under the top at the back, between the unit and the end panel — it stops the desk racking', material: 'plywood' });
+    }
   }
 
   if (errors.length === 0) {
@@ -1865,6 +1888,26 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
   });
   const H = plan.overallHeight;
   out.push({ name: 'Desk top', kind: 'case', shape: 'box', min: [0, H, plan.caseDepth - dk.depth], max: [dk.width, H + dk.topThickness, plan.caseDepth], explode: [0, Math.max(dk.width, H) / 8, 0] });
+  // The open end of a one-unit desk: two legs, or an end panel and a back rail.
+  const end = dk.openEnd;
+  if (end) {
+    const z0 = plan.caseDepth - dk.depth;
+    const z1 = plan.caseDepth;
+    const out2 = Math.max(dk.width, H) / 10;
+    if (end.kind === 'legs') {
+      const x = end.side === 'right' ? dk.width - DESK_LEG_INSET - DESK_LEG_SIZE : DESK_LEG_INSET;
+      for (const [n, z] of [['front', z0 + DESK_LEG_INSET], ['back', z1 - DESK_LEG_INSET - DESK_LEG_SIZE]] as const) {
+        out.push({ name: `Desk leg (${n})`, kind: 'pin', shape: 'box', min: [x, 0, z], max: [x + DESK_LEG_SIZE, end.height, z + DESK_LEG_SIZE], explode: [end.side === 'right' ? out2 : -out2, 0, 0] });
+      }
+    } else {
+      const T = config.thickness;
+      const [x0, x1] = end.side === 'right' ? [dk.width - T, dk.width] : [0, T];
+      out.push({ name: 'Desk end panel', kind: 'case', shape: 'box', min: [x0, 0, z0], max: [x1, end.height, z1], explode: [end.side === 'right' ? out2 : -out2, 0, 0] });
+      const unitX = dk.unitXs[0];
+      const [r0, r1] = end.side === 'right' ? [unitX + plan.overallWidth, dk.width - T] : [T, unitX];
+      out.push({ name: 'Desk back rail', kind: 'case', shape: 'box', min: [r0, end.height - DESK_RAIL_HEIGHT, z1 - T], max: [r1, end.height, z1], explode: [0, 0, out2] });
+    }
+  }
   return out;
 }
 
@@ -2199,6 +2242,7 @@ function readDesk(raw: unknown): DeskConfig | undefined {
     layout: v.layout === 'left' || v.layout === 'right' ? v.layout : 'both',
     width, height, depth,
     topLayers: v.topLayers === 1 ? 1 : 2,
+    openEnd: v.openEnd === 'panel' ? 'panel' : 'legs',
   };
 }
 
@@ -2271,6 +2315,7 @@ export interface DrawerDesignFields {
   deskHeight: string;
   deskDepth: string;
   deskTopLayers: 1 | 2;
+  deskOpenEnd: DeskOpenEnd;
   /** Per drawer: '' for the unit's slide length, or a length in inches. */
   drawerSlides: string[];
   /** Per position, for doors: hinge side, what's behind it, and how many shelves or trays. */
@@ -2379,6 +2424,7 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     deskHeight: L(c.desk?.height ?? 29),
     deskDepth: L(c.desk?.depth ?? 24),
     deskTopLayers: c.desk?.topLayers ?? 2,
+    deskOpenEnd: c.desk?.openEnd ?? 'legs',
     drawerSlides: Array.from({ length: c.drawers }, (_, i) => (c.slideLengths?.[i] != null ? String(c.slideLengths[i]) : '')),
     load: c.load ?? 'medium',
     finishFront: c.finish?.front ?? DEFAULT_FINISH.front,

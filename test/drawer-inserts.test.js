@@ -148,7 +148,7 @@ test('the guide adds insert and desk steps that only show parts that exist', () 
 });
 
 test('inserts and the desk survive a save and reopen', () => {
-  const desk = { enabled: true, layout: 'right', width: 50, height: 29, depth: 24, topLayers: 2 };
+  const desk = { enabled: true, layout: 'right', width: 50, height: 29, depth: 24, topLayers: 2, openEnd: 'panel' };
   const config = { ...base, inserts: [{ kind: 'grid', columns: 4, rows: 3 }, marker, null, null, null], insertThickness: 0.25, desk };
   const read = readSavedDrawerDesign(JSON.parse(JSON.stringify(toSavedDrawerDesign(config, 'in', 'overall'))));
   assert.deepEqual(read.config.inserts, config.inserts);

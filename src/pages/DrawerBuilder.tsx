@@ -150,6 +150,7 @@ const DEFAULT_FORM: FormState = {
   deskHeight: EXTRA_FIELD_DEFAULTS.deskHeight,
   deskDepth: EXTRA_FIELD_DEFAULTS.deskDepth,
   deskTopLayers: EXTRA_FIELD_DEFAULTS.deskTopLayers,
+  deskOpenEnd: 'legs',
   drawerSlides: ['', '', '', '', ''],
   doorHinges: ['auto', 'auto', 'auto', 'auto', 'auto'],
   doorInside: ['shelves', 'shelves', 'shelves', 'shelves', 'shelves'],
@@ -258,6 +259,11 @@ const DESK_LAYOUT_OPTIONS = [
   { value: 'both', label: 'Unit at each end' },
   { value: 'left', label: 'Left only' },
   { value: 'right', label: 'Right only' },
+] as const;
+
+const DESK_OPEN_END_OPTIONS = [
+  { value: 'legs', label: 'Two legs' },
+  { value: 'panel', label: 'End panel' },
 ] as const;
 
 const TOP_LAYER_OPTIONS = [
@@ -391,7 +397,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
   const fronts = form.heightMode === 'fronts';
   const thickness = num('thickness');
   const desk = form.desk
-    ? { enabled: true, layout: form.deskLayout, width: num('deskWidth'), height: num('deskHeight'), depth: num('deskDepth'), topLayers: form.deskTopLayers }
+    ? { enabled: true, layout: form.deskLayout, width: num('deskWidth'), height: num('deskHeight'), depth: num('deskDepth'), topLayers: form.deskTopLayers, openEnd: form.deskOpenEnd ?? 'legs' }
     : undefined;
   const usesMarkers = form.insertKinds.slice(0, form.drawers).includes('markers');
   const usesTools = form.insertKinds.slice(0, form.drawers).includes('tools');
@@ -1626,9 +1632,17 @@ export default function DrawerBuilder() {
             {form.desk && (
               <>
                 <SegmentedControl label="Units" value={form.deskLayout} options={DESK_LAYOUT_OPTIONS} onChange={deskLayout => update({ deskLayout })} />
+                {form.deskLayout !== 'both' && (
+                  <div className="shelf-height-mode">
+                    <SegmentedControl label={`${form.deskLayout === 'left' ? 'Right' : 'Left'} end`} value={form.deskOpenEnd ?? 'legs'} options={DESK_OPEN_END_OPTIONS} onChange={deskOpenEnd => update({ deskOpenEnd })} />
+                    <small>{(form.deskOpenEnd ?? 'legs') === 'legs'
+                      ? 'Two bought desk legs hold up the other end, like the IKEA desks — screwed up into the top on mounting plates.'
+                      : 'A plywood end panel holds up the other end, with a rail under the back of the top so the desk can’t rack.'}</small>
+                  </div>
+                )}
                 <div className="shelf-field-grid">
                   <LengthField unit={units} label="Desk width" value={form.deskWidth} error={fieldErrors.deskWidth}
-                    hint={plan?.desk ? `${fmt(Math.max(plan.desk.knee, 0))} to sit in ${form.deskLayout === 'both' ? 'between the units' : 'beside the unit'}` : undefined} onChange={deskWidth => update({ deskWidth })} />
+                    hint={plan?.desk ? `${fmt(Math.max(plan.desk.knee, 0))} to sit in ${form.deskLayout === 'both' ? 'between the units' : `beside the unit, inside the ${form.deskOpenEnd === 'panel' ? 'end panel' : 'legs'}`}` : undefined} onChange={deskWidth => update({ deskWidth })} />
                   <LengthField unit={units} label="Desk height" value={form.deskHeight} error={fieldErrors.deskHeight}
                     hint={plan?.desk ? `Units ${fmt(plan.desk.height - plan.desk.topThickness)} tall` : 'Floor to the top; 29–30″ is typical.'} onChange={deskHeight => update({ deskHeight })} />
                   <LengthField unit={units} label="Desk depth" value={form.deskDepth} error={fieldErrors.deskDepth} onChange={deskDepth => update({ deskDepth })} />
@@ -1836,7 +1850,7 @@ export default function DrawerBuilder() {
                   <>
                     <Stat label="Desk" value={`${fmt(plan.desk.width)} × ${fmt(plan.desk.height)}`} />
                     <Stat label="Units" value={`${plan.unitCount} × ${fmt(plan.overallWidth)}`} />
-                    <Stat label="Knee space" value={fmt(plan.desk.knee)} />
+                    <Stat label="Room to sit" value={fmt(Math.max(plan.desk.knee, 0))} />
                   </>
                 ) : (
                   <>

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildDrawerPlan, DEFAULT_PULL, drawerDesignToFields, drawerSolids, readSavedDrawerDesign, toSavedDrawerDesign } from '../src/lib/drawerUnit.ts';
+import { buildDrawerPlan, DEFAULT_PULL, deskSolids, drawerDesignToFields, drawerSolids, readSavedDrawerDesign, toSavedDrawerDesign } from '../src/lib/drawerUnit.ts';
 import { cuttingOrder, stripsNeeded } from '../src/lib/cuttingOrder.ts';
 import { drawerJigs, drawerPartFaces } from '../src/lib/drawerExport.ts';
 import { drawerHardwareList } from '../src/lib/drawerEstimate.ts';
@@ -150,4 +150,23 @@ test('the build packet has every section, ahead of the guide, and escapes text',
   const doc = guidePrintHtml(drawerGuideSteps(plan, config, 'in'), new Map(), 'Desk <pedestal>', 'sub', f, html);
   assert.ok(doc.indexOf('<h2>Cut list') < doc.indexOf('<h2 class="page-break">Build guide'));
   assert.match(doc, /Desk &lt;pedestal&gt;/);
+});
+
+test('one-unit desk: legs (or an end panel) hold up the other end and count against the knee space', () => {
+  const desk = { enabled: true, layout: 'left', width: 55.125, height: 28.75, depth: 23.625, topLayers: 2 };
+  const config = { ...base, width: 14.125, height: 27.25, depth: 22.875, drawers: 5, desk };
+  const plan = buildDrawerPlan(config);
+  assert.deepEqual(plan.errors, []);
+  assert.equal(plan.desk.openEnd.kind, 'legs');
+  assert.equal(plan.desk.openEnd.side, 'right');
+  close(plan.desk.knee, 55.125 - 14.125 - 3.5, 'legs take their inset and size');
+  const solids = deskSolids(plan, config);
+  const legs = solids.filter(s => s.name.startsWith('Desk leg'));
+  assert.equal(legs.length, 2);
+  assert.ok(legs.every(l => l.max[0] <= 55.125 && l.min[0] > 50 && Math.abs(l.max[1] - 27.25) < 1e-6));
+  assert.ok(drawerHardwareList(plan, config, 'in').some(i => i.key === 'desk-legs' && i.qty === 2));
+  const panel = buildDrawerPlan({ ...config, desk: { ...desk, openEnd: 'panel' } });
+  assert.ok(panel.parts.some(p => p.name === 'Desk end panel') && panel.parts.some(p => p.name === 'Desk back rail'));
+  assert.ok(deskSolids(panel, { ...config, desk: { ...desk, openEnd: 'panel' } }).some(s => s.name === 'Desk end panel'));
+  assert.equal(buildDrawerPlan({ ...config, desk: { ...desk, layout: 'both', width: 60 } }).desk.openEnd, null);
 });

@@ -9,6 +9,7 @@ export type DrawerPriceKey =
   | 'sheetCase' | 'sheetBox' | 'sheetThin' | 'slidePair' | 'feetPack' | 'caster'
   | 'glue' | 'caseScrews' | 'frontScrews' | 'brads' | 'antiTip' | 'edgeBanding' | 'finish'
   | 'shims' | 'baseboardFt'
+  | 'deskLeg'
   | 'shelfPin' | 'hinge' | 'doorPull' | 'bumper' | 'crownFt' | 'butcherBlock' | 'figure8' | 'ledStrip' | 'grommet';
 
 export type DrawerPrices = Record<DrawerPriceKey, number>;
@@ -120,6 +121,13 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   const doorShelves = doors.reduce((a, d) => a + d.door!.shelfYs.length, 0) * unitCount;
   if (doorShelves) {
     items.push({ key: 'shelf-pins', name: `Shelf pins, ${units === 'mm' ? '5 mm' : '1/4″'}`, qty: doorShelves * 4 + 4, unit: 'ea', note: '4 per shelf plus spares.', priceKey: 'shelfPin' });
+  }
+
+  // A one-unit desk's other end: two bought legs.
+  if (plan.desk?.openEnd?.kind === 'legs') {
+    const h = plan.desk.openEnd.height;
+    items.push({ key: 'desk-legs', name: `Desk legs, ${f(h)} (or adjustable to it)`, qty: 2, unit: 'ea',
+      note: 'With mounting plates; screw the plates up into the desk top.', priceKey: 'deskLeg', url: amazonSearch(`desk leg ${Math.round(h)} inch adjustable`) });
   }
 
   const partCount = plan.parts.reduce((sum, p) => sum + p.qty, 0);
@@ -263,6 +271,7 @@ export function defaultDrawerPrices(): DrawerPrices {
     finish: 22,
     shims: 6,
     baseboardFt: 1.6,
+    deskLeg: 15,
     shelfPin: 0.15,
     hinge: 4,
     doorPull: 4,
@@ -291,6 +300,7 @@ export const DRAWER_PRICE_LABELS: Record<DrawerPriceKey, string> = {
   finish: 'Finish, per quart',
   shims: 'Shims, per pack',
   baseboardFt: 'Baseboard molding, per foot',
+  deskLeg: 'Desk leg, each',
   shelfPin: 'Shelf pin, each',
   hinge: 'Door hinge, each',
   doorPull: 'Door knob or pull, each',
