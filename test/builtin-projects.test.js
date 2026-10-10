@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import {
   autoPlace, cabinetBox, clampPlacement, defaultRoom, frontLine, layoutIssues, modelToPlan, newOpening, nextRotation,
-  placedRect, readRoom, roomProblems, snapPlacement, wallPieces, wallsTouching, WALL_THICKNESS,
+  placedRect, readRoom, roomProblems, rectsTouch, snapPlacement, wallPieces, wallsTouching, WALL_THICKNESS,
 } from '../src/lib/builtinRoom.ts';
 import { buildDrawerPlan, drawerSolids, readSavedDrawerDesign } from '../src/lib/drawerUnit.ts';
 
@@ -355,4 +355,24 @@ test('a saved drawer design gives a footprint matching its size', () => {
   assert.ok(Math.abs((b.maxX - b.minX) - 14.125) < 0.01, `width ${b.maxX - b.minX}`);
   assert.ok(b.maxZ - b.minZ >= 22.875 - 0.01, `depth ${b.maxZ - b.minZ}`);
   assert.ok(Math.abs(b.minY) < 0.01);
+});
+
+test('a dragged cabinet snaps to its neighbours: butts up, lines up, never overlaps', () => {
+  const r = { ...defaultRoom(), width: 240, depth: 200 };
+  // A free-standing cabinet 30 wide by 24 deep, centred at (100, 100).
+  const base = { rect: placedRect({ x: 100, y: 100, rotation: 0 }, box), bottom: box.minY, top: box.maxY };
+  // Dragged 6 in to the right of it and 4 in low: it butts against its side and lines up its front.
+  const beside = snapPlacement({ room: r, box, x: 136, y: 104, rotation: 0, others: [base], wallSnap: 8 });
+  assert.deepEqual([beside.x, beside.y], [130, 100]);
+  assert.ok(rectsTouch(placedRect(beside, box), base.rect));
+  // Dragged on top of it, it stops beside it, the shortest way out.
+  const pushed = snapPlacement({ room: r, box, x: 108, y: 100, rotation: 0, others: [base] });
+  assert.deepEqual([pushed.x, pushed.y], [130, 100]);
+  // Dragged in front of it, it lines up its sides.
+  const front = snapPlacement({ room: r, box, x: 104, y: 125, rotation: 0, others: [base], wallSnap: 8 });
+  assert.deepEqual([front.x, front.y], [100, 124]);
+  // An upper hangs over a base: it lines up with it and may overlap it in plan.
+  const upper = { rect: base.rect, bottom: 54, top: 84 };
+  const over = snapPlacement({ room: r, box, x: 104, y: 103, rotation: 0, others: [upper], wallSnap: 8 });
+  assert.deepEqual([over.x, over.y], [100, 100]);
 });

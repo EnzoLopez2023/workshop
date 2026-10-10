@@ -209,7 +209,7 @@ export default function BuiltinProjectPage() {
     const cabinet = project.cabinets.find(c => c.id === cabinetId);
     const model = cabinet && models.get(cabinet.design_id);
     if (!room || !model) return;
-    const snapped = snapPlacement({ room, box: model.box, x, y, rotation: placements.get(cabinetId)?.rotation ?? 0, others: others.map(o => ({ rect: placedRect(o.placement, o.box) })) });
+    const snapped = snapPlacement({ room, box: model.box, x, y, rotation: placements.get(cabinetId)?.rotation ?? 0, others: others.map(o => ({ rect: placedRect(o.placement, o.box), bottom: o.box.minY, top: o.box.maxY })) });
     setPlacement(cabinetId, { x: snapped.x, y: snapped.y, rotation: snapped.rotation });
     setSelected(cabinetId);
   };

@@ -6,7 +6,7 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react';
 import { DimH, DimV } from './builderControls';
 import {
-  WALL_THICKNESS, clampPlacement, frontLine, nextRotation, placedRect, snapPlacement, wallBand, wallLength, wallsTouching,
+  WALL_THICKNESS, clampPlacement, frontLine, nextRotation, placedRect, snapPlacement, rectsTouch, wallBand, wallLength, wallsTouching,
   type CabinetBox, type Placement, type Room, type RoomOpening, type Wall,
 } from '../lib/builtinRoom';
 
@@ -104,7 +104,10 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
   const others = (id: number) => cabinets.filter(c => c.id !== id);
   // While a cabinet is dragged, the walls it's snapped against light up.
   const dragged = drag?.moved ? cabinets.find(c => c.id === drag.id) : undefined;
-  const snappedWalls = new Set(dragged && drag ? wallsTouching(room, placedRect(drag.placement, dragged.box)) : []);
+  const draggedRect = dragged && drag ? placedRect(drag.placement, dragged.box) : null;
+  const snappedWalls = new Set(draggedRect ? wallsTouching(room, draggedRect) : []);
+  // ...and so do the cabinets it's butted up against.
+  const snappedCabinets = new Set(draggedRect ? cabinets.filter(c => c.id !== drag?.id && rectsTouch(draggedRect, placedRect(c.placement, c.box))).map(c => c.id) : []);
 
   const onPointerDown = (e: PointerEvent<SVGGElement>, c: PlanCabinet) => {
     onSelect?.(c.id);
@@ -136,7 +139,7 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
       ? clampPlacement(room, c.box, { x, y, rotation: drag.placement.rotation })
       : snapPlacement({
         room, box: c.box, x, y, rotation: drag.placement.rotation,
-        others: others(c.id).map(o => ({ rect: placedRect(o.placement, o.box) })),
+        others: others(c.id).map(o => ({ rect: placedRect(o.placement, o.box), bottom: o.box.minY, top: o.box.maxY })),
         wallSnap: 28 * perPx, edgeSnap: 12 * perPx,
       });
     setDrag({ ...drag, placement: { x: snapped.x, y: snapped.y, rotation: snapped.rotation }, moved: true });
@@ -258,7 +261,7 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
         const r = placedRect(p, c.box);
         const [[fx0, fy0], [fx1, fy1]] = frontLine(p, c.box);
         const selected = c.id === selectedId;
-        const cls = ['room-plan-cabinet', selected && 'is-selected', c.wallHung && 'is-hung', flagged?.has(c.id) && 'is-flagged'].filter(Boolean).join(' ');
+        const cls = ['room-plan-cabinet', selected && 'is-selected', c.wallHung && 'is-hung', flagged?.has(c.id) && 'is-flagged', snappedCabinets.has(c.id) && 'is-snapped'].filter(Boolean).join(' ');
         return (
           <g
             key={c.id}

@@ -10100,6 +10100,13 @@ tbody td {
   fill: var(--color-action);
 }
 
+.room-plan-cabinet.is-snapped rect {
+  stroke: var(--color-action);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 3;
+  vector-effect: non-scaling-stroke;
+}
+
 .room-plan-gap {
   fill: var(--color-surface);
 }

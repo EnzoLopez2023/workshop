@@ -211,7 +211,12 @@ export function frontLine(p: Placement, box: CabinetBox): [[number, number], [nu
 
 const round16 = (v: number) => Math.round(v * 16) / 16;
 
-export interface SnapNeighbor { rect: Rect }
+export interface SnapNeighbor {
+  rect: Rect;
+  /** Floor to the cabinet's bottom and top. Left out, it's taken to share the dragged cabinet's height. */
+  bottom?: number;
+  top?: number;
+}
 
 export interface SnapInput {
   room: Room;
@@ -263,24 +268,58 @@ export function snapPlacement({ room, box, x, y, rotation, autoRotate = true, ot
     }
   }
 
-  // Sides snap into the walls beside it (a cabinet in a corner) as readily as the back does;
-  // edges line up with neighbours (side by side or stacked) and with the room's open sides.
+  // Sides snap into the walls beside it (a cabinet in a corner) as readily as the back does.
+  // Neighbours: side by side, it butts up against them and lines up its front; one in front
+  // of another, or an upper over a base, lines up its sides. Open room sides line up close in.
   const alongX = flush !== 'west' && flush !== 'east';
   const alongY = flush !== 'north' && flush !== 'south';
-  const side = (wall: Wall, at: number): [number, number] => [at, room.walls[wall] ? reach : EDGE];
+  const side = (wall: Wall, at: number): SnapCandidate => [at, room.walls[wall] ? reach : EDGE, 'any'];
+  const sameHeight = (o: SnapNeighbor) => o.bottom === undefined || o.top === undefined || spansOverlap(box.minY, box.maxY, o.bottom, o.top, -EPS);
+  const neighbourCandidates = (lo: number, hi: number, alongLo: (o: SnapNeighbor) => number, alongHi: (o: SnapNeighbor) => number, acrossLo: (o: SnapNeighbor) => number, acrossHi: (o: SnapNeighbor) => number) =>
+    others.flatMap((o): SnapCandidate[] => {
+      const shared = Math.min(hi, acrossHi(o)) - Math.max(lo, acrossLo(o));
+      const align: SnapCandidate[] = [[alongLo(o), reach, 'lo'], [alongHi(o), reach, 'hi']];
+      if (shared > EPS) return sameHeight(o) ? [[alongHi(o), reach, 'lo'], [alongLo(o), reach, 'hi']] : align;
+      return shared >= -EDGE ? align : [];
+    });
   if (alongX) {
     cx = snapAxis(cx, w, [side('west', 0), side('east', room.width),
-      ...others.filter(o => spansOverlap(o.rect.y0, o.rect.y1, cy - d / 2, cy + d / 2, EDGE)).flatMap(o => [[o.rect.x0, EDGE], [o.rect.x1, EDGE]] as [number, number][])]);
+      ...neighbourCandidates(cy - d / 2, cy + d / 2, o => o.rect.x0, o => o.rect.x1, o => o.rect.y0, o => o.rect.y1)]);
   }
   if (alongY) {
     cy = snapAxis(cy, d, [side('north', 0), side('south', room.depth),
-      ...others.filter(o => spansOverlap(o.rect.x0, o.rect.x1, cx - w / 2, cx + w / 2, EDGE)).flatMap(o => [[o.rect.y0, EDGE], [o.rect.y1, EDGE]] as [number, number][])]);
+      ...neighbourCandidates(cx - w / 2, cx + w / 2, o => o.rect.y0, o => o.rect.y1, o => o.rect.x0, o => o.rect.x1)]);
   }
 
-  cx = w >= room.width ? room.width / 2 : Math.min(Math.max(cx, w / 2), room.width - w / 2);
-  cy = d >= room.depth ? room.depth / 2 : Math.min(Math.max(cy, d / 2), room.depth - d / 2);
+  const clampX = (v: number) => (w >= room.width ? room.width / 2 : Math.min(Math.max(v, w / 2), room.width - w / 2));
+  const clampY = (v: number) => (d >= room.depth ? room.depth / 2 : Math.min(Math.max(v, d / 2), room.depth - d / 2));
+  cx = clampX(cx);
+  cy = clampY(cy);
+
+  // Dragged into a neighbour of the same height, it stops beside it rather than overlapping:
+  // the shortest way out, along its wall first, that stays in the room and clear of the rest.
+  const blockers = others.filter(sameHeight);
+  const rectAt = (x: number, y: number): Rect => ({ x0: x - w / 2, x1: x + w / 2, y0: y - d / 2, y1: y + d / 2 });
+  const clear = (x: number, y: number) => blockers.every(o => !rectsOverlap(rectAt(x, y), o.rect));
+  for (let pass = 0; pass < 4 && !clear(cx, cy); pass++) {
+    const hit = blockers.find(o => rectsOverlap(rectAt(cx, cy), o.rect))!;
+    const moves: [number, number, boolean][] = [
+      [hit.rect.x0 - w / 2, cy, alongX], [hit.rect.x1 + w / 2, cy, alongX],
+      [cx, hit.rect.y0 - d / 2, alongY], [cx, hit.rect.y1 + d / 2, alongY],
+    ];
+    const options = moves
+      .filter(([x, y]) => Math.abs(clampX(x) - x) < EPS && Math.abs(clampY(y) - y) < EPS)
+      .map(([x, y, along]) => ({ x, y, cost: Math.hypot(x - cx, y - cy) + (along ? 0 : 1000), free: clear(x, y) }))
+      .sort((a, b) => Number(b.free) - Number(a.free) || a.cost - b.cost);
+    if (!options.length) break;
+    cx = options[0].x;
+    cy = options[0].y;
+  }
   return { x: round16(cx), y: round16(cy), rotation: r, wall: flush };
 }
+
+/** A snap target: the position, how far it reaches, and which edge it takes (the low or high one, or either). */
+type SnapCandidate = [number, number, 'lo' | 'hi' | 'any'];
 
 function distanceToWall(room: Room, wall: Wall, x: number, y: number): number {
   if (wall === 'north') return y;
@@ -293,17 +332,25 @@ function spansOverlap(a0: number, a1: number, b0: number, b1: number, slack = 0)
   return a0 < b1 + slack && b0 < a1 + slack;
 }
 
-/** Moves a span's centre so an edge lands on the closest candidate [position, reach] within its reach. */
-function snapAxis(center: number, size: number, candidates: [number, number][]): number {
+/** Moves a span's centre so an edge lands on the closest candidate within its reach. */
+function snapAxis(center: number, size: number, candidates: SnapCandidate[]): number {
   let best = center;
   let bestGap = Infinity;
-  for (const [c, reach] of candidates) {
-    for (const edge of [center - size / 2, center + size / 2]) {
+  for (const [c, reach, which] of candidates) {
+    const edges = which === 'lo' ? [center - size / 2] : which === 'hi' ? [center + size / 2] : [center - size / 2, center + size / 2];
+    for (const edge of edges) {
       const gap = Math.abs(edge - c);
       if (gap <= reach + EPS && gap < bestGap) { bestGap = gap; best = center + (c - edge); }
     }
   }
   return best;
+}
+
+/** Whether two footprints touch edge to edge along a shared stretch. */
+export function rectsTouch(a: Rect, b: Rect): boolean {
+  const near = (p: number, q: number) => Math.abs(p - q) < 0.01;
+  return ((near(a.x1, b.x0) || near(a.x0, b.x1)) && spansOverlap(a.y0, a.y1, b.y0, b.y1, -EPS))
+    || ((near(a.y1, b.y0) || near(a.y0, b.y1)) && spansOverlap(a.x0, a.x1, b.x0, b.x1, -EPS));
 }
 
 /** The walls a footprint is flush against (back or sides). */
