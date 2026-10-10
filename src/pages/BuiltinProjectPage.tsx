@@ -499,7 +499,7 @@ export default function BuiltinProjectPage() {
               onDrop={dropAt}
               label={`Top view of the room with ${planCabinets.length} cabinet${planCabinets.length === 1 ? '' : 's'} placed. The front of each cabinet is the heavy edge.`}
             />
-            <p className="builtin-hint">The heavy edge is each cabinet’s front. Dashed cabinets hang on the wall. Select one and use the arrow keys to nudge (Shift for 12″), R to turn. Windows, doors and closets slide along their wall the same way.</p>
+            <p className="builtin-hint">The heavy edge is each cabinet’s front. Dashed cabinets hang on the wall. Cabinets snap to the walls and to each other as you drag (hold Alt to place freely). Select one and use the arrow keys to nudge (Shift for 12″), R to turn. Windows, doors and closets slide along their wall the same way.</p>
             {issues.length > 0 && (
               <ul className="builder-notes builtin-issues" role="status">{issues.map((i, n) => <li key={n}>{i.message}</li>)}</ul>
             )}

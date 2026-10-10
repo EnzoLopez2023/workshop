@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import {
   autoPlace, cabinetBox, clampPlacement, defaultRoom, frontLine, layoutIssues, modelToPlan, newOpening, nextRotation,
-  placedRect, readRoom, roomProblems, snapPlacement, wallPieces, WALL_THICKNESS,
+  placedRect, readRoom, roomProblems, snapPlacement, wallPieces, wallsTouching, WALL_THICKNESS,
 } from '../src/lib/builtinRoom.ts';
 import { buildDrawerPlan, drawerSolids, readSavedDrawerDesign } from '../src/lib/drawerUnit.ts';
 
@@ -276,6 +276,22 @@ test('dragging near a wall turns the cabinet to back onto it and snaps it flush'
   const out = snapPlacement({ room: r, box, x: -50, y: 500, rotation: 0, autoRotate: false });
   assert.deepEqual([out.x, out.y], [15, 108]);
   assert.deepEqual(clampPlacement(r, box, { x: 1000, y: -3, rotation: 90 }), { x: 132, y: 15, rotation: 90 });
+});
+
+test('a dragged cabinet snaps its side into the wall beside it, and the reach can grow', () => {
+  const r = defaultRoom();
+  // Backed onto the top wall, 6 in short of the left wall: the side snaps into the corner.
+  const corner = snapPlacement({ room: r, box, x: 21, y: 14, rotation: 0 });
+  assert.deepEqual(corner, { x: 15, y: 12, rotation: 0, wall: 'north' });
+  assert.deepEqual(wallsTouching(r, placedRect(corner, box)), ['north', 'west']);
+  // An open side only lines up at the old, short reach.
+  const open = snapPlacement({ room: { ...r, walls: { ...r.walls, west: false } }, box, x: 21, y: 14, rotation: 0 });
+  assert.equal(open.x, 21);
+  // Further out it stays put, unless the plan asks for a longer reach (zoomed out).
+  assert.equal(snapPlacement({ room: r, box, x: 30, y: 14, rotation: 0 }).x, 30);
+  assert.equal(snapPlacement({ room: r, box, x: 30, y: 14, rotation: 0, wallSnap: 16 }).x, 15);
+  assert.equal(snapPlacement({ room: r, box, x: 72, y: 26, rotation: 0, wallSnap: 16 }).wall, 'north');
+  assert.equal(snapPlacement({ room: r, box, x: 72, y: 26, rotation: 0 }).wall, null);
 });
 
 test('auto-placing fills the walls in order without overlapping', () => {

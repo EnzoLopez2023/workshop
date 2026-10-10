@@ -223,6 +223,10 @@ export interface SnapInput {
   /** Turn the cabinet to back onto whichever wall it's dragged near. */
   autoRotate?: boolean;
   others?: SnapNeighbor[];
+  /** How close (inches) the cabinet has to come to a wall to snap to it; at least WALL_SNAP. */
+  wallSnap?: number;
+  /** How close an edge has to come to a neighbour's edge to line up with it; at least EDGE_SNAP. */
+  edgeSnap?: number;
 }
 
 export interface SnapResult extends Placement {
@@ -231,14 +235,16 @@ export interface SnapResult extends Placement {
 }
 
 /** Wall snapping, edge alignment with neighbours and corners, then clamped inside the room. */
-export function snapPlacement({ room, box, x, y, rotation, autoRotate = true, others = [] }: SnapInput): SnapResult {
+export function snapPlacement({ room, box, x, y, rotation, autoRotate = true, others = [], wallSnap = WALL_SNAP, edgeSnap = EDGE_SNAP }: SnapInput): SnapResult {
+  const reach = Math.max(wallSnap, WALL_SNAP);
+  const EDGE = Math.max(edgeSnap, EDGE_SNAP);
   let r = rotation;
   if (autoRotate) {
     const distances: [Wall, number][] = WALLS.filter(w => room.walls[w]).map(w => [w, distanceToWall(room, w, x, y)]);
     distances.sort((a, b) => a[1] - b[1]);
     for (const [wall, dist] of distances) {
       const { d } = footprint(box, rotationFacingAway(wall));
-      if (dist <= d / 2 + WALL_SNAP) { r = rotationFacingAway(wall); break; }
+      if (dist <= d / 2 + reach) { r = rotationFacingAway(wall); break; }
     }
   }
   const { w, d } = footprint(box, r);
@@ -248,7 +254,7 @@ export function snapPlacement({ room, box, x, y, rotation, autoRotate = true, ot
   const back = backWall(r);
   if (room.walls[back]) {
     const gap = distanceToWall(room, back, cx, cy) - d / 2;
-    if (gap <= WALL_SNAP) {
+    if (gap <= reach) {
       flush = back;
       if (back === 'north') cy = d / 2;
       else if (back === 'south') cy = room.depth - d / 2;
@@ -257,11 +263,19 @@ export function snapPlacement({ room, box, x, y, rotation, autoRotate = true, ot
     }
   }
 
-  // Line edges up with neighbours (side by side or stacked) and with the room's sides.
+  // Sides snap into the walls beside it (a cabinet in a corner) as readily as the back does;
+  // edges line up with neighbours (side by side or stacked) and with the room's open sides.
   const alongX = flush !== 'west' && flush !== 'east';
   const alongY = flush !== 'north' && flush !== 'south';
-  if (alongX) cx = snapAxis(cx, w, [0, room.width, ...others.filter(o => spansOverlap(o.rect.y0, o.rect.y1, cy - d / 2, cy + d / 2, EDGE_SNAP)).flatMap(o => [o.rect.x0, o.rect.x1])]);
-  if (alongY) cy = snapAxis(cy, d, [0, room.depth, ...others.filter(o => spansOverlap(o.rect.x0, o.rect.x1, cx - w / 2, cx + w / 2, EDGE_SNAP)).flatMap(o => [o.rect.y0, o.rect.y1])]);
+  const side = (wall: Wall, at: number): [number, number] => [at, room.walls[wall] ? reach : EDGE];
+  if (alongX) {
+    cx = snapAxis(cx, w, [side('west', 0), side('east', room.width),
+      ...others.filter(o => spansOverlap(o.rect.y0, o.rect.y1, cy - d / 2, cy + d / 2, EDGE)).flatMap(o => [[o.rect.x0, EDGE], [o.rect.x1, EDGE]] as [number, number][])]);
+  }
+  if (alongY) {
+    cy = snapAxis(cy, d, [side('north', 0), side('south', room.depth),
+      ...others.filter(o => spansOverlap(o.rect.x0, o.rect.x1, cx - w / 2, cx + w / 2, EDGE)).flatMap(o => [[o.rect.y0, EDGE], [o.rect.y1, EDGE]] as [number, number][])]);
+  }
 
   cx = w >= room.width ? room.width / 2 : Math.min(Math.max(cx, w / 2), room.width - w / 2);
   cy = d >= room.depth ? room.depth / 2 : Math.min(Math.max(cy, d / 2), room.depth - d / 2);
@@ -279,17 +293,24 @@ function spansOverlap(a0: number, a1: number, b0: number, b1: number, slack = 0)
   return a0 < b1 + slack && b0 < a1 + slack;
 }
 
-/** Moves a span's centre so its nearer edge lands on the closest candidate within EDGE_SNAP. */
-function snapAxis(center: number, size: number, candidates: number[]): number {
+/** Moves a span's centre so an edge lands on the closest candidate [position, reach] within its reach. */
+function snapAxis(center: number, size: number, candidates: [number, number][]): number {
   let best = center;
-  let bestGap = EDGE_SNAP + EPS;
-  for (const c of candidates) {
+  let bestGap = Infinity;
+  for (const [c, reach] of candidates) {
     for (const edge of [center - size / 2, center + size / 2]) {
       const gap = Math.abs(edge - c);
-      if (gap < bestGap) { bestGap = gap; best = center + (c - edge); }
+      if (gap <= reach + EPS && gap < bestGap) { bestGap = gap; best = center + (c - edge); }
     }
   }
   return best;
+}
+
+/** The walls a footprint is flush against (back or sides). */
+export function wallsTouching(room: Room, rect: Rect): Wall[] {
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.01;
+  return WALLS.filter(w => room.walls[w] && (
+    w === 'north' ? near(rect.y0, 0) : w === 'south' ? near(rect.y1, room.depth) : w === 'west' ? near(rect.x0, 0) : near(rect.x1, room.width)));
 }
 
 /** Keeps a placement's footprint inside the room without any snapping (keyboard nudges, turns). */

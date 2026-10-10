@@ -10096,6 +10096,10 @@ tbody td {
   fill: var(--color-steel);
 }
 
+.room-plan-wall.is-snapped {
+  fill: var(--color-action);
+}
+
 .room-plan-gap {
   fill: var(--color-surface);
 }

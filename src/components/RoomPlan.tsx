@@ -6,7 +6,7 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react';
 import { DimH, DimV } from './builderControls';
 import {
-  WALL_THICKNESS, clampPlacement, frontLine, nextRotation, placedRect, snapPlacement, wallBand, wallLength,
+  WALL_THICKNESS, clampPlacement, frontLine, nextRotation, placedRect, snapPlacement, wallBand, wallLength, wallsTouching,
   type CabinetBox, type Placement, type Room, type RoomOpening, type Wall,
 } from '../lib/builtinRoom';
 
@@ -102,6 +102,9 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
   };
 
   const others = (id: number) => cabinets.filter(c => c.id !== id);
+  // While a cabinet is dragged, the walls it's snapped against light up.
+  const dragged = drag?.moved ? cabinets.find(c => c.id === drag.id) : undefined;
+  const snappedWalls = new Set(dragged && drag ? wallsTouching(room, placedRect(drag.placement, dragged.box)) : []);
 
   const onPointerDown = (e: PointerEvent<SVGGElement>, c: PlanCabinet) => {
     onSelect?.(c.id);
@@ -125,10 +128,17 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
     const at = toPlan(e.clientX, e.clientY);
     const c = cabinets.find(x => x.id === drag.id);
     if (!at || !c) return;
-    const snapped = snapPlacement({
-      room, box: c.box, x: at[0] - drag.dx, y: at[1] - drag.dy, rotation: drag.placement.rotation,
-      others: others(c.id).map(o => ({ rect: placedRect(o.placement, o.box) })),
-    });
+    const x = at[0] - drag.dx;
+    const y = at[1] - drag.dy;
+    // Alt places it freely; otherwise it snaps to walls within about 28px on screen, neighbours within 12px.
+    const perPx = 1 / (svgRef.current?.getScreenCTM()?.a || 1);
+    const snapped = e.altKey
+      ? clampPlacement(room, c.box, { x, y, rotation: drag.placement.rotation })
+      : snapPlacement({
+        room, box: c.box, x, y, rotation: drag.placement.rotation,
+        others: others(c.id).map(o => ({ rect: placedRect(o.placement, o.box) })),
+        wallSnap: 28 * perPx, edgeSnap: 12 * perPx,
+      });
     setDrag({ ...drag, placement: { x: snapped.x, y: snapped.y, rotation: snapped.rotation }, moved: true });
   };
   const endDrag = () => {
@@ -203,7 +213,7 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
       {(['north', 'east', 'south', 'west'] as Wall[]).filter(w => room.walls[w]).map(w => {
         const ns = w === 'north' || w === 'south';
         const b = wallBand(room, w, ns && room.walls.west ? -T : 0, wallLength(room, w) + (ns && room.walls.east ? T : 0));
-        return <rect key={w} className="room-plan-wall" x={b.x0} y={b.y0} width={b.x1 - b.x0} height={b.y1 - b.y0} />;
+        return <rect key={w} className={`room-plan-wall${snappedWalls.has(w) ? ' is-snapped' : ''}`} x={b.x0} y={b.y0} width={b.x1 - b.x0} height={b.y1 - b.y0} />;
       })}
       {shown.openings.filter(o => room.walls[o.wall]).map((o, i) => {
         const interactive = Boolean(onSelectOpening || (editable && onMoveOpening));
