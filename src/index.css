@@ -10240,3 +10240,53 @@ tbody td {
     grid-column: 1 / -1;
   }
 }
+
+/* Overall dimensions on the 3D view: a toggle under the reset button, and labels that
+   ride along the dimension lines as the view turns. */
+.shelf-viewer-dims-toggle {
+  position: absolute;
+  top: 62px;
+  right: 10px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-compact);
+  background: var(--color-glass-strong);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.shelf-viewer-dims-toggle[aria-pressed='true'] {
+  border-color: var(--color-annotation);
+  color: var(--color-annotation);
+}
+
+.shelf-viewer-dim {
+  position: absolute;
+  z-index: 1;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-annotation) 55%, transparent);
+  border-radius: 999px;
+  background: var(--color-glass-strong);
+  color: var(--color-annotation-strong);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.shelf-viewer-dim small {
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+@media print {
+  .shelf-viewer-dims-toggle {
+    display: none !important;
+  }
+}

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { RotateCcw } from 'lucide-react';
+import { Ruler, RotateCcw } from 'lucide-react';
 import type { Solid, SolidKind } from '../lib/shelving';
 import { DOOR_OPACITY, SOLID_COLORS as COLORS, solidGeometry } from '../lib/shelfRender';
 
@@ -18,6 +18,8 @@ interface Props {
   label: string;
   /** Finish colours that replace the plywood tones for some kinds of part. */
   colors?: Partial<Record<SolidKind, number>>;
+  /** Formats a length; with it, overall width, height and depth are drawn on the model. */
+  formatLength?: (inches: number) => string;
 }
 
 
@@ -44,13 +46,22 @@ interface Stage {
   /** Parts with an exploded-view offset (three.js axes). */
   explodables: { mesh: THREE.Mesh; offset: THREE.Vector3 }[];
   exploded: boolean;
+  /** The design's overall box (assembled, drawers shut), in scene coordinates. */
+  bounds: THREE.Box3 | null;
+  /** Dimension lines along the box edges nearest the camera, redrawn as it moves. */
+  dims: THREE.LineSegments;
+  showDims: boolean;
+  /** Where the labels go on screen, updated every frame. */
+  placeLabels: (labels: DimLabel[] | null) => void;
 }
+
+interface DimLabel { axis: 'width' | 'height' | 'depth'; x: number; y: number; value: number }
 
 /** How far a drawer travels per frame, as a share of what's left — a quick ease-out. */
 const SLIDE_EASE = 0.22;
 const ZERO = new THREE.Vector3();
 
-export default function ShelfViewer3D({ solids, width, height, depth, wallMounted, label, colors }: Props) {
+export default function ShelfViewer3D({ solids, width, height, depth, wallMounted, label, colors, formatLength }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   const [error, setError] = useState('');
@@ -61,6 +72,8 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
   const [hover, setHover] = useState('');
   const [exploded, setExploded] = useState(false);
   const [explodable, setExplodable] = useState(false);
+  const [showDims, setShowDims] = useState(true);
+  const [dimLabels, setDimLabels] = useState<DimLabel[] | null>(null);
 
   // ── One-time stage ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -106,6 +119,15 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     const parts = new THREE.Group();
     scene.add(parts);
 
+    // Overall dimensions: drawn over everything, in the drawings' pencil blue.
+    const dims = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0x356d85, depthTest: false, transparent: true, opacity: 0.95 }),
+    );
+    dims.renderOrder = 10;
+    dims.frustumCulled = false;
+    scene.add(dims);
+
     const materials = Object.fromEntries(
       Object.entries(COLORS).map(([kind, color]) => [
         kind,
@@ -147,6 +169,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
         const d = mesh.position.distanceTo(target);
         if (d > 0.01) { mesh.position.lerp(target, SLIDE_EASE); sliding = true; } else if (d > 0) mesh.position.copy(target);
       }
+      if (stage) updateDims(stage);
       renderer.render(scene, camera);
       if (moving || sliding) frame = requestAnimationFrame(loop);
     };
@@ -214,6 +237,10 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
       movers: new Map(),
       explodables: [],
       exploded: false,
+      bounds: null,
+      dims,
+      showDims: true,
+      placeLabels: labels => setDimLabels(prev => (sameLabels(prev, labels) ? prev : labels)),
     };
     const observer = new ResizeObserver(resize);
     observer.observe(host);
@@ -295,6 +322,17 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     setExplodable(stage.explodables.length > 0);
     setOpenCount(openRef.current.size);
     parts.position.set(-width / 2, 0, depth / 2);
+    // The overall box, from the parts as built (not opened or exploded), leaving out context
+    // like an existing desk.
+    const bounds = new THREE.Box3();
+    for (const solid of solids) {
+      if (/\(existing\)/.test(solid.name) || solid.kind === 'wall-cleat') continue;
+      const g = solidGeometry(solid);
+      g.computeBoundingBox();
+      if (g.boundingBox) bounds.union(g.boundingBox);
+      g.dispose();
+    }
+    stage.bounds = bounds.isEmpty() ? null : bounds.translate(parts.position.clone());
 
     const span = Math.max(width, height, depth);
     stage.ground.scale.set(span * 4, span * 4, 1);
@@ -356,6 +394,14 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     else stage.render();
   };
 
+  // Dimensions on or off.
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    stage.showDims = showDims && !!formatLength;
+    stage.render();
+  }, [showDims, formatLength]);
+
   const resetView = () => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -389,6 +435,17 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
               {movable > 0 && <small>or click a drawer</small>}
             </div>
           )}
+          {formatLength && showDims && dimLabels?.map(l => (
+            <span key={l.axis} className={`shelf-viewer-dim is-${l.axis}`} style={{ left: l.x, top: l.y }}>
+              <small>{l.axis === 'width' ? 'W' : l.axis === 'height' ? 'H' : 'D'}</small> {formatLength(l.value)}
+            </span>
+          ))}
+          {formatLength && (
+            <button type="button" className="shelf-viewer-dims-toggle" onClick={() => setShowDims(v => !v)} aria-pressed={showDims}
+              aria-label={showDims ? 'Hide dimensions' : 'Show dimensions'} title={showDims ? 'Hide dimensions' : 'Show dimensions'}>
+              <Ruler size={16} aria-hidden="true" />
+            </button>
+          )}
           {hover && <span className="shelf-viewer-hover" aria-hidden="true">{hover}</span>}
         </>
       )}
@@ -414,3 +471,66 @@ function frameCamera(stage: Stage, width: number, height: number, depth: number)
   camera.updateProjectionMatrix();
   controls.update();
 }
+
+const sameLabels = (a: DimLabel[] | null, b: DimLabel[] | null) =>
+  a === b || (!!a && !!b && a.length === b.length && a.every((l, i) => l.axis === b[i].axis && Math.abs(l.x - b[i].x) < 0.5 && Math.abs(l.y - b[i].y) < 0.5 && l.value === b[i].value));
+
+/**
+ * Overall width, height and depth as dimension lines on the box edges nearest the camera
+ * (so they never hide behind the model), with ticks at the ends, and the labels placed
+ * at their midpoints on screen. Called every frame the view changes.
+ */
+function updateDims(stage: Stage) {
+  const { dims, bounds: b, camera, renderer } = stage;
+  if (!stage.showDims || !b) {
+    dims.visible = false;
+    stage.placeLabels(null);
+    return;
+  }
+  dims.visible = true;
+  const c = camera.position;
+  const center = b.getCenter(new THREE.Vector3());
+  const size = b.getSize(new THREE.Vector3());
+  const o = Math.max(size.x, size.y, size.z) * 0.06; // offset out from the model
+  const t = o * 0.35; // tick length
+  const sx = c.x >= center.x ? 1 : -1;
+  const sz = c.z >= center.z ? 1 : -1;
+  const xNear = sx > 0 ? b.max.x : b.min.x;
+  const zNear = sz > 0 ? b.max.z : b.min.z;
+  const zFar = sz > 0 ? b.min.z : b.max.z;
+  const y0 = b.min.y + 0.05;
+  const segs: number[] = [];
+  const line = (a: THREE.Vector3, d: THREE.Vector3) => segs.push(a.x, a.y, a.z, d.x, d.y, d.z);
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  // Width: along the floor, in front of the near face.
+  const zw = zNear + sz * o;
+  line(v(b.min.x, y0, zw), v(b.max.x, y0, zw));
+  for (const x of [b.min.x, b.max.x]) line(v(x, y0, zNear), v(x, y0, zw + sz * t));
+  // Depth: along the floor, beside the near side.
+  const xd = xNear + sx * o;
+  line(v(xd, y0, b.min.z), v(xd, y0, b.max.z));
+  for (const z of [b.min.z, b.max.z]) line(v(xNear, y0, z), v(xd + sx * t, y0, z));
+  // Height: up the back corner of the near side, out beside it.
+  const xh = xNear + sx * o;
+  line(v(xh, b.min.y, zFar), v(xh, b.max.y, zFar));
+  for (const y of [b.min.y, b.max.y]) line(v(xNear, y, zFar), v(xh + sx * t, y, zFar));
+  const geometry = dims.geometry as THREE.BufferGeometry;
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(segs, 3));
+  geometry.computeBoundingSphere();
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  const place = (p: THREE.Vector3) => {
+    const q = p.clone().project(camera);
+    return q.z > 1 ? null : { x: (q.x + 1) / 2 * rect.width, y: (1 - q.y) / 2 * rect.height };
+  };
+  const labels: DimLabel[] = [];
+  const add = (axis: DimLabel['axis'], at: THREE.Vector3, value: number) => {
+    const p = place(at);
+    if (p) labels.push({ axis, ...p, value });
+  };
+  add('width', v(center.x, y0, zw), size.x);
+  add('depth', v(xd, y0, center.z), size.z);
+  add('height', v(xh, center.y, zFar), size.y);
+  stage.placeLabels(labels);
+}
+

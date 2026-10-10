@@ -1112,6 +1112,7 @@ export default function ShelfBuilder() {
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
                   <ShelfViewer3D
                     solids={solids}
+                    formatLength={fmt}
                     width={plan.overallWidth}
                     height={plan.overallHeight}
                     depth={plan.sideDepth}

@@ -58,6 +58,8 @@ import {
   UNDER_DESK_CLEARANCE,
   doorNotch,
   doorNotchCenter,
+  DESK_LEG_INSET,
+  DESK_LEG_SIZE,
   pullHoles,
   shakerRail,
   isKickBase,
@@ -1888,6 +1890,7 @@ export default function DrawerBuilder() {
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
                   <ShelfViewer3D
                     solids={solids}
+                    formatLength={fmt}
                     width={plan.run ? plan.run.width : plan.desk ? plan.desk.width : plan.overallWidth}
                     height={plan.desk ? plan.desk.height : plan.totalHeight + plan.lift}
                     depth={plan.desk ? plan.desk.depth : plan.caseDepth}
@@ -2107,10 +2110,12 @@ export default function DrawerBuilder() {
 
 function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: DrawerConfig; fmt: (inches: number) => string }) {
   const run = plan.run;
-  const W = run ? run.width : plan.overallWidth;
+  const desk = plan.desk;
+  const W = run ? run.width : desk ? desk.width : plan.overallWidth;
   const H = plan.overallHeight;
   const bk = plan.bookcase;
   const Ht = plan.totalHeight;
+  const whole = !!run || !!desk;
   const pad = Math.max(W, Ht) * 0.12;
   const fs = Math.max(W, Ht) * 0.03;
   const y = (v: number) => Ht - v;
@@ -2121,22 +2126,52 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
         role="img"
         aria-label={run
           ? `Front elevation of a ${fmt(W)} wall run: ${run.cabinetCount} cabinets${run.sections.some(x => x.kind === 'desk') ? ' with desk gaps' : ''}, ${fmt(Ht)} tall`
+          : desk ? `Front elevation of a ${fmt(W)} desk, ${fmt(desk.height)} high, on ${plan.unitCount} drawer unit${plan.unitCount === 1 ? '' : 's'}`
           : `Front elevation, ${fmt(W)} wide by ${fmt(Ht)} tall with ${plan.drawers.length} drawers${bk ? ' and a bookcase above' : ''}`}
       >
-        {run ? <RunFront plan={plan} config={config} y={y} /> : (
+        {run ? <RunFront plan={plan} config={config} y={y} /> : desk ? <DeskFront plan={plan} config={config} y={y} fmt={fmt} fs={fs} /> : (
           <>
             {bk && <BookcaseElevation plan={plan} bk={bk} width={plan.overallWidth} y={y} />}
             <CabinetFront plan={plan} config={config} y={y} />
           </>
         )}
-        {!run && plan.drawers.map(d => (
+        {!whole && plan.drawers.map(d => (
           <DimV key={d.index} y1={y(d.front.y + d.front.height)} y2={y(d.front.y)} x={W + pad * 0.3} fs={fs * 0.75} label={fmt(d.front.height)} />
         ))}
         <DimH x1={0} x2={W} y={Ht + pad * 0.45} fs={fs} label={fmt(W)} />
         <DimV y1={y(H)} y2={y(0)} x={W + pad * 1.05} fs={fs} label={fmt(H)} />
+        {plan.mount === 'under-desk' && (
+          <line className="drawer-door-swing" x1={-pad * 0.3} x2={W + pad * 0.3} y1={y((config.mountHeight ?? 28))} y2={y((config.mountHeight ?? 28))} />
+        )}
         {Ht > H + 1e-6 && <DimV y1={y(Ht)} y2={y(0)} x={W + pad * 1.55} fs={fs} label={fmt(Ht)} />}
       </svg>
     </figure>
+  );
+}
+
+/** A desk: every unit under the top, the legs or end panel, and the room to sit. */
+function DeskFront({ plan, config, y, fmt, fs }: { plan: DrawerPlan; config: DrawerConfig; y: (v: number) => number; fmt: (inches: number) => string; fs: number }) {
+  const dk = plan.desk!;
+  const H = plan.overallHeight;
+  const W = plan.overallWidth;
+  const T = config.thickness;
+  const end = dk.openEnd;
+  const legX = end?.side === 'right' ? dk.width - DESK_LEG_INSET - DESK_LEG_SIZE : DESK_LEG_INSET;
+  // The room to sit: between the units, or between the unit and the legs or panel.
+  const kneeX0 = dk.unitXs.length === 2 ? dk.unitXs[0] + W
+    : end?.side === 'right' ? dk.unitXs[0] + W : end?.kind === 'legs' ? legX + DESK_LEG_SIZE : T;
+  return (
+    <>
+      {dk.unitXs.map(x => (
+        <g key={x} transform={`translate(${x} 0)`}>
+          <CabinetFront plan={plan} config={config} y={y} />
+        </g>
+      ))}
+      <rect className="shelf-ply" x={0} y={y(H + dk.topThickness)} width={dk.width} height={dk.topThickness} />
+      {end?.kind === 'legs' && <rect className="drawer-foot" x={legX} y={y(end.height)} width={DESK_LEG_SIZE} height={end.height} rx={DESK_LEG_SIZE / 2} />}
+      {end?.kind === 'panel' && <rect className="shelf-ply" x={end.side === 'right' ? dk.width - T : 0} y={y(end.height)} width={T} height={end.height} />}
+      <DimH x1={kneeX0} x2={kneeX0 + Math.max(dk.knee, 0)} y={y(H * 0.45)} fs={fs * 0.8} label={`${fmt(Math.max(dk.knee, 0))} to sit`} />
+    </>
   );
 }
 
