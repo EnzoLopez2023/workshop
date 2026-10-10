@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildDrawerPlan, DEFAULT_PULL, deskSolids, runFootprint, runSolids } from '../src/lib/drawerUnit.ts';
+import { buildDrawerPlan, DEFAULT_PULL, deskSolids, drawerSolids, runFootprint, runSolids } from '../src/lib/drawerUnit.ts';
 import { DEFAULT_BOOKCASE } from '../src/lib/drawerBookcase.ts';
 import { runFromFields, runToFields } from '../src/lib/drawerRun.ts';
-import { drawerJigs } from '../src/lib/drawerExport.ts';
+import { drawerJigs, drawerPartFaces } from '../src/lib/drawerExport.ts';
 import { drawerGuideSteps } from '../src/lib/drawerGuide.ts';
 import { cabinetBox } from '../src/lib/builtinRoom.ts';
 
@@ -98,7 +98,7 @@ test('corner settings survive the form round trip', () => {
   const fields = runToFields(run, String);
   assert.equal(fields.corner.enabled, true);
   const back = runFromFields(fields, raw => Number(raw));
-  assert.deepEqual(back.corner, { ...run.corner, wallLength: 0 });
+  assert.deepEqual(back.corner, { ...run.corner, wallLength: 0, style: 'open' });
   assert.equal(runFromFields({ ...fields, corner: { ...fields.corner, enabled: false } }, raw => Number(raw)).corner, undefined);
 });
 
@@ -132,4 +132,81 @@ test('the layout plan gets the L, inside the 3D model’s box', () => {
     for (const [x, z] of outline) assert.ok(x >= box.minX - 1e-6 && x <= box.maxX + 1e-6 && z >= box.minZ - 1e-6 && z <= box.maxZ + 1e-6, `${side} ${x},${z}`);
   }
   assert.equal(runFootprint(buildDrawerPlan(base)), null);
+});
+
+const blindBase = (blind = { side: 'right', width: 27 }, patch = {}) => ({
+  ...base, width: 18, drawers: 2, frontHeights: [6, 23.75],
+  doors: [null, { hinge: 'auto', inside: 'shelves', count: 1 }], blind, ...patch,
+});
+
+test('a blind corner cabinet: the case runs on into the corner, the drawer hangs from a slide panel', () => {
+  const config = blindBase();
+  const p = buildDrawerPlan(config);
+  assert.deepEqual(p.errors, []);
+  close(p.blind.totalWidth, 45, 'overall');
+  const part = n => p.parts.find(x => x.name === n);
+  assert.equal(part('Side').qty, 1);
+  assert.equal(part('End side').qty, 1);
+  close(part('Top').length, 18 - 1.5 + 27, 'top runs into the corner');
+  assert.ok(part('Slide panel') && part('Blind panel'));
+  close(part('Door shelf').length, p.columns[0].width + 27 - 1 / 16, 'shelf runs into the blind side');
+  // The door hinges away from the blind side.
+  assert.equal(p.drawers[1].door.leaves[0].hinge, 'left');
+  const solids = drawerSolids(p, config);
+  assert.ok(!solids.some(s => s.name === 'Right side'));
+  close(cabinetBox(solids).maxX, 45, 'end side at 45');
+  const slide = solids.find(s => s.name === 'Slide panel');
+  assert.ok(slide.min[1] > p.drawers[1].front.y + p.drawers[1].front.height - 1, 'slide panel stops above the door');
+});
+
+test('a left blind side moves the opening right; the guide and export know the new parts', () => {
+  const config = blindBase({ side: 'left', width: 27 });
+  const p = buildDrawerPlan(config);
+  assert.deepEqual(p.errors, []);
+  assert.equal(p.drawers[1].door.leaves[0].hinge, 'right');
+  const box = cabinetBox(drawerSolids(p, config));
+  close(box.minX, 0, 'blind end at 0');
+  close(box.maxX, 45, 'opening at the right');
+  const { steps } = drawerGuideSteps(p, config, 'in');
+  assert.ok(steps.some(s => s.id === 'blind-panel'));
+  const faces = drawerPartFaces(p, config);
+  assert.ok(faces.some(f => f.piece === 'End side') && faces.some(f => f.piece === 'Slide panel'));
+  assert.ok(!faces.some(f => f.piece === 'Left side'), 'no side on the blind side');
+});
+
+test('a blind cabinet must open into the corner, and its door can’t hinge on the blind side', () => {
+  assert.match(buildDrawerPlan(blindBase(undefined, { doors: [null, null] })).errors.join(' '), /opens into the blind corner/);
+  assert.match(buildDrawerPlan(blindBase(undefined, { doors: [null, { hinge: 'right', inside: 'empty', count: 0 }] })).errors.join(' '), /hinges on the right, the blind side/);
+  assert.match(buildDrawerPlan(blindBase(undefined, { doors: [{ hinge: 'left', inside: 'empty', count: 0 }, null] })).errors.join(' '), /drawers at the top/);
+  assert.match(buildDrawerPlan(blindBase(undefined, { base: 'feet' })).errors.join(' '), /toe kick/);
+});
+
+test('a blind corner in a wall run: the cabinet beside the corner runs on through the bay, under the run countertop', () => {
+  const config = { ...blindBase(undefined), blind: undefined, run: cornerRun({ style: 'blind' }, { sections: [{ kind: 'cabinet' }, { kind: 'cabinet' }] }) };
+  config.width = 18;
+  const p = buildDrawerPlan(config);
+  assert.deepEqual(p.errors, []);
+  const cn = p.run.corner;
+  assert.equal(cn.style, 'blind');
+  assert.equal(cn.blindSection, 1);
+  assert.ok(!p.parts.some(x => x.name === 'Corner ledger'), 'no ledgers under a blind corner');
+  assert.ok(p.parts.some(x => x.name === 'End side') && p.parts.some(x => x.name === 'Blind panel'));
+  assert.ok(!p.warnings.some(w => /dead space/.test(w)));
+  // One fewer full-height side: two plain cabinets and a return keep theirs, the blind one has one plus its end side.
+  assert.equal(p.parts.find(x => x.name === 'Side').qty, 5);
+  const solids = runSolids(p, config);
+  assert.equal(new Set(solids.map(s => s.name)).size, solids.length, 'names unique');
+  const end = solids.find(s => s.name === 'Cabinet 2 · End side');
+  assert.ok(end, 'the blind cabinet is drawn');
+  const xs = end.shape === 'prism' ? [end.x0, end.x1] : [end.min[0], end.max[0]];
+  close(Math.max(...xs), p.run.width, 'end side against the side wall');
+  assert.ok(!solids.some(s => s.name.startsWith('Corner ledger')));
+  assert.ok(solids.some(s => s.name === 'Run countertop'));
+});
+
+test('a blind run corner needs a cabinet beside the corner, and the cabinet must open into it', () => {
+  const noCab = buildDrawerPlan({ ...base, run: cornerRun({ style: 'blind' }, { sections: [{ kind: 'cabinet' }, { kind: 'desk', width: 30 }] }) });
+  assert.match(noCab.errors.join(' '), /make the last section of the main run a cabinet/);
+  const allDrawers = buildDrawerPlan({ ...base, run: cornerRun({ style: 'blind' }) });
+  assert.match(allDrawers.errors.join(' '), /Corner cabinet: Nothing in the cabinet opens into the blind corner/);
 });

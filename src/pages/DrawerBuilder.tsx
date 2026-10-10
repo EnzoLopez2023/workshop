@@ -28,7 +28,7 @@ import { isDemoMode } from '../demo/demoMode';
 import type { LibraryDrawerDesign } from '../types/project';
 import { decimalString, formatLength, lengthToField, parseLength, type LengthUnit } from '../lib/shelving';
 import {
-  buildDrawerPlan,
+  buildDrawerPlan, cornerBlindConfig,
   DEFAULT_CASTER_HEIGHT,
   DEFAULT_FOOT_HEIGHT,
   DEFAULT_PULL,
@@ -154,6 +154,9 @@ const DEFAULT_FORM: FormState = {
   deskDepth: EXTRA_FIELD_DEFAULTS.deskDepth,
   deskTopLayers: EXTRA_FIELD_DEFAULTS.deskTopLayers,
   deskOpenEnd: 'legs',
+  blind: false,
+  blindSide: 'right',
+  blindWidth: '27',
   drawerSlides: ['', '', '', '', ''],
   doorHinges: ['auto', 'auto', 'auto', 'auto', 'auto'],
   doorInside: ['shelves', 'shelves', 'shelves', 'shelves', 'shelves'],
@@ -180,7 +183,7 @@ const LENGTH_FIELDS = [
   'insertThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
   'mountHeight', 'cleatHeight', 'toolBoardThickness', 'toolPocketDepth', 'toolClearance',
   'kickHeight', 'kickSetback', 'baseboardHeight', 'baseboardThickness',
-  'hardwareSpacing', 'profileRail', 'profileDepth',
+  'hardwareSpacing', 'profileRail', 'profileDepth', 'blindWidth',
 ] as const;
 type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}` | `columnFronts.${number}.${number}` | `columnWidths.${number}`
   | `bookcase.${typeof BOOKCASE_LENGTH_KEYS[number]}` | `run.${string}`;
@@ -233,7 +236,7 @@ function stepOfField(key: string): string {
   if (/^(thickness|boxThickness|bottomThickness|backThickness)$/.test(key)) return 'drawer-step-materials';
   if (/^(pull|hardware|profile|bandingThickness)/.test(key)) return 'drawer-step-look';
   if (/^(footHeight|casterHeight|kick|baseboard|mountHeight|cleatHeight)/.test(key)) return 'drawer-step-base';
-  if (/^(bookcase|run|desk)/.test(key)) return 'drawer-step-builtins';
+  if (/^(bookcase|run|desk|blind)/.test(key)) return 'drawer-step-builtins';
   if (/^(insertThickness|marker|tool)/.test(key)) return 'drawer-step-inside';
   return 'drawer-step-size';
 }
@@ -268,6 +271,11 @@ const DESK_OPEN_END_OPTIONS = [
   { value: 'legs', label: 'Two legs' },
   { value: 'panel', label: 'End panel' },
   { value: 'ledger', label: 'Into a cabinet' },
+] as const;
+
+const BLIND_SIDE_OPTIONS = [
+  { value: 'left', label: 'Left' },
+  { value: 'right', label: 'Right' },
 ] as const;
 
 const TOP_LAYER_OPTIONS = [
@@ -406,6 +414,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
   const desk = form.desk
     ? { enabled: true, layout: form.deskLayout, width: num('deskWidth'), height: num('deskHeight'), depth: num('deskDepth'), topLayers: form.deskTopLayers, openEnd: form.deskOpenEnd ?? 'legs' }
     : undefined;
+  const blind = form.blind ? { side: form.blindSide ?? 'right', width: num('blindWidth') } : undefined;
   const usesMarkers = form.insertKinds.slice(0, form.drawers).includes('markers');
   const usesTools = form.insertKinds.slice(0, form.drawers).includes('tools');
   const toolBoard = usesTools ? num('toolBoardThickness') : null;
@@ -477,6 +486,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     gridfinityBed: Number(form.gridfinityBed) || 256,
     insertThickness: form.insertKinds.slice(0, form.drawers).some(k => k !== 'none') ? num('insertThickness') : 1 / 4,
     desk,
+    blind,
     slideLengths: form.drawerSlides.slice(0, form.drawers).some(Boolean)
       ? form.drawerSlides.slice(0, form.drawers).map(v => (v ? Number(v) : null))
       : undefined,
@@ -1674,6 +1684,31 @@ export default function DrawerBuilder() {
               </>
             )}
           </fieldset>
+
+          <fieldset className="shelf-group" data-tour="fs-blind">
+            <legend>Blind corner</legend>
+            {(form.desk || form.run?.enabled || form.bookcase?.enabled) && !form.blind && (
+              <p className="shelf-group-note">A blind corner cabinet is built on its own — turn off the desk, wall run and bookcase to use it.</p>
+            )}
+            <Toggle
+              disabled={!form.blind && (form.desk || !!form.run?.enabled || !!form.bookcase?.enabled)}
+              label="Run the case on into a corner"
+              checked={form.blind}
+              hint="A blind corner base cabinet: the case carries on past the doors and drawers, behind the next run’s cabinet, so the corner isn’t wasted. Drawers on the blind side hang from a short slide panel and the door below opens straight into the corner."
+              onChange={blind => update({ blind, ...(blind && form.base !== 'kick' ? { base: 'kick' as const } : {}) })}
+            />
+            {form.blind && (
+              <>
+                <div className="shelf-field-grid">
+                  <SegmentedControl label="Blind side" value={form.blindSide} options={BLIND_SIDE_OPTIONS} onChange={blindSide => update({ blindSide })} />
+                  <LengthField unit={units} label="Blind width" value={form.blindWidth} error={fieldErrors.blindWidth}
+                    hint={plan?.blind ? `${fmt(plan.blind.totalWidth)} overall (the “pull”, wall to opposite edge).` : 'How far it runs past the opening: usually the next cabinet’s depth plus a 3″ filler.'}
+                    onChange={blindWidth => update({ blindWidth })} />
+                </div>
+                <small>Butt the next cabinet against the blind panel with a filler of about {fmt(3)} so this cabinet’s door and drawers clear its pulls.</small>
+              </>
+            )}
+          </fieldset>
           </div>
 
           <div className="builder-step" id="drawer-step-inside">
@@ -2122,7 +2157,8 @@ export default function DrawerBuilder() {
 function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: DrawerConfig; fmt: (inches: number) => string }) {
   const run = plan.run;
   const desk = plan.desk;
-  const W = run ? run.width : desk ? desk.width : plan.overallWidth;
+  const blind = plan.blind;
+  const W = run ? run.width : desk ? desk.width : blind ? blind.totalWidth : plan.overallWidth;
   const H = plan.overallHeight;
   const bk = plan.bookcase;
   const Ht = plan.totalHeight;
@@ -2138,15 +2174,15 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
         aria-label={run
           ? `Front elevation of a ${fmt(W)} wall run: ${run.cabinetCount} cabinets${run.sections.some(x => x.kind === 'desk') ? ' with desk gaps' : ''}, ${fmt(Ht)} tall`
           : desk ? `Front elevation of a ${fmt(W)} desk, ${fmt(desk.height)} high, on ${plan.unitCount} drawer unit${plan.unitCount === 1 ? '' : 's'}`
-          : `Front elevation, ${fmt(W)} wide by ${fmt(Ht)} tall with ${plan.drawers.length} drawers${bk ? ' and a bookcase above' : ''}`}
+          : `Front elevation, ${fmt(W)} wide by ${fmt(Ht)} tall with ${plan.drawers.length} drawers${bk ? ' and a bookcase above' : ''}${blind ? `, blind ${fmt(blind.width)} on the ${blind.side}` : ''}`}
       >
-        {run ? <RunFront plan={plan} config={config} y={y} /> : desk ? <DeskFront plan={plan} config={config} y={y} fmt={fmt} fs={fs} /> : (
+        {run ? <RunFront plan={plan} config={config} y={y} /> : desk ? <DeskFront plan={plan} config={config} y={y} fmt={fmt} fs={fs} /> : blind ? <BlindFront plan={plan} config={config} y={y} fmt={fmt} fs={fs} /> : (
           <>
             {bk && <BookcaseElevation plan={plan} bk={bk} width={plan.overallWidth} y={y} />}
             <CabinetFront plan={plan} config={config} y={y} />
           </>
         )}
-        {!whole && plan.drawers.map(d => (
+        {!whole && !blind && plan.drawers.map(d => (
           <DimV key={d.index} y1={y(d.front.y + d.front.height)} y2={y(d.front.y)} x={W + pad * 0.3} fs={fs * 0.75} label={fmt(d.front.height)} />
         ))}
         <DimH x1={0} x2={W} y={Ht + pad * 0.45} fs={fs} label={fmt(W)} />
@@ -2182,6 +2218,32 @@ function DeskFront({ plan, config, y, fmt, fs }: { plan: DrawerPlan; config: Dra
       {end?.kind === 'legs' && <rect className="drawer-foot" x={legX} y={y(end.height)} width={DESK_LEG_SIZE} height={end.height} rx={DESK_LEG_SIZE / 2} />}
       {end?.kind === 'panel' && <rect className="shelf-ply" x={end.side === 'right' ? dk.width - T : 0} y={y(end.height)} width={T} height={end.height} />}
       <DimH x1={kneeX0} x2={kneeX0 + Math.max(dk.knee, 0)} y={y(H * 0.45)} fs={fs * 0.8} label={`${fmt(Math.max(dk.knee, 0))} to sit`} />
+    </>
+  );
+}
+
+/** A blind corner cabinet: the opening's case and fronts, and the blind side beside it. */
+function BlindFront({ plan, config, y, fmt, fs }: { plan: DrawerPlan; config: DrawerConfig; y: (v: number) => number; fmt: (inches: number) => string; fs: number }) {
+  const bl = plan.blind!;
+  const W = plan.overallWidth;
+  const H = plan.overallHeight;
+  const B = plan.baseHeight;
+  const T = config.thickness;
+  // Left blind: the opening sits right of the blind side.
+  const ox = bl.side === 'left' ? bl.width : 0;
+  const [bx0, bx1] = bl.side === 'left' ? [0, bl.width] : [W, W + bl.width];
+  const p = bl.panel;
+  return (
+    <>
+      <rect className="shelf-ply" x={bx0} y={y(H)} width={bx1 - bx0} height={H - B} />
+      {B > 0 && <rect className="drawer-foot" x={bl.side === 'left' ? T : bx0} y={y(B)} width={bx1 - bx0 - T} height={B} />}
+      {B > 0 && <rect className="shelf-ply" x={bl.side === 'left' ? 0 : bx1 - T} y={y(B)} width={T} height={B} />}
+      <g transform={`translate(${ox} 0)`}>
+        <CabinetFront plan={plan} config={config} y={y} />
+      </g>
+      <rect className="shelf-ply drawer-blind-panel" x={p.x0 + ox} y={y(p.y1)} width={p.x1 - p.x0} height={p.y1 - p.y0} />
+      <text className="shelf-dim-text" x={(p.x0 + p.x1) / 2 + ox} y={y((p.y0 + p.y1) / 2)} fontSize={fs * 0.8} textAnchor="middle" dominantBaseline="central">blind</text>
+      <DimH x1={bx0} x2={bx1} y={y(H) - fs * 1.4} fs={fs * 0.8} label={`${fmt(bl.width)} blind`} />
     </>
   );
 }
@@ -2273,12 +2335,16 @@ function RunFront({ plan, config, y }: { plan: DrawerPlan; config: DrawerConfig;
   const run = plan.run!;
   const W = plan.overallWidth;
   const rect = (x: number, y0: number, w: number, h: number, className = 'shelf-ply') => <rect className={className} x={x} y={y(y0 + h)} width={w} height={h} />;
+  // A blind corner: the cabinet beside the corner is drawn as built, its doors hinged away from the corner.
+  const blindConfig = cornerBlindConfig(config, run);
+  const blindPlan = blindConfig ? buildDrawerPlan(blindConfig) : null;
+  const blindOk = blindPlan && blindConfig && !blindPlan.errors.length;
   return (
     <>
       {run.sections.map((sec, i) => (
-        <g key={i} transform={sec.mirror ? `translate(${sec.x + W} 0) scale(-1 1)` : `translate(${sec.x} 0)`}>
+        <g key={i} transform={sec.mirror && !(blindOk && i === run.corner?.blindSection) ? `translate(${sec.x + W} 0) scale(-1 1)` : `translate(${sec.x} 0)`}>
           {sec.kind === 'cabinet'
-            ? <>{plan.bookcase && <BookcaseElevation plan={plan} bk={plan.bookcase} width={W} y={y} noCounter />}<CabinetFront plan={plan} config={config} y={y} /></>
+            ? <>{plan.bookcase && <BookcaseElevation plan={plan} bk={plan.bookcase} width={W} y={y} noCounter />}{blindOk && i === run.corner?.blindSection ? <CabinetFront plan={blindPlan} config={blindConfig} y={y} /> : <CabinetFront plan={plan} config={config} y={y} />}</>
             : sec.upper && <BookcaseElevation plan={plan} bk={sec.upper} width={sec.width} y={y} noCounter />}
         </g>
       ))}
@@ -2288,6 +2354,12 @@ function RunFront({ plan, config, y }: { plan: DrawerPlan; config: DrawerConfig;
           {run.uppers && rect(fl.x, run.uppers.y0, fl.width, run.uppers.topY - run.uppers.y0)}
         </g>
       ))}
+      {run.corner?.style === 'blind' && (
+        <g>
+          {rect(run.corner.bay.x0, plan.baseHeight, run.corner.bay.x1 - run.corner.bay.x0, plan.overallHeight - plan.baseHeight, 'shelf-ply drawer-blind-panel')}
+          <text className="shelf-dim-text" x={(run.corner.bay.x0 + run.corner.bay.x1) / 2} y={y(plan.overallHeight / 2)} fontSize={Math.max(run.width, plan.totalHeight) * 0.022} textAnchor="middle" dominantBaseline="central">blind</text>
+        </g>
+      )}
       {rect(run.countertop.x0, run.countertop.y0, run.countertop.x1 - run.countertop.x0, run.countertop.y1 - run.countertop.y0)}
       {run.cap && rect(run.cap.x0, run.cap.y0, run.cap.x1 - run.cap.x0, run.cap.y1 - run.cap.y0)}
       {run.crown && rect(run.crown.x0, run.crown.y0, run.crown.x1 - run.crown.x0, run.crown.height, 'shelf-ply drawer-baseboard')}

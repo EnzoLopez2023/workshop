@@ -83,19 +83,33 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
   {
     id: 'corner-storage',
     name: 'Corner storage with top',
-    description: 'Base cabinets that wrap a corner under one deep countertop at 32″ — room for printers on top and tool drawers below — with tall open shelving above for spools and dry boxes.',
+    description: 'Base cabinets that wrap a corner under one deep countertop at 32″ — room for printers on top, tool drawers and a cupboard below — with a blind corner cabinet using the corner and tall open shelving above for spools and dry boxes.',
     fields: {
       ...SHAKER,
-      width: '30', height: '30 1/2', depth: '27', heightMode: 'overall', drawers: 4, base: 'kick', kickHeight: '4', kickSetback: '3',
+      width: '30', height: '30 1/2', depth: '27', heightMode: 'overall', drawers: 6, base: 'kick', kickHeight: '4', kickSetback: '3',
+      columns: 2, columnWidthMode: 'equal', columnDrawers: [4, 2], columnFronts: [['6', '6', '6', '6'], ['6', '18']],
+      insertKinds: ['none', 'none', 'none', 'none', 'none', 'door'],
+      doorHinges: ['auto', 'auto', 'auto', 'auto', 'auto', 'auto'], doorInside: ['shelves', 'shelves', 'shelves', 'shelves', 'shelves', 'shelves'], doorCounts: [1, 1, 1, 1, 1, 1],
       bookcase: bookcaseToFields({
         ...DEFAULT_BOOKCASE, enabled: true, height: 70, depth: 12, bays: 2, shelvesPerBay: 2, adjustablePerBay: 2, openBelow: 24,
         countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'cap' },
       }, L),
       run: runFields({
         wallWidth: 90, leftEnd: 'open', rightEnd: 'wall',
-        sections: [{ kind: 'cabinet' }, { kind: 'cabinet', mirror: true }],
-        corner: { side: 'right', wallLength: 64, end: 'open', sections: [{ kind: 'cabinet' }] },
+        sections: [{ kind: 'cabinet', mirror: true }, { kind: 'cabinet' }],
+        corner: { side: 'right', wallLength: 64, end: 'open', style: 'blind', sections: [{ kind: 'cabinet', mirror: true }] },
       }),
+    },
+  },
+  {
+    id: 'blind-corner-base',
+    name: 'Blind corner base',
+    description: 'A 45″ blind corner base cabinet: an 18″ opening with a drawer over a door, and the case running on 27″ into the corner behind the next run — reach in through the door to a long shelf.',
+    fields: {
+      ...SHAKER,
+      width: '18', depth: '24', heightMode: 'fronts', drawers: 2, frontHeights: ['6', '23 3/4'], base: 'kick', kickHeight: '4', kickSetback: '3',
+      insertKinds: ['none', 'door'], doorHinges: ['auto', 'auto'], doorInside: ['shelves', 'shelves'], doorCounts: [1, 1],
+      blind: true, blindSide: 'right', blindWidth: '27',
     },
   },
   {
@@ -225,7 +239,10 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
 
 /** A front elevation with the notched fronts, as a standalone SVG string. */
 export function drawerThumbnailSvg(plan: DrawerPlan, pull: FingerPull, size = 120, frontColor = '#f4f1ea'): string {
-  const W = plan.overallWidth;
+  const bl = plan.blind;
+  // A blind corner cabinet: the opening plus the blind side beside it.
+  const W = bl ? bl.totalWidth : plan.overallWidth;
+  const ox = bl?.side === 'left' ? bl.width : 0;
   const H = plan.overallHeight;
   const pad = Math.max(W, H) * 0.06;
   const y = (v: number) => H - v;
@@ -250,7 +267,9 @@ export function drawerThumbnailSvg(plan: DrawerPlan, pull: FingerPull, size = 12
     : '';
   const scale = size / Math.max(W + 2 * pad, H + 2 * pad);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${((W + 2 * pad) * scale).toFixed(1)}" height="${((H + 2 * pad) * scale).toFixed(1)}" viewBox="${-pad} ${-pad} ${W + 2 * pad} ${H + 2 * pad}">`
-    + `<rect x="0" y="0" width="${W}" height="${H - plan.baseHeight}" fill="#d8b98c"/>${base}${fronts}</svg>`;
+    + `<rect x="0" y="0" width="${W}" height="${H - plan.baseHeight}" fill="#d8b98c"/>${base}`
+    + (bl ? `<rect x="${(bl.panel.x0 + ox).toFixed(3)}" y="${y(bl.panel.y1).toFixed(3)}" width="${(bl.panel.x1 - bl.panel.x0).toFixed(3)}" height="${(bl.panel.y1 - bl.panel.y0).toFixed(3)}" fill="#c9a979" stroke="#15332e" stroke-width="${(W / 90).toFixed(3)}"/>` : '')
+    + `<g transform="translate(${ox} 0)">${fronts}</g></svg>`;
 }
 
 export function drawerThumbnailDataUrl(plan: DrawerPlan, pull: FingerPull, size = 120, frontColor?: string): string {

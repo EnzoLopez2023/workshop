@@ -87,7 +87,9 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       // inside face points +x, which makes (up, back, +x) left-handed; the right mirrors it.
       // Each side carries the slides of the column next to it.
       const lastColumn = plan.columns.length - 1;
-      for (const [piece, rightHanded, column] of [['Left side', false, 0], ['Right side', true, lastColumn]] as const) {
+      // A blind corner keeps only the side away from the blind; that end gets the end side and slide panel below.
+      const sides = ([['Left side', false, 0], ['Right side', true, lastColumn]] as const).filter(([piece]) => !plan.blind || piece !== (plan.blind.side === 'right' ? 'Right side' : 'Left side'));
+      for (const [piece, rightHanded, column] of sides) {
         const features: Feature[] = [
           plan.cleatGap > 0
             ? { kind: 'pocket', label: 'Back groove', u: 0, v: part.width - plan.cleatGap - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 }
@@ -100,6 +102,34 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
           orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, inside face up.${plan.partOutlines.Side ? ' The toe-kick notch is part of the outline cut.' : ''} Blue lines mark each slide’s bottom edge (not cut).`,
         });
       }
+      continue;
+    }
+
+    if (part.name === 'End side' && plan.blind) {
+      // The blind end: the same outline as a side, with shelf-pin holes for the long shelves behind the door.
+      const rightHanded = plan.blind.side === 'right';
+      faces.push({
+        ...base, id: 'end-side-inside', piece: 'End side', face: 'inside face', rightHanded, outline: plan.partOutlines['End side'],
+        features: [
+          plan.cleatGap > 0
+            ? { kind: 'pocket', label: 'Back groove', u: 0, v: part.width - plan.cleatGap - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 }
+            : { kind: 'pocket', label: 'Back rabbet', u: 0, v: part.width - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 },
+          ...doorLines(plan, plan.blind.column, plan.blind.side, 0, false),
+        ],
+        orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, inside face up.${plan.partOutlines['End side'] ? ' The toe-kick notch is part of the outline cut.' : ''}`,
+      });
+      continue;
+    }
+
+    if (part.name === 'Slide panel' && plan.blind?.slideBottom != null) {
+      // Hangs from the top on the blind side; the slides beside it screw to its open face.
+      const from = plan.blind.slideBottom - plan.sideBottom;
+      const rightHanded = plan.blind.side === 'left';
+      faces.push({
+        ...base, id: 'slide-panel', piece: 'Slide panel', face: 'opening face', rightHanded,
+        features: slideLines(plan, plan.blind.column, from),
+        orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, the face toward the drawers up. Blue lines mark each slide’s bottom edge (not cut).`,
+      });
       continue;
     }
 

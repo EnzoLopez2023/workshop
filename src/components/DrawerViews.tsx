@@ -140,7 +140,16 @@ export function TopView({ plan, config, fmt }: ViewProps) {
   const shapes: Shape[] = [];
   const run = plan.run;
   const dk = plan.desk;
-  const unitXs = run ? run.sections.filter(s => s.kind === 'cabinet').map(s => s.x) : dk ? dk.unitXs : [0];
+  const bl = plan.blind;
+  const unitXs = run ? run.sections.filter(s => s.kind === 'cabinet').map(s => s.x) : dk ? dk.unitXs : [bl?.side === 'left' ? bl.width : 0];
+  if (bl) {
+    // The blind side: the case carried on to its end side, and the blind panel across the front.
+    const [x0, x1] = bl.side === 'left' ? [0, bl.width] : [W, W + bl.width];
+    const ox = bl.side === 'left' ? bl.width : 0;
+    shapes.push(rect(x0, 0, x1, cd));
+    shapes.push(rect(bl.side === 'left' ? 0 : x1 - T, 0, bl.side === 'left' ? T : x1, cd, 'shelf-ply is-shelf'));
+    shapes.push(rect(bl.panel.x0 + ox, bl.panel.z0, bl.panel.x1 + ox, bl.panel.z1, 'drawer-front-shape'));
+  }
   for (const x of unitXs) {
     shapes.push(rect(x, 0, x + W, cd));
     // The sides and back, so each case reads as a box from above.
@@ -173,6 +182,11 @@ export function TopView({ plan, config, fmt }: ViewProps) {
       shapes.push(rect(u0, plan.bookcase.z0, u1, cd, 'drawer-overhead is-upper'));
     }
     const cn = run.corner;
+    if (cn?.style === 'blind') {
+      // The blind corner cabinet carries on through the corner bay.
+      shapes.push(rect(cn.bay.x0, 0, cn.bay.x1, cd));
+      shapes.push(rect(cn.side === 'right' ? cn.bay.x1 - T : cn.bay.x0, 0, cn.side === 'right' ? cn.bay.x1 : cn.bay.x0 + T, cd, 'shelf-ply is-shelf'));
+    }
     if (cn) {
       // The return, seen from above: its x runs forward from the back wall (down the drawing).
       const right = cn.side === 'right';
@@ -204,7 +218,7 @@ export function TopView({ plan, config, fmt }: ViewProps) {
   }
   const allZ = shapes.flatMap(s => (s.kind === 'rect' ? [s.y, s.y + s.h] : s.kind === 'circle' ? [s.cy - s.r, s.cy + s.r] : []));
   const span: [number, number] = [Math.min(...allZ), Math.max(...allZ)];
-  const width = run ? run.width : dk ? dk.width : W;
+  const width = run ? run.width : dk ? dk.width : bl ? bl.totalWidth : W;
   return (
     <View shapes={shapes} fmt={fmt} vertical={[span]} horizontal={[0, width]}
       label={`Top view: ${fmt(width)} wide, ${fmt(span[1] - span[0])} deep`}

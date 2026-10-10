@@ -254,6 +254,36 @@ export interface DrawerConfig {
   bookcase?: BookcaseConfig;
   /** A wall of built-ins: copies of this cabinet, desk gaps and fillers under one countertop. */
   run?: RunConfig;
+  /** A blind corner: the case runs on past the opening into a corner, behind the next run's cabinet. */
+  blind?: BlindConfig;
+}
+
+/**
+ * A blind corner base cabinet. The top, bottom, back and toe kick carry on `width`
+ * past the opening to an end side; on that side the drawers hang from a short slide
+ * panel, so the door below opens straight into the corner, and a blind panel closes
+ * the front where the next cabinet butts against it.
+ */
+export interface BlindConfig {
+  side: 'left' | 'right';
+  /** How far the case runs on past the opening, end side included. */
+  width: number;
+}
+
+/** A blind panel's usual reach: the next cabinet's depth plus a filler. */
+export const DEFAULT_BLIND_WIDTH = 27;
+
+export interface BlindPlan {
+  side: 'left' | 'right';
+  width: number;
+  /** The column beside the blind side. */
+  column: number;
+  /** Bottom of the slide panel the drawers hang from (null: no drawers beside the blind side). */
+  slideBottom: number | null;
+  /** The blind panel, in the cabinet's model space (opening at x 0…overallWidth, blind beyond it). */
+  panel: { x0: number; x1: number; y0: number; y1: number; z0: number; z1: number };
+  /** Opening and blind together. */
+  totalWidth: number;
 }
 
 export type HardwareKind = 'none' | 'knob' | 'bar' | 'cup';
@@ -589,6 +619,8 @@ export interface DrawerPlan {
   /** Units built: 2 for a desk with a unit at each end. Part quantities already include it. */
   unitCount: number;
   desk: DeskLayoutPlan | null;
+  /** A blind corner cabinet's blind side (null for an ordinary cabinet). */
+  blind: BlindPlan | null;
   /** Per drawer: contents weight and bottom sag at the chosen load. */
   loads: DrawerLoadCheck[];
   banding: { thickness: number; totalLength: number } | null;
@@ -715,11 +747,15 @@ function layoutDoor(slot: DoorSlot, c: {
   opening: { x: number; width: number };
   zoneBottom: number; zoneTop: number;
   name: string; f: (inches: number) => string; errors: string[]; warnings: string[];
+  /** A side with no case side to hinge on (a blind corner's open side): 'auto' hinges away from it, never in pairs. */
+  avoid?: 'left' | 'right';
 }): DoorPlan {
   const { front, f } = c;
-  const pair = slot.hinge === 'pair' || (slot.hinge === 'auto' && front.width > PAIR_DOOR_WIDTH);
+  const pair = slot.hinge === 'pair' || (slot.hinge === 'auto' && front.width > PAIR_DOOR_WIDTH && !c.avoid);
   // A single door hinges on the outside: the left in the left column, otherwise the right.
-  const single: 'left' | 'right' = slot.hinge === 'left' || slot.hinge === 'right' ? slot.hinge : c.column === 0 && c.columns > 1 ? 'left' : c.column === c.columns - 1 && c.columns > 1 ? 'right' : 'left';
+  const outside: 'left' | 'right' = c.column === 0 && c.columns > 1 ? 'left' : c.column === c.columns - 1 && c.columns > 1 ? 'right' : 'left';
+  const single: 'left' | 'right' = slot.hinge === 'left' || slot.hinge === 'right' ? slot.hinge
+    : c.avoid ? (c.avoid === 'left' ? 'right' : 'left') : outside;
   const type = (side: 'left' | 'right'): DoorLeaf['hingeType'] => {
     if (c.inset) return 'inset';
     const outside = side === 'left' ? c.column === 0 : c.column === c.columns - 1;
@@ -814,6 +850,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const cols = columnsOf(config);
   const k = cols.length;
   const n = cols.reduce((a, c) => a + c.drawers, 0);
+  const blindCfg = config.blind && config.blind.width > 0 ? config.blind : null;
+  const blindCol = blindCfg ? (blindCfg.side === 'right' ? k - 1 : 0) : -1;
   const own = (c: DrawerColumn) => (c.frontHeights && c.frontHeights.length === c.drawers ? c.frontHeights : null);
   const firstFronts = own(cols[0]);
   const inset = config.frontStyle !== 'overlay';
@@ -983,7 +1021,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
         column: ci, columns: k, inset, gap, T, slideLength,
         opening: { x: columns[ci].x, width: openings[ci] },
         zoneBottom: zoneBottom > interiorBottom + EPS ? zoneBottom + T : zoneBottom, zoneTop,
-        name, f, errors, warnings,
+        name, f, errors, warnings, avoid: ci === blindCol ? blindCfg!.side : undefined,
       }) : null,
     });
     if (open) {
@@ -1211,7 +1249,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       else doorGroups.push({ width: leaf.width, height: d.front.height, hinge: leaf.hinge, indexes: [d.index], count: 1 });
     }
     if (d.door.shelfYs.length) {
-      const length = columns[d.column].width - 1 / 16;
+      // Beside a blind corner the shelf runs on into the blind space, on pins in the end side.
+      const length = columns[d.column].width + (d.column === blindCol ? blindCfg!.width : 0) - 1 / 16;
       const g = doorShelves.find(x => Math.abs(x.length - length) < EPS);
       if (g) { g.count += d.door.shelfYs.length; g.indexes.push(d.index); } else doorShelves.push({ length, count: d.door.shelfYs.length, indexes: [d.index] });
     }
@@ -1352,6 +1391,53 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     warnings.push(`Under ${loadWord} loads the ${f(bt)} bottom${sagging.length === 1 ? '' : 's'} of ${range(sagging)} would sag about ${worst.sag.toFixed(2)}″ — more than the ${worst.sagLimit.toFixed(2)}″ that stays flat. Use ${f(thicker)} bottoms, or glue a ${f(3 / 4)} × ${f(1.5)} stiffener across the middle underneath.`);
   }
 
+  // Blind corner: the case carries on past the opening to an end side.
+  let blind: BlindPlan | null = null;
+  if (blindCfg) {
+    const Bw = blindCfg.width;
+    const side = blindCfg.side;
+    const other = side === 'left' ? 'right' : 'left';
+    if (mount !== 'floor') errors.push('A blind corner cabinet stands on the floor — set the mount to the floor.');
+    if (config.desk?.enabled || config.run?.enabled || config.bookcase?.enabled) errors.push('Build the blind corner cabinet on its own — turn off the desk, the wall run and the bookcase, and set it beside the run in a project.');
+    if (baseKind !== 'kick') errors.push('A blind corner cabinet sits on an integrated toe kick, like the cabinets it lines up with — set the base to a toe kick.');
+    if (Bw < 12) errors.push(`A ${f(Bw)} blind side is too short to reach behind the next cabinet — make it at least ${f(12)} (usually that cabinet’s depth plus a ${f(3)} filler).`);
+    if (W + Bw > 60) warnings.push(`At ${f(W + Bw)} overall the top, bottom and back are long for one sheet — check the cut list, or narrow the blind side.`);
+    const col = columns[blindCol];
+    const colName = k > 1 ? `the ${side} column` : 'the cabinet';
+    const stack = col.drawers.map(i => drawers.find(d => d.index === i)!);
+    const firstOpen = stack.findIndex(d => d.open);
+    if (firstOpen === -1) errors.push(`Nothing in ${colName} opens into the blind corner — make its bottom position a door (or an open cubby) so you can reach in.`);
+    else if (stack.slice(firstOpen).some(d => !d.open)) errors.push(`In ${colName}, keep the drawers at the top and the door below them: the drawers hang from a short slide panel, and everything under it opens into the corner.`);
+    for (const d of stack) {
+      if (!d.door) continue;
+      if (d.door.leaves.some(l => l.hinge === side)) errors.push(`${d.label} hinges on the ${side}, the blind side, where there’s no case side for its hinge plates — hinge it on the ${other}${d.door.leaves.length > 1 ? ' as a single door' : ''}.`);
+      if (d.door.trays.length) errors.push(`${d.label}: pull-out trays need a spacer panel on both sides — use shelves behind a door beside the blind corner.`);
+    }
+    const hung = firstOpen === -1 ? stack : stack.slice(0, firstOpen);
+    const slideBottom = hung.length ? floor16(Math.min(...hung.map(d => Math.min(d.front.y - gap / 2, d.box.y)))) : null;
+    // The case parts that carry on into the corner.
+    const grow = (name: string, key: 'length' | 'width') => { const p = parts.find(x => x.name === name); if (p) p[key] += Bw; };
+    grow('Top', 'length'); grow('Bottom', 'length'); grow('Back', 'width'); grow('Toe kick', 'length'); grow('Kick nailer', 'length');
+    const sidePart = parts.find(x => x.name === 'Side');
+    if (sidePart) {
+      sidePart.qty -= 1;
+      parts.splice(parts.indexOf(sidePart) + 1, 0, { ...sidePart, name: 'End side', qty: 1,
+        note: `At the blind end, ${f(Bw)} past the opening; no slides${drawers.some(d => d.column === blindCol && d.door?.shelfYs.length) ? ', shelf-pin holes for the long shelves' : ''}${baseKind === 'kick' ? '; the same toe-kick notch' : ''}` });
+      if (partOutlines.Side) partOutlines['End side'] = partOutlines.Side;
+    }
+    if (slideBottom !== null) {
+      parts.push({ name: 'Slide panel', qty: 1, length: H - T - slideBottom, width: interiorDepth - caseBanding, thickness: T,
+        note: `Where the ${side} side would be: hangs from the top, ${f(H - T - slideBottom)} deep, so ${hung.map(d => d.label.toLowerCase()).join(', ')} ${hung.length === 1 ? 'slides' : 'slide'} on it and the space below opens into the corner`, material: 'plywood' });
+    }
+    const panel = inset
+      ? { x0: W - T, x1: W + Bw - T, y0: B + T, y1: H - T, z0: 0, z1: T }
+      : { x0: W, x1: W + Bw, y0: B, y1: H, z0: -T, z1: 0 };
+    parts.push({ name: 'Blind panel', qty: 1, length: panel.y1 - panel.y0, width: panel.x1 - panel.x0, thickness: T,
+      note: inset ? 'Fits between the top and bottom, flush with the case front, from the opening to the end side' : 'Over the front of the blind side, from the opening to the end side', material: 'plywood' });
+    // Kept in the opening's frame (x 0…W); drawn shifted right by the blind width when it's on the left.
+    blind = { side, width: Bw, column: blindCol, slideBottom, panel: side === 'right' ? panel : { ...panel, x0: W - panel.x1, x1: W - panel.x0 }, totalWidth: W + Bw };
+  }
+
   // Desk: units under a laminated top. Everything above is per unit, so multiply it out.
   let desk: DeskLayoutPlan | null = null;
   let unitCount = 1;
@@ -1488,6 +1574,29 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
         }
       }
       parts.push(...built.parts);
+      // A blind corner: one cabinet copy is built as the blind corner cabinet instead.
+      const bc = cornerBlindConfig(config, run);
+      if (bc) {
+        const bp = buildDrawerPlan(bc);
+        errors.push(...bp.errors.map(e => `Corner cabinet: ${e}`));
+        if (!bp.errors.length) {
+          const plain = buildDrawerPlan({ ...bc, blind: undefined });
+          const mirrorCopy = run.sections[run.corner!.blindSection!].mirror;
+          const same = (a: ShelfPart, b: ShelfPart, name: string) => a.name === name && Math.abs(a.length - b.length) < EPS && Math.abs(a.width - b.width) < EPS && a.thickness === b.thickness;
+          for (const p of plain.parts) {
+            const name = mirrorCopy ? swap(p.name) : p.name;
+            const q = parts.find(x => same(x, p, name));
+            if (q) q.qty -= p.qty;
+          }
+          for (const p of bp.parts) {
+            const q = parts.find(x => same(x, p, p.name));
+            if (q) q.qty += p.qty;
+            else parts.push({ ...p, name: parts.some(x => x.name === p.name) ? `Corner cabinet ${p.name.charAt(0).toLowerCase()}${p.name.slice(1)}` : p.name });
+          }
+          for (let i = parts.length - 1; i >= 0; i--) if (parts[i].qty <= 0) parts.splice(i, 1);
+          if (bp.partOutlines['End side']) partOutlines['End side'] = bp.partOutlines['End side'];
+        }
+      }
     }
   }
 
@@ -1532,6 +1641,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     inserts,
     unitCount,
     desk,
+    blind,
     loads,
     banding: banding > 0 ? { thickness: banding, totalLength: bandingTotal } : null,
   };
@@ -1709,7 +1819,8 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     if (/ right slide$/.test(n)) return [spread * 0.25, 0, 0];
     return undefined;
   };
-  for (const s of solids) s.explode = explodeOf(s);
+  if (plan.blind) blindCase(solids, plan, config);
+  for (const s of solids) s.explode = explodeOf(s) ?? s.explode;
 
   supportPositions(plan, config).forEach(([x, z], i) => {
     if (config.base === 'feet') {
@@ -1747,7 +1858,46 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     const underside = config.mountHeight ?? 28;
     solids.push(box('Desk (existing)', 'back', [-6, underside, -T - 2], [W + 6, underside + 1.5, cd + 2]));
   }
-  return plan.lift ? solids.map(s => liftSolid(s, plan.lift)) : solids;
+  // A blind corner on the left: everything moves right so the blind end starts at x 0.
+  const placed = plan.blind?.side === 'left' ? solids.map(s => placeSolid(s, plan.blind!.width, null)) : solids;
+  return plan.lift ? placed.map(s => liftSolid(s, plan.lift)) : placed;
+}
+
+/**
+ * Turns the case into a blind corner cabinet, in place: the side on the blind side
+ * becomes a short slide panel, the top, bottom, back, toe kick and the long door
+ * shelves carry on to an end side, and a blind panel closes the front.
+ */
+function blindCase(solids: Solid[], plan: DrawerPlan, config: DrawerConfig): void {
+  const bl = plan.blind!;
+  const T = config.thickness;
+  const H = plan.overallHeight;
+  const right = bl.side === 'right';
+  const dx = right ? bl.width : -bl.width;
+  const spread = Math.max(bl.totalWidth, H) / 6;
+  const sideName = right ? 'Right side' : 'Left side';
+  const at = solids.findIndex(x => x.name === sideName);
+  if (at < 0) return;
+  const side = solids[at];
+  const [sx0, sx1] = side.shape === 'box' ? [side.min[0], side.max[0]] : side.shape === 'prism' ? [side.x0, side.x1] : [0, T];
+  const grow = (x: Solid) => {
+    if (x.shape !== 'box') return;
+    if (right) x.max = [x.max[0] + bl.width, x.max[1], x.max[2]];
+    else x.min = [x.min[0] - bl.width, x.min[1], x.min[2]];
+  };
+  const shelfOf = new Set(plan.drawers.filter(d => d.column === bl.column && d.door).map(d => d.label));
+  for (const x of solids) {
+    if (['Top', 'Bottom', 'Back', 'Toe kick', 'Kick nailer'].includes(x.name)) grow(x);
+    const m = / shelf \d+$/.exec(x.name);
+    if (m && x.kind === 'adjustable' && shelfOf.has(x.name.slice(0, m.index))) grow(x);
+  }
+  const end = placeSolid(side, dx, null);
+  solids.splice(at, 1, { ...end, name: 'End side', explode: [right ? spread : -spread, 0, 0] });
+  if (bl.slideBottom !== null) {
+    solids.push({ name: 'Slide panel', kind: 'case', shape: 'box', min: [sx0, bl.slideBottom, 0], max: [sx1, H - T, plan.interiorDepth], explode: [right ? spread / 2 : -spread / 2, 0, 0] });
+  }
+  const p = bl.panel;
+  solids.push({ name: 'Blind panel', kind: 'case', shape: 'box', min: [p.x0, p.y0, p.z0], max: [p.x1, p.y1, p.z1], explode: [0, 0, -spread] });
 }
 
 /**
@@ -1931,6 +2081,13 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
   return out;
 }
 
+/** The cabinet a blind run corner is built as: this design on its own, its blind side filling the corner bay. */
+export function cornerBlindConfig(config: DrawerConfig, run: RunPlan): DrawerConfig | null {
+  const cn = run.corner;
+  if (!cn || cn.style !== 'blind' || cn.blindSection === null) return null;
+  return { ...config, run: undefined, bookcase: undefined, desk: undefined, blind: { side: cn.side, width: cn.bay.x1 - cn.bay.x0 } };
+}
+
 /** A solid moved right by dx, mirrored about the unit's centre first when asked. */
 function placeSolid(s: Solid, dx: number, mirrorWidth: number | null): Solid {
   const fx = (x: number) => (mirrorWidth === null ? x : mirrorWidth - x) + dx;
@@ -1966,7 +2123,18 @@ export function runSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
   const box = (name: string, kind: SolidKind, min: [number, number, number], max: [number, number, number], explode?: [number, number, number]): Solid =>
     ({ name, kind, shape: 'box', min, max, explode });
   const spread = Math.max(run.width, run.totalHeight) / 14;
-  for (const sec of run.sections) {
+  // A blind corner: that cabinet is the blind corner cabinet (its upper is the run's usual one).
+  const bc = cornerBlindConfig(config, run);
+  const bp = bc ? buildDrawerPlan(bc) : null;
+  run.sections.forEach((sec, si) => {
+    if (sec.kind !== 'cabinet' || !bp || bp.errors.length || si !== run.corner!.blindSection) return;
+    const prefix = `Cabinet ${sec.number} · `;
+    const at = run.corner!.side === 'left' ? sec.x - bp.blind!.width : sec.x;
+    for (const s of drawerSolids(bp, bc!)) out.push({ ...placeSolid(s, at, null), name: prefix + s.name, ...(s.group ? { group: prefix + s.group } : {}) });
+    for (const s of unit) if (s.name.startsWith('Bookcase ')) out.push({ ...placeSolid(s, sec.x, null), name: prefix + s.name });
+  });
+  for (const [si, sec] of run.sections.entries()) {
+    if (bp && !bp.errors.length && si === run.corner?.blindSection) continue;
     if (sec.kind === 'cabinet') {
       const prefix = `Cabinet ${sec.number} · `;
       for (const s of unit) {
@@ -2071,11 +2239,13 @@ function returnSolids(plan: DrawerPlan, config: DrawerConfig, unit: Solid[], spr
     turn({ name, kind, shape: 'box', min: [right ? u0 : U - u1, y0, z0], max: [right ? u1 : U - u0, y1, z1], explode }, name);
   const out: Solid[] = [];
 
-  // The corner bay: a ledger on each wall under the countertop.
-  const bay = cn.bay;
-  out.push({ name: 'Corner ledger, back', kind: 'cleat', shape: 'box', min: [bay.x0, H - 3, cd - T], max: [bay.x1, H, cd] });
-  const sx: [number, number] = right ? [run.width - T, run.width] : [0, T];
-  out.push({ name: 'Corner ledger, side', kind: 'cleat', shape: 'box', min: [sx[0], H - 3, 1], max: [sx[1], H, cd - T] });
+  // An open corner bay: a ledger on each wall under the countertop (a blind corner's cabinet carries it instead).
+  if (cn.style === 'open') {
+    const bay = cn.bay;
+    out.push({ name: 'Corner ledger, back', kind: 'cleat', shape: 'box', min: [bay.x0, H - 3, cd - T], max: [bay.x1, H, cd] });
+    const sx: [number, number] = right ? [run.width - T, run.width] : [0, T];
+    out.push({ name: 'Corner ledger, side', kind: 'cleat', shape: 'box', min: [sx[0], H - 3, 1], max: [sx[1], H, cd - T] });
+  }
 
   for (const sec of cn.sections) {
     if (sec.kind === 'cabinet') {
@@ -2214,6 +2384,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       insertThickness: num(c.insertThickness, 0.05, 1) ?? 1 / 4,
       gridfinityBed: num(c.gridfinityBed, 100, 1000) ?? 256,
       desk: readDesk(c.desk),
+      blind: readBlind(c.blind),
       columns,
       mount: c.mount === 'wall' || c.mount === 'under-desk' ? c.mount : 'floor',
       mountHeight: num(c.mountHeight, 0, 120) ?? undefined,
@@ -2340,6 +2511,13 @@ function readInsert(raw: unknown): DrawerInsert | null {
   return null;
 }
 
+function readBlind(raw: unknown): BlindConfig | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  if (typeof v.width !== 'number' || !Number.isFinite(v.width) || v.width <= 0 || v.width > 120) return undefined;
+  return { side: v.side === 'left' ? 'left' : 'right', width: v.width };
+}
+
 function readDesk(raw: unknown): DeskConfig | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const v = raw as Record<string, unknown>;
@@ -2421,6 +2599,10 @@ export interface DrawerDesignFields {
   markerLength: string;
   markerSpacing: string;
   desk: boolean;
+  /** A blind corner cabinet: which side runs on into the corner, and how far. */
+  blind: boolean;
+  blindSide: 'left' | 'right';
+  blindWidth: string;
   deskLayout: DeskLayout;
   deskWidth: string;
   deskHeight: string;
@@ -2530,6 +2712,9 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     markerLength: marker ? L(marker.length) : lengthToField(parseFloat(EXTRA_FIELD_DEFAULTS.markerLength), units),
     markerSpacing: marker ? L(marker.spacing) : L(1 / 8),
     desk: c.desk?.enabled === true,
+    blind: !!c.blind,
+    blindSide: c.blind?.side ?? 'right',
+    blindWidth: L(c.blind?.width ?? DEFAULT_BLIND_WIDTH),
     deskLayout: c.desk?.layout ?? EXTRA_FIELD_DEFAULTS.deskLayout,
     deskWidth: L(c.desk?.width ?? 60),
     deskHeight: L(c.desk?.height ?? 29),

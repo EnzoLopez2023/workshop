@@ -40,9 +40,11 @@ export interface RunCorner {
   wallLength: number;
   sections: RunSection[];
   end: 'wall' | 'open';
+  /** The corner square: an open bay under the countertop, or the blind side of the cabinet next to it. */
+  style?: 'open' | 'blind';
 }
 
-export const DEFAULT_CORNER: RunCorner = { side: 'right', wallLength: 60, sections: [{ kind: 'cabinet' }], end: 'open' };
+export const DEFAULT_CORNER: RunCorner = { side: 'right', wallLength: 60, sections: [{ kind: 'cabinet' }], end: 'open', style: 'open' };
 /** Filler where the return meets the main run, so pulls on both legs clear. */
 export const CORNER_FILLER = 3;
 
@@ -96,6 +98,9 @@ export interface RunPlan {
  */
 export interface RunCornerPlan {
   side: 'left' | 'right';
+  style: 'open' | 'blind';
+  /** With a blind corner: the main-run section (index) built as the blind cabinet, its blind side filling the bay. */
+  blindSection: number | null;
   /** The corner square in the main run (its x span), open under the countertop. */
   bay: { x0: number; x1: number };
   /** Where the return's first section starts, and where it ends. */
@@ -274,7 +279,7 @@ export function buildRun(run: RunConfig, ctx: RunContext): { plan: RunPlan; part
   let cornerPlan: RunCornerPlan | null = null;
   let returnCabinets = 0;
   if (corner) {
-    const built = buildReturn(corner, { ...ctx, f, mainWidth: width, bayWidth, countertop, overhang: c.overhangSides, upperBk: upperBk && bkc ? { bkc, plan: upperBk } : null, uppers });
+    const built = buildReturn(corner, { ...ctx, f, mainWidth: width, bayWidth, countertop, overhang: c.overhangSides, mainSections: plans, upperBk: upperBk && bkc ? { bkc, plan: upperBk } : null, uppers });
     cornerPlan = built.plan;
     returnCabinets = built.cabinets;
     errors.push(...built.errors);
@@ -291,6 +296,7 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
   bayWidth: number;
   countertop: RunPlan['countertop'];
   overhang: number;
+  mainSections: RunSectionPlan[];
   upperBk: { bkc: BookcaseConfig; plan: BookcasePlan } | null;
   uppers: RunPlan['uppers'];
 }): { plan: RunCornerPlan; parts: ShelfPart[]; errors: string[]; warnings: string[]; cabinets: number } {
@@ -350,8 +356,17 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
     parts.push({ name: 'Return countertop (butcher block)', qty: pieces, length: ctLength / pieces, width: ctDepth, thickness: ct.y1 - ct.y0,
       note: 'Butts the main slab at the corner with countertop bolts', material: 'solid' });
   }
-  // The corner bay: ledgers on both walls carry the countertop over it.
-  parts.push({ name: 'Corner ledger', qty: 2, length: ctx.bayWidth, width: 3, thickness: T, note: 'Screwed into the studs of each wall at countertop height, under the corner', material: 'plywood' });
+  // The corner square: ledgers on both walls carry the countertop over an open bay; a blind
+  // corner fills it with the blind side of the main run's cabinet next to it instead.
+  const style = corner.style ?? 'open';
+  let blindSection: number | null = null;
+  if (style === 'blind') {
+    const i = corner.side === 'right' ? ctx.mainSections.length - 1 : 0;
+    if (ctx.mainSections[i]?.kind !== 'cabinet') errors.push(`A blind corner is the cabinet next to the corner running on into it — make the ${corner.side === 'right' ? 'last' : 'first'} section of the main run a cabinet.`);
+    else blindSection = i;
+  } else {
+    parts.push({ name: 'Corner ledger', qty: 2, length: ctx.bayWidth, width: 3, thickness: T, note: 'Screwed into the studs of each wall at countertop height, under the corner', material: 'plywood' });
+  }
   parts.push({ name: 'Corner filler', qty: 1, length: ctx.H, width: CORNER_FILLER + SCRIBE_ALLOWANCE, thickness: T, note: 'Between the main run’s fronts and the return’s first section, so pulls on both legs clear', material: 'plywood' });
   const desks = plans.filter(p => p.kind === 'desk');
   if (desks.length) {
@@ -359,8 +374,8 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
     parts.push({ name: 'Return desk side cleat', qty: desks.length * 2, length: cd - 2, width: 3, thickness: T, note: 'Screwed to the cabinet sides facing the desk gap, flush with their tops', material: 'plywood' });
   }
   if (filler) parts.push({ name: 'Return filler', qty: 1, length: ctx.H, width: filler.width + SCRIBE_ALLOWANCE, thickness: T, note: `Cut ${f(SCRIBE_ALLOWANCE)} wide and scribed to the wall`, material: 'plywood' });
-  if (sections[0]?.kind !== 'desk') {
-    warnings.push('The corner square behind the return is a blind corner: you reach it only by leaning in past the first return section. Start the return with a desk gap to make it knee space instead.');
+  if (style === 'open' && sections[0]?.kind !== 'desk') {
+    warnings.push('The corner square behind the return is dead space: you reach it only by leaning in past the first return section. Make it a blind corner cabinet, or start the return with a desk gap for knee space.');
   }
 
   // Trim over the return's uppers (each return cabinet carries its own bookcase).
@@ -387,6 +402,8 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
   return {
     plan: {
       side: corner.side,
+      style,
+      blindSection,
       bay: corner.side === 'right' ? { x0: ctx.mainWidth - ctx.bayWidth, x1: ctx.mainWidth } : { x0: 0, x1: ctx.bayWidth },
       start, end, sections: plans, filler,
       cornerFiller: { x: mainFront, width: CORNER_FILLER },
@@ -443,6 +460,7 @@ function readCorner(raw: unknown): RunCorner | undefined {
     wallLength: typeof v.wallLength === 'number' && v.wallLength > 0 && v.wallLength < 1200 ? v.wallLength : DEFAULT_CORNER.wallLength,
     sections: sections.length ? sections : DEFAULT_CORNER.sections,
     end: v.end === 'wall' ? 'wall' : 'open',
+    style: v.style === 'blind' ? 'blind' : 'open',
   };
 }
 
@@ -461,6 +479,7 @@ export interface RunFields {
     wallLength: string;
     sections: { kind: 'cabinet' | 'desk'; width: string; mirror: boolean }[];
     end: 'wall' | 'open';
+    style?: 'open' | 'blind';
   };
 }
 
@@ -479,6 +498,7 @@ export function runToFields(run: RunConfig | undefined, L: (inches: number) => s
       wallLength: L((r.corner ?? DEFAULT_CORNER).wallLength),
       sections: (r.corner ?? DEFAULT_CORNER).sections.map(s => ({ kind: s.kind, width: L(s.width ?? 30), mirror: s.mirror === true })),
       end: (r.corner ?? DEFAULT_CORNER).end,
+      style: (r.corner ?? DEFAULT_CORNER).style ?? 'open',
     },
   };
 }
@@ -498,6 +518,7 @@ export function runFromFields(fields: RunFields | undefined, num: (raw: string, 
         wallLength: fields.corner.end === 'wall' ? num(fields.corner.wallLength, 'run.corner.wallLength') : 0,
         sections: fields.corner.sections.map((s, i): RunSection => (s.kind === 'desk' ? { kind: 'desk', width: num(s.width, `run.corner.sections.${i}`) } : { kind: 'cabinet', mirror: s.mirror })),
         end: fields.corner.end,
+        style: fields.corner.style ?? 'open',
       },
     } : {}),
   };

@@ -70,7 +70,8 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const partitionNames = names(name => name.startsWith('Partition'));
   // An integrated toe kick's board and nailer go in with the case.
   const kickNames = names(name => name === 'Toe kick' || name === 'Kick nailer');
-  const caseNames = ['Left side', 'Right side', 'Top', 'Bottom', ...partitionNames, ...kickNames];
+  const blindNames = plan.blind ? ['End side', ...(plan.blind.slideBottom !== null ? ['Slide panel'] : [])] : [];
+  const caseNames = [...['Left side', 'Right side'].filter(n => !plan.blind || n !== (plan.blind.side === 'right' ? 'Right side' : 'Left side')), 'Top', 'Bottom', ...blindNames, ...partitionNames, ...kickNames];
   const plinthNames = names(name => name.startsWith('Plinth'));
   const baseboardNames = names(name => name.startsWith('Baseboard'));
   const back = ['Back'];
@@ -282,6 +283,10 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         ? `Lay a side inside face up; stand the top on it at the top end and the bottom ${f(plan.baseHeight)} up from the bottom end (just above the notch), both flush at the front and set back from the rabbet.`
         : 'Lay a side inside face up; stand the top and bottom on it, flush at the front and set back from the rabbet.',
       'Glue, then drive four screws through the side into each panel. Repeat with the other side.',
+      ...(plan.blind ? [
+        `This is a blind corner cabinet: the top, bottom and toe kick run ${f(plan.blind.width)} past the opening on the ${plan.blind.side}, and the end side closes that end — there’s no side between the opening and the blind space.`,
+        ...(plan.blind.slideBottom !== null ? [`Hang the slide panel where the ${plan.blind.side} side of the opening would be: screw down through the top into its top edge, square to the front, and fix its back edge to a cleat on the back once the back is on. It stops ${f(plan.blind.slideBottom - plan.sideBottom)} above the side’s bottom edge, so the door opening below runs straight into the corner.`] : []),
+      ] : []),
       ...(cubbies.some(d => d.shelfY !== null) ? [
         `Fix the cubby shelves: ${cubbies.filter(d => d.shelfY !== null).map(d => `${d.label.toLowerCase()}’s, its top ${f(d.shelfY! + T - plan.sideBottom)} up from the bottom edge of the side`).join('; ')}. Glue and screw through the sides into their ends.`,
       ] : []),
@@ -293,7 +298,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       ] : []),
       'Measure both diagonals across the front; they must match before the glue sets.',
     ],
-    parts: sized(partsWhere(['Side', 'Top', 'Bottom', 'Partition', 'Toe kick', 'Kick nailer'])),
+    parts: sized(partsWhere(['Side', 'End side', 'Slide panel', 'Top', 'Bottom', 'Partition', 'Toe kick', 'Kick nailer'])),
     tips: [
       'Clamp a clamping square (shop jigs) inside each corner to hold it at 90° while you screw.',
       ...(plan.partitionXs.length ? ['Stand the partition spacers between the side and each partition so every opening is its exact width.'] : []),
@@ -316,6 +321,25 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     cautions: [],
     scene: { view: 'back', visible: caseNames, highlight: back },
   });
+
+  // 8a ── Blind panel, once the back has squared the case
+  if (plan.blind) {
+    steps.push({
+      id: 'blind-panel',
+      title: 'Close the blind side',
+      summary: `A ${f(plan.blind.panel.x1 - plan.blind.panel.x0)} blind panel across the front of the corner side.`,
+      instructions: [
+        plan.blind.panel.z0 >= 0
+          ? 'Fit the blind panel between the top and bottom, flush with the case front, from the opening to the end side; glue and screw through the top, bottom and end side into it.'
+          : 'Glue and screw the blind panel over the front of the blind side, from the opening to the end side, flush at the top and bottom.',
+        `In place, butt the next cabinet against the blind panel with a filler of about ${f(3)} at the opening, so this cabinet’s door and drawers clear that cabinet’s pulls.`,
+      ],
+      parts: sized(partsWhere(['Blind panel'])),
+      tips: ['The blind panel is hidden behind the next cabinet — use an offcut, but keep its front edge flush so the filler sits tight.'],
+      cautions: [],
+      scene: { view: 'front', visible: [...caseNames, ...back], highlight: ['Blind panel'] },
+    });
+  }
 
   // 8b ── Plinth: built, levelled in place, and the case set on it
   if (plan.base && plan.base.kind !== 'kick') {
@@ -894,7 +918,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         title: 'Turn the corner',
         summary: `A return along the ${cn.side} wall: ${rcab} cabinet${rcab === 1 ? '' : 's'}${cn.sections.some(x => x.kind === 'desk') ? ' and knee space' : ''}, ${f(cn.end - cn.start)} past a ${f(cn.cornerFiller.width)} corner filler.`,
         instructions: [
-          `Screw a ledger into the studs of each wall in the corner square, tops on the ${f(plan.overallHeight)} line — they carry the countertop where there’s no cabinet.`,
+          cn.style === 'blind'
+            ? `Cabinet ${run.sections[cn.blindSection!].number} is the blind corner cabinet: its top, bottom, back and toe kick run on ${f(cn.bay.x1 - cn.bay.x0)} into the corner to an end side, with a slide panel instead of a side next to the corner and a blind panel across the front. Set it in the corner first, tight to both walls.`
+            : `Screw a ledger into the studs of each wall in the corner square, tops on the ${f(plan.overallHeight)} line — they carry the countertop where there’s no cabinet.`,
           `Measure along the ${cn.side} wall from the back wall and mark the return: ${rplace}.`,
           'Set the return cabinets like the others, level with the main run, backs screwed to the studs.',
           `Fit the ${f(cn.cornerFiller.width)} corner filler between the main run’s fronts and the first return section, flush with the return’s faces, so drawers and doors on both legs clear each other’s pulls.`,

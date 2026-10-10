@@ -13,6 +13,11 @@ const END_OPTIONS = [
   { value: 'open', label: 'Open' },
 ] as const;
 
+const CORNER_STYLE_OPTIONS = [
+  { value: 'blind', label: 'Blind cabinet' },
+  { value: 'open', label: 'Open bay' },
+] as const;
+
 const CORNER_SIDE_OPTIONS = [
   { value: 'left', label: 'Left end' },
   { value: 'right', label: 'Right end' },
@@ -114,6 +119,10 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
             <div className="drawer-run-corner">
               <SegmentedControl label="Corner at the" value={corner.side} options={CORNER_SIDE_OPTIONS} onChange={side => setCorner({ side })} />
               <SegmentedControl label="Return ends at" value={corner.end} options={END_OPTIONS} onChange={end => setCorner({ end })} />
+              <SegmentedControl label="Corner square" value={corner.style ?? 'open'} options={CORNER_STYLE_OPTIONS} onChange={style => setCorner({ style })} />
+              <small>{(corner.style ?? 'open') === 'blind'
+                ? `The main run’s ${corner.side === 'right' ? 'last' : 'first'} cabinet becomes a blind corner cabinet: its case runs on into the corner, so the door beside it reaches the corner space.`
+                : 'An open square under the countertop: knee space when a desk gap meets it, otherwise dead space you lean in to reach.'}</small>
               {corner.end === 'wall' && (
                 <LengthField unit={units} label="Side wall length" value={corner.wallLength} error={errors['corner.wallLength']}
                   hint={cornerPlan?.filler ? `From the back wall to the far wall. End filler ${fmt(cornerPlan.filler.width)}.` : 'From the back wall to the wall the return stops at.'}
