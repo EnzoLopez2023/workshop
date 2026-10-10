@@ -183,6 +183,21 @@ export function footprint(box: CabinetBox, rotation: Rotation): { w: number; d: 
 
 export interface Rect { x0: number; y0: number; x1: number; y1: number }
 
+/**
+ * The plan rectangles a cabinet really covers: its box, or for an L-shaped design each
+ * of its pieces, turned and placed like the box.
+ */
+export function placedRects(p: Placement, box: CabinetBox, pieces?: LayoutItem['pieces']): Rect[] {
+  if (!pieces?.length) return [placedRect(p, box)];
+  return pieces.map(r => {
+    const [ax, ay] = modelToPlan(p, box, r.x0, r.z0);
+    const [bx, by] = modelToPlan(p, box, r.x1, r.z1);
+    return { x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by) };
+  });
+}
+
+const anyOverlap = (as: Rect[], bs: Rect[], tolerance?: number) => as.some(a => bs.some(b => rectsOverlap(a, b, tolerance)));
+
 export function placedRect(p: Placement, box: CabinetBox): Rect {
   const { w, d } = footprint(box, p.rotation);
   return { x0: p.x - w / 2, y0: p.y - d / 2, x1: p.x + w / 2, y1: p.y + d / 2 };
@@ -403,6 +418,8 @@ export interface LayoutItem {
   label: string;
   placement: Placement;
   box: CabinetBox;
+  /** An L-shaped (corner) design's footprint as rectangles in model x and z; otherwise its box is used. */
+  pieces?: { x0: number; x1: number; z0: number; z1: number }[] | null;
   /** Hangs on a French cleat, so it needs a wall behind it. */
   wallHung: boolean;
 }
@@ -424,7 +441,7 @@ export function openingZone(room: Room, o: RoomOpening, reach: number): Rect {
 /** Clashes and blocked doors or windows, in plain words. */
 export function layoutIssues(room: Room, items: LayoutItem[], f: (inches: number) => string = String): LayoutIssue[] {
   const issues: LayoutIssue[] = [];
-  const placed = items.map(item => ({ ...item, rect: placedRect(item.placement, item.box) }));
+  const placed = items.map(item => ({ ...item, rect: placedRect(item.placement, item.box), rects: placedRects(item.placement, item.box, item.pieces) }));
   for (let i = 0; i < placed.length; i++) {
     const a = placed[i];
     if (a.rect.x0 < -EPS || a.rect.y0 < -EPS || a.rect.x1 > room.width + EPS || a.rect.y1 > room.depth + EPS) {
@@ -435,7 +452,7 @@ export function layoutIssues(room: Room, items: LayoutItem[], f: (inches: number
     }
     for (let j = i + 1; j < placed.length; j++) {
       const b = placed[j];
-      if (rectsOverlap(a.rect, b.rect) && spansOverlap(a.box.minY, a.box.maxY, b.box.minY, b.box.maxY, -0.05)) {
+      if (anyOverlap(a.rects, b.rects) && spansOverlap(a.box.minY, a.box.maxY, b.box.minY, b.box.maxY, -0.05)) {
         issues.push({ ids: [a.id, b.id], message: `${a.label} and ${b.label} overlap.` });
       }
     }
@@ -452,7 +469,7 @@ export function layoutIssues(room: Room, items: LayoutItem[], f: (inches: number
     if (o.kind === 'window') {
       const zone = openingZone(room, o, 1);
       for (const a of placed) {
-        if (rectsOverlap(a.rect, zone) && a.box.maxY > o.sill + 0.5 && a.box.minY < o.sill + o.height) {
+        if (anyOverlap(a.rects, [zone]) && a.box.maxY > o.sill + 0.5 && a.box.minY < o.sill + o.height) {
           issues.push({ ids: [a.id], message: `${a.label} covers part of the window on ${where}.` });
         }
       }
@@ -461,7 +478,7 @@ export function layoutIssues(room: Room, items: LayoutItem[], f: (inches: number
       const zone = openingZone(room, o, reach);
       const noun = o.kind === 'door' ? 'door' : o.kind === 'closet' ? 'closet' : 'doorway';
       for (const a of placed) {
-        if (rectsOverlap(a.rect, zone) && a.box.minY < o.height) {
+        if (anyOverlap(a.rects, [zone]) && a.box.minY < o.height) {
           issues.push({ ids: [a.id], message: `${a.label} blocks the ${noun} on ${where}.` });
         }
       }

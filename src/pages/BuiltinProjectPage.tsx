@@ -12,11 +12,11 @@ import {
   updateBuiltinCabinet, updateBuiltinProject,
 } from '../services/api';
 import { isDemoMode } from '../demo/demoMode';
-import { buildDrawerPlan, deskSolids, drawerSolids, finishColors, readSavedDrawerDesign, runFootprint, runSolids } from '../lib/drawerUnit';
+import { buildDrawerPlan, deskSolids, drawerSolids, finishColors, readSavedDrawerDesign, runFootprint, runFootprintRects, runSolids } from '../lib/drawerUnit';
 import { drawerThumbnailDataUrl } from '../lib/drawerTemplates';
 import { formatLength, type LengthUnit, type Solid, type SolidKind } from '../lib/shelving';
 import {
-  autoPlace, cabinetBox, clampPlacement, layoutIssues, nextRotation, placedRect, readRoom, snapPlacement,
+  autoPlace, cabinetBox, clampPlacement, layoutIssues, nextRotation, placedRect, placedRects, readRoom, snapPlacement,
   OPENING_LABELS, WALL_LABELS, type CabinetBox, type Placement, type Room,
 } from '../lib/builtinRoom';
 import type { BuiltinProject, BuiltinProjectCabinet, LibraryDrawerDesign } from '../types/project';
@@ -37,6 +37,8 @@ interface CabinetModel {
   box: CabinetBox;
   /** An L-shaped (corner) design's outline from above, model x and z. */
   outline: [number, number][] | null;
+  /** The same L as rectangles, for overlap checks. */
+  pieces: { x0: number; x1: number; z0: number; z1: number }[] | null;
   thumb: string;
   summary: string;
   wallHung: boolean;
@@ -58,6 +60,7 @@ function buildModel(raw: unknown): CabinetModel | null {
     solids,
     box,
     outline: runFootprint(plan),
+    pieces: runFootprintRects(plan),
     thumb: drawerThumbnailDataUrl(plan, saved.config.pull, 96, saved.config.finish?.front),
     summary: `${f(width)} W × ${f(box.maxZ - box.minZ)} D × ${f(plan.totalHeight)} H${plan.mount === 'wall' ? ` · hung ${f(plan.lift)} up` : ''}`,
     wallHung: plan.mount === 'wall',
@@ -171,7 +174,7 @@ export default function BuiltinProjectPage() {
   const planCabinets: PlanCabinet[] = useMemo(() => (project?.cabinets ?? []).flatMap(c => {
     const model = models.get(c.design_id);
     const placement = placements.get(c.id);
-    return model && placement ? [{ id: c.id, label: labelFor.get(c.id) ?? c.design.name, placement, box: model.box, wallHung: model.wallHung, outline: model.outline }] : [];
+    return model && placement ? [{ id: c.id, label: labelFor.get(c.id) ?? c.design.name, placement, box: model.box, wallHung: model.wallHung, outline: model.outline, pieces: model.pieces }] : [];
   }), [project?.cabinets, models, placements, labelFor]);
 
   const issues = useMemo(() => (room ? layoutIssues(room, planCabinets, fmt) : []), [room, planCabinets, fmt]);
@@ -204,7 +207,7 @@ export default function BuiltinProjectPage() {
   const placeAuto = (cabinet: BuiltinProjectCabinet) => {
     const model = models.get(cabinet.design_id);
     if (!room || !model) return;
-    const others = othersFor(cabinet.id).map(o => ({ rect: placedRect(o.placement, o.box), bottom: o.box.minY, top: o.box.maxY }));
+    const others = othersFor(cabinet.id).flatMap(o => placedRects(o.placement, o.box, o.pieces).map(rect => ({ rect, bottom: o.box.minY, top: o.box.maxY })));
     setPlacement(cabinet.id, autoPlace(room, model.box, others));
     setSelected(cabinet.id);
   };
@@ -212,7 +215,7 @@ export default function BuiltinProjectPage() {
     const cabinet = project.cabinets.find(c => c.id === cabinetId);
     const model = cabinet && models.get(cabinet.design_id);
     if (!room || !model) return;
-    const snapped = snapPlacement({ room, box: model.box, x, y, rotation: placements.get(cabinetId)?.rotation ?? 0, others: others.map(o => ({ rect: placedRect(o.placement, o.box), bottom: o.box.minY, top: o.box.maxY })) });
+    const snapped = snapPlacement({ room, box: model.box, x, y, rotation: placements.get(cabinetId)?.rotation ?? 0, others: others.flatMap(o => placedRects(o.placement, o.box, o.pieces).map(rect => ({ rect, bottom: o.box.minY, top: o.box.maxY }))) });
     setPlacement(cabinetId, { x: snapped.x, y: snapped.y, rotation: snapped.rotation });
     setSelected(cabinetId);
   };

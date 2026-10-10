@@ -1,7 +1,7 @@
 // Hardware list and cost estimate for the Drawer Builder. Quantities come from
 // the plan; prices are rough placeholders the user overrides with what they pay.
 
-import { boxedDrawers, pullHoles, shakerRail, SLIDE_CAPACITY_LB, type DrawerConfig, type DrawerPlan } from './drawerUnit.ts';
+import { boxedDrawers, doorView, pullHoles, shakerRail, SLIDE_CAPACITY_LB, type DrawerConfig, type DrawerPlan, type PullHardware } from './drawerUnit.ts';
 import { hardwareList, quantityLabel, type HardwareItem, type PriceKey } from './shelfEstimate.ts';
 import { formatLength, type LengthUnit } from './shelving.ts';
 
@@ -10,7 +10,7 @@ export type DrawerPriceKey =
   | 'glue' | 'caseScrews' | 'frontScrews' | 'brads' | 'antiTip' | 'edgeBanding' | 'finish'
   | 'shims' | 'baseboardFt'
   | 'deskLeg'
-  | 'shelfPin' | 'hinge' | 'doorPull' | 'bumper' | 'crownFt' | 'butcherBlock' | 'figure8' | 'ledStrip' | 'grommet';
+  | 'shelfPin' | 'hinge' | 'doorPull' | 'bumper' | 'crownFt' | 'butcherBlock' | 'figure8' | 'ledStrip' | 'grommet' | 'pegboard';
 
 export type DrawerPrices = Record<DrawerPriceKey, number>;
 
@@ -102,19 +102,35 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
       priceKey: 'hinge', url: amazonSearch(`35mm concealed cabinet hinge soft close ${type}`),
     });
   }
-  // Store-bought pulls: one per front (two on wide drawers), one per door leaf.
-  const hw = config.hardware;
-  if (hw && hw.kind !== 'none') {
-    const rail = (w: number, h: number) => shakerRail(config.frontProfile, w, h);
-    // The bookcase's doors take the same pulls (one bookcase per cabinet in a wall run).
-    const bookDoors = (plan.bookcase?.shelfPlan.doors ?? []).reduce((a, dr) => a + pullHoles(hw, dr.width, dr.height, { hinge: 'left' }, rail(dr.width, dr.height)).pulls.length, 0);
-    const count = bookDoors * unitCount + plan.drawers.reduce((a, d) => a
-      + (d.door ? d.door.leaves.reduce((x, l) => x + pullHoles(hw, l.width, d.front.height, { hinge: l.hinge }, rail(l.width, d.front.height)).pulls.length, 0)
-        : d.open ? 0 : pullHoles(hw, d.front.width, d.front.height, null, rail(d.front.width, d.front.height)).pulls.length), 0) * unitCount;
+  // Store-bought pulls: one per front (two on wide drawers), one per door leaf. Doors may
+  // have their own (knobs on the doors, a cut-out on the drawers), so count them apart.
+  const rail = (w: number, h: number) => shakerRail(config.frontProfile, w, h);
+  const drawerHw = config.hardware && config.hardware.kind !== 'none' ? config.hardware : null;
+  const doorHwRaw = doorView(config).hardware;
+  const doorHw = doorHwRaw && doorHwRaw.kind !== 'none' ? doorHwRaw : null;
+  const pullKey = (hw: PullHardware) => `${hw.kind}|${hw.kind === 'knob' ? 0 : hw.spacing}`;
+  const counts = new Map<string, { hw: PullHardware; qty: number; drawers: boolean }>();
+  const add = (hw: PullHardware, qty: number, drawers: boolean) => {
+    if (!qty) return;
+    const g = counts.get(pullKey(hw));
+    if (g) { g.qty += qty; g.drawers ||= drawers; } else counts.set(pullKey(hw), { hw, qty, drawers });
+  };
+  if (drawerHw) {
+    add(drawerHw, plan.drawers.reduce((a, d) => a + (d.door || d.open ? 0 : pullHoles(drawerHw, d.front.width, d.front.height, null, rail(d.front.width, d.front.height)).pulls.length), 0) * unitCount, true);
+  }
+  if (doorHw) {
+    // The bookcase's doors take the doors' pulls (one bookcase per cabinet in a wall run).
+    const bookDoors = (plan.bookcase?.shelfPlan.doors ?? []).reduce((a, dr) => a + pullHoles(doorHw, dr.width, dr.height, { hinge: 'left' }, rail(dr.width, dr.height)).pulls.length, 0);
+    add(doorHw, bookDoors * unitCount + plan.drawers.reduce((a, d) => a
+      + (d.door ? d.door.leaves.reduce((x, l) => x + pullHoles(doorHw, l.width, d.front.height, { hinge: l.hinge }, rail(l.width, d.front.height)).pulls.length, 0) : 0), 0) * unitCount, false);
+  }
+  for (const { hw, qty, drawers } of counts.values()) {
     const what = hw.kind === 'knob' ? 'Cabinet knobs' : hw.kind === 'cup' ? `Cup pulls, ${f(hw.spacing)} centres` : `Bar pulls, ${f(hw.spacing)} centres`;
     items.push({
-      key: 'pulls', name: what, qty: count, unit: 'ea',
-      note: `Drawer fronts are screwed to the boxes, so the pull screws go through both: get ${f(Math.ceil((config.thickness + config.boxThickness + 0.25) * 4) / 4)} (or breakaway) screws.`,
+      key: counts.size > 1 ? `pulls-${hw.kind}-${hw.spacing}` : 'pulls', name: drawerHw && doorHw && pullKey(drawerHw) !== pullKey(doorHw) ? `${what} (${drawers ? 'drawers' : 'doors'})` : what, qty, unit: 'ea',
+      note: drawers
+        ? `Drawer fronts are screwed to the boxes, so the pull screws go through both: get ${f(Math.ceil((config.thickness + config.boxThickness + 0.25) * 4) / 4)} (or breakaway) screws.`
+        : 'For the doors; the standard screws that come with them go through a door.',
       priceKey: 'doorPull', url: amazonSearch(hw.kind === 'knob' ? 'cabinet knobs' : hw.kind === 'cup' ? `cup pulls ${hw.spacing} inch` : `cabinet bar pulls ${hw.spacing} inch center`),
     });
   }
@@ -183,7 +199,7 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   if (bk) {
     // Its door pulls are counted with the cabinet's when store-bought pulls are chosen.
     const keep: Partial<Record<PriceKey, DrawerPriceKey>> = { caseScrews: 'caseScrews', brads: 'brads', shelfPin: 'shelfPin', hinge: 'hinge', bumper: 'bumper', pocketScrews: 'caseScrews',
-      ...(config.hardware && config.hardware.kind !== 'none' ? {} : { pull: 'doorPull' as const }) };
+      ...(doorView(config).hardware && doorView(config).hardware!.kind !== 'none' ? {} : { pull: 'doorPull' as const }) };
     // In a wall run there's one bookcase per cabinet, plus any over the desk gaps.
     const uppers = [{ plan: bk, count: plan.run ? plan.run.cabinetCount : 1 }, ...(plan.run?.sections.filter(x => x.upper).map(x => ({ plan: x.upper!, count: 1 })) ?? [])];
     const merged = new Map<string, DrawerHardwareItem>();
@@ -219,6 +235,15 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
       const c = bk.countertop;
       items.push({ key: 'butcher-block', name: `Butcher-block countertop, ${f(c.x1 - c.x0)} × ${f(c.z1 - c.z0)}`, qty: 1, unit: 'ea', note: 'Buy it at least this size and cut it down; seal both faces.', priceKey: 'butcherBlock', url: amazonSearch('butcher block countertop') });
       items.push({ key: 'figure8', name: 'Figure-8 tabletop fasteners', qty: 8, unit: 'ea', note: 'Let a solid-wood top move with the seasons.', priceKey: 'figure8' });
+    }
+    if (bk.config.shelfLights) {
+      const shelves = bk.config.bays * (bk.config.shelvesPerBay + bk.config.adjustablePerBay) + 1;
+      const count = plan.run ? plan.run.cabinetCount : 1;
+      const feet = Math.ceil(shelves * bk.shelfConfig.bayWidth * count / 12);
+      items.push({ key: 'shelf-led', name: `LED strip for the shelves, about ${feet} ft`, qty: 1, unit: 'kit', note: 'One strip per shelf, under its light rail, with a plug-in driver.', priceKey: 'ledStrip', url: amazonSearch('LED strip light kit plug in cabinet') });
+    }
+    if (bk.config.pegboard && bk.config.openBelow > 0) {
+      items.push({ key: 'pegboard', name: `Pegboard, about ${f(bk.shelfConfig.bayWidth * bk.config.bays)} × ${f(bk.config.openBelow - 1)}`, qty: plan.run ? plan.run.cabinetCount : 1, unit: 'ea', note: 'IKEA SKÅDIS boards or hardboard pegboard, cut to fit the open space.', priceKey: 'pegboard', url: amazonSearch('pegboard panel') });
     }
     if (bk.config.taskLight) {
       items.push({ key: 'led', name: `LED strip light kit, ${f(Math.ceil((plan.run ? plan.run.width : plan.overallWidth) / 12) * 12)}`, qty: 1, unit: 'kit', note: 'Under-cabinet strip with a plug-in driver; it sits behind the valance.', priceKey: 'ledStrip', url: amazonSearch('under cabinet LED strip light kit plug in') });
@@ -280,6 +305,7 @@ export function defaultDrawerPrices(): DrawerPrices {
     butcherBlock: 150,
     figure8: 0.5,
     ledStrip: 25,
+    pegboard: 20,
     grommet: 6,
   };
 }
@@ -309,6 +335,7 @@ export const DRAWER_PRICE_LABELS: Record<DrawerPriceKey, string> = {
   butcherBlock: 'Butcher-block top, each',
   figure8: 'Figure-8 fastener, each',
   ledStrip: 'LED strip kit, each',
+  pegboard: 'Pegboard panel, each',
   grommet: 'Desk grommet, each',
 };
 

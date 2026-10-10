@@ -13,6 +13,7 @@ import {
   boxedDrawers,
   boxNotchSpec,
   doorNotch,
+  doorView,
   frontNotch,
   HINGE_PLATE_SETBACK,
   PULL_HOLE,
@@ -34,6 +35,7 @@ import {
   SLIDE_HEIGHT,
   type DrawerConfig,
   type DrawerPlan,
+  CORD_GROMMET,
 } from './drawerUnit.ts';
 import { MM_PER_INCH } from './shelving.ts';
 import { pieceOutline } from './drawerInserts.ts';
@@ -56,14 +58,20 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
   // The bookcase's dados, pin holes and hinge cups come from the Shelf Builder, renamed to match its parts.
   const bk = plan.bookcase;
   // Uppers over a wall run's desk gaps get theirs too, named for their gap.
-  const deskFaces: PartFace[] = (plan.run?.sections ?? []).flatMap(sec => (sec.upper
-    ? partFaces(sec.upper.shelfPlan, sec.upper.shelfConfig)
-      .filter(face => !(sec.upper!.config.openBelow > 0 && face.part === 'Toe kick'))
+  // And the uppers closing a corner.
+  const extraUppers = [
+    ...(plan.run?.sections ?? []).map(sec => ({ up: sec.upper, id: `${sec.kind}-${sec.number}`, prefix: `${sec.kind === 'cabinet' ? 'Cabinet' : 'Desk'} ${sec.number} upper ` })),
+    { up: plan.run?.corner?.cornerUpper ?? null, id: 'corner-upper', prefix: 'Corner upper ' },
+    { up: plan.run?.corner?.returnUpper?.plan ?? null, id: 'corner-side-upper', prefix: 'Corner side upper ' },
+  ];
+  const deskFaces: PartFace[] = extraUppers.flatMap(({ up, id, prefix }) => (up
+    ? partFaces(up.shelfPlan, up.shelfConfig)
+      .filter(face => !(up.config.openBelow > 0 && face.part === 'Toe kick'))
       .map(face => ({
-        ...face, id: `desk-${sec.number}-${face.id}`,
-        part: bookcaseName(face.part).replace(/^Bookcase /, `Desk ${sec.number} upper `),
-        piece: bookcaseName(face.piece).replace(/^Bookcase /, `Desk ${sec.number} upper `),
-        ...(sec.upper!.config.openBelow > 0 && face.part.startsWith('Back') ? { length: sec.upper!.config.height } : {}),
+        ...face, id: `${id}-${face.id}`,
+        part: bookcaseName(face.part).replace(/^Bookcase /, prefix),
+        piece: bookcaseName(face.piece).replace(/^Bookcase /, prefix),
+        ...(up.config.openBelow > 0 && face.part.startsWith('Back') ? { length: up.config.height } : {}),
       }))
     : []));
   const bookFaces: PartFace[] = bk
@@ -102,6 +110,21 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
           orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, inside face up.${plan.partOutlines.Side ? ' The toe-kick notch is part of the outline cut.' : ''} Blue lines mark each slide’s bottom edge (not cut).`,
         });
       }
+      continue;
+    }
+
+    if (part.name === 'Back' && plan.outlet) {
+      // u = up from the bottom edge, v = across from the left edge (the back sits T/2 into each side's rabbet).
+      const o = plan.outlet;
+      const u0 = o.y0 - plan.baseHeight;
+      const u1 = o.y1 - plan.baseHeight;
+      const v0 = o.x0 - config.thickness / 2;
+      const v1 = o.x1 - config.thickness / 2;
+      faces.push({
+        ...base, id: 'back', piece: 'Back', face: 'face up', rightHanded: true,
+        features: [{ kind: 'cutout', label: 'Outlet cutout', points: [[u0, v0], [u1, v0], [u1, v1], [u0, v1]] }],
+        orientation: 'Either face up; the bottom edge is at the left of the drawing.',
+      });
       continue;
     }
 
@@ -170,6 +193,29 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       continue;
     }
 
+    if (part.name === 'Run countertop' && plan.run?.grommets.length && plan.run.countertop.pieces === 1) {
+      // u = from the left end, v = back from the front edge, top face up.
+      const ct = plan.run.countertop;
+      faces.push({
+        ...base, id: 'run-countertop', piece: 'Run countertop', face: 'top face', rightHanded: true,
+        features: plan.run.grommets.map((g, i): Feature => ({ kind: 'hole', label: `Cord grommet ${i + 1}`, u: g.x - ct.x0, v: g.z - ct.z0, radius: CORD_GROMMET / 2, depth: part.thickness })),
+        orientation: 'Top face up, front edge at the bottom of the drawing. Cut the grommet holes through every layer.',
+      });
+      continue;
+    }
+
+    if (part.name === 'Desk top' && plan.desk?.grommets.length) {
+      // u = from the left end, v = back from the front edge, top face up.
+      const dk = plan.desk;
+      const front = plan.caseDepth - dk.depth;
+      faces.push({
+        ...base, id: 'desk-top', piece: 'Desk top', face: 'top face', rightHanded: true,
+        features: dk.grommets.map((g, i): Feature => ({ kind: 'hole', label: `Cord grommet ${i + 1}`, u: g.x, v: g.z - front, radius: CORD_GROMMET / 2, depth: part.thickness })),
+        orientation: 'Top face up, front edge at the bottom of the drawing. Cut the grommet holes through every layer.',
+      });
+      continue;
+    }
+
     if (part.name === 'Countertop' && bk?.grommet && bk.countertop) {
       // u = from the left end, v = back from the front edge, top face up.
       const g = bk.grommet;
@@ -207,7 +253,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       const hinge = part.name.startsWith('Door, hinged left') ? 'left' : 'right';
       const height = part.width + 2 * band;
       const cupU = hinge === 'left' ? part.length - (HINGE_CUP_INSET - band) : HINGE_CUP_INSET - band;
-      const notch = doorNotch(config.pull);
+      const notch = doorNotch(doorView(config).pull);
       const fits = notch && part.length > notch.width + 3;
       const centre = fits ? (hinge === 'left' ? notch.width / 2 + 1.5 - band : part.length - (notch.width / 2 + 1.5 - band)) : undefined;
       faces.push({
@@ -464,8 +510,9 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
       ],
     });
   }
-  // Pull drilling jig: the hole pattern on a plate with a centre line and a fence for the top edge.
-  const hw = config.hardware;
+  // Pull drilling jig: the hole pattern on a plate with a centre line and a fence for the top edge
+  // (for the drawers' pulls, or the doors' when only they have store-bought ones).
+  const hw = config.hardware && config.hardware.kind !== 'none' ? config.hardware : doorView(config).hardware;
   if (hw && hw.kind !== 'none') {
     const plateW = (hw.kind === 'knob' ? 0 : hw.spacing) + 3;
     const cx = plateW / 2;
@@ -864,8 +911,9 @@ function doorLines(plan: DrawerPlan, column: number, edge: 'left' | 'right', fro
  * the hinge edge, inside face up, hinged left) with the cabinet's pull holes added, and
  * a second, outside face for the Shaker panel pocket.
  */
-function bookcaseDoorFaces(face: PartFace, config: DrawerConfig): PartFace[] {
+function bookcaseDoorFaces(face: PartFace, unitConfig: DrawerConfig): PartFace[] {
   if (!face.part.startsWith('Door')) return [face];
+  const config = doorView(unitConfig);
   const w = face.width;
   const h = face.length;
   const rail = shakerRail(config.frontProfile, w, h);
@@ -886,7 +934,8 @@ function bookcaseDoorFaces(face: PartFace, config: DrawerConfig): PartFace[] {
  * The machining on a front's outside face: the Shaker panel pocket and the pull holes.
  * `w`/`h` are the finished (banded) size; features are measured on the plywood.
  */
-function frontFeatures(config: DrawerConfig, w: number, h: number, band: number, door: { hinge: 'left' | 'right' } | null): Feature[] {
+function frontFeatures(unitConfig: DrawerConfig, w: number, h: number, band: number, door: { hinge: 'left' | 'right' } | null): Feature[] {
+  const config = door ? doorView(unitConfig) : unitConfig;
   const out: Feature[] = [];
   const rail = shakerRail(config.frontProfile, w, h);
   if (rail && config.frontProfile!.method === 'pocket') {

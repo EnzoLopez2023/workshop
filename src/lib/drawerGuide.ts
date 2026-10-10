@@ -11,6 +11,7 @@ import {
   DESK_LEG_INSET,
   runSolids,
   styleBookcaseDoors,
+  doorView,
   deskSolids,
   drawerSolids,
   FINGER_ROOM,
@@ -51,7 +52,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const benchName = (name: string) => `On the bench · ${bookcaseName(name)}`;
   const bench = bk ? buildGuideSteps(bk.shelfPlan, bk.shelfConfig, units) : null;
   const benchSolids: Solid[] = bench
-    ? styleBookcaseDoors(withValance(bk!.config, bench.solids), bk!.shelfPlan.doors, config).map(s => ({ ...s, name: benchName(s.name), ...(s.shape === 'box' && s.on ? { on: benchName(s.on) } : {}) }))
+    ? styleBookcaseDoors(withValance(bk!.config, bench.solids), bk!.shelfPlan.doors, doorView(config)).map(s => ({ ...s, name: benchName(s.name), ...(s.shape === 'box' && s.on ? { on: benchName(s.on) } : {}) }))
     : [];
   const run = plan.run;
   const runAll = run ? runSolids(plan, config) : [];
@@ -553,7 +554,12 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   // 12c ── Shaker fronts and pull holes
   const profile = config.frontProfile;
   const shaker = profile?.style === 'shaker';
-  const hw = config.hardware && config.hardware.kind !== 'none' ? config.hardware : null;
+  // Drawers' pulls, or the doors' own when only they have store-bought ones.
+  const drawerHw = config.hardware && config.hardware.kind !== 'none' ? config.hardware : null;
+  const doorHwRaw = doorView(config).hardware;
+  const doorHw = doorHwRaw && doorHwRaw.kind !== 'none' && (doorSlots.length || plan.bookcase?.shelfPlan.doors.length) ? doorHwRaw : null;
+  const hw = drawerHw ?? doorHw;
+  const ownDoorHw = !!config.doorHardware && !!doorHw && (!drawerHw || drawerHw.kind !== doorHw.kind || drawerHw.spacing !== doorHw.spacing);
   if (shaker || hw) {
     const kindWord = hw?.kind === 'knob' ? 'knob' : 'pull';
     steps.push({
@@ -573,10 +579,17 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
           'Glue the stiles on first, flush with the edges, then fit the rails tight between them.',
           'Pin them with 23-gauge pins while the glue sets, then sand the outer edges flush.',
         ] : []),
-        ...(hw ? [
-          hw.kind === 'knob'
+        ...(drawerHw ? [
+          drawerHw.kind === 'knob'
             ? 'Drawers: a knob centred across, in the middle of short fronts and 3″ from the top of tall ones (the top rail’s centre on Shaker fronts); two on fronts over 30″.'
-            : `Drawers: the pull centred across at the same height; two on fronts over 30″. Doors: upright, near the opening edge, its top 3″ from the door’s top.`,
+            : `Drawers: the pull centred across at the same height; two on fronts over 30″.${ownDoorHw ? '' : ' Doors: upright, near the opening edge, its top 3″ from the door’s top.'}`,
+        ] : []),
+        ...(doorHw && (ownDoorHw || !drawerHw) ? [
+          doorHw.kind === 'knob'
+            ? 'Doors: a knob near the opening edge (away from the hinges), 3″ down from the top.'
+            : `Doors: the ${doorHw.kind === 'cup' ? 'cup pull' : 'pull'} upright near the opening edge, ${f(doorHw.spacing)} hole centres, its top 3″ from the door’s top.`,
+        ] : []),
+        ...(hw ? [
           'Drill with the pull drilling jig so every pull lands in the same place, and back the hole with scrap so the face doesn’t splinter.',
           'Once the fronts are hung, drill on through the box fronts from inside the drawer, through the same holes.',
         ] : []),
@@ -829,7 +842,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     const cabinetsOnly = all.filter(n => n.startsWith('Cabinet ') && !/· Bookcase /.test(n));
     const fillerNames = all.filter(n => /^(Upper )?[Ff]iller /.test(n));
     const ledgerNames = all.filter(n => /^Desk \d+ · (ledger|left cleat|right cleat)$/.test(n));
-    const upperNames = all.filter(n => /· Bookcase /.test(n) || (n.startsWith('Desk ') && !ledgerNames.includes(n)));
+    const upperNames = all.filter(n => /· Bookcase /.test(n) || /^Corner (side )?upper · /.test(n) || (n.startsWith('Desk ') && !ledgerNames.includes(n)));
     const trimNames = all.filter(n => /^Run (top cap|crown)/.test(n));
     const lowerFillers = fillerNames.filter(n => !n.startsWith('Upper'));
     const desks = run.sections.filter(x => x.kind === 'desk');
@@ -946,7 +959,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
           'Screw down through each upper’s bottom into the countertop.',
           ...(run.fillers.length ? ['Scribe and fit the upper fillers like the lower ones.'] : []),
         ],
-        parts: sized(partsWhere(['Bookcase ', ...run.sections.filter(x => x.upper).map(x => `Desk ${x.number} upper `)])),
+        parts: sized(partsWhere(['Bookcase ', 'Corner upper ', 'Corner side upper ', ...run.sections.filter(x => x.upper).map(x => `${x.kind === 'cabinet' ? 'Cabinet' : 'Desk'} ${x.number} upper `)])),
         tips: [],
         cautions: ['Anchor every upper to a stud before you load the shelves.'],
         scene: { view: 'front', visible: [...cabinetsOnly, ...lowerFillers, 'Run countertop'], highlight: [...upperNames, ...fillerNames.filter(n => n.startsWith('Upper'))] },

@@ -42,7 +42,23 @@ export interface BookcaseConfig {
   valanceHeight: number;
   /** For the fit checks; unset to skip them. */
   ceilingHeight?: number;
+  /** Display touches: a lip on every shelf so boards and prints lean back without sliding off. */
+  lips?: boolean;
+  /** A pegboard (Skadis or similar) on spacer cleats across the open space, for hooks and small shelves. */
+  pegboard?: boolean;
+  /** An LED strip hidden under the front of every shelf and the top. */
+  shelfLights?: boolean;
+  /** An outlet cutout in the backsplash (the back where it runs down through the open space). */
+  outlet?: boolean;
 }
+
+/** A shelf lip: 3/4″ stock 1 1/2″ wide, standing 3/4″ proud of the shelf. */
+export const LIP_HEIGHT = 1.5;
+export const LIP_PROUD = 0.75;
+/** The rail under a shelf's front that hides its LED strip. */
+export const LIGHT_RAIL = 1;
+/** Pegboard spacers: hooks need about 3/4″ behind the board. */
+export const PEGBOARD_SPACER = 0.75;
 
 export const DEFAULT_BOOKCASE: BookcaseConfig = {
   enabled: false,
@@ -59,6 +75,31 @@ export const DEFAULT_BOOKCASE: BookcaseConfig = {
   taskLight: false,
   valanceHeight: 2,
 };
+
+/**
+ * What the shelves are for: each preset sets the depth and how many shelves fit so every
+ * opening clears the item. Spools stand on edge (a 1 kg spool is about 8″ across and 2 1/2–3″
+ * wide); a single-spool dry box is about 10″ tall.
+ */
+export const SHELF_PRESETS = [
+  { id: 'spools', label: '1 kg filament spools', opening: 9, depth: 10, note: 'spools on edge, about 8″ across' },
+  { id: 'spool-boxes', label: 'Filament boxes', opening: 9, depth: 10, note: 'boxed spools on edge, about 8 1/2″ tall' },
+  { id: 'dry-boxes', label: 'Filament dry boxes', opening: 11, depth: 12, note: 'single-spool dry boxes, about 10″ tall' },
+  { id: 'books', label: 'Books', opening: 11, depth: 12, note: 'most hardbacks under 10″' },
+  { id: 'display', label: 'Display', opening: 14, depth: 10, note: 'prints, models and boards shown off' },
+] as const;
+export type ShelfPresetId = typeof SHELF_PRESETS[number]['id'];
+
+/**
+ * How many shelves fit a bookcase so every opening is at least `opening` tall: one fixed
+ * shelf in a dado once there are three or more (it stiffens the case), the rest on pins.
+ */
+export function shelvesForOpening(height: number, openBelow: number, thickness: number, opening: number): { fixed: number; adjustable: number; each: number } {
+  const usable = height - openBelow - 2 * thickness;
+  const n = Math.max(0, Math.floor((usable - opening) / (opening + thickness) + 1e-9));
+  const fixed = n >= 3 ? 1 : 0;
+  return { fixed, adjustable: n - fixed, each: (usable - n * thickness) / (n + 1) };
+}
 
 /** A cord grommet: a hole this size through the countertop. */
 export const GROMMET_DIAMETER = 2;
@@ -97,6 +138,8 @@ export interface BookcasePlan {
   cap: Box3 | null;
   crown: { height: number; projection: number; front: number; faces: ('front' | 'left' | 'right')[] } | null;
   grommet: { x: number; z: number; diameter: number } | null;
+  /** An outlet cutout in the backsplash (model x and y), null without one. */
+  outlet: { x0: number; x1: number; y0: number; y1: number } | null;
   parts: ShelfPart[];
   errors: string[];
   warnings: string[];
@@ -253,6 +296,37 @@ export function buildBookcase(bk: BookcaseConfig, ctx: BookcaseContext): Bookcas
     parts.push({ ...p, name: bookcaseName(p.name), note: p.name === 'Side' && bk.openBelow > 0 ? `${p.note ? `${p.note}; ` : ''}runs down past the bottom to the counter` : p.note });
   }
 
+  // Display touches: lips on the shelves, lights under them, a pegboard in the open space.
+  const shelvesInBays = bk.bays * (bk.shelvesPerBay + bk.adjustablePerBay);
+  const bayLength = shelfConfig.bayWidth;
+  if (bk.lips && bk.bays > 0) {
+    if (shelvesInBays) parts.push({ name: 'Shelf lip', qty: shelvesInBays, length: bayLength - 1 / 16, width: LIP_HEIGHT, thickness: 0.75,
+      note: `Glued and pinned to the front edge of every shelf, ${f(LIP_PROUD)} proud, so boards and prints lean back without sliding off`, material: 'solid' });
+    parts.push({ name: 'Bottom lip', qty: 1, length: W - 2 * T, width: LIP_HEIGHT, thickness: 0.75, note: `Along the bookcase bottom’s front edge, ${f(LIP_PROUD)} proud`, material: 'solid' });
+  }
+  if (bk.shelfLights && bk.bays > 0) {
+    if (shelvesInBays) parts.push({ name: 'Light rail', qty: shelvesInBays, length: bayLength - 1 / 16, width: LIGHT_RAIL, thickness: 0.75,
+      note: 'Under the front edge of every shelf, hiding an LED strip that lights the shelf below; drill a 3/8″ cord hole at the back corner', material: 'solid' });
+    parts.push({ name: 'Top light rail', qty: 1, length: W - 2 * T, width: LIGHT_RAIL, thickness: 0.75, note: 'Under the bookcase top’s front edge, hiding the strip that lights the top shelf', material: 'solid' });
+    if (bk.adjustablePerBay > 0) warnings.push('Lights under adjustable shelves need their cords to move with them — use plug-in strips with slack, or make the lit shelves fixed.');
+  }
+  // An outlet in the backsplash, centred, low in the open space.
+  let outlet: BookcasePlan['outlet'] = null;
+  if (bk.outlet) {
+    if (bk.openBelow < 7) errors.push('An outlet in the backsplash needs at least 7″ of open space above the counter.');
+    else {
+      const cy = y0 + Math.min(8, bk.openBelow / 2);
+      outlet = { x0: W / 2 - 1.5, x1: W / 2 + 1.5, y0: cy - 2.25, y1: cy + 2.25 };
+      const back = parts.find(p => /^Bookcase back/.test(p.name));
+      if (back) back.note = `${back.note ? `${back.note}; ` : ''}${f(3)} × ${f(4.5)} outlet cutout, centred across it, ${f(outlet.y0 - y0)} up from the counter`;
+    }
+  }
+  if (bk.pegboard) {
+    if (bk.openBelow <= 0) errors.push('The pegboard goes in the open space above the counter — turn on “Open space above the counter”.');
+    else parts.push({ name: 'Pegboard spacer', qty: 2 * bk.bays, length: bayLength - 1 / 16, width: 1.5, thickness: PEGBOARD_SPACER,
+      note: `Screwed to the back at the top and bottom of the open space; the pegboard screws to them so hooks clear the back (the board itself is bought, about ${f(W - 2 * T)} × ${f(bk.openBelow - 1)})`, material: 'plywood' });
+  }
+
   // Top: a plywood cap overhanging the front and ends that show, or crown molding on a nailer.
   const topY = y0 + bk.height;
   let cap: BookcasePlan['cap'] = null;
@@ -298,7 +372,7 @@ export function buildBookcase(bk: BookcaseConfig, ctx: BookcaseContext): Bookcas
     }
   }
 
-  return { config: bk, shelfConfig, shelfPlan, y0, z0, topY, totalHeight, countertop, cap, crown, grommet, parts, errors, warnings };
+  return { config: bk, shelfConfig, shelfPlan, y0, z0, topY, totalHeight, countertop, cap, crown, grommet, outlet, parts, errors, warnings };
 }
 
 /** A solid moved by (dx, dy, dz) and renamed. */
@@ -328,6 +402,35 @@ export function bookcaseSolids(bp: BookcasePlan, width: number, caseDepth: numbe
   const box = (name: string, b: Box3, kind: Solid['kind'] = 'case'): Solid =>
     ({ name, kind, shape: 'box', min: [b.x0, b.y0, b.z0], max: [b.x1, b.y1, b.z1] });
   const out = placeBookcaseSolids(bp, withValance(bp.config, shelfSolids(bp.shelfPlan, bp.shelfConfig))).map(s => ({ ...s, explode: [0, spread * 2, 0] as [number, number, number] }));
+  // Display touches, from each shelf's own box: a lip on its front, a light rail under it.
+  const bk = bp.config;
+  const shelves = out.filter(s => s.shape === 'box' && (s.kind === 'shelf' || s.kind === 'adjustable') && /^Bookcase bay \d+ /i.test(s.name));
+  const bottom = out.find(s => s.name === 'Bookcase bottom');
+  const top = out.find(s => s.name === 'Bookcase top');
+  if (bk.lips) {
+    for (const s of [...shelves, ...(bottom ? [bottom] : [])]) {
+      if (s.shape !== 'box') continue;
+      out.push({ name: `${s.name} lip`, kind: 'frame', shape: 'box', min: [s.min[0], s.max[1] - (LIP_HEIGHT - LIP_PROUD), s.min[2] - 0.75], max: [s.max[0], s.max[1] + LIP_PROUD, s.min[2]], explode: s.explode });
+    }
+  }
+  if (bk.shelfLights) {
+    for (const s of [...shelves, ...(top ? [top] : [])]) {
+      if (s.shape !== 'box') continue;
+      out.push({ name: `${s.name} light rail`, kind: 'frame', shape: 'box', min: [s.min[0], s.min[1] - LIGHT_RAIL, s.min[2]], max: [s.max[0], s.min[1], s.min[2] + 0.75], explode: s.explode });
+    }
+  }
+  if (bp.outlet) {
+    const o = bp.outlet;
+    out.push({ name: 'Backsplash outlet', kind: 'pinhole', shape: 'box', min: [o.x0, o.y0, caseDepth - 0.35], max: [o.x1, o.y1, caseDepth + 0.05], explode: [0, spread * 2, 0] });
+  }
+  if (bk.pegboard && bk.openBelow > 0) {
+    const back = caseDepth - 0.25;
+    const y0 = bp.y0 + (bk.taskLight ? bk.valanceHeight : 0) + 0.5;
+    const y1 = bp.y0 + bk.openBelow - 0.5;
+    out.push({ ...box('Pegboard spacer, bottom', { x0: T, x1: width - T, y0, y1: y0 + 1.5, z0: back - PEGBOARD_SPACER, z1: back }), explode: [0, 0, spread] });
+    out.push({ ...box('Pegboard spacer, top', { x0: T, x1: width - T, y0: y1 - 1.5, y1, z0: back - PEGBOARD_SPACER, z1: back }), explode: [0, 0, spread] });
+    out.push({ ...box('Pegboard', { x0: T + 0.25, x1: width - T - 0.25, y0, y1, z0: back - PEGBOARD_SPACER - 0.2, z1: back - PEGBOARD_SPACER }, 'back'), explode: [0, 0, -spread] });
+  }
   if (bp.countertop) {
     const c = bp.countertop;
     out.push({ ...box('Countertop', c, 'shelf'), explode: [0, spread, 0] });
@@ -383,6 +486,10 @@ export function readBookcase(raw: unknown): BookcaseConfig | undefined {
     taskLight: v.taskLight === true,
     valanceHeight: n(v.valanceHeight, 0, 12, d.valanceHeight),
     ceilingHeight: typeof v.ceilingHeight === 'number' && v.ceilingHeight > 0 && v.ceilingHeight < 240 ? v.ceilingHeight : undefined,
+    ...(v.lips === true ? { lips: true } : {}),
+    ...(v.pegboard === true ? { pegboard: true } : {}),
+    ...(v.shelfLights === true ? { shelfLights: true } : {}),
+    ...(v.outlet === true ? { outlet: true } : {}),
   };
 }
 
@@ -411,6 +518,10 @@ export interface BookcaseFields {
   valanceHeight: string;
   /** '' to skip the ceiling checks. */
   ceilingHeight: string;
+  lips?: boolean;
+  pegboard?: boolean;
+  shelfLights?: boolean;
+  outlet?: boolean;
 }
 
 export const BOOKCASE_LENGTH_KEYS = [
@@ -442,6 +553,10 @@ export function bookcaseToFields(c: BookcaseConfig | undefined, L: (inches: numb
     taskLight: b.taskLight,
     valanceHeight: L(b.valanceHeight),
     ceilingHeight: b.ceilingHeight ? L(b.ceilingHeight) : '',
+    lips: b.lips === true,
+    pegboard: b.pegboard === true,
+    shelfLights: b.shelfLights === true,
+    outlet: b.outlet === true,
   };
 }
 
@@ -479,5 +594,9 @@ export function bookcaseFromFields(
     taskLight: fields.taskLight,
     valanceHeight: fields.taskLight ? num('valanceHeight') : DEFAULT_BOOKCASE.valanceHeight,
     ceilingHeight: fields.ceilingHeight.trim() ? num('ceilingHeight') : undefined,
+    ...(fields.lips ? { lips: true } : {}),
+    ...(fields.pegboard ? { pegboard: true } : {}),
+    ...(fields.shelfLights ? { shelfLights: true } : {}),
+    ...(fields.outlet ? { outlet: true } : {}),
   };
 }

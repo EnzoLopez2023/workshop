@@ -6,7 +6,7 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react';
 import { DimH, DimV } from './builderControls';
 import {
-  WALL_THICKNESS, clampPlacement, frontLine, modelToPlan, nextRotation, placedRect, snapPlacement, rectsTouch, wallBand, wallLength, wallsTouching,
+  WALL_THICKNESS, clampPlacement, frontLine, modelToPlan, nextRotation, placedRect, placedRects, snapPlacement, rectsTouch, wallBand, wallLength, wallsTouching,
   type CabinetBox, type Placement, type Room, type RoomOpening, type Wall,
 } from '../lib/builtinRoom';
 
@@ -18,6 +18,8 @@ export interface PlanCabinet {
   wallHung: boolean;
   /** A corner design's L from above (model x and z); otherwise its box is drawn. */
   outline?: [number, number][] | null;
+  /** The same L as rectangles in model x and z, so snapping goes by its real footprint. */
+  pieces?: { x0: number; x1: number; z0: number; z1: number }[] | null;
 }
 
 interface Props {
@@ -141,7 +143,7 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
       ? clampPlacement(room, c.box, { x, y, rotation: drag.placement.rotation })
       : snapPlacement({
         room, box: c.box, x, y, rotation: drag.placement.rotation,
-        others: others(c.id).map(o => ({ rect: placedRect(o.placement, o.box), bottom: o.box.minY, top: o.box.maxY })),
+        others: others(c.id).flatMap(o => placedRects(o.placement, o.box, o.pieces).map(rect => ({ rect, bottom: o.box.minY, top: o.box.maxY }))),
         wallSnap: 28 * perPx, edgeSnap: 12 * perPx,
       });
     setDrag({ ...drag, placement: { x: snapped.x, y: snapped.y, rotation: snapped.rotation }, moved: true });

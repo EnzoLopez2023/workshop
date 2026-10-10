@@ -13,7 +13,28 @@ export interface RunSection {
   width?: number;
   /** A cabinet built as a mirror image (doors hinge the other way). */
   mirror?: boolean;
+  /** A cabinet that differs from the design: its own width and front layout (same height, depth, base and look). */
+  cabinet?: RunCabinet;
 }
+
+/** What goes in a cabinet's opening when it isn't a copy of the design. */
+export type RunCabinetLayout = 'drawers' | 'door' | 'drawer-door' | 'open';
+
+export interface RunCabinet {
+  /** Its own width (unset: the design's). */
+  width?: number;
+  /** Its own fronts (unset: the design's). */
+  layout?: RunCabinetLayout;
+  /** With 'drawers': how many. */
+  drawers?: number;
+}
+
+export const RUN_CABINET_LAYOUTS: { value: RunCabinetLayout; label: string }[] = [
+  { value: 'drawers', label: 'Drawers' },
+  { value: 'door', label: 'Door' },
+  { value: 'drawer-door', label: 'Drawer over a door' },
+  { value: 'open', label: 'Open shelves' },
+];
 
 export interface RunConfig {
   enabled: boolean;
@@ -26,7 +47,12 @@ export interface RunConfig {
   deskUppers: boolean;
   /** The run turns a corner at one end and carries on along the side wall. */
   corner?: RunCorner;
+  /** A cord grommet through the countertop over each desk gap, 2″ from the back. */
+  grommets?: boolean;
 }
+
+/** A countertop cord grommet: 2″, centred over a desk gap, this far from the back edge to its centre. */
+export const RUN_GROMMET = { diameter: 2, fromBack: 3 };
 
 /**
  * A return along the side wall. The main run fills the corner square with an open
@@ -90,6 +116,8 @@ export interface RunPlan {
   crown: { height: number; projection: number; front: number; x0: number; x1: number; y0: number; returns: ('left' | 'right')[] } | null;
   totalHeight: number;
   corner: RunCornerPlan | null;
+  /** Grommet centres in the countertop (model x and z). */
+  grommets: { x: number; z: number }[];
 }
 
 /**
@@ -98,6 +126,12 @@ export interface RunPlan {
  */
 export interface RunCornerPlan {
   side: 'left' | 'right';
+  /**
+   * Uppers that close the corner: one over the corner square on the main wall, and a
+   * short one on the side wall from the main uppers' front to the return's first upper.
+   */
+  cornerUpper: BookcasePlan | null;
+  returnUpper: { plan: BookcasePlan; x0: number; x1: number } | null;
   style: 'open' | 'blind';
   /** With a blind corner: the main-run section (index) built as the blind cabinet, its blind side filling the bay. */
   blindSection: number | null;
@@ -111,6 +145,8 @@ export interface RunCornerPlan {
   /** The corner filler, between the main run's fronts and the return's first section. */
   cornerFiller: { x: number; width: number };
   countertop: { x0: number; x1: number; z0: number; z1: number; y0: number; y1: number; pieces: number };
+  /** Grommets in the return's countertop, at these distances from the back wall. */
+  grommets: number[];
   cap: { x0: number; x1: number; z0: number; z1: number; y0: number; y1: number } | null;
   crown: { x0: number; x1: number; front: number; y0: number; height: number; projection: number } | null;
 }
@@ -158,7 +194,7 @@ export function buildRun(run: RunConfig, ctx: RunContext): { plan: RunPlan; part
   const bayWidth = corner ? cd + ctx.frontProjection : 0;
   const leftEnd = corner?.side === 'left' ? 'wall' : run.leftEnd;
   const rightEnd = corner?.side === 'right' ? 'wall' : run.rightEnd;
-  const sectionWidths = sections.map(s => (s.kind === 'cabinet' ? W : s.width ?? 0));
+  const sectionWidths = sections.map(s => (s.kind === 'cabinet' ? s.cabinet?.width ?? W : s.width ?? 0));
   const used = sectionWidths.reduce((a, w) => a + w, 0) + bayWidth;
   const walls = (['left', 'right'] as const).filter(side => (side === 'left' ? leftEnd : rightEnd) === 'wall' && corner?.side !== side);
   const fillers: RunPlan['fillers'] = [];
@@ -188,7 +224,16 @@ export function buildRun(run: RunConfig, ctx: RunContext): { plan: RunPlan; part
     const w = sectionWidths[i];
     const plan: RunSectionPlan = { kind: s.kind, x, width: w, mirror: s.kind === 'cabinet' && s.mirror === true, number: s.kind === 'cabinet' ? ++cabNo : ++deskNo, upper: null };
     x += w;
-    if (s.kind === 'desk' && bk && bkc && run.deskUppers && w > 0) {
+    if (s.kind === 'cabinet' && bk && bkc && Math.abs(w - W) > 1e-6) {
+      // A cabinet of its own width gets an upper of that width; the design's bays and doors where they still fit.
+      const perBay = (W - T) / Math.max(bkc.bays, 1);
+      const bays = Math.max(1, Math.round((w - T) / perBay));
+      plan.upper = buildBookcase({ ...bkc, bays, doors: bays === bkc.bays ? bkc.doors : [] }, {
+        width: w, cabinetHeight: H, caseDepth: cd, frontProjection: ctx.frontProjection, thickness: T,
+        exposed: { left: false, right: false }, edgeBanding: ctx.edgeBanding, bandingThickness: ctx.bandingThickness, units: ctx.units, blockers: [],
+      });
+      errors.push(...plan.upper.errors.filter(e => !/countertop|ceiling/i.test(e)).map(e => `Over cabinet ${plan.number}: ${e}`));
+    } else if (s.kind === 'desk' && bk && bkc && run.deskUppers && w > 0) {
       // Bays about as wide as the cabinet's, no doors.
       const perBay = (W - T) / Math.max(bkc.bays, 1);
       const bays = Math.max(1, Math.round((w - T) / perBay));
@@ -221,6 +266,13 @@ export function buildRun(run: RunConfig, ctx: RunContext): { plan: RunPlan; part
       note: pieces > 1 ? `${pieces} slabs joined with countertop bolts over a cabinet` : 'One slab; fastened with figure-8 clips so it can move', material: 'solid' });
   }
 
+  // Cord grommets over the desk gaps.
+  const grommets = run.grommets ? plans.filter(p => p.kind === 'desk').map(p => ({ x: p.x + p.width / 2, z: cd - RUN_GROMMET.fromBack })) : [];
+  if (grommets.length) {
+    const ctPart = parts.find(p => p.name.startsWith('Run countertop'));
+    if (ctPart) ctPart.note = `${ctPart.note ? `${ctPart.note}; ` : ''}${f(RUN_GROMMET.diameter)} cord grommet hole${grommets.length === 1 ? '' : 's'} centred over ${grommets.length === 1 ? 'the desk gap' : 'each desk gap'}, ${f(RUN_GROMMET.fromBack)} from the back edge`;
+  }
+
   // Desk gaps: a ledger into the studs at the back and a cleat on each cabinet side carry the top.
   const desks = plans.filter(p => p.kind === 'desk');
   if (desks.length) {
@@ -251,9 +303,10 @@ export function buildRun(run: RunConfig, ctx: RunContext): { plan: RunPlan; part
     totalHeight = topY;
     const front = cd - bkc.depth - upperBk.shelfPlan.frontDepth;
     // At a corner the uppers stop at the bay, so that end is trimmed like an open one.
-    const openEnds = (['left', 'right'] as const).filter(side => (side === 'left' ? leftEnd : rightEnd) === 'open' || corner?.side === side);
-    const upX0 = corner?.side === 'left' ? bayWidth : 0;
-    const upX1 = corner?.side === 'right' ? width - bayWidth : width;
+    // The uppers carry on over the corner square (a corner upper), so the trim does too.
+    const openEnds = (['left', 'right'] as const).filter(side => (side === 'left' ? leftEnd : rightEnd) === 'open');
+    const upX0 = 0;
+    const upX1 = width;
     if (bkc.top.style === 'cap') {
       const p = bkc.top.capProjection;
       const x0 = upX0 - (openEnds.includes('left') ? p : 0);
@@ -279,7 +332,7 @@ export function buildRun(run: RunConfig, ctx: RunContext): { plan: RunPlan; part
   let cornerPlan: RunCornerPlan | null = null;
   let returnCabinets = 0;
   if (corner) {
-    const built = buildReturn(corner, { ...ctx, f, mainWidth: width, bayWidth, countertop, overhang: c.overhangSides, mainSections: plans, upperBk: upperBk && bkc ? { bkc, plan: upperBk } : null, uppers });
+    const built = buildReturn(corner, { ...ctx, f, grommets: !!run.grommets, mainWidth: width, bayWidth, countertop, overhang: c.overhangSides, mainSections: plans, upperBk: upperBk && bkc ? { bkc, plan: upperBk } : null, uppers });
     cornerPlan = built.plan;
     returnCabinets = built.cabinets;
     errors.push(...built.errors);
@@ -287,7 +340,7 @@ export function buildRun(run: RunConfig, ctx: RunContext): { plan: RunPlan; part
     parts.push(...built.parts);
   }
 
-  return { plan: { width, cabinetCount: cabinets + returnCabinets, sections: plans, fillers, countertop, uppers, cap, crown, totalHeight, corner: cornerPlan }, parts, errors, warnings };
+  return { plan: { width, cabinetCount: cabinets + returnCabinets, sections: plans, fillers, countertop, uppers, cap, crown, totalHeight, corner: cornerPlan, grommets }, parts, errors, warnings };
 }
 
 function buildReturn(corner: RunCorner, ctx: RunContext & {
@@ -297,6 +350,7 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
   countertop: RunPlan['countertop'];
   overhang: number;
   mainSections: RunSectionPlan[];
+  grommets: boolean;
   upperBk: { bkc: BookcaseConfig; plan: BookcasePlan } | null;
   uppers: RunPlan['uppers'];
 }): { plan: RunCornerPlan; parts: ShelfPart[]; errors: string[]; warnings: string[]; cabinets: number } {
@@ -356,6 +410,10 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
     parts.push({ name: 'Return countertop (butcher block)', qty: pieces, length: ctLength / pieces, width: ctDepth, thickness: ct.y1 - ct.y0,
       note: 'Butts the main slab at the corner with countertop bolts', material: 'solid' });
   }
+  if (ctx.grommets && plans.some(p => p.kind === 'desk')) {
+    const ctPart = parts.find(p => p.name.startsWith('Return countertop'));
+    if (ctPart) ctPart.note = `${ctPart.note}; ${f(RUN_GROMMET.diameter)} cord grommet hole centred over each desk gap, ${f(RUN_GROMMET.fromBack)} from the back edge`;
+  }
   // The corner square: ledgers on both walls carry the countertop over an open bay; a blind
   // corner fills it with the blind side of the main run's cabinet next to it instead.
   const style = corner.style ?? 'open';
@@ -378,6 +436,28 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
     warnings.push('The corner square behind the return is dead space: you reach it only by leaning in past the first return section. Make it a blind corner cabinet, or start the return with a desk gap for knee space.');
   }
 
+  // Uppers closing the corner: over the corner square on the main wall, and on the side
+  // wall from the main uppers' front to the return's first section.
+  let cornerUpper: BookcasePlan | null = null;
+  let returnUpper: RunCornerPlan['returnUpper'] = null;
+  if (ctx.upperBk && ctx.uppers) {
+    const { bkc } = ctx.upperBk;
+    const build = (w: number) => {
+      const perBay = (W - T) / Math.max(bkc.bays, 1);
+      return buildBookcase({ ...bkc, bays: Math.max(1, Math.round((w - T) / perBay)), doors: [] }, {
+        width: w, cabinetHeight: ctx.H, caseDepth: cd, frontProjection: ctx.frontProjection, thickness: T,
+        exposed: { left: false, right: false }, edgeBanding: ctx.edgeBanding, bandingThickness: ctx.bandingThickness, units: ctx.units, blockers: [],
+      });
+    };
+    cornerUpper = build(ctx.bayWidth);
+    errors.push(...cornerUpper.errors.filter(e => !/countertop|ceiling/i.test(e)).map(e => `Corner upper: ${e}`));
+    const x0 = bkc.depth;
+    if (start - x0 >= 6) {
+      returnUpper = { plan: build(start - x0), x0, x1: start };
+      errors.push(...returnUpper.plan.errors.filter(e => !/countertop|ceiling/i.test(e)).map(e => `Corner upper: ${e}`));
+    }
+  }
+
   // Trim over the return's uppers (each return cabinet carries its own bookcase).
   let cap: RunCornerPlan['cap'] = null;
   let crown: RunCornerPlan['crown'] = null;
@@ -385,16 +465,16 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
   if (ctx.upperBk && ctx.uppers && cabs.length) {
     const { bkc, plan: bp } = ctx.upperBk;
     const front = cd - bkc.depth - bp.shelfPlan.frontDepth;
-    const x0 = cabs[0].x;
+    const x0 = returnUpper ? returnUpper.x0 : cabs[0].x;
     const last = cabs[cabs.length - 1];
     const x1 = last.x + last.width;
     if (bkc.top.style === 'cap') {
       const p = bkc.top.capProjection;
-      cap = { x0: x0 - p, x1: x1 + p, z0: front - p, z1: cd, y0: ctx.uppers.topY, y1: ctx.uppers.topY + T };
+      cap = { x0: returnUpper ? x0 : x0 - p, x1: x1 + p, z0: front - p, z1: cd, y0: ctx.uppers.topY, y1: ctx.uppers.topY + T };
       parts.push({ name: 'Return top cap', qty: 1, length: x1 - x0 + 2 * p, width: cd - front + p, thickness: T, note: 'Over the return’s uppers', material: 'plywood' });
     } else if (bkc.top.style === 'crown') {
       const { crownHeight: h, crownProjection: p } = bkc.top;
-      crown = { x0: x0 - p, x1: x1 + p, front, y0: ctx.uppers.topY, height: h, projection: p };
+      crown = { x0: returnUpper ? x0 : x0 - p, x1: x1 + p, front, y0: ctx.uppers.topY, height: h, projection: p };
       parts.push({ name: 'Return crown molding', qty: 1, length: x1 - x0 + 2 * p, width: h, thickness: p, note: 'Over the return’s uppers, mitred at both ends', material: 'solid' });
     }
   }
@@ -402,12 +482,15 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
   return {
     plan: {
       side: corner.side,
+      cornerUpper,
+      returnUpper,
       style,
       blindSection,
       bay: corner.side === 'right' ? { x0: ctx.mainWidth - ctx.bayWidth, x1: ctx.mainWidth } : { x0: 0, x1: ctx.bayWidth },
       start, end, sections: plans, filler,
       cornerFiller: { x: mainFront, width: CORNER_FILLER },
       countertop: { x0: ctX0, x1: ctX1, z0: ct.z0, z1: ct.z1, y0: ct.y0, y1: ct.y1, pieces },
+      grommets: ctx.grommets ? plans.filter(p => p.kind === 'desk').map(p => p.x + p.width / 2) : [],
       cap, crown,
     },
     parts, errors, warnings, cabinets: cabs.length,
@@ -419,15 +502,7 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
 export function readRun(raw: unknown): RunConfig | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const v = raw as Record<string, unknown>;
-  const sections = Array.isArray(v.sections)
-    ? (v.sections as unknown[]).slice(0, 8).flatMap((x): RunSection[] => {
-      if (!x || typeof x !== 'object') return [];
-      const s = x as Record<string, unknown>;
-      if (s.kind === 'desk') return [{ kind: 'desk', width: typeof s.width === 'number' && s.width > 0 && s.width < 240 ? s.width : 48 }];
-      if (s.kind === 'cabinet') return [{ kind: 'cabinet', mirror: s.mirror === true }];
-      return [];
-    })
-    : DEFAULT_RUN.sections;
+  const sections = Array.isArray(v.sections) ? readSections(v.sections, 8) : DEFAULT_RUN.sections;
   return {
     enabled: v.enabled === true,
     wallWidth: typeof v.wallWidth === 'number' && v.wallWidth > 0 && v.wallWidth < 1200 ? v.wallWidth : DEFAULT_RUN.wallWidth,
@@ -436,6 +511,7 @@ export function readRun(raw: unknown): RunConfig | undefined {
     rightEnd: v.rightEnd === 'open' ? 'open' : 'wall',
     deskUppers: v.deskUppers !== false,
     ...(readCorner(v.corner) ? { corner: readCorner(v.corner) } : {}),
+    ...(v.grommets === true ? { grommets: true } : {}),
   };
 }
 
@@ -445,10 +521,20 @@ function readSections(raw: unknown, max: number): RunSection[] {
       if (!x || typeof x !== 'object') return [];
       const s = x as Record<string, unknown>;
       if (s.kind === 'desk') return [{ kind: 'desk', width: typeof s.width === 'number' && s.width > 0 && s.width < 240 ? s.width : 48 }];
-      if (s.kind === 'cabinet') return [{ kind: 'cabinet', mirror: s.mirror === true }];
+      if (s.kind === 'cabinet') return [{ kind: 'cabinet', mirror: s.mirror === true, ...(readCabinet(s.cabinet) ? { cabinet: readCabinet(s.cabinet) } : {}) }];
       return [];
     })
     : [];
+}
+
+function readCabinet(raw: unknown): RunCabinet | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  const width = typeof v.width === 'number' && v.width >= 6 && v.width <= 60 ? v.width : undefined;
+  const layout = RUN_CABINET_LAYOUTS.some(x => x.value === v.layout) ? v.layout as RunCabinetLayout : undefined;
+  const drawers = typeof v.drawers === 'number' && Number.isInteger(v.drawers) && v.drawers >= 1 && v.drawers <= 8 ? v.drawers : undefined;
+  if (width === undefined && layout === undefined) return undefined;
+  return { ...(width !== undefined ? { width } : {}), ...(layout ? { layout } : {}), ...(layout === 'drawers' && drawers ? { drawers } : {}) };
 }
 
 function readCorner(raw: unknown): RunCorner | undefined {
@@ -467,11 +553,12 @@ function readCorner(raw: unknown): RunCorner | undefined {
 export interface RunFields {
   enabled: boolean;
   wallWidth: string;
-  /** Sections; desk widths as typed. */
-  sections: { kind: 'cabinet' | 'desk'; width: string; mirror: boolean }[];
+  /** Sections; desk widths as typed. A cabinet's own layout ('' for the design's) and width ('' for the design's). */
+  sections: { kind: 'cabinet' | 'desk'; width: string; mirror: boolean; cabinetLayout?: RunCabinetLayout | ''; cabinetDrawers?: number; cabinetWidth?: string }[];
   leftEnd: 'wall' | 'open';
   rightEnd: 'wall' | 'open';
   deskUppers: boolean;
+  grommets?: boolean;
   /** Turns a corner (optional on older saved forms). */
   corner?: {
     enabled: boolean;
@@ -488,10 +575,14 @@ export function runToFields(run: RunConfig | undefined, L: (inches: number) => s
   return {
     enabled: run?.enabled === true,
     wallWidth: L(r.wallWidth),
-    sections: r.sections.map(s => ({ kind: s.kind, width: L(s.width ?? 48), mirror: s.mirror === true })),
+    sections: r.sections.map(s => ({
+      kind: s.kind, width: L(s.width ?? 48), mirror: s.mirror === true,
+      cabinetLayout: s.cabinet?.layout ?? '', cabinetDrawers: s.cabinet?.drawers ?? 4, cabinetWidth: s.cabinet?.width !== undefined ? L(s.cabinet.width) : '',
+    })),
     leftEnd: r.leftEnd,
     rightEnd: r.rightEnd,
     deskUppers: r.deskUppers,
+    grommets: r.grommets === true,
     corner: {
       enabled: !!r.corner,
       side: (r.corner ?? DEFAULT_CORNER).side,
@@ -508,10 +599,19 @@ export function runFromFields(fields: RunFields | undefined, num: (raw: string, 
   return {
     enabled: true,
     wallWidth: runNeedsWallWidth(fields) ? num(fields.wallWidth, 'run.wallWidth') : 0,
-    sections: fields.sections.map((s, i) => (s.kind === 'desk' ? { kind: 'desk', width: num(s.width, `run.sections.${i}`) } : { kind: 'cabinet', mirror: s.mirror })),
+    sections: fields.sections.map((s, i): RunSection => {
+      if (s.kind === 'desk') return { kind: 'desk', width: num(s.width, `run.sections.${i}`) };
+      const width = s.cabinetWidth?.trim() ? num(s.cabinetWidth, `run.sections.${i}.width`) : undefined;
+      const layout = s.cabinetLayout || undefined;
+      const cabinet: RunCabinet | undefined = width !== undefined || layout
+        ? { ...(width !== undefined ? { width } : {}), ...(layout ? { layout } : {}), ...(layout === 'drawers' ? { drawers: s.cabinetDrawers ?? 4 } : {}) }
+        : undefined;
+      return { kind: 'cabinet', mirror: s.mirror, ...(cabinet ? { cabinet } : {}) };
+    }),
     leftEnd: fields.leftEnd,
     rightEnd: fields.rightEnd,
     deskUppers: fields.deskUppers,
+    ...(fields.grommets ? { grommets: true } : {}),
     ...(fields.corner?.enabled ? {
       corner: {
         side: fields.corner.side,

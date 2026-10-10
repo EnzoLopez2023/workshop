@@ -4,7 +4,8 @@
 
 import { SegmentedControl } from './ui';
 import { LengthField, Stepper, Toggle } from './builderControls';
-import type { BookcaseFields } from '../lib/drawerBookcase';
+import { SHELF_PRESETS, shelvesForOpening, type BookcaseFields, type ShelfPresetId } from '../lib/drawerBookcase';
+import { parseLength } from '../lib/shelving';
 import type { DrawerPlan } from '../lib/drawerUnit';
 import type { LengthUnit } from '../lib/shelving';
 
@@ -42,6 +43,25 @@ interface Props {
 export default function DrawerBookcaseFields({ value: b, units, errors, plan, fmt, onChange }: Props) {
   const bp = plan?.bookcase ?? null;
   const setBays = (bays: number) => onChange({ bays, doors: Array.from({ length: bays }, (_, i) => b.doors[i] ?? false) });
+  // Fill the bookcase for what it holds: depth, then as many shelves as clear the item.
+  const applyPreset = (id: ShelfPresetId) => {
+    const preset = SHELF_PRESETS.find(x => x.id === id);
+    const height = parseLength(b.height, units);
+    if (!preset || height === null) return;
+    const T = plan?.bookcase?.shelfConfig.thickness ?? 0.75;
+    const open = b.openSpace ? parseLength(b.openHeight ?? '', units) ?? 0 : 0;
+    const fit = shelvesForOpening(height, open, T, preset.opening);
+    onChange({ depth: units === 'mm' ? String(Math.round(preset.depth * 25.4)) : String(preset.depth), shelves: fit.fixed, adjustable: fit.adjustable });
+  };
+  const fitNote = (() => {
+    const height = parseLength(b.height, units);
+    if (height === null) return '';
+    const T = plan?.bookcase?.shelfConfig.thickness ?? 0.75;
+    const open = b.openSpace ? parseLength(b.openHeight ?? '', units) ?? 0 : 0;
+    const n = b.shelves + b.adjustable;
+    const each = (height - open - 2 * T - n * T) / (n + 1);
+    return each > 0 ? `Openings about ${fmt(Math.floor(each * 8) / 8)} tall` : '';
+  })();
   return (
     <fieldset className="shelf-group" data-tour="fs-bookcase">
       <legend>Bookcase above</legend>
@@ -73,6 +93,14 @@ export default function DrawerBookcaseFields({ value: b, units, errors, plan, fm
               hint={b.seat === 'countertop' ? 'Back included; 10–12″ suits books and leaves a work surface.' : 'Back included; up to the case depth.'} onChange={depth => onChange({ depth })} />
             <LengthField unit={units} label="Ceiling height" value={b.ceilingHeight} error={errors.ceilingHeight} placeholder="Optional"
               hint="Checks it fits, and that you can tilt it up in place." onChange={ceilingHeight => onChange({ ceilingHeight })} />
+          </div>
+          <div className="form-field">
+            <label className="form-field-label" htmlFor="bookcase-preset">Shelves for</label>
+            <select id="bookcase-preset" value="" onChange={e => { if (e.target.value) applyPreset(e.target.value as ShelfPresetId); }}>
+              <option value="">Choose to fit the shelves…</option>
+              {SHELF_PRESETS.map(p => <option key={p.id} value={p.id}>{p.label} — {fmt(p.opening)} openings, {fmt(p.depth)} deep</option>)}
+            </select>
+            <small>Sets the depth and as many shelves as clear {fitNote ? `the item. ${fitNote}.` : 'the item.'}</small>
           </div>
           <div className="shelf-field-grid">
             <div className="form-field">
@@ -118,6 +146,21 @@ export default function DrawerBookcaseFields({ value: b, units, errors, plan, fm
               <LengthField unit={units} label="Crown projection" value={b.crownProjection} error={errors.crownProjection} hint="How far it stands out from the face." onChange={crownProjection => onChange({ crownProjection })} />
             </div>
           )}
+          <div className="form-field">
+            <span className="form-field-label">Display</span>
+            <Toggle label="Lip on every shelf" checked={b.lips === true}
+              hint="A 3/4″ lip along each shelf’s front, so cutting boards, prints and plates lean back without sliding off."
+              onChange={lips => onChange({ lips })} />
+            <Toggle label="Pegboard in the open space" checked={b.pegboard === true}
+              hint={b.openSpace ? 'Spacer cleats on the back hold a pegboard (Skadis or similar) across the open space, with room behind for the hooks.' : 'Turn on “Open space above the counter” to make room for it.'}
+              onChange={pegboard => onChange({ pegboard, ...(pegboard && !b.openSpace ? { openSpace: true, openHeight: b.openHeight || '18' } : {}) })} />
+            <Toggle label="Outlet in the backsplash" checked={b.outlet === true}
+              hint="A cutout in the back where it runs down to the counter, for a wall outlet above the work surface (needs the open space)."
+              onChange={outlet => onChange({ outlet, ...(outlet && !b.openSpace ? { openSpace: true, openHeight: b.openHeight || '18' } : {}) })} />
+            <Toggle label="Light under every shelf" checked={b.shelfLights === true}
+              hint="A rail under each shelf’s front hides an LED strip, so every shelf is lit from above."
+              onChange={shelfLights => onChange({ shelfLights })} />
+          </div>
           <Toggle
             label="Task light"
             checked={b.taskLight}

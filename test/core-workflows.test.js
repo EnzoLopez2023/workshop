@@ -256,7 +256,8 @@ test('create menus, route context, demo blocking, upload ownership, and state co
   assert.match(workflows, /to="\/shaper\/new"[\s\S]*selectProjectType\(event, 'shaper'\)/);
   assert.match(workflows, /to="\/bambu\/new"[\s\S]*selectProjectType\(event, 'bambu'\)/);
   assert.match(workflows, /closest\('details'\)\?\.removeAttribute\('open'\)/);
-  assert.match(shell, /<CreateProjectMenu \/>/);
+  // The sidebar's menu turns compact when the sidebar folds to its icon rail.
+  assert.match(shell, /<CreateProjectMenu compact=\{collapsed\} \/>/);
   assert.match(shell, /<CreateProjectMenu align="end" compact \/>/);
   assert.match(dashboard, /No matching projects/);
   assert.match(dashboard, /No matching Shaper projects/);

@@ -4098,6 +4098,118 @@ tbody td {
   }
 }
 
+/* The desktop sidebar folds to an icon rail (⌘\), giving builders and plans the width. */
+@media (min-width: 768px) {
+  .app-shell {
+    transition: grid-template-columns var(--motion-fast, 160ms) cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .app-brand-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .app-brand-row .app-brand {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .app-sidebar-toggle {
+    display: inline-grid;
+    width: 36px;
+    height: 36px;
+    flex: none;
+    place-items: center;
+    border: 0;
+    border-radius: var(--radius-compact);
+    background: transparent;
+    color: var(--color-muted);
+    cursor: pointer;
+  }
+
+  .app-sidebar-toggle:hover {
+    background: var(--color-recessed);
+    color: var(--color-ink);
+  }
+
+  .app-sidebar-toggle:focus-visible {
+    outline: 2px solid var(--color-annotation);
+    outline-offset: 2px;
+  }
+
+  .app-shell[data-sidebar='collapsed'] {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .app-shell[data-sidebar='collapsed'] .app-sidebar {
+    align-items: center;
+    padding-inline: 10px;
+  }
+
+  .app-shell[data-sidebar='collapsed'] .app-brand-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .app-shell[data-sidebar='collapsed'] .app-brand {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .app-shell[data-sidebar='collapsed'] .app-brand-mark {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+  }
+
+  .app-shell[data-sidebar='collapsed'] .app-brand > span:last-child,
+  .app-shell[data-sidebar='collapsed'] .app-nav-link > span,
+  .app-shell[data-sidebar='collapsed'] .app-sidebar-tools > button > span,
+  .app-shell[data-sidebar='collapsed'] .app-sidebar-tools kbd,
+  .app-shell[data-sidebar='collapsed'] .app-account-copy {
+    display: none;
+  }
+
+  .app-shell[data-sidebar='collapsed'] .app-sidebar-nav {
+    width: 100%;
+    margin-top: 18px;
+  }
+
+  .app-shell[data-sidebar='collapsed'] .app-nav-link {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .app-shell[data-sidebar='collapsed'] .app-nav-link::after {
+    inset: 10px auto 10px 0;
+  }
+
+  .app-shell[data-sidebar='collapsed'] .app-sidebar-actions,
+  .app-shell[data-sidebar='collapsed'] .app-sidebar-tools {
+    width: 100%;
+    justify-items: center;
+  }
+
+  .app-shell[data-sidebar='collapsed'] .app-sidebar-tools > button {
+    width: 44px;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .app-shell[data-sidebar='collapsed'] .app-account {
+    flex-direction: column;
+    gap: 6px;
+    padding-inline: 0;
+  }
+}
+
+@media (min-width: 768px) and (prefers-reduced-motion: reduce) {
+  .app-shell {
+    transition: none;
+  }
+}
+
 @container page (min-width: 620px) {
   .dashboard-tools {
     grid-template-columns: minmax(220px, 1fr) auto;
@@ -9442,6 +9554,13 @@ tbody td {
   grid-column: 1 / -1;
 }
 
+.drawer-run-cabinet {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
 .drawer-run-actions {
   display: inline-flex;
   gap: 2px;
@@ -10442,4 +10561,343 @@ tbody td {
 .drawer-existing {
   fill: none;
   stroke-dasharray: 4 3;
+}
+
+/* ── Built-in Studio workbench: a CAD-style toolbar, inspector and canvas ──────────
+ * The model leads: the canvas takes the window, its readouts and view switch ride in a
+ * slim toolbar on top, and the settings sit in a dense inspector beside it. */
+
+.drawer-templates > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  list-style: none;
+  cursor: pointer;
+}
+
+.drawer-templates > summary::-webkit-details-marker {
+  display: none;
+}
+
+.drawer-templates > summary::before {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--motion-fast) var(--motion-ease);
+  content: "";
+}
+
+.drawer-templates[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.drawer-templates > summary small {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--color-recessed);
+  font-size: 0.7rem;
+  letter-spacing: 0;
+}
+
+.drawer-templates > summary:hover {
+  color: var(--color-ink);
+}
+
+.drawer-templates > summary:focus-visible {
+  outline: 2px solid var(--color-annotation);
+  outline-offset: 2px;
+  border-radius: var(--radius-compact);
+}
+
+.drawer-templates:not([open]) {
+  margin-bottom: 4px;
+}
+
+@media (min-width: 1100px) {
+  /* A slim toolbar: Back, the title, then compact actions. */
+  .shelf-page.builder-workbench {
+    column-gap: 6px;
+    padding: 10px 14px 48px;
+  }
+
+  .builder-workbench > .workflow-back,
+  .builder-workbench > .page-head .page-head-actions .btn {
+    min-height: 36px;
+    padding: 6px 11px;
+    font-size: 0.86rem;
+  }
+
+  .builder-workbench > .page-head .page-title {
+    font-size: 1.12rem;
+    letter-spacing: -0.015em;
+  }
+
+  .builder-workbench > .page-head .page-head-actions {
+    gap: 2px;
+  }
+
+  .builder-workbench > .shelf-layout {
+    margin-top: 8px;
+  }
+
+  .builder-workbench .shelf-layout {
+    --workbench-gap: 10px;
+    grid-template-columns: clamp(330px, 25vw, 400px) minmax(0, 1fr);
+    height: max(560px, calc(100dvh - var(--workbench-top, 120px) - 10px));
+  }
+
+  /* The inspector. */
+  .builder-workbench .shelf-config {
+    padding-inline: 16px;
+    border-radius: var(--radius-compact);
+    box-shadow: 0 1px 2px rgb(21 51 46 / 0.06), 0 8px 24px -16px rgb(21 51 46 / 0.24);
+  }
+
+  /* The canvas: edge to edge inside its frame, with a toolbar across the top. */
+  .builder-workbench .shelf-preview {
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+    border-radius: var(--radius-compact);
+  }
+
+  .builder-workbench .shelf-preview-head {
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 5px 6px 5px 2px;
+    border-bottom: 1px solid var(--color-divider);
+    background: var(--color-glass-strong);
+  }
+
+  .builder-workbench .shelf-preview > .builder-issues {
+    margin: 8px 8px 0;
+  }
+
+  .builder-workbench .shelf-preview > .shelf-viewer {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .builder-workbench .shelf-preview > .builder-drawings {
+    padding: 14px;
+  }
+}
+
+/* Readouts: a compact instrument strip, label over value, divided like a status bar. */
+.shelf-preview-head .shelf-summary {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  border: 0;
+  scrollbar-width: none;
+}
+
+.shelf-preview-head .shelf-summary::-webkit-scrollbar {
+  display: none;
+}
+
+.shelf-preview-head .shelf-summary > div {
+  flex: none;
+  padding: 3px 14px;
+}
+
+.shelf-preview-head .shelf-summary dt {
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.shelf-preview-head .shelf-summary dd {
+  margin-top: 1px;
+  font-size: 0.98rem;
+  white-space: nowrap;
+}
+
+.shelf-preview-head .segmented-control {
+  flex: none;
+  padding: 3px;
+  grid-auto-columns: minmax(76px, 1fr);
+}
+
+.shelf-preview-head .segmented-control button {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: 0.86rem;
+}
+
+/* Steps as a tab strip: one line, the current step underlined. */
+.builder-step-nav {
+  padding-block: 0;
+}
+
+.builder-step-nav ol {
+  flex-wrap: nowrap;
+  gap: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.builder-step-nav ol::-webkit-scrollbar {
+  display: none;
+}
+
+.builder-step-nav button {
+  min-height: 42px;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.builder-step-nav button:hover {
+  background: transparent;
+  color: var(--color-ink);
+}
+
+.builder-step-nav button[aria-current='step'] {
+  border-color: transparent;
+  border-bottom-color: var(--color-action-fill);
+  background: transparent;
+  color: var(--color-action);
+}
+
+.builder-step-num {
+  width: 17px;
+  height: 17px;
+  font-size: 0.66rem;
+}
+
+.builder-step-nav button[aria-current='step'] .builder-step-num {
+  background: var(--color-action-fill);
+  color: var(--color-on-action);
+}
+
+.builder-step-nav button:focus-visible {
+  outline: 2px solid var(--color-annotation);
+  outline-offset: -2px;
+}
+
+/* Inspector rhythm: section rules, quieter group titles, tighter groups. */
+.shelf-config .builder-step-title {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-divider-strong);
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+
+.shelf-config .shelf-group {
+  gap: 10px;
+  padding: 12px 0 14px;
+}
+
+.shelf-config .shelf-group + .shelf-group {
+  border-top: 1px solid color-mix(in srgb, var(--color-divider) 70%, transparent);
+}
+
+.shelf-config .shelf-group > legend {
+  font-size: 0.92rem;
+}
+
+.shelf-config .shelf-design-bar,
+.shelf-config .shelf-source-banner {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-compact);
+  font-size: 0.86rem;
+}
+
+/* With a mouse, the inspector's controls can be desk-tool dense; touch keeps 44px. */
+@media (pointer: fine) and (min-width: 1100px) {
+  .shelf-config input:not([type='checkbox']):not([type='radio']),
+  .shelf-config select,
+  .shelf-config .btn {
+    min-height: 36px;
+  }
+
+  .shelf-config .btn {
+    padding: 6px 12px;
+  }
+
+  .shelf-config .segmented-control button {
+    min-height: 34px;
+    padding: 5px 12px;
+  }
+
+  .shelf-config .shelf-toggle {
+    min-height: 34px;
+  }
+
+  .shelf-config .drawer-template {
+    min-width: 168px;
+    padding: 6px 10px 6px 6px;
+  }
+
+  .shelf-config .drawer-template img {
+    width: 36px;
+    height: 46px;
+  }
+}
+
+@media (min-width: 1100px) {
+  .builder-workbench .builder-step-nav {
+    margin-inline: -16px;
+    padding-inline: 8px;
+  }
+}
+
+/* One column the inspector's width: the one-line step strip and template shelf scroll
+ * inside it rather than stretching it. */
+.shelf-config {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.shelf-config > *,
+.builder-config-top > * {
+  min-width: 0;
+}
+
+.drawer-templates {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.drawer-templates > * {
+  min-width: 0;
+}
+
+/* In the folded rail, menus open beside it instead of being clipped inside 72px. */
+@media (min-width: 768px) {
+  .app-shell[data-sidebar='collapsed'] .app-sidebar {
+    overflow: visible;
+  }
+
+  .app-shell[data-sidebar='collapsed'] .tour-help-menu {
+    top: auto;
+    right: auto;
+    bottom: 0;
+    left: calc(100% + 12px);
+  }
+
+  .app-shell[data-sidebar='collapsed'] .create-menu-popover {
+    top: 0;
+    right: auto;
+    left: calc(100% + 12px);
+  }
 }

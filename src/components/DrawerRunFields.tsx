@@ -4,7 +4,7 @@
 import { ArrowLeft, ArrowRight, Plus, X } from 'lucide-react';
 import { Button, SegmentedControl } from './ui';
 import { LengthField, Toggle } from './builderControls';
-import { CORNER_FILLER, DEFAULT_CORNER, runNeedsWallWidth, type RunFields } from '../lib/drawerRun';
+import { CORNER_FILLER, DEFAULT_CORNER, RUN_CABINET_LAYOUTS, runNeedsWallWidth, type RunCabinetLayout, type RunFields } from '../lib/drawerRun';
 import type { DrawerPlan } from '../lib/drawerUnit';
 import type { LengthUnit } from '../lib/shelving';
 
@@ -94,7 +94,20 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
                   {s.kind === 'cabinet'
                     ? (
                       <>
-                        <small>{cabinetWidth}{units === 'mm' ? ' mm' : '″'} wide — this design</small>
+                        <span className="drawer-run-cabinet">
+                          <select aria-label={`${label} fronts`} value={s.cabinetLayout ?? ''} onChange={e => setSection(i, { cabinetLayout: e.target.value as RunCabinetLayout | '' })}>
+                            <option value="">Fronts: this design</option>
+                            {RUN_CABINET_LAYOUTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          </select>
+                          {s.cabinetLayout === 'drawers' && (
+                            <select aria-label={`${label} drawer count`} value={s.cabinetDrawers ?? 4} onChange={e => setSection(i, { cabinetDrawers: Number(e.target.value) })}>
+                              {[1, 2, 3, 4, 5, 6, 7, 8].map(n => <option key={n} value={n}>{n} drawer{n === 1 ? '' : 's'}</option>)}
+                            </select>
+                          )}
+                        </span>
+                        <LengthField unit={units} label="Width" value={s.cabinetWidth ?? ''} placeholder={cabinetWidth} error={errors[`sections.${i}.width`]}
+                          hint={s.cabinetWidth?.trim() ? 'Its own width; its upper matches it.' : 'Blank: this design’s width.'}
+                          onChange={cabinetWidth => setSection(i, { cabinetWidth })} />
                         <Toggle label="Mirrored" checked={s.mirror} hint="Doors hinge the other way." onChange={mirror => setSection(i, { mirror })} />
                       </>
                     )
@@ -144,6 +157,9 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
               )}
             </div>
           )}
+          <Toggle label="Cord grommet over each desk gap" checked={r.grommets === true}
+            hint="A 2″ hole through the countertop, centred over each desk gap near the back, for monitor and charger cords."
+            onChange={grommets => onChange({ grommets })} />
           <Toggle label="Bookcase over the desk gaps too" checked={r.deskUppers}
             hint="Needs the bookcase on (below). Off leaves the wall over the desk open." onChange={deskUppers => onChange({ deskUppers })} />
           {run && (

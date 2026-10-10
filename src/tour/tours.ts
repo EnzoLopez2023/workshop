@@ -262,11 +262,11 @@ export const TOURS: Record<TourId, Tour> = {
       },
       {
         title: 'Open it up',
-        body: ['Click a drawer to slide it out, or open them all — and Explode pulls every part apart to show how it goes together.'],
+        body: ['Click a drawer to slide it out or a door to swing it open, or open them all — and Explode pulls every part apart to show how it goes together.'],
         route: '/built-ins',
         target: '.shelf-viewer-drawers',
         action: 'click',
-        actionHint: 'press Open drawers or Explode',
+        actionHint: 'press Open or Explode',
         missingHint: needsValid,
       },
       {

@@ -20,6 +20,11 @@ interface Props {
   colors?: Partial<Record<SolidKind, number>>;
   /** Formats a length; with it, overall width, height and depth are drawn on the model. */
   formatLength?: (inches: number) => string;
+  /**
+   * Where the model's box starts (model x and z), when it isn't at 0, 0 — a blind corner
+   * running left, or a corner run's return reaching forward — so it's centred and framed.
+   */
+  origin?: [number, number];
 }
 
 
@@ -41,7 +46,7 @@ interface Stage {
   envelope: [number, number, number] | null;
   /** Once the user orbits, resizes keep their angle instead of re-framing. */
   userMoved: boolean;
-  /** Parts that slide out (drawers), by group name. */
+  /** Parts that slide out (drawers) or swing open (doors), by group name. */
   movers: Map<string, THREE.Group>;
   /** Parts with an exploded-view offset (three.js axes). */
   explodables: { mesh: THREE.Mesh; offset: THREE.Vector3 }[];
@@ -61,7 +66,8 @@ interface DimLabel { axis: 'width' | 'height' | 'depth'; x: number; y: number; v
 const SLIDE_EASE = 0.22;
 const ZERO = new THREE.Vector3();
 
-export default function ShelfViewer3D({ solids, width, height, depth, wallMounted, label, colors, formatLength }: Props) {
+export default function ShelfViewer3D({ solids, width, height, depth, wallMounted, label, colors, formatLength, origin }: Props) {
+  const [originX, originZ] = origin ?? [0, 0];
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   const [error, setError] = useState('');
@@ -69,6 +75,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
   const openRef = useRef(new Set<string>());
   const [openCount, setOpenCount] = useState(0);
   const [movable, setMovable] = useState(0);
+  const [moverKinds, setMoverKinds] = useState({ drawers: false, doors: false });
   const [hover, setHover] = useState('');
   const [exploded, setExploded] = useState(false);
   const [explodable, setExplodable] = useState(false);
@@ -150,16 +157,17 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     const loop = () => {
       frame = 0;
       const moving = controls.update();
-      // Ease each drawer toward open or shut.
+      // Ease each drawer (sliding) and door (swinging on its hinge) toward open or shut.
       let sliding = false;
       for (const group of stageRef.current?.movers.values() ?? []) {
-        const target = group.userData.open ? group.userData.travel as number : 0;
-        const gap = target - group.position.z;
-        if (Math.abs(gap) > 0.01) {
-          group.position.z += gap * SLIDE_EASE;
-          sliding = true;
-        } else if (gap !== 0) {
-          group.position.z = target;
+        const swing = group.userData.swing as number;
+        const target = group.userData.open ? (swing || group.userData.travel as number) : 0;
+        const now = swing ? group.rotation.y : group.position.z;
+        const gap = target - now;
+        const next = Math.abs(gap) > (swing ? 0.002 : 0.01) ? now + gap * SLIDE_EASE : target;
+        if (next !== now) {
+          if (swing) group.rotation.y = next; else group.position.z = next;
+          if (next !== target) sliding = true;
         }
       }
       // And each part toward its exploded (or assembled) position.
@@ -181,7 +189,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
       if (stageRef.current) stageRef.current.userMoved = true;
     });
 
-    // A click (not a drag to orbit) on a drawer opens or shuts it.
+    // A click (not a drag to orbit) on a drawer or door opens or shuts it.
     const raycaster = new THREE.Raycaster();
     let down: { x: number; y: number } | null = null;
     const onDown = (e: PointerEvent) => { down = { x: e.clientX, y: e.clientY }; };
@@ -302,16 +310,28 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
         stage.explodables.push({ mesh, offset });
         if (stage.exploded) mesh.position.copy(offset);
       }
-      if (solid.group && solid.travel) {
+      if (solid.group && (solid.travel || solid.swing)) {
         let group = stage.movers.get(solid.group);
         if (!group) {
           group = new THREE.Group();
-          group.userData = { group: solid.group, travel: solid.travel, open: openRef.current.has(solid.group) };
-          group.position.z = group.userData.open ? solid.travel : 0;
+          const open = openRef.current.has(solid.group);
+          group.userData = { group: solid.group, travel: solid.travel ?? 0, swing: solid.swing?.angle ?? 0, open };
+          if (solid.swing) {
+            // A door turns about its hinge line: the outer group sits on it, the inner one puts the parts back.
+            const [px, pz] = solid.swing.pivot;
+            group.position.set(px, 0, -pz);
+            const inner = new THREE.Group();
+            inner.position.set(-px, 0, pz);
+            group.add(inner);
+            group.userData.inner = inner;
+            group.rotation.y = open ? solid.swing.angle : 0;
+          } else {
+            group.position.z = open ? solid.travel! : 0;
+          }
           stage.movers.set(solid.group, group);
           parts.add(group);
         }
-        group.add(mesh);
+        ((group.userData.inner as THREE.Group | undefined) ?? group).add(mesh);
       } else {
         parts.add(mesh);
       }
@@ -319,9 +339,11 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     // Forget drawers that no longer exist.
     for (const name of [...openRef.current]) if (!stage.movers.has(name)) openRef.current.delete(name);
     setMovable(stage.movers.size);
+    const kinds = [...stage.movers.values()].map(g => (g.userData.swing ? 'door' : 'drawer'));
+    setMoverKinds({ drawers: kinds.includes('drawer'), doors: kinds.includes('door') });
     setExplodable(stage.explodables.length > 0);
     setOpenCount(openRef.current.size);
-    parts.position.set(-width / 2, 0, depth / 2);
+    parts.position.set(-(originX + width / 2), 0, originZ + depth / 2);
     // The overall box, from the parts as built (not opened or exploded), leaving out context
     // like an existing desk.
     const bounds = new THREE.Box3();
@@ -353,7 +375,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
       frameCamera(stage, width, height, depth);
     }
     stage.render();
-  }, [solids, width, height, depth, wallMounted]);
+  }, [solids, width, height, depth, wallMounted, originX, originZ]);
 
   // Finish colours only recolour the shared materials; nothing is rebuilt.
   const colorKey = JSON.stringify(colors ?? {});
@@ -424,7 +446,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
             <div className="shelf-viewer-drawers" data-open={openCount}>
               {movable > 0 && (
                 <button type="button" onClick={toggleAll} aria-pressed={allOpen}>
-                  {allOpen ? 'Close drawers' : 'Open drawers'}
+                  {`${allOpen ? 'Close' : 'Open'} ${moverKinds.drawers && moverKinds.doors ? 'all' : moverKinds.doors ? 'doors' : 'drawers'}`}
                 </button>
               )}
               {explodable && (
@@ -432,7 +454,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
                   {exploded ? 'Assemble' : 'Explode'}
                 </button>
               )}
-              {movable > 0 && <small>or click a drawer</small>}
+              {movable > 0 && <small>or click a {moverKinds.drawers && moverKinds.doors ? 'drawer or door' : moverKinds.doors ? 'door' : 'drawer'}</small>}
             </div>
           )}
           {formatLength && showDims && dimLabels?.map(l => (

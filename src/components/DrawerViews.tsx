@@ -142,6 +142,8 @@ export function TopView({ plan, config, fmt }: ViewProps) {
   const dk = plan.desk;
   const bl = plan.blind;
   const unitXs = run ? run.sections.filter(s => s.kind === 'cabinet').map(s => s.x) : dk ? dk.unitXs : [bl?.side === 'left' ? bl.width : 0];
+  // In a run each cabinet can have its own width.
+  const unitWs = run ? run.sections.filter(s => s.kind === 'cabinet').map(s => s.width) : unitXs.map(() => W);
   if (bl) {
     // The blind side: the case carried on to its end side, and the blind panel across the front.
     const [x0, x1] = bl.side === 'left' ? [0, bl.width] : [W, W + bl.width];
@@ -150,7 +152,8 @@ export function TopView({ plan, config, fmt }: ViewProps) {
     shapes.push(rect(bl.side === 'left' ? 0 : x1 - T, 0, bl.side === 'left' ? T : x1, cd, 'shelf-ply is-shelf'));
     shapes.push(rect(bl.panel.x0 + ox, bl.panel.z0, bl.panel.x1 + ox, bl.panel.z1, 'drawer-front-shape'));
   }
-  for (const x of unitXs) {
+  for (const [ui, x] of unitXs.entries()) {
+    const W = unitWs[ui];
     shapes.push(rect(x, 0, x + W, cd));
     // The sides and back, so each case reads as a box from above.
     shapes.push(rect(x, 0, x + T, cd, 'shelf-ply is-shelf'));
@@ -177,7 +180,7 @@ export function TopView({ plan, config, fmt }: ViewProps) {
     const c = run.countertop;
     shapes.push(rect(c.x0, c.z0, c.x1, c.z1, 'drawer-overhead'));
     if (run.uppers && plan.bookcase) {
-      const bay = run.corner?.bay;
+      const bay = run.corner && !run.corner.cornerUpper ? run.corner.bay : undefined;
       const [u0, u1] = bay ? (run.corner!.side === 'right' ? [0, bay.x0] : [bay.x1, run.width]) : [0, run.width];
       shapes.push(rect(u0, plan.bookcase.z0, u1, cd, 'drawer-overhead is-upper'));
     }
@@ -208,7 +211,7 @@ export function TopView({ plan, config, fmt }: ViewProps) {
       const cabs = cn.sections.filter(x => x.kind === 'cabinet');
       if (run.uppers && plan.bookcase && cabs.length) {
         const last = cabs[cabs.length - 1];
-        shapes.push(along(cabs[0].x, last.x + last.width, plan.bookcase.z0, cd, 'drawer-overhead is-upper'));
+        shapes.push(along(cn.returnUpper ? cn.returnUpper.x0 : cabs[0].x, last.x + last.width, plan.bookcase.z0, cd, 'drawer-overhead is-upper'));
       }
     }
   } else if (plan.bookcase) {

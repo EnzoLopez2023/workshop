@@ -28,7 +28,7 @@ import { isDemoMode } from '../demo/demoMode';
 import type { LibraryDrawerDesign } from '../types/project';
 import { decimalString, formatLength, lengthToField, parseLength, type LengthUnit } from '../lib/shelving';
 import {
-  buildDrawerPlan, cornerBlindConfig,
+  buildDrawerPlan, runSectionConfig,
   DEFAULT_CASTER_HEIGHT,
   DEFAULT_FOOT_HEIGHT,
   DEFAULT_PULL,
@@ -58,6 +58,7 @@ import {
   UNDER_DESK_CLEARANCE,
   doorNotch,
   doorNotchCenter,
+  doorView,
   DESK_LEG_INSET,
   DESK_LEG_SIZE,
   pullHoles,
@@ -74,6 +75,7 @@ import { BOOKCASE_LENGTH_KEYS, bookcaseFromFields, bookcaseToFields, valanceSpan
 import { runFromFields, runToFields } from '../lib/drawerRun';
 import DrawerRunFields from '../components/DrawerRunFields';
 import { SideView, TopView } from '../components/DrawerViews';
+import { cabinetBox } from '../lib/builtinRoom';
 import { useWorkbenchTop } from '../components/useWorkbenchTop';
 import BuilderStepNav, { type BuilderStep } from '../components/BuilderStepNav';
 import DrawerBookcaseFields from '../components/DrawerBookcaseFields';
@@ -115,6 +117,8 @@ const DEFAULT_FORM: FormState = {
   frontStyle: 'inset',
   hardwareKind: 'none',
   hardwareSpacing: '3 3/4',
+  doorHardwareKind: 'same',
+  doorHardwareSpacing: '3 3/4',
   profileStyle: 'slab',
   profileMethod: 'pocket',
   profileRail: '2 1/4',
@@ -157,6 +161,9 @@ const DEFAULT_FORM: FormState = {
   blind: false,
   blindSide: 'right',
   blindWidth: '27',
+  deskGrommets: 0,
+  outlet: false,
+  outletHeight: '12',
   drawerSlides: ['', '', '', '', ''],
   doorHinges: ['auto', 'auto', 'auto', 'auto', 'auto'],
   doorInside: ['shelves', 'shelves', 'shelves', 'shelves', 'shelves'],
@@ -183,7 +190,7 @@ const LENGTH_FIELDS = [
   'insertThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
   'mountHeight', 'cleatHeight', 'toolBoardThickness', 'toolPocketDepth', 'toolClearance',
   'kickHeight', 'kickSetback', 'baseboardHeight', 'baseboardThickness',
-  'hardwareSpacing', 'profileRail', 'profileDepth', 'blindWidth',
+  'hardwareSpacing', 'doorHardwareSpacing', 'profileRail', 'profileDepth', 'blindWidth', 'outletHeight',
 ] as const;
 type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}` | `columnFronts.${number}.${number}` | `columnWidths.${number}`
   | `bookcase.${typeof BOOKCASE_LENGTH_KEYS[number]}` | `run.${string}`;
@@ -236,7 +243,7 @@ function stepOfField(key: string): string {
   if (/^(thickness|boxThickness|bottomThickness|backThickness)$/.test(key)) return 'drawer-step-materials';
   if (/^(pull|hardware|profile|bandingThickness)/.test(key)) return 'drawer-step-look';
   if (/^(footHeight|casterHeight|kick|baseboard|mountHeight|cleatHeight)/.test(key)) return 'drawer-step-base';
-  if (/^(bookcase|run|desk|blind)/.test(key)) return 'drawer-step-builtins';
+  if (/^(bookcase|run|desk|blind|outlet)/.test(key)) return 'drawer-step-builtins';
   if (/^(insertThickness|marker|tool)/.test(key)) return 'drawer-step-inside';
   return 'drawer-step-size';
 }
@@ -348,7 +355,7 @@ function convertForm(form: FormState, units: LengthUnit): FormState {
   next.columnWidths = form.columnWidths.map(w => (w.trim() ? convert(w) : w));
   if (form.run) {
     next.run = {
-      ...form.run, wallWidth: convert(form.run.wallWidth), sections: form.run.sections.map(x => ({ ...x, width: convert(x.width) })),
+      ...form.run, wallWidth: convert(form.run.wallWidth), sections: form.run.sections.map(x => ({ ...x, width: convert(x.width), ...(x.cabinetWidth?.trim() ? { cabinetWidth: convert(x.cabinetWidth) } : {}) })),
       ...(form.run.corner ? { corner: { ...form.run.corner, wallLength: convert(form.run.corner.wallLength), sections: form.run.corner.sections.map(x => ({ ...x, width: convert(x.width) })) } } : {}),
     };
   }
@@ -412,9 +419,10 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
   const fronts = form.heightMode === 'fronts';
   const thickness = num('thickness');
   const desk = form.desk
-    ? { enabled: true, layout: form.deskLayout, width: num('deskWidth'), height: num('deskHeight'), depth: num('deskDepth'), topLayers: form.deskTopLayers, openEnd: form.deskOpenEnd ?? 'legs' }
+    ? { enabled: true, layout: form.deskLayout, width: num('deskWidth'), height: num('deskHeight'), depth: num('deskDepth'), topLayers: form.deskTopLayers, openEnd: form.deskOpenEnd ?? 'legs', ...(form.deskGrommets ? { grommets: form.deskGrommets } : {}) }
     : undefined;
   const blind = form.blind ? { side: form.blindSide ?? 'right', width: num('blindWidth') } : undefined;
+  const outlet = form.outlet ? { height: num('outletHeight') } : undefined;
   const usesMarkers = form.insertKinds.slice(0, form.drawers).includes('markers');
   const usesTools = form.insertKinds.slice(0, form.drawers).includes('tools');
   const toolBoard = usesTools ? num('toolBoardThickness') : null;
@@ -452,6 +460,9 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     hardware: form.hardwareKind !== 'none'
       ? { kind: form.hardwareKind, spacing: form.hardwareKind === 'knob' ? 0 : num('hardwareSpacing') }
       : undefined,
+    ...(form.doorHardwareKind && form.doorHardwareKind !== 'same' ? {
+      doorHardware: { kind: form.doorHardwareKind, spacing: form.doorHardwareKind === 'bar' || form.doorHardwareKind === 'cup' ? num('doorHardwareSpacing') : 0 },
+    } : {}),
     frontProfile: form.profileStyle === 'shaker'
       ? { style: 'shaker', method: form.profileMethod, rail: num('profileRail'), depth: num('profileDepth') }
       : undefined,
@@ -487,6 +498,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     insertThickness: form.insertKinds.slice(0, form.drawers).some(k => k !== 'none') ? num('insertThickness') : 1 / 4,
     desk,
     blind,
+    outlet,
     slideLengths: form.drawerSlides.slice(0, form.drawers).some(Boolean)
       ? form.drawerSlides.slice(0, form.drawers).map(v => (v ? Number(v) : null))
       : undefined,
@@ -604,7 +616,21 @@ export default function DrawerBuilder() {
     return count ? { ...step, badge: `${count} to fix` } : step;
   }), [fieldErrorKeys]);
 
+  // The template shelf folds away once you're working on a design; the choice is remembered.
+  const [templatesOpen, setTemplatesOpen] = useState(() => {
+    try { return localStorage.getItem('workshop-builtins-templates') !== 'closed'; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('workshop-builtins-templates', templatesOpen ? 'open' : 'closed'); } catch { /* convenience only */ }
+  }, [templatesOpen]);
   const solids = useMemo(() => (plan && config && valid ? (plan.run ? runSolids(plan, config) : plan.desk ? deskSolids(plan, config) : drawerSolids(plan, config)) : []), [plan, config, valid]);
+  // The model's real footprint, so the 3D view centres and frames it (a blind side running
+  // left, a corner run's return reaching forward). Context like an existing desk is left out.
+  const extent = useMemo(() => {
+    const box = cabinetBox(solids.filter(x => !/\(existing\)/.test(x.name) && x.kind !== 'wall-cleat'));
+    if (!box || !plan) return { width: plan?.overallWidth ?? 1, depth: plan?.caseDepth ?? 1, origin: [0, 0] as [number, number] };
+    return { width: box.maxX - box.minX, depth: box.maxZ - box.minZ, origin: [box.minX, box.minZ] as [number, number] };
+  }, [solids, plan]);
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
   const estimate = useDrawerEstimate(plan && valid ? plan : null, valid ? config : null, units);
 
@@ -1076,8 +1102,12 @@ export default function DrawerBuilder() {
         <section className="shelf-config" aria-labelledby="drawer-config-title" ref={configRef}>
           <BuilderStepNav steps={steps} containerRef={configRef} />
           <div className="builder-config-top">
-      <section className="drawer-templates" aria-labelledby="drawer-templates-title">
-        <h2 id="drawer-templates-title">Start from</h2>
+      <details className="drawer-templates" open={templatesOpen} onToggle={e => setTemplatesOpen((e.currentTarget as HTMLDetailsElement).open)}>
+        <summary>
+          <span id="drawer-templates-title">Templates{library.length > 0 ? ' & saved designs' : ''}</span>
+          <small>{DRAWER_TEMPLATES.length + library.length}</small>
+        </summary>
+        <h2>Start from</h2>
         <ul>
           {DRAWER_TEMPLATES.map((t, i) => {
             const thumb = templatePlans[i];
@@ -1121,7 +1151,7 @@ export default function DrawerBuilder() {
             </ul>
           </>
         )}
-      </section>
+      </details>
 
       {loadNotice && (
         <p className={`shelf-source-banner ${loadNotice.tone === 'error' ? 'is-error' : ''}`} role={loadNotice.tone === 'error' ? 'alert' : 'status'}>
@@ -1470,6 +1500,22 @@ export default function DrawerBuilder() {
             {(form.hardwareKind === 'bar' || form.hardwareKind === 'cup') && (
               <LengthField unit={units} label="Hole spacing" value={form.hardwareSpacing} error={fieldErrors.hardwareSpacing} hint="Centre to centre: 3″, 3 3/4″ (96 mm) and 5″ (128 mm) are common." onChange={hardwareSpacing => update({ hardwareSpacing })} />
             )}
+            <label className="form-field">
+              <span className="form-field-label">Door pulls</span>
+              <select value={form.doorHardwareKind ?? 'same'} onChange={e => update({ doorHardwareKind: e.target.value as FormState['doorHardwareKind'] })}>
+                <option value="same">Same as the drawers</option>
+                <option value="knob">Knobs</option>
+                <option value="bar">Bar pulls</option>
+                <option value="cup">Cup pulls</option>
+                <option value="none">None (push-to-open)</option>
+              </select>
+              <small>{(form.doorHardwareKind ?? 'same') === 'same'
+                ? 'Doors (and bookcase doors) get the same pulls as the drawers.'
+                : `Doors and bookcase doors get their own${form.pullEnabled ? ' — no cut-out on them; the drawers keep theirs' : ''}.`}</small>
+            </label>
+            {(form.doorHardwareKind === 'bar' || form.doorHardwareKind === 'cup') && (
+              <LengthField unit={units} label="Door pull hole spacing" value={form.doorHardwareSpacing} error={fieldErrors.doorHardwareSpacing} hint="Centre to centre." onChange={doorHardwareSpacing => update({ doorHardwareSpacing })} />
+            )}
             {form.pullEnabled && (
               <>
                 <label className="form-field">
@@ -1678,10 +1724,26 @@ export default function DrawerBuilder() {
                   </p>
                 )}
                 <SegmentedControl label="Top" value={String(form.deskTopLayers) as '1' | '2'} options={TOP_LAYER_OPTIONS} onChange={v => update({ deskTopLayers: v === '1' ? 1 : 2 })} />
+                <div className="form-field">
+                  <span className="form-field-label" id="desk-grommets">Cord grommets</span>
+                  <Stepper labelledBy="desk-grommets" value={form.deskGrommets ?? 0} min={0} max={4} onChange={deskGrommets => update({ deskGrommets })} noun="grommet" />
+                  <small>{fmt(2)} holes along the back over the knee space, for monitor and charger cords.</small>
+                </div>
                 {form.heightMode === 'fronts' && (
                   <small>With “Each front”, the fronts must add up to the space under the top — use “Make equal” to fit them.</small>
                 )}
               </>
+            )}
+          </fieldset>
+
+          <fieldset className="shelf-group" data-tour="fs-power">
+            <legend>Power and cords</legend>
+            <Toggle label="Outlet cutout in the back" checked={form.outlet}
+              hint="A cutout in the cabinet back where a wall outlet lands, so you can plug in behind it (and in every copy in a wall run)."
+              onChange={outlet => update({ outlet })} />
+            {form.outlet && (
+              <LengthField unit={units} label="Outlet height" value={form.outletHeight} error={fieldErrors.outletHeight}
+                hint="Floor to the outlet’s centre; standard outlets sit about 12–16″ up." onChange={outletHeight => update({ outletHeight })} />
             )}
           </fieldset>
 
@@ -1887,11 +1949,8 @@ export default function DrawerBuilder() {
 
         <section className="shelf-preview" aria-labelledby="drawer-preview-title">
           <header className="shelf-preview-head">
-            <h2 id="drawer-preview-title">Preview</h2>
-            <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
-          </header>
-          {plan && config ? (
-            <>
+            <h2 id="drawer-preview-title" className="sr-only">Preview</h2>
+            {plan && config && (
               <dl className="shelf-summary">
                 {plan.desk ? (
                   <>
@@ -1901,7 +1960,7 @@ export default function DrawerBuilder() {
                   </>
                 ) : (
                   <>
-                    <Stat label={plan.run ? 'Wall run' : 'Overall width'} value={fmt(plan.run ? plan.run.width : plan.overallWidth)} />
+                    <Stat label={plan.run ? 'Wall run' : 'Overall width'} value={fmt(plan.run ? plan.run.width : plan.blind ? plan.blind.totalWidth : plan.overallWidth)} />
                     <Stat label={plan.bookcase ? 'Height with bookcase' : 'Overall height'} value={fmt(plan.bookcase || plan.run ? plan.totalHeight : plan.overallHeight)} />
                     <Stat label="Overall depth" value={fmt(plan.overallDepth)} />
                   </>
@@ -1915,6 +1974,11 @@ export default function DrawerBuilder() {
                   accent
                 />
               </dl>
+            )}
+            <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
+          </header>
+          {plan && config ? (
+            <>
               {(plan.errors.length > 0 || plan.warnings.length > 0) && (
                 <details className="builder-issues" open={plan.errors.length > 0}>
                   <summary>
@@ -1933,9 +1997,10 @@ export default function DrawerBuilder() {
                   <ShelfViewer3D
                     solids={solids}
                     formatLength={fmt}
-                    width={plan.run ? plan.run.width : plan.desk ? plan.desk.width : plan.overallWidth}
+                    width={extent.width}
                     height={plan.desk ? plan.desk.height : plan.totalHeight + plan.lift}
-                    depth={plan.desk ? plan.desk.depth : plan.caseDepth}
+                    depth={extent.depth}
+                    origin={extent.origin}
                     wallMounted={plan.mount === 'wall'}
                     colors={finishColors(config.finish)}
                     label={plan.desk
@@ -2281,7 +2346,7 @@ function CabinetFront({ plan, config, y }: { plan: DrawerPlan; config: DrawerCon
         {plan.drawers.map(d => {
           const hole = handHole(pull);
           if (d.door) {
-            const notch = doorNotch(config.pull);
+            const notch = doorNotch(doorView(config).pull);
             return (
               <g key={d.index}>
                 {d.door.leaves.map(l => {
@@ -2291,7 +2356,7 @@ function CabinetFront({ plan, config, y }: { plan: DrawerPlan; config: DrawerCon
                     <g key={l.x}>
                       <polygon className="drawer-front-shape" style={{ fill: config.finish?.front }}
                         points={notchedOutline(l.x, d.front.y, l.width, d.front.height, notch, doorNotchCenter(l, notch)).map(([px, py]) => `${px},${y(py)}`).join(' ')} />
-                      <FrontDecor config={config} x={l.x} y0={d.front.y} w={l.width} h={d.front.height} door={{ hinge: l.hinge }} y={y} />
+                      <FrontDecor config={doorView(config)} x={l.x} y0={d.front.y} w={l.width} h={d.front.height} door={{ hinge: l.hinge }} y={y} />
                       {/* Swing lines: from the free edge's corners to the middle of the hinge edge. */}
                       <polyline className="drawer-door-swing" points={`${freeX},${y(d.front.y + d.front.height)} ${hingeX},${y(d.front.y + d.front.height / 2)} ${freeX},${y(d.front.y)}`} />
                     </g>
@@ -2335,19 +2400,34 @@ function RunFront({ plan, config, y }: { plan: DrawerPlan; config: DrawerConfig;
   const run = plan.run!;
   const W = plan.overallWidth;
   const rect = (x: number, y0: number, w: number, h: number, className = 'shelf-ply') => <rect className={className} x={x} y={y(y0 + h)} width={w} height={h} />;
-  // A blind corner: the cabinet beside the corner is drawn as built, its doors hinged away from the corner.
-  const blindConfig = cornerBlindConfig(config, run);
-  const blindPlan = blindConfig ? buildDrawerPlan(blindConfig) : null;
-  const blindOk = blindPlan && blindConfig && !blindPlan.errors.length;
+  // Cabinets that aren't plain copies (their own width or fronts, or the blind corner) are drawn as built.
+  const own = run.sections.map((_, i) => {
+    const c = runSectionConfig(config, run, i, { H: plan.overallHeight, caseHeight: plan.caseHeight });
+    const p = c ? buildDrawerPlan(c) : null;
+    return c && p && !p.errors.length ? { config: c, plan: p } : null;
+  });
   return (
     <>
-      {run.sections.map((sec, i) => (
-        <g key={i} transform={sec.mirror && !(blindOk && i === run.corner?.blindSection) ? `translate(${sec.x + W} 0) scale(-1 1)` : `translate(${sec.x} 0)`}>
-          {sec.kind === 'cabinet'
-            ? <>{plan.bookcase && <BookcaseElevation plan={plan} bk={plan.bookcase} width={W} y={y} noCounter />}{blindOk && i === run.corner?.blindSection ? <CabinetFront plan={blindPlan} config={blindConfig} y={y} /> : <CabinetFront plan={plan} config={config} y={y} />}</>
-            : sec.upper && <BookcaseElevation plan={plan} bk={sec.upper} width={sec.width} y={y} noCounter />}
+      {run.sections.map((sec, i) => {
+        const o = own[i];
+        const w = o ? o.plan.overallWidth : W;
+        const mirror = sec.mirror && !o?.plan.blind;
+        return (
+          <g key={i} transform={mirror ? `translate(${sec.x + w} 0) scale(-1 1)` : `translate(${sec.x} 0)`}>
+            {sec.kind === 'cabinet'
+              ? <>
+                {sec.upper ? <BookcaseElevation plan={plan} bk={sec.upper} width={sec.width} y={y} noCounter /> : plan.bookcase && <BookcaseElevation plan={plan} bk={plan.bookcase} width={W} y={y} noCounter />}
+                {o ? <CabinetFront plan={o.plan} config={o.config} y={y} /> : <CabinetFront plan={plan} config={config} y={y} />}
+              </>
+              : sec.upper && <BookcaseElevation plan={plan} bk={sec.upper} width={sec.width} y={y} noCounter />}
+          </g>
+        );
+      })}
+      {run.corner?.cornerUpper && (
+        <g transform={`translate(${run.corner.bay.x0} 0)`}>
+          <BookcaseElevation plan={plan} bk={run.corner.cornerUpper} width={run.corner.bay.x1 - run.corner.bay.x0} y={y} noCounter />
         </g>
-      ))}
+      )}
       {run.fillers.map(fl => (
         <g key={fl.side}>
           {rect(fl.x, 0, fl.width, plan.overallHeight)}

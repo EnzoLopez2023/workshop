@@ -3,6 +3,8 @@ import {
   Hammer,
   LogOut,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Ruler,
   Rows3,
   Archive,
@@ -11,7 +13,7 @@ import {
   ShoppingCart,
   Sun,
 } from 'lucide-react';
-import { useEffect, type ComponentType, type ReactNode } from 'react';
+import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
@@ -38,7 +40,27 @@ const NAV_ICONS: Record<NavigationId, ComponentType<{ size?: number; strokeWidth
   settings: Settings,
 };
 
+/** The desktop sidebar can fold to an icon rail; the choice is a per-browser convenience. */
+const SIDEBAR_STORAGE_KEY = 'workshop-sidebar';
+const readCollapsed = () => {
+  try { return localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'collapsed'; } catch { return false; }
+};
+
 export default function AppShell({ children }: { children: ReactNode }) {
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const toggleCollapsed = () => setCollapsed(prev => {
+    const next = !prev;
+    try { localStorage.setItem(SIDEBAR_STORAGE_KEY, next ? 'collapsed' : 'open'); } catch { /* convenience only */ }
+    return next;
+  });
+  // ⌘\ / Ctrl-\ folds or opens the sidebar, as in most desktop design tools.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); toggleCollapsed(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const { instance } = useMsal();
   const { pathname } = useLocation();
   const { resolvedTheme, setTheme } = useTheme();
@@ -77,17 +99,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <TourProvider>
     <FirstVisitOffer />
-    <div className="app-shell">
+    <div className="app-shell" data-sidebar={collapsed ? 'collapsed' : 'open'}>
       <a className="skip-link" href="#main-content" data-command-background>Skip to content</a>
 
       <aside className="app-sidebar" aria-label="Workshop navigation" data-command-background>
-        <NavLink to="/" className="app-brand" aria-label="Workshop projects">
-          <img className="app-brand-mark" src="/apple-touch-icon.png" alt="" width={44} height={44} />
-          <span>
-            <strong>Workshop</strong>
-            <small>Living plan table</small>
-          </span>
-        </NavLink>
+        <div className="app-brand-row">
+          <NavLink to="/" className="app-brand" aria-label="Workshop projects" title={collapsed ? 'Workshop' : undefined}>
+            <img className="app-brand-mark" src="/apple-touch-icon.png" alt="" width={44} height={44} />
+            <span>
+              <strong>Workshop</strong>
+              <small>Living plan table</small>
+            </span>
+          </NavLink>
+          <button type="button" className="app-sidebar-toggle" onClick={toggleCollapsed}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed} title={`${collapsed ? 'Expand' : 'Collapse'} sidebar (⌘\\)`}>
+            {collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
+          </button>
+        </div>
 
         <nav className="app-sidebar-nav" aria-label="Primary" data-tour="nav">
           {PRIMARY_NAVIGATION.map(item => {
@@ -99,6 +127,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 to={item.href}
                 className={current ? 'app-nav-link is-current' : 'app-nav-link'}
                 aria-current={current ? 'page' : undefined}
+                title={collapsed ? item.label : undefined}
               >
                 <Icon size={19} strokeWidth={2} aria-hidden="true" />
                 <span>{item.label}</span>
@@ -108,17 +137,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="app-sidebar-actions" aria-label="Create" data-tour="new-project">
-          <CreateProjectMenu />
+          <CreateProjectMenu compact={collapsed} />
         </div>
 
         <div className="app-sidebar-tools" aria-label="Workspace tools">
-          <button type="button" onClick={openPalette} data-tour="search">
+          <button type="button" onClick={openPalette} data-tour="search" title={collapsed ? 'Search (⌘K)' : undefined} aria-label={collapsed ? 'Search' : undefined}>
             <Search size={17} aria-hidden="true" />
             <span>Search</span>
             <kbd>⌘K</kbd>
           </button>
-          <HelpMenu />
-          <button type="button" onClick={toggleTheme}>
+          <HelpMenu compact={collapsed} />
+          <button type="button" onClick={toggleTheme} title={collapsed ? (resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode') : undefined} aria-label={collapsed ? (resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode') : undefined}>
             {resolvedTheme === 'dark'
               ? <Sun size={17} aria-hidden="true" />
               : <Moon size={17} aria-hidden="true" />}

@@ -27,14 +27,15 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
   {
     id: 'display-wall',
     name: 'Display wall',
-    description: 'Three shallow 16″ cabinets with wide flat drawers for stored work, an open lit band above the counter for a pegboard or leaning boards, and display shelves to the top.',
+    description: 'Three shallow 16″ cabinets with wide flat drawers for stored work, a pegboard across the lit open band above the counter, and lipped, lit display shelves to the top for boards and prints.',
     fields: {
       ...SHAKER,
       width: '42', height: '30', depth: '16', heightMode: 'overall', drawers: 6, base: 'kick', kickHeight: '4', kickSetback: '3',
       columns: 2, columnWidthMode: 'equal', columnDrawers: [3, 3], columnFronts: [['8', '8', '8'], ['8', '8', '8']],
       bookcase: bookcaseToFields({
-        ...DEFAULT_BOOKCASE, enabled: true, height: 66, depth: 10, bays: 2, shelvesPerBay: 1, adjustablePerBay: 1, openBelow: 24,
+        ...DEFAULT_BOOKCASE, enabled: true, height: 66, depth: 10, bays: 2, shelvesPerBay: 2, adjustablePerBay: 0, openBelow: 24,
         countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'cap' }, taskLight: true,
+        lips: true, pegboard: true, shelfLights: true,
       }, L),
       run: runFields({ wallWidth: 126, leftEnd: 'open', rightEnd: 'open', sections: [{ kind: 'cabinet' }, { kind: 'cabinet' }, { kind: 'cabinet', mirror: true }] }),
     },
@@ -42,7 +43,7 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
   {
     id: 'hutch-run',
     name: 'Hutch run',
-    description: 'Desk-height cabinets wall to wall (a drawer stack beside a door in each), one 30″ countertop, and a bookcase hutch with crown over an open band — the wall a peninsula desk tees off.',
+    description: 'Desk-height cabinets wall to wall — a drawer stack, a drawers-and-door cabinet and a cupboard — under one 30″ countertop, with an outlet in the backsplash and a bookcase hutch with crown over the open band: the wall a peninsula desk tees off.',
     fields: {
       ...SHAKER,
       width: '36', height: '28 1/2', depth: '23 7/8', heightMode: 'overall', drawers: 4, base: 'kick', kickHeight: '4', kickSetback: '3',
@@ -51,9 +52,9 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
       doorHinges: ['auto', 'auto', 'auto', 'auto'], doorInside: ['shelves', 'shelves', 'shelves', 'shelves'], doorCounts: [1, 1, 1, 1],
       bookcase: bookcaseToFields({
         ...DEFAULT_BOOKCASE, enabled: true, height: 64, depth: 12, bays: 2, shelvesPerBay: 1, adjustablePerBay: 2, openBelow: 18,
-        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'crown' }, taskLight: true,
+        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'crown' }, taskLight: true, outlet: true,
       }, L),
-      run: runFields({ wallWidth: 113, sections: [{ kind: 'cabinet' }, { kind: 'cabinet' }, { kind: 'cabinet', mirror: true }] }),
+      run: runFields({ wallWidth: 113, grommets: true, sections: [{ kind: 'cabinet', cabinet: { layout: 'drawers', drawers: 4 } }, { kind: 'cabinet' }, { kind: 'cabinet', mirror: true, cabinet: { layout: 'door' } }] }),
     },
   },
   {
@@ -63,7 +64,7 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
     fields: {
       ...SHAKER,
       width: '18', height: '28 1/2', depth: '23 7/8', heightMode: 'overall', drawers: 3, base: 'none',
-      desk: true, deskLayout: 'left', deskOpenEnd: 'ledger', deskWidth: '76', deskHeight: '30', deskDepth: '30', deskTopLayers: 2,
+      desk: true, deskLayout: 'left', deskOpenEnd: 'ledger', deskWidth: '76', deskHeight: '30', deskDepth: '30', deskTopLayers: 2, deskGrommets: 2,
     },
   },
   {
@@ -74,7 +75,7 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
       ...SHAKER,
       width: '18', height: '28 1/2', depth: '23 7/8', heightMode: 'overall', drawers: 3, base: 'kick', kickHeight: '4', kickSetback: '3',
       run: runFields({
-        wallWidth: 72, leftEnd: 'open', rightEnd: 'wall', deskUppers: false,
+        wallWidth: 72, leftEnd: 'open', rightEnd: 'wall', deskUppers: false, grommets: true,
         sections: [{ kind: 'cabinet' }, { kind: 'desk', width: 30 }],
         corner: { side: 'right', wallLength: 72, end: 'open', sections: [{ kind: 'desk', width: 30 }, { kind: 'cabinet', mirror: true }] },
       }),
@@ -91,8 +92,8 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
       insertKinds: ['none', 'none', 'none', 'none', 'none', 'door'],
       doorHinges: ['auto', 'auto', 'auto', 'auto', 'auto', 'auto'], doorInside: ['shelves', 'shelves', 'shelves', 'shelves', 'shelves', 'shelves'], doorCounts: [1, 1, 1, 1, 1, 1],
       bookcase: bookcaseToFields({
-        ...DEFAULT_BOOKCASE, enabled: true, height: 70, depth: 12, bays: 2, shelvesPerBay: 2, adjustablePerBay: 2, openBelow: 24,
-        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'cap' },
+        ...DEFAULT_BOOKCASE, enabled: true, height: 70, depth: 12, bays: 2, shelvesPerBay: 1, adjustablePerBay: 2, openBelow: 24,
+        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'cap' }, outlet: true,
       }, L),
       run: runFields({
         wallWidth: 90, leftEnd: 'open', rightEnd: 'wall',

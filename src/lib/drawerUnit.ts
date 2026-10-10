@@ -24,7 +24,7 @@ import {
 import { hingePositions } from './shelfExport.ts';
 import { INSERT_NAMES, INSERT_PLAY, layoutInsert, pieceOutline, type DrawerInsert, type InsertLayout } from './drawerInserts.ts';
 import type { GridfinityBin } from './gridfinity.ts';
-import { buildRun, readRun, runToFields, RUN_REPLACED, type RunConfig, type RunFields, type RunPlan } from './drawerRun.ts';
+import { buildRun, readRun, runToFields, RUN_GROMMET, RUN_REPLACED, type RunConfig, type RunFields, type RunPlan } from './drawerRun.ts';
 import { bookcaseSolids, bookcaseToFields, buildBookcase, readBookcase, type BookcaseConfig, type BookcaseFields, type BookcasePlan } from './drawerBookcase.ts';
 import type { ToolPocket } from './drawerInserts.ts';
 
@@ -193,6 +193,11 @@ export interface DrawerConfig {
   pull: FingerPull;
   /** Store-bought pulls instead of (or as well as) the cut-out: knobs, bar pulls or cup pulls. */
   hardware?: PullHardware;
+  /**
+   * Doors' own pulls (cabinet and bookcase doors), e.g. knobs on the doors with a cut-out on
+   * the drawers. Unset: doors match the drawers. Set, the drawers' cut-out isn't cut in doors.
+   */
+  doorHardware?: PullHardware;
   /** Slab fronts, or Shaker: a frame and a recessed panel, pocketed on a CNC or with strips glued on. */
   frontProfile?: FrontProfile;
   /** Drawer-box sides, front and back. */
@@ -256,6 +261,8 @@ export interface DrawerConfig {
   run?: RunConfig;
   /** A blind corner: the case runs on past the opening into a corner, behind the next run's cabinet. */
   blind?: BlindConfig;
+  /** An outlet behind the cabinet: a cutout in the back, centred across it, this high (its centre) off the floor. */
+  outlet?: { height: number };
 }
 
 /**
@@ -291,6 +298,12 @@ export interface PullHardware {
   kind: HardwareKind;
   /** Hole centres for bar and cup pulls (e.g. 3", 3 3/4" = 96 mm, 128 mm). */
   spacing: number;
+}
+
+/** The settings a door is made with: its own pulls when it has them, and then no drawer cut-out. */
+export function doorView<T extends Pick<DrawerConfig, 'pull' | 'hardware' | 'doorHardware'>>(config: T): T {
+  if (!config.doorHardware) return config;
+  return { ...config, hardware: config.doorHardware, pull: { ...config.pull, enabled: false } };
 }
 export interface FrontProfile {
   style: 'slab' | 'shaker';
@@ -484,7 +497,14 @@ export interface DeskConfig {
   topLayers: 1 | 2;
   /** With one unit: what holds up the other end — two bought legs, or a plywood end panel. */
   openEnd?: DeskOpenEnd;
+  /** Cord grommets through the top, spread along the back over the knee space. */
+  grommets?: number;
 }
+
+/** A cord grommet hole: 2″, for a desk grommet. */
+export const CORD_GROMMET = 2;
+/** An outlet cutout in a back: room for a single-gang box and its plate screws. */
+export const OUTLET_CUTOUT = { width: 3, height: 4.5 };
 
 /** Two bought legs, a plywood end panel, or a ledger on a cabinet the desk butts into (a peninsula off a hutch). */
 export type DeskOpenEnd = 'legs' | 'panel' | 'ledger';
@@ -510,6 +530,8 @@ export interface DeskLayoutPlan {
   knee: number;
   /** One unit: the legs or end panel at the other end (null with a unit at each end). */
   openEnd: { kind: DeskOpenEnd; side: 'left' | 'right'; height: number } | null;
+  /** Grommet centres in the top, model x and z. */
+  grommets: { x: number; z: number }[];
 }
 
 /** LONTAN side-mount slides: 1/2" thick, about 45 mm tall, 10–24" long, 100 lb a pair. */
@@ -621,6 +643,8 @@ export interface DrawerPlan {
   desk: DeskLayoutPlan | null;
   /** A blind corner cabinet's blind side (null for an ordinary cabinet). */
   blind: BlindPlan | null;
+  /** The outlet cutout in the back, model x and y of its corners (null without one). */
+  outlet: { x0: number; x1: number; y0: number; y1: number } | null;
   /** Per drawer: contents weight and bottom sag at the chosen load. */
   loads: DrawerLoadCheck[];
   banding: { thickness: number; totalLength: number } | null;
@@ -1326,8 +1350,9 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       if (inset) warnings.push(`Applied Shaker strips stand ${f(profile.depth)} proud of the case on inset fronts — that’s the look, but the fronts no longer sit flush.`);
     }
   }
-  const hw = config.hardware;
-  if (hw && hw.kind !== 'none' && hw.kind !== 'knob' && (hw.spacing < 1 || hw.spacing > 24)) errors.push(`Pull holes ${f(hw.spacing)} apart are outside ${f(1)}–${f(24)}; 3″, 3 3/4″ (96 mm) and 5″ (128 mm) are common.`);
+  for (const hw of [config.hardware, config.doorHardware]) {
+    if (hw && hw.kind !== 'none' && hw.kind !== 'knob' && (hw.spacing < 1 || hw.spacing > 24)) errors.push(`Pull holes ${f(hw.spacing)} apart are outside ${f(1)}–${f(24)}; 3″, 3 3/4″ (96 mm) and 5″ (128 mm) are common.`);
+  }
 
   // Inserts: laid out in each box, then grouped so identical ones share a line.
   const it = config.insertThickness ?? 1 / 4;
@@ -1391,6 +1416,20 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     warnings.push(`Under ${loadWord} loads the ${f(bt)} bottom${sagging.length === 1 ? '' : 's'} of ${range(sagging)} would sag about ${worst.sag.toFixed(2)}″ — more than the ${worst.sagLimit.toFixed(2)}″ that stays flat. Use ${f(thicker)} bottoms, or glue a ${f(3 / 4)} × ${f(1.5)} stiffener across the middle underneath.`);
   }
 
+  // An outlet behind the cabinet: a cutout in the back, centred across it.
+  let outlet: DrawerPlan['outlet'] = null;
+  if (config.outlet) {
+    const h = config.outlet.height;
+    const { width: ow, height: oh } = OUTLET_CUTOUT;
+    if (h - oh / 2 < B + T || h + oh / 2 > H - T) {
+      errors.push(`An outlet at ${f(h)} misses the back — it runs from ${f(B + T + oh / 2)} to ${f(H - T - oh / 2)} off the floor for a ${f(oh)} cutout.`);
+    } else {
+      outlet = { x0: W / 2 - ow / 2, x1: W / 2 + ow / 2, y0: h - oh / 2, y1: h + oh / 2 };
+      const back = parts.find(p => p.name === 'Back');
+      if (back) back.note = `${back.note ? `${back.note}; ` : ''}${f(ow)} × ${f(oh)} outlet cutout, centred across it, ${f(outlet.y0 - B)} up from its bottom edge`;
+    }
+  }
+
   // Blind corner: the case carries on past the opening to an end side.
   let blind: BlindPlan | null = null;
   if (blindCfg) {
@@ -1450,7 +1489,12 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     const endWidth = openKind === 'legs' ? DESK_LEG_INSET + DESK_LEG_SIZE : openKind === 'panel' || openKind === 'ledger' ? T : 0;
     const knee = dk.width - unitCount * W - endWidth;
     const unitXs = dk.layout === 'both' ? [0, dk.width - W] : dk.layout === 'right' ? [dk.width - W] : [0];
+    // Grommets spread over the knee space, 2″ in from the back edge.
+    const kneeX0 = unitCount === 2 ? W : dk.layout === 'right' ? endWidth : W;
+    const count = Math.max(0, Math.min(4, Math.floor(dk.grommets ?? 0)));
+    const grommets = Array.from({ length: count }, (_, i) => ({ x: kneeX0 + knee * (i + 1) / (count + 1), z: caseDepth - 2 - CORD_GROMMET / 2 }));
     desk = {
+      grommets,
       unitXs, width: dk.width, depth: dk.depth, height: dk.height, topThickness, knee,
       openEnd: openKind ? { kind: openKind, side: dk.layout === 'left' ? 'right' : 'left', height: dk.height - topThickness } : null,
     };
@@ -1467,7 +1511,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     if (unitCount > 1) for (const p of parts) p.qty *= unitCount;
     parts.push({
       name: 'Desk top', qty: dk.topLayers, length: dk.width, width: dk.depth, thickness: T,
-      note: dk.topLayers === 2 ? 'Two layers glued and screwed together' : undefined, material: 'plywood',
+      note: [dk.topLayers === 2 ? 'Two layers glued and screwed together' : '', desk.grommets.length ? `${desk.grommets.length} × ${f(CORD_GROMMET)} cord grommet hole${desk.grommets.length === 1 ? '' : 's'} through every layer, ${f(2)} from the back edge` : ''].filter(Boolean).join('; ') || undefined, material: 'plywood',
     });
     if (openKind === 'ledger') {
       parts.push({ name: 'Desk end ledger', qty: 1, length: dk.depth - 2, width: DESK_LEDGER_HEIGHT, thickness: T,
@@ -1565,38 +1609,47 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
           partDrawers[other] = partDrawers[name];
         }
       }
-      // Uppers over the desk gaps, then the run's countertop, ledgers, fillers and top trim.
+      // Uppers over the desk gaps and closing the corner, then the run's countertop, ledgers, fillers and top trim.
       for (const sec of run.sections) {
         if (!sec.upper) continue;
         for (const p of sec.upper.parts) {
           if (RUN_REPLACED.test(p.name)) continue;
-          parts.push({ ...p, name: p.name.replace(/^Bookcase /, `Desk ${sec.number} upper `) });
+          parts.push({ ...p, name: p.name.replace(/^Bookcase /, `${sec.kind === 'cabinet' ? 'Cabinet' : 'Desk'} ${sec.number} upper `) });
+        }
+      }
+      for (const [up, prefix] of [[run.corner?.cornerUpper, 'Corner upper '], [run.corner?.returnUpper?.plan, 'Corner side upper ']] as const) {
+        for (const p of up?.parts ?? []) {
+          if (RUN_REPLACED.test(p.name)) continue;
+          parts.push({ ...p, name: p.name.replace(/^Bookcase /, prefix) });
         }
       }
       parts.push(...built.parts);
-      // A blind corner: one cabinet copy is built as the blind corner cabinet instead.
-      const bc = cornerBlindConfig(config, run);
-      if (bc) {
-        const bp = buildDrawerPlan(bc);
-        errors.push(...bp.errors.map(e => `Corner cabinet: ${e}`));
-        if (!bp.errors.length) {
-          const plain = buildDrawerPlan({ ...bc, blind: undefined });
-          const mirrorCopy = run.sections[run.corner!.blindSection!].mirror;
-          const same = (a: ShelfPart, b: ShelfPart, name: string) => a.name === name && Math.abs(a.length - b.length) < EPS && Math.abs(a.width - b.width) < EPS && a.thickness === b.thickness;
-          for (const p of plain.parts) {
-            const name = mirrorCopy ? swap(p.name) : p.name;
-            const q = parts.find(x => same(x, p, name));
-            if (q) q.qty -= p.qty;
-          }
-          for (const p of bp.parts) {
-            const q = parts.find(x => same(x, p, p.name));
-            if (q) q.qty += p.qty;
-            else parts.push({ ...p, name: parts.some(x => x.name === p.name) ? `Corner cabinet ${p.name.charAt(0).toLowerCase()}${p.name.slice(1)}` : p.name });
-          }
-          for (let i = parts.length - 1; i >= 0; i--) if (parts[i].qty <= 0) parts.splice(i, 1);
-          if (bp.partOutlines['End side']) partOutlines['End side'] = bp.partOutlines['End side'];
+      // Cabinets that aren't plain copies (their own width or fronts, or the blind corner):
+      // swap one copy's parts — and its upper, when it has its own — for theirs.
+      const same = (a: ShelfPart, b: ShelfPart, name: string) => a.name === name && Math.abs(a.length - b.length) < EPS && Math.abs(a.width - b.width) < EPS && a.thickness === b.thickness;
+      run.sections.forEach((sec, si) => {
+        const sc = runSectionConfig(config, run!, si, { H, caseHeight });
+        if (!sc) return;
+        const sp = buildDrawerPlan(sc);
+        errors.push(...sp.errors.map(e => `Cabinet ${sec.number}: ${e}`));
+        if (sp.errors.length) return;
+        const plain = buildDrawerPlan({ ...config, run: undefined, bookcase: undefined, desk: undefined });
+        const own = [...plain.parts, ...(sec.upper && bookcase ? bookcase.parts.filter(p => !RUN_REPLACED.test(p.name)) : [])];
+        for (const p of own) {
+          const name = sec.mirror ? swap(p.name) : p.name;
+          const q = parts.find(x => same(x, p, name));
+          if (q) q.qty -= p.qty;
         }
-      }
+        const turned = sec.mirror && !sc.blind;
+        for (const p0 of sp.parts) {
+          const p = turned ? { ...p0, name: swap(p0.name) } : p0;
+          const q = parts.find(x => same(x, p, p.name));
+          if (q) q.qty += p.qty;
+          else parts.push({ ...p, name: parts.some(x => x.name === p.name) ? `Cabinet ${sec.number} ${p.name.charAt(0).toLowerCase()}${p.name.slice(1)}` : p.name });
+        }
+        if (sp.partOutlines['End side']) partOutlines['End side'] = sp.partOutlines['End side'];
+      });
+      for (let i = parts.length - 1; i >= 0; i--) if (parts[i].qty <= 0) parts.splice(i, 1);
     }
   }
 
@@ -1642,6 +1695,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     unitCount,
     desk,
     blind,
+    outlet,
     loads,
     banding: banding > 0 ? { thickness: banding, totalLength: bandingTotal } : null,
   };
@@ -1819,6 +1873,10 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     if (/ right slide$/.test(n)) return [spread * 0.25, 0, 0];
     return undefined;
   };
+  if (plan.outlet) {
+    const o = plan.outlet;
+    solids.push({ name: 'Outlet cutout', kind: 'pinhole', shape: 'box', min: [o.x0, o.y0, id - 0.05], max: [o.x1, o.y1, id + config.backThickness + 0.05] });
+  }
   if (plan.blind) blindCase(solids, plan, config);
   for (const s of solids) s.explode = explodeOf(s) ?? s.explode;
 
@@ -1852,7 +1910,7 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
       profile: [[z0, top - h], [z1, top - h + bevel], [z1, top - 2 * h + bevel], [z0, top - 2 * h]] });
     solids.push(box('Bottom spacer', 'cleat', [T, B + T, z0], [W - T, B + T + 2, z1]));
   }
-  if (plan.bookcase) solids.push(...styleBookcaseDoors(bookcaseSolids(plan.bookcase, W, cd, T), plan.bookcase.shelfPlan.doors, config));
+  if (plan.bookcase) solids.push(...swingBookcaseDoors(styleBookcaseDoors(bookcaseSolids(plan.bookcase, W, cd, T), plan.bookcase.shelfPlan.doors, doorView(config)), plan.bookcase.shelfPlan.doors));
   if (plan.mount === 'under-desk') {
     // The desk it stands under, for context.
     const underside = config.mountHeight ?? 28;
@@ -1970,8 +2028,50 @@ export function styleBookcaseDoors(solids: Solid[], doors: { bay: number }[], co
   });
 }
 
+/** How far a door swings open when clicked in 3D: a little past square. */
+export const DOOR_SWING = (100 * Math.PI) / 180;
+
+export function doorSwing(hinge: 'left' | 'right', x: number, z: number): NonNullable<Solid['swing']> {
+  return { pivot: [x, z], angle: hinge === 'left' ? -DOOR_SWING : DOOR_SWING };
+}
+
+/** The bookcase's doors ("… door N" and their pulls) swing on their hinges like the cabinet's. */
+function swingBookcaseDoors(solids: Solid[], doors: { bay: number }[]): Solid[] {
+  const hinges = bookcaseDoorHinges(doors);
+  const keyOf = (s: Solid) => (s.kind === 'door' || s.kind === 'pin' ? /^(.*door (\d+))/i.exec(s.name) : null);
+  const boxes = new Map<string, { x0: number; x1: number; z: number; n: number }>();
+  for (const s of solids) {
+    const m = keyOf(s);
+    if (!m || s.kind !== 'door') continue;
+    const xs = s.shape === 'box' ? [s.min[0], s.max[0]] : s.shape === 'plate' ? s.outline.map(p => p[0]) : [s.x0, s.x1];
+    const z = s.shape === 'box' ? s.max[2] : s.shape === 'plate' ? s.z1 : Math.max(...s.profile.map(p => p[0]));
+    const b = boxes.get(m[1]);
+    boxes.set(m[1], { x0: Math.min(b?.x0 ?? Infinity, ...xs), x1: Math.max(b?.x1 ?? -Infinity, ...xs), z: Math.max(b?.z ?? -Infinity, z), n: Number(m[2]) });
+  }
+  return solids.map(s => {
+    const m = keyOf(s);
+    const b = m ? boxes.get(m[1]) : undefined;
+    if (!m || !b) return s;
+    const hinge = hinges[b.n - 1] ?? 'left';
+    return { ...s, group: m[1], swing: doorSwing(hinge, hinge === 'left' ? b.x0 : b.x1, b.z) };
+  });
+}
+
+/** A cord grommet seen in 3D: a dark ring set in the top surface at (x, z). */
+export function grommetSolid(name: string, x: number, z: number, top: number, explode?: [number, number, number]): Solid {
+  const r = CORD_GROMMET / 2;
+  return { name, kind: 'pinhole', shape: 'box', min: [x - r, top - 0.05, z - r], max: [x + r, top + 0.06, z + r], explode };
+}
+
+/** A swing moved right by dx, mirrored about the unit's centre first when asked (which reverses it). */
+export function placeSwing(swing: Solid['swing'], fx: (x: number) => number, mirrored: boolean): Solid['swing'] {
+  if (!swing) return undefined;
+  return { pivot: [fx(swing.pivot[0]), swing.pivot[1]], angle: mirrored ? -swing.angle : swing.angle };
+}
+
 /** A door's leaves, and the shelves or pull-out trays behind it. */
-function doorSolids(d: DrawerLayout, door: DoorPlan, plan: DrawerPlan, config: DrawerConfig): Solid[] {
+function doorSolids(d: DrawerLayout, door: DoorPlan, plan: DrawerPlan, unitConfig: DrawerConfig): Solid[] {
+  const config = doorView(unitConfig);
   const T = config.thickness;
   const b = config.boxThickness;
   const zf = plan.frontInset;
@@ -1985,9 +2085,10 @@ function doorSolids(d: DrawerLayout, door: DoorPlan, plan: DrawerPlan, config: D
     const usable = notch && leaf.width > notch.width + 3 ? notch : null;
     // Finished doors (Shaker or with pulls) are drawn solid; plain ones see-through, to show what's behind.
     const finished = config.frontProfile?.style === 'shaker' || (config.hardware && config.hardware.kind !== 'none');
+    const swing = doorSwing(leaf.hinge, leaf.hinge === 'left' ? leaf.x : leaf.x + leaf.width, zf);
     out.push(...frontSolids(name, 'door', notchedOutline(leaf.x, d.front.y, leaf.width, d.front.height, usable, doorNotchCenter(leaf, usable)),
       { x: leaf.x, y: d.front.y, width: leaf.width, height: d.front.height }, zf - T, T, config, { hinge: leaf.hinge })
-      .map(x => (finished ? { ...x, opaque: true } : x)));
+      .map(x => ({ ...(finished ? { ...x, opaque: true } : x), group: name, swing })));
   });
   door.shelfYs.forEach((y, k) => out.push(box(`${d.label} shelf ${k + 1}`, 'adjustable', [c.x + 1 / 32, y, zf], [c.x + c.width - 1 / 32, y + T, id - 1 / 8])));
   if (door.trays.length) {
@@ -2039,7 +2140,8 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
     const side = dk.unitXs.length === 2 ? (i === 0 ? 'Left unit' : 'Right unit') : 'Unit';
     const rename = (name: string) => (prefix || i > 0 ? `${side} · ${name}` : name);
     for (const unitSolid of unit) {
-      const s = unitSolid.group ? { ...unitSolid, group: rename(unitSolid.group) } : unitSolid;
+      const s0 = unitSolid.group ? { ...unitSolid, group: rename(unitSolid.group) } : unitSolid;
+      const s = s0.swing ? { ...s0, swing: placeSwing(s0.swing, x => x + dx, false) } : s0;
       if (s.shape === 'box') out.push({ ...s, name: rename(s.name), min: [s.min[0] + dx, s.min[1], s.min[2]], max: [s.max[0] + dx, s.max[1], s.max[2]] });
       else if (s.shape === 'prism') out.push({ ...s, name: rename(s.name), x0: s.x0 + dx, x1: s.x1 + dx });
       else out.push({ ...s, name: rename(s.name), outline: s.outline.map(([x, y]) => [x + dx, y] as [number, number]) });
@@ -2047,6 +2149,7 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
   });
   const H = plan.overallHeight;
   out.push({ name: 'Desk top', kind: 'case', shape: 'box', min: [0, H, plan.caseDepth - dk.depth], max: [dk.width, H + dk.topThickness, plan.caseDepth], explode: [0, Math.max(dk.width, H) / 8, 0] });
+  dk.grommets.forEach((g, i) => out.push(grommetSolid(`Desk grommet ${i + 1}`, g.x, g.z, H + dk.topThickness, [0, Math.max(dk.width, H) / 8, 0])));
   // The open end of a one-unit desk: two legs, or an end panel and a back rail.
   const end = dk.openEnd;
   if (end) {
@@ -2081,16 +2184,37 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
   return out;
 }
 
-/** The cabinet a blind run corner is built as: this design on its own, its blind side filling the corner bay. */
-export function cornerBlindConfig(config: DrawerConfig, run: RunPlan): DrawerConfig | null {
+/**
+ * A run cabinet that isn't a plain copy of the design: one with its own width or front
+ * layout, or the blind corner cabinet. Same height, depth, base, fronts and finish; built
+ * on its own (its upper is the run's). Null for a plain copy.
+ */
+export function runSectionConfig(config: DrawerConfig, run: RunPlan, index: number, dims: { H: number; caseHeight: number }): DrawerConfig | null {
+  const sec = run.sections[index];
+  if (sec?.kind !== 'cabinet') return null;
+  const cab = config.run?.sections[index]?.cabinet;
   const cn = run.corner;
-  if (!cn || cn.style !== 'blind' || cn.blindSection === null) return null;
-  return { ...config, run: undefined, bookcase: undefined, desk: undefined, blind: { side: cn.side, width: cn.bay.x1 - cn.bay.x0 } };
+  const blind = cn && cn.style === 'blind' && cn.blindSection === index;
+  if (!cab && !blind) return null;
+  let c: DrawerConfig = { ...config, run: undefined, bookcase: undefined, desk: undefined };
+  if (cab?.width !== undefined) c.width = cab.width;
+  if (cab?.layout) {
+    const shelves = { hinge: 'auto' as const, inside: 'shelves' as const, count: 1 };
+    const fronts = dims.caseHeight - frontAllowance(config);
+    c = { ...c, height: dims.H, frontHeights: undefined, columns: undefined, inserts: undefined, slideLengths: undefined, openSlots: undefined, doors: undefined };
+    if (cab.layout === 'drawers') c.drawers = cab.drawers ?? 4;
+    else if (cab.layout === 'door') { c.drawers = 1; c.doors = [shelves]; }
+    else if (cab.layout === 'drawer-door') { c.drawers = 2; c.frontHeights = [6, fronts - 6 - 2 * config.gap]; c.doors = [null, shelves]; }
+    else { c.drawers = 2; c.openSlots = [true, true]; }
+  }
+  if (blind) c.blind = { side: cn.side, width: cn.bay.x1 - cn.bay.x0 };
+  return c;
 }
 
 /** A solid moved right by dx, mirrored about the unit's centre first when asked. */
-function placeSolid(s: Solid, dx: number, mirrorWidth: number | null): Solid {
+function placeSolid(s0: Solid, dx: number, mirrorWidth: number | null): Solid {
   const fx = (x: number) => (mirrorWidth === null ? x : mirrorWidth - x) + dx;
+  const s: Solid = s0.swing ? { ...s0, swing: placeSwing(s0.swing, fx, mirrorWidth !== null) } : s0;
   if (s.shape === 'box') {
     const [a, b2] = [fx(s.min[0]), fx(s.max[0])];
     return { ...s, min: [Math.min(a, b2), s.min[1], s.min[2]], max: [Math.max(a, b2), s.max[1], s.max[2]] };
@@ -2123,18 +2247,29 @@ export function runSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
   const box = (name: string, kind: SolidKind, min: [number, number, number], max: [number, number, number], explode?: [number, number, number]): Solid =>
     ({ name, kind, shape: 'box', min, max, explode });
   const spread = Math.max(run.width, run.totalHeight) / 14;
-  // A blind corner: that cabinet is the blind corner cabinet (its upper is the run's usual one).
-  const bc = cornerBlindConfig(config, run);
-  const bp = bc ? buildDrawerPlan(bc) : null;
+  // Cabinets that aren't plain copies are built from their own plan; their upper is the
+  // design's, or one of their own width.
+  const own = new Set<number>();
   run.sections.forEach((sec, si) => {
-    if (sec.kind !== 'cabinet' || !bp || bp.errors.length || si !== run.corner!.blindSection) return;
+    const sc = runSectionConfig(config, run, si, { H: plan.overallHeight, caseHeight: plan.caseHeight });
+    const sp = sc ? buildDrawerPlan(sc) : null;
+    if (!sc || !sp || sp.errors.length) return;
+    own.add(si);
     const prefix = `Cabinet ${sec.number} · `;
-    const at = run.corner!.side === 'left' ? sec.x - bp.blind!.width : sec.x;
-    for (const s of drawerSolids(bp, bc!)) out.push({ ...placeSolid(s, at, null), name: prefix + s.name, ...(s.group ? { group: prefix + s.group } : {}) });
-    for (const s of unit) if (s.name.startsWith('Bookcase ')) out.push({ ...placeSolid(s, sec.x, null), name: prefix + s.name });
+    const at = sp.blind?.side === 'left' ? sec.x - sp.blind.width : sec.x;
+    const mirrorW = sec.mirror && !sp.blind ? sp.overallWidth : null;
+    for (const s of drawerSolids(sp, sc)) out.push({ ...placeSolid(s, at, mirrorW), name: prefix + s.name, ...(s.group ? { group: prefix + s.group } : {}) });
+    if (sec.upper) {
+      for (const s of bookcaseSolids(sec.upper, sec.width, cd, T)) {
+        if (RUN_REPLACED.test(s.name) || /^Crown molding/.test(s.name)) continue;
+        out.push({ ...placeSolid(s, sec.x, null), name: prefix + s.name });
+      }
+    } else {
+      for (const s of unit) if (s.name.startsWith('Bookcase ')) out.push({ ...placeSolid(s, sec.x, sec.mirror ? W : null), name: prefix + s.name });
+    }
   });
   for (const [si, sec] of run.sections.entries()) {
-    if (bp && !bp.errors.length && si === run.corner?.blindSection) continue;
+    if (own.has(si)) continue;
     if (sec.kind === 'cabinet') {
       const prefix = `Cabinet ${sec.number} · `;
       for (const s of unit) {
@@ -2155,6 +2290,13 @@ export function runSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
       out.push(box(`Desk ${sec.number} · right cleat`, 'cleat', [sec.x + sec.width - T, H - 3, 1], [sec.x + sec.width, H, cd - T]));
     }
   }
+  if (run.corner?.cornerUpper) {
+    for (const s of bookcaseSolids(run.corner.cornerUpper, run.corner.bay.x1 - run.corner.bay.x0, cd, T)) {
+      if (RUN_REPLACED.test(s.name) || /^Crown molding/.test(s.name)) continue;
+      out.push({ ...placeSolid(s, run.corner.bay.x0, null), name: `Corner upper · ${s.name}` });
+    }
+  }
+  run.grommets.forEach((g, i) => out.push(grommetSolid(`Run grommet ${i + 1}`, g.x, g.z, run.countertop.y1, [0, spread, 0])));
   const ct = run.countertop;
   out.push(box('Run countertop', 'shelf', [ct.x0, ct.y0, ct.z0], [ct.x1, ct.y1, ct.z1], [0, spread, 0]));
   for (const fl of run.fillers) {
@@ -2181,6 +2323,28 @@ export function runSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
   }
   return out;
 }
+
+/**
+ * A wall run that turns a corner, seen from above, as two rectangles in model x and z
+ * (the main run and the return), so layout checks see the L rather than its box.
+ */
+export function runFootprintRects(plan: DrawerPlan): ModelRect[] | null {
+  const outline = runFootprint(plan);
+  if (!outline) return null;
+  const run = plan.run!;
+  const cd = plan.caseDepth;
+  const ct = run.countertop;
+  const z0 = ct.z0;
+  const far = cd - run.corner!.countertop.x1;
+  const main = { x0: ct.x0, x1: ct.x1, z0, z1: cd };
+  const ret = run.corner!.side === 'right'
+    ? { x0: run.width - cd + z0, x1: ct.x1, z0: far, z1: z0 }
+    : { x0: ct.x0, x1: cd - z0, z0: far, z1: z0 };
+  return [main, ret];
+}
+
+/** A rectangle in a cabinet's model space, seen from above. */
+export interface ModelRect { x0: number; x1: number; z0: number; z1: number }
 
 /**
  * A wall run that turns a corner, seen from above: the L of its countertops as a
@@ -2219,7 +2383,9 @@ function returnSolids(plan: DrawerPlan, config: DrawerConfig, unit: Solid[], spr
   const dir = (e?: [number, number, number]): [number, number, number] | undefined => (e ? (right ? [e[2], e[1], -e[0]] : [-e[2], e[1], e[0]]) : undefined);
   const turn = (s: Solid, name: string): Solid => {
     const { travel: _travel, ...rest } = s;
-    const base = { ...rest, name, explode: dir(s.explode), ...(s.group ? { group: `Return · ${s.group}` } : {}) };
+    // A quarter turn about the vertical keeps a door's swing direction; only its hinge line moves.
+    const swing = s.swing ? { pivot: [X(s.swing.pivot[1]), Z(s.swing.pivot[0])] as [number, number], angle: s.swing.angle } : undefined;
+    const base = { ...rest, name, explode: dir(s.explode), ...(s.group ? { group: `Return · ${s.group}` } : {}), ...(swing ? { swing } : {}) };
     if (s.shape === 'box') {
       const xs = [X(s.min[2]), X(s.max[2])];
       const zs = [Z(s.min[0]), Z(s.max[0])];
@@ -2261,11 +2427,24 @@ function returnSolids(plan: DrawerPlan, config: DrawerConfig, unit: Solid[], spr
       out.push(along(`Return desk ${sec.number} · far cleat`, 'cleat', u1 - T, u1, H - 3, H, 1, cd - T));
     }
   }
+  if (cn.returnUpper) {
+    const ru = cn.returnUpper;
+    const at = right ? ru.x0 : U - ru.x1;
+    for (const s of bookcaseSolids(ru.plan, ru.x1 - ru.x0, cd, T)) {
+      if (RUN_REPLACED.test(s.name) || /^Crown molding/.test(s.name)) continue;
+      out.push(turn(placeSolid(s, at, null), `Corner side upper · ${s.name}`));
+    }
+  }
   const fz: [number, number] = plan.frontInset > 0 ? [0, T] : [-T, 0];
   out.push(along('Corner filler', 'case', cn.cornerFiller.x, cn.cornerFiller.x + cn.cornerFiller.width, 0, H, fz[0], fz[1]));
   if (cn.filler && cn.filler.width > 0) out.push(along('Return filler', 'case', cn.filler.x, cn.filler.x + cn.filler.width, 0, H, fz[0], fz[1], [spread, 0, 0]));
   const ct = cn.countertop;
   out.push(along('Return countertop', 'shelf', ct.x0, ct.x1, ct.y0, ct.y1, ct.z0, ct.z1, [0, spread, 0]));
+  cn.grommets.forEach((u, i) => {
+    const r = CORD_GROMMET / 2;
+    const z = cd - RUN_GROMMET.fromBack;
+    out.push(along(`Return grommet ${i + 1}`, 'pinhole', u - r, u + r, ct.y1 - 0.05, ct.y1 + 0.06, z - r, z + r, [0, spread, 0]));
+  });
   if (cn.cap) out.push(along('Return top cap', 'case', cn.cap.x0, cn.cap.x1, cn.cap.y0, cn.cap.y1, cn.cap.z0, cn.cap.z1, [0, spread * 3, 0]));
   if (cn.crown) {
     const cr = cn.crown;
@@ -2362,6 +2541,8 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
         depth: num(p.depth, 0, 20) ?? DEFAULT_PULL.depth,
       },
       hardware: readHardware(c.hardware),
+      ...(c.doorHardware && typeof c.doorHardware === 'object' && ((c.doorHardware as { kind?: unknown }).kind === 'none' || readHardware(c.doorHardware))
+        ? { doorHardware: (c.doorHardware as { kind?: unknown }).kind === 'none' ? { kind: 'none' as const, spacing: 3.75 } : readHardware(c.doorHardware)! } : {}),
       frontProfile: readProfile(c.frontProfile),
       boxThickness: num(c.boxThickness, 0.05, 2) ?? 1 / 2,
       bottomThickness: num(c.bottomThickness, 0.05, 2) ?? 1 / 4,
@@ -2385,6 +2566,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       gridfinityBed: num(c.gridfinityBed, 100, 1000) ?? 256,
       desk: readDesk(c.desk),
       blind: readBlind(c.blind),
+      ...(c.outlet && typeof c.outlet === 'object' && typeof (c.outlet as { height?: unknown }).height === 'number' ? { outlet: { height: (c.outlet as { height: number }).height } } : {}),
       columns,
       mount: c.mount === 'wall' || c.mount === 'under-desk' ? c.mount : 'floor',
       mountHeight: num(c.mountHeight, 0, 120) ?? undefined,
@@ -2532,6 +2714,7 @@ function readDesk(raw: unknown): DeskConfig | undefined {
     width, height, depth,
     topLayers: v.topLayers === 1 ? 1 : 2,
     openEnd: v.openEnd === 'panel' || v.openEnd === 'ledger' ? v.openEnd : 'legs',
+    ...(typeof v.grommets === 'number' && v.grommets >= 1 && v.grommets <= 4 ? { grommets: Math.floor(v.grommets) } : {}),
   };
 }
 
@@ -2559,6 +2742,9 @@ export interface DrawerDesignFields {
   pullDepth: string;
   hardwareKind: HardwareKind;
   hardwareSpacing: string;
+  /** Doors' pulls: 'same' as the drawers, or their own. */
+  doorHardwareKind: HardwareKind | 'same';
+  doorHardwareSpacing: string;
   profileStyle: FrontProfile['style'];
   profileMethod: FrontProfile['method'];
   profileRail: string;
@@ -2603,6 +2789,11 @@ export interface DrawerDesignFields {
   blind: boolean;
   blindSide: 'left' | 'right';
   blindWidth: string;
+  /** Cord grommets through a desk top. */
+  deskGrommets: number;
+  /** An outlet cutout in the back, its centre this high off the floor. */
+  outlet: boolean;
+  outletHeight: string;
   deskLayout: DeskLayout;
   deskWidth: string;
   deskHeight: string;
@@ -2676,6 +2867,8 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     pullDepth: L(c.pull.depth),
     hardwareKind: c.hardware?.kind ?? 'none',
     hardwareSpacing: L(c.hardware?.spacing ?? 3.75),
+    doorHardwareKind: c.doorHardware?.kind ?? 'same',
+    doorHardwareSpacing: L(c.doorHardware?.spacing ?? 3.75),
     profileStyle: c.frontProfile?.style ?? 'slab',
     profileMethod: c.frontProfile?.method ?? DEFAULT_PROFILE.method,
     profileRail: L(c.frontProfile?.rail ?? DEFAULT_PROFILE.rail),
@@ -2715,6 +2908,9 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     blind: !!c.blind,
     blindSide: c.blind?.side ?? 'right',
     blindWidth: L(c.blind?.width ?? DEFAULT_BLIND_WIDTH),
+    deskGrommets: c.desk?.grommets ?? 0,
+    outlet: !!c.outlet,
+    outletHeight: L(c.outlet?.height ?? 12),
     deskLayout: c.desk?.layout ?? EXTRA_FIELD_DEFAULTS.deskLayout,
     deskWidth: L(c.desk?.width ?? 60),
     deskHeight: L(c.desk?.height ?? 29),

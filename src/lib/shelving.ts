@@ -618,6 +618,12 @@ export interface SolidMotion {
    * then an offset in model inches (x right, y up, z back).
    */
   pose?: { rotate?: [number, number, number]; offset?: [number, number, number] };
+  /**
+   * A door leaf: clicking its `group` swings it open about a vertical hinge line at
+   * model (x, z), by `angle` radians about three.js's y axis (negative swings a
+   * left-hinged door open toward the viewer, positive a right-hinged one).
+   */
+  swing?: { pivot: [number, number]; angle: number };
   /** Doors are drawn see-through so what's behind reads; finished (styled) doors are drawn solid. */
   opaque?: boolean;
 }
