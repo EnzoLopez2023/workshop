@@ -456,7 +456,10 @@ export interface DeskConfig {
   openEnd?: DeskOpenEnd;
 }
 
-export type DeskOpenEnd = 'legs' | 'panel';
+/** Two bought legs, a plywood end panel, or a ledger on a cabinet the desk butts into (a peninsula off a hutch). */
+export type DeskOpenEnd = 'legs' | 'panel' | 'ledger';
+/** The ledger under a peninsula desk's attached end: screwed to the cabinet it butts. */
+export const DESK_LEDGER_HEIGHT = 3;
 /** Bought desk legs: round, this diameter, set in from the corners. */
 export const DESK_LEG_SIZE = 1.5;
 export const DESK_LEG_INSET = 2;
@@ -891,8 +894,10 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   // Depth and slides.
   const auto = autoSlideLength(interiorDepth - frontInset);
   let slideLength = config.slideLength ?? auto ?? 0;
+  // Doors and open cubbies run no slides, so a shallow all-door cabinet (an upper) is fine.
+  const hasDrawer = Array.from({ length: n }, (_, i) => i).some(i => !config.doors?.[i] && config.openSlots?.[i] !== true);
   if (auto === null) {
-    errors.push(`The inside depth is ${f(Math.max(interiorDepth, 0))} (overall ${f(D)} less the ${f(T)} fronts and the ${f(backT)} back). The shortest slide is ${f(SLIDE_LENGTHS[0])} and needs ${f(SLIDE_LENGTHS[0] + SLIDE_BACK_CLEARANCE)} — make the unit at least ${f(SLIDE_LENGTHS[0] + SLIDE_BACK_CLEARANCE + T + backT)} deep.`);
+    if (hasDrawer) errors.push(`The inside depth is ${f(Math.max(interiorDepth, 0))} (overall ${f(D)} less the ${f(T)} fronts and the ${f(backT)} back). The shortest slide is ${f(SLIDE_LENGTHS[0])} and needs ${f(SLIDE_LENGTHS[0] + SLIDE_BACK_CLEARANCE)} — make the unit at least ${f(SLIDE_LENGTHS[0] + SLIDE_BACK_CLEARANCE + T + backT)} deep.`);
     slideLength = 0;
   } else if (config.slideLength !== undefined) {
     if (!SLIDE_LENGTHS.includes(config.slideLength)) {
@@ -1356,7 +1361,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     const topThickness = dk.topLayers * T;
     // One unit: legs (or an end panel) hold up the other end and take a little of the width.
     const openKind: DeskOpenEnd | null = unitCount === 1 ? dk.openEnd ?? 'legs' : null;
-    const endWidth = openKind === 'legs' ? DESK_LEG_INSET + DESK_LEG_SIZE : openKind === 'panel' ? T : 0;
+    const endWidth = openKind === 'legs' ? DESK_LEG_INSET + DESK_LEG_SIZE : openKind === 'panel' || openKind === 'ledger' ? T : 0;
     const knee = dk.width - unitCount * W - endWidth;
     const unitXs = dk.layout === 'both' ? [0, dk.width - W] : dk.layout === 'right' ? [dk.width - W] : [0];
     desk = {
@@ -1378,6 +1383,10 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       name: 'Desk top', qty: dk.topLayers, length: dk.width, width: dk.depth, thickness: T,
       note: dk.topLayers === 2 ? 'Two layers glued and screwed together' : undefined, material: 'plywood',
     });
+    if (openKind === 'ledger') {
+      parts.push({ name: 'Desk end ledger', qty: 1, length: dk.depth - 2, width: DESK_LEDGER_HEIGHT, thickness: T,
+        note: 'Screwed to the face of the cabinet (or countertop edge) the desk butts into, its top at the desk’s underside; the top screws down into it', material: 'plywood' });
+    }
     if (openKind === 'panel') {
       parts.push({ name: 'Desk end panel', qty: 1, length: dk.height - topThickness, width: dk.depth, thickness: T,
         note: 'Holds up the open end; screwed up into the top', material: 'plywood' });
@@ -1449,7 +1458,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       errors.push(...built.errors);
       warnings.push(...built.warnings);
       unitCount = run.cabinetCount;
-      const mirrored = run.sections.filter(x => x.kind === 'cabinet' && x.mirror).length;
+      const mirrored = [...run.sections, ...(run.corner?.sections ?? [])].filter(x => x.kind === 'cabinet' && x.mirror).length;
       // Every cabinet (with its bookcase) is the same, except mirrored ones hinge their doors the other way.
       const perUnit = parts.filter(p => !RUN_REPLACED.test(p.name));
       const swap = (name: string) => name.replace(/hinged (left|right)/, (_, side) => `hinged ${side === 'left' ? 'right' : 'left'}`);
@@ -1906,6 +1915,10 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
         out.push({ name: `Desk leg (${n})`, kind: 'pin', shape: 'prism', x0: 0, x1: end.height, profile: circle,
           pose: { rotate: [0, 0, Math.PI / 2], offset: [cx, 0, cz] }, explode: [end.side === 'right' ? out2 : -out2, 0, 0] });
       }
+    } else if (end.kind === 'ledger') {
+      const T = config.thickness;
+      const [x0, x1] = end.side === 'right' ? [dk.width - T, dk.width] : [0, T];
+      out.push({ name: 'Desk end ledger', kind: 'cleat', shape: 'box', min: [x0, end.height - DESK_LEDGER_HEIGHT, z0 + 1], max: [x1, end.height, z1 - 1], explode: [end.side === 'right' ? out2 : -out2, 0, 0] });
     } else {
       const T = config.thickness;
       const [x0, x1] = end.side === 'right' ? [dk.width - T, dk.width] : [0, T];
@@ -1987,6 +2000,7 @@ export function runSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     const c = run.cap;
     out.push(box('Run top cap', 'case', [c.x0, c.y0, c.z0], [c.x1, c.y1, c.z1], [0, spread * 3, 0]));
   }
+  if (run.corner) out.push(...returnSolids(plan, config, unit, spread));
   if (run.crown) {
     const cr = run.crown;
     const up: [number, number, number] = [0, spread * 3, 0];
@@ -1996,6 +2010,96 @@ export function runSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
       const [x0, x1] = side === 'left' ? [-cr.projection, 0] : [run.width, run.width + cr.projection];
       out.push(box(`Run crown return ${side}`, 'frame', [x0, cr.y0, cr.front], [x1, cr.y0 + cr.height, cd], up));
     }
+  }
+  return out;
+}
+
+/**
+ * A wall run that turns a corner, seen from above: the L of its countertops as a
+ * polygon in model (x, z), for plans that would otherwise draw its bounding box.
+ */
+export function runFootprint(plan: DrawerPlan): [number, number][] | null {
+  const run = plan.run;
+  const cn = run?.corner;
+  if (!run || !cn) return null;
+  const cd = plan.caseDepth;
+  const ct = run.countertop;
+  const z0 = ct.z0;
+  const far = cd - cn.countertop.x1;
+  return cn.side === 'right'
+    ? [[ct.x0, cd], [ct.x1, cd], [ct.x1, far], [run.width - cd + z0, far], [run.width - cd + z0, z0], [ct.x0, z0]]
+    : [[ct.x0, cd], [ct.x1, cd], [ct.x1, z0], [cd - z0, z0], [cd - z0, far], [ct.x0, far]];
+}
+
+/**
+ * The corner of a wall run: the bay's ledgers, then the return built along its own
+ * length (distance from the back wall) and turned 90° onto the side wall. Turning
+ * swaps the extrusion axis, so plates become prisms and prisms plates.
+ */
+function returnSolids(plan: DrawerPlan, config: DrawerConfig, unit: Solid[], spread: number): Solid[] {
+  const run = plan.run!;
+  const cn = run.corner!;
+  const T = config.thickness;
+  const W = plan.overallWidth;
+  const H = plan.overallHeight;
+  const cd = plan.caseDepth;
+  const right = cn.side === 'right';
+  const U = cn.countertop.x1;
+  // Return-local (x along the return, z depth) to the run's x and z.
+  const X = (z: number) => (right ? run.width - cd + z : cd - z);
+  const Z = (x: number) => (right ? cd - x : x + cd - U);
+  const dir = (e?: [number, number, number]): [number, number, number] | undefined => (e ? (right ? [e[2], e[1], -e[0]] : [-e[2], e[1], e[0]]) : undefined);
+  const turn = (s: Solid, name: string): Solid => {
+    const { travel: _travel, ...rest } = s;
+    const base = { ...rest, name, explode: dir(s.explode), ...(s.group ? { group: `Return · ${s.group}` } : {}) };
+    if (s.shape === 'box') {
+      const xs = [X(s.min[2]), X(s.max[2])];
+      const zs = [Z(s.min[0]), Z(s.max[0])];
+      return { ...base, shape: 'box', min: [Math.min(...xs), s.min[1], Math.min(...zs)], max: [Math.max(...xs), s.max[1], Math.max(...zs)] } as Solid;
+    }
+    if (s.shape === 'plate') {
+      const xs = [X(s.z0), X(s.z1)];
+      const { outline, holes: _holes, z0: _z0, z1: _z1, ...plate } = base as Extract<Solid, { shape: 'plate' }>;
+      return { ...plate, shape: 'prism', x0: Math.min(...xs), x1: Math.max(...xs), profile: outline.map(([x, y]) => [Z(x), y] as [number, number]) } as Solid;
+    }
+    const zs = [Z(s.x0), Z(s.x1)];
+    const { profile, x0: _x0, x1: _x1, ...prism } = base as Extract<Solid, { shape: 'prism' }>;
+    return { ...prism, shape: 'plate', z0: Math.min(...zs), z1: Math.max(...zs), outline: profile.map(([z, y]) => [X(z), y] as [number, number]) } as Solid;
+  };
+  // A box given along the return (u from the back wall), turned into place.
+  const along = (name: string, kind: SolidKind, u0: number, u1: number, y0: number, y1: number, z0: number, z1: number, explode?: [number, number, number]): Solid =>
+    turn({ name, kind, shape: 'box', min: [right ? u0 : U - u1, y0, z0], max: [right ? u1 : U - u0, y1, z1], explode }, name);
+  const out: Solid[] = [];
+
+  // The corner bay: a ledger on each wall under the countertop.
+  const bay = cn.bay;
+  out.push({ name: 'Corner ledger, back', kind: 'cleat', shape: 'box', min: [bay.x0, H - 3, cd - T], max: [bay.x1, H, cd] });
+  const sx: [number, number] = right ? [run.width - T, run.width] : [0, T];
+  out.push({ name: 'Corner ledger, side', kind: 'cleat', shape: 'box', min: [sx[0], H - 3, 1], max: [sx[1], H, cd - T] });
+
+  for (const sec of cn.sections) {
+    if (sec.kind === 'cabinet') {
+      const prefix = `Return cabinet ${sec.number} · `;
+      const at = right ? sec.x : U - sec.x - sec.width;
+      // Viewed from the room, a right-hand return's left end is at the corner; a left-hand one's is away from it.
+      for (const s of unit) out.push(turn(placeSolid(s, at, sec.mirror ? W : null), prefix + s.name));
+    } else {
+      const u0 = sec.x;
+      const u1 = sec.x + sec.width;
+      out.push(along(`Return desk ${sec.number} · ledger`, 'cleat', u0, u1, H - 3, H, cd - T, cd));
+      out.push(along(`Return desk ${sec.number} · near cleat`, 'cleat', u0, u0 + T, H - 3, H, 1, cd - T));
+      out.push(along(`Return desk ${sec.number} · far cleat`, 'cleat', u1 - T, u1, H - 3, H, 1, cd - T));
+    }
+  }
+  const fz: [number, number] = plan.frontInset > 0 ? [0, T] : [-T, 0];
+  out.push(along('Corner filler', 'case', cn.cornerFiller.x, cn.cornerFiller.x + cn.cornerFiller.width, 0, H, fz[0], fz[1]));
+  if (cn.filler && cn.filler.width > 0) out.push(along('Return filler', 'case', cn.filler.x, cn.filler.x + cn.filler.width, 0, H, fz[0], fz[1], [spread, 0, 0]));
+  const ct = cn.countertop;
+  out.push(along('Return countertop', 'shelf', ct.x0, ct.x1, ct.y0, ct.y1, ct.z0, ct.z1, [0, spread, 0]));
+  if (cn.cap) out.push(along('Return top cap', 'case', cn.cap.x0, cn.cap.x1, cn.cap.y0, cn.cap.y1, cn.cap.z0, cn.cap.z1, [0, spread * 3, 0]));
+  if (cn.crown) {
+    const cr = cn.crown;
+    out.push(along('Return crown molding', 'frame', cr.x0, cr.x1, cr.y0, cr.y0 + cr.height, cr.front - cr.projection, cr.front, [0, spread * 3, 0]));
   }
   return out;
 }
@@ -2249,7 +2353,7 @@ function readDesk(raw: unknown): DeskConfig | undefined {
     layout: v.layout === 'left' || v.layout === 'right' ? v.layout : 'both',
     width, height, depth,
     topLayers: v.topLayers === 1 ? 1 : 2,
-    openEnd: v.openEnd === 'panel' ? 'panel' : 'legs',
+    openEnd: v.openEnd === 'panel' || v.openEnd === 'ledger' ? v.openEnd : 'legs',
   };
 }
 

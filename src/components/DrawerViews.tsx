@@ -158,16 +158,45 @@ export function TopView({ plan, config, fmt }: ViewProps) {
       const r = DESK_LEG_SIZE / 2;
       const cx = dk.openEnd.side === 'right' ? dk.width - DESK_LEG_INSET - r : DESK_LEG_INSET + r;
       for (const cz of [cd - dk.depth + DESK_LEG_INSET + r, cd - DESK_LEG_INSET - r]) shapes.push({ kind: 'circle', cx, cy: cz, r, cls: 'drawer-foot' });
-    } else if (dk.openEnd?.kind === 'panel') {
+    } else if (dk.openEnd?.kind === 'panel' || dk.openEnd?.kind === 'ledger') {
       const x0 = dk.openEnd.side === 'right' ? dk.width - T : 0;
-      shapes.push(rect(x0, cd - dk.depth, x0 + T, cd));
+      shapes.push(rect(x0, cd - dk.depth, x0 + T, cd, dk.openEnd.kind === 'ledger' ? 'drawer-foot' : 'shelf-ply'));
     }
   }
   if (run) {
     for (const f of run.fillers) shapes.push(rect(f.x, zf > 0 ? 0 : -T, f.x + f.width, (zf > 0 ? 0 : -T) + T));
     const c = run.countertop;
     shapes.push(rect(c.x0, c.z0, c.x1, c.z1, 'drawer-overhead'));
-    if (run.uppers && plan.bookcase) shapes.push(rect(0, plan.bookcase.z0, run.width, cd, 'drawer-overhead is-upper'));
+    if (run.uppers && plan.bookcase) {
+      const bay = run.corner?.bay;
+      const [u0, u1] = bay ? (run.corner!.side === 'right' ? [0, bay.x0] : [bay.x1, run.width]) : [0, run.width];
+      shapes.push(rect(u0, plan.bookcase.z0, u1, cd, 'drawer-overhead is-upper'));
+    }
+    const cn = run.corner;
+    if (cn) {
+      // The return, seen from above: its x runs forward from the back wall (down the drawing).
+      const right = cn.side === 'right';
+      const X = (z: number) => (right ? run.width - cd + z : cd - z);
+      const Z = (u: number) => cd - u;
+      const along = (u0: number, u1: number, z0: number, z1: number, cls = 'shelf-ply') => rect(X(z0), Z(u0), X(z1), Z(u1), cls);
+      for (const sec of cn.sections) {
+        if (sec.kind !== 'cabinet') continue;
+        shapes.push(along(sec.x, sec.x + W, 0, cd));
+        shapes.push(along(sec.x, sec.x + T, 0, cd, 'shelf-ply is-shelf'));
+        shapes.push(along(sec.x + W - T, sec.x + W, 0, cd, 'shelf-ply is-shelf'));
+        if (zf === 0) shapes.push(along(sec.x, sec.x + W, -T, 0, 'drawer-front-shape'));
+      }
+      const fz: [number, number] = zf > 0 ? [0, T] : [-T, 0];
+      shapes.push(along(cn.cornerFiller.x, cn.cornerFiller.x + cn.cornerFiller.width, fz[0], fz[1]));
+      if (cn.filler && cn.filler.width > 0) shapes.push(along(cn.filler.x, cn.filler.x + cn.filler.width, fz[0], fz[1]));
+      const ct = cn.countertop;
+      shapes.push(along(ct.x0, ct.x1, ct.z0, ct.z1, 'drawer-overhead'));
+      const cabs = cn.sections.filter(x => x.kind === 'cabinet');
+      if (run.uppers && plan.bookcase && cabs.length) {
+        const last = cabs[cabs.length - 1];
+        shapes.push(along(cabs[0].x, last.x + last.width, plan.bookcase.z0, cd, 'drawer-overhead is-upper'));
+      }
+    }
   } else if (plan.bookcase) {
     const bk = plan.bookcase;
     if (bk.countertop) shapes.push(rect(bk.countertop.x0, bk.countertop.z0, bk.countertop.x1, bk.countertop.z1, 'drawer-overhead'));

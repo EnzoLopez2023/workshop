@@ -12,7 +12,7 @@ import {
   updateBuiltinCabinet, updateBuiltinProject,
 } from '../services/api';
 import { isDemoMode } from '../demo/demoMode';
-import { buildDrawerPlan, deskSolids, drawerSolids, finishColors, readSavedDrawerDesign, runSolids } from '../lib/drawerUnit';
+import { buildDrawerPlan, deskSolids, drawerSolids, finishColors, readSavedDrawerDesign, runFootprint, runSolids } from '../lib/drawerUnit';
 import { drawerThumbnailDataUrl } from '../lib/drawerTemplates';
 import { formatLength, type LengthUnit, type Solid, type SolidKind } from '../lib/shelving';
 import {
@@ -35,6 +35,8 @@ const STEPS: { value: Step; label: string }[] = [
 interface CabinetModel {
   solids: Solid[];
   box: CabinetBox;
+  /** An L-shaped (corner) design's outline from above, model x and z. */
+  outline: [number, number][] | null;
   thumb: string;
   summary: string;
   wallHung: boolean;
@@ -55,6 +57,7 @@ function buildModel(raw: unknown): CabinetModel | null {
   return {
     solids,
     box,
+    outline: runFootprint(plan),
     thumb: drawerThumbnailDataUrl(plan, saved.config.pull, 96, saved.config.finish?.front),
     summary: `${f(width)} W × ${f(box.maxZ - box.minZ)} D × ${f(plan.totalHeight)} H${plan.mount === 'wall' ? ` · hung ${f(plan.lift)} up` : ''}`,
     wallHung: plan.mount === 'wall',
@@ -168,7 +171,7 @@ export default function BuiltinProjectPage() {
   const planCabinets: PlanCabinet[] = useMemo(() => (project?.cabinets ?? []).flatMap(c => {
     const model = models.get(c.design_id);
     const placement = placements.get(c.id);
-    return model && placement ? [{ id: c.id, label: labelFor.get(c.id) ?? c.design.name, placement, box: model.box, wallHung: model.wallHung }] : [];
+    return model && placement ? [{ id: c.id, label: labelFor.get(c.id) ?? c.design.name, placement, box: model.box, wallHung: model.wallHung, outline: model.outline }] : [];
   }), [project?.cabinets, models, placements, labelFor]);
 
   const issues = useMemo(() => (room ? layoutIssues(room, planCabinets, fmt) : []), [room, planCabinets, fmt]);

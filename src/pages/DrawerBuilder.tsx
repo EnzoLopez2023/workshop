@@ -267,6 +267,7 @@ const DESK_LAYOUT_OPTIONS = [
 const DESK_OPEN_END_OPTIONS = [
   { value: 'legs', label: 'Two legs' },
   { value: 'panel', label: 'End panel' },
+  { value: 'ledger', label: 'Into a cabinet' },
 ] as const;
 
 const TOP_LAYER_OPTIONS = [
@@ -338,7 +339,10 @@ function convertForm(form: FormState, units: LengthUnit): FormState {
   next.columnFronts = form.columnFronts.map(list => list.map(convert));
   next.columnWidths = form.columnWidths.map(w => (w.trim() ? convert(w) : w));
   if (form.run) {
-    next.run = { ...form.run, wallWidth: convert(form.run.wallWidth), sections: form.run.sections.map(x => ({ ...x, width: convert(x.width) })) };
+    next.run = {
+      ...form.run, wallWidth: convert(form.run.wallWidth), sections: form.run.sections.map(x => ({ ...x, width: convert(x.width) })),
+      ...(form.run.corner ? { corner: { ...form.run.corner, wallLength: convert(form.run.corner.wallLength), sections: form.run.corner.sections.map(x => ({ ...x, width: convert(x.width) })) } } : {}),
+    };
   }
   if (form.bookcase) {
     next.bookcase = { ...form.bookcase };
@@ -1643,12 +1647,14 @@ export default function DrawerBuilder() {
                     <SegmentedControl label={`${form.deskLayout === 'left' ? 'Right' : 'Left'} end`} value={form.deskOpenEnd ?? 'legs'} options={DESK_OPEN_END_OPTIONS} onChange={deskOpenEnd => update({ deskOpenEnd })} />
                     <small>{(form.deskOpenEnd ?? 'legs') === 'legs'
                       ? 'Two bought desk legs hold up the other end, like the IKEA desks — screwed up into the top on mounting plates.'
-                      : 'A plywood end panel holds up the other end, with a rail under the back of the top so the desk can’t rack.'}</small>
+                      : form.deskOpenEnd === 'ledger'
+                        ? 'The other end butts into a cabinet, like a peninsula off a hutch: a ledger screwed to that cabinet carries the top. Match the desk height to the cabinet’s countertop.'
+                        : 'A plywood end panel holds up the other end, with a rail under the back of the top so the desk can’t rack.'}</small>
                   </div>
                 )}
                 <div className="shelf-field-grid">
                   <LengthField unit={units} label="Desk width" value={form.deskWidth} error={fieldErrors.deskWidth}
-                    hint={plan?.desk ? `${fmt(Math.max(plan.desk.knee, 0))} to sit in ${form.deskLayout === 'both' ? 'between the units' : `beside the unit, inside the ${form.deskOpenEnd === 'panel' ? 'end panel' : 'legs'}`}` : undefined} onChange={deskWidth => update({ deskWidth })} />
+                    hint={plan?.desk ? `${fmt(Math.max(plan.desk.knee, 0))} to sit in ${form.deskLayout === 'both' ? 'between the units' : `beside the unit, inside the ${form.deskOpenEnd === 'panel' ? 'end panel' : form.deskOpenEnd === 'ledger' ? 'ledger' : 'legs'}`}` : undefined} onChange={deskWidth => update({ deskWidth })} />
                   <LengthField unit={units} label="Desk height" value={form.deskHeight} error={fieldErrors.deskHeight}
                     hint={plan?.desk ? `Units ${fmt(plan.desk.height - plan.desk.topThickness)} tall` : 'Floor to the top; 29–30″ is typical.'} onChange={deskHeight => update({ deskHeight })} />
                   <LengthField unit={units} label="Desk depth" value={form.deskDepth} error={fieldErrors.deskDepth} onChange={deskDepth => update({ deskDepth })} />

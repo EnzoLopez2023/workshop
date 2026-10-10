@@ -5,7 +5,7 @@
 import { doorNotch, doorNotchCenter, frontNotch, handHole, notchedOutline, stadiumOutline, type DrawerDesignFields, type DrawerPlan, type FingerPull } from './drawerUnit.ts';
 import { bookcaseToFields, DEFAULT_BOOKCASE } from './drawerBookcase.ts';
 import { lengthToField } from './shelving.ts';
-import { DEFAULT_RUN, runToFields } from './drawerRun.ts';
+import { DEFAULT_RUN, runToFields, type RunConfig } from './drawerRun.ts';
 
 export interface DrawerTemplate {
   id: string;
@@ -15,7 +15,100 @@ export interface DrawerTemplate {
   fields: Partial<DrawerDesignFields>;
 }
 
+const L = (inches: number) => lengthToField(inches, 'in');
+/** Shaker fronts with bar pulls, the built-in look. */
+const SHAKER: Partial<DrawerDesignFields> = {
+  pullEnabled: false, hardwareKind: 'bar', hardwareSpacing: '3 3/4',
+  profileStyle: 'shaker', profileMethod: 'pocket', profileRail: '2 1/4', profileDepth: '1/4',
+};
+const runFields = (run: Partial<RunConfig>) => runToFields({ ...DEFAULT_RUN, enabled: true, ...run }, L);
+
 export const DRAWER_TEMPLATES: DrawerTemplate[] = [
+  {
+    id: 'display-wall',
+    name: 'Display wall',
+    description: 'Three shallow 16″ cabinets with wide flat drawers for stored work, an open lit band above the counter for a pegboard or leaning boards, and display shelves to the top.',
+    fields: {
+      ...SHAKER,
+      width: '42', height: '30', depth: '16', heightMode: 'overall', drawers: 6, base: 'kick', kickHeight: '4', kickSetback: '3',
+      columns: 2, columnWidthMode: 'equal', columnDrawers: [3, 3], columnFronts: [['8', '8', '8'], ['8', '8', '8']],
+      bookcase: bookcaseToFields({
+        ...DEFAULT_BOOKCASE, enabled: true, height: 66, depth: 10, bays: 2, shelvesPerBay: 1, adjustablePerBay: 1, openBelow: 24,
+        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'cap' }, taskLight: true,
+      }, L),
+      run: runFields({ wallWidth: 126, leftEnd: 'open', rightEnd: 'open', sections: [{ kind: 'cabinet' }, { kind: 'cabinet' }, { kind: 'cabinet', mirror: true }] }),
+    },
+  },
+  {
+    id: 'hutch-run',
+    name: 'Hutch run',
+    description: 'Desk-height cabinets wall to wall (a drawer stack beside a door in each), one 30″ countertop, and a bookcase hutch with crown over an open band — the wall a peninsula desk tees off.',
+    fields: {
+      ...SHAKER,
+      width: '36', height: '28 1/2', depth: '23 7/8', heightMode: 'overall', drawers: 4, base: 'kick', kickHeight: '4', kickSetback: '3',
+      columns: 2, columnWidthMode: 'equal', columnDrawers: [3, 1], columnFronts: [['7', '7', '7'], ['21 3/4']],
+      insertKinds: ['none', 'none', 'none', 'door'],
+      doorHinges: ['auto', 'auto', 'auto', 'auto'], doorInside: ['shelves', 'shelves', 'shelves', 'shelves'], doorCounts: [1, 1, 1, 1],
+      bookcase: bookcaseToFields({
+        ...DEFAULT_BOOKCASE, enabled: true, height: 64, depth: 12, bays: 2, shelvesPerBay: 1, adjustablePerBay: 2, openBelow: 18,
+        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'crown' }, taskLight: true,
+      }, L),
+      run: runFields({ wallWidth: 113, sections: [{ kind: 'cabinet' }, { kind: 'cabinet' }, { kind: 'cabinet', mirror: true }] }),
+    },
+  },
+  {
+    id: 'peninsula-desk',
+    name: 'Peninsula desk',
+    description: 'A 76″ × 30″ desk that tees off a hutch run: a drawer unit holds up the free end, and a ledger screwed to the hutch cabinet carries the end that butts into it. Same 30″ height as the hutch counter.',
+    fields: {
+      ...SHAKER,
+      width: '18', height: '28 1/2', depth: '23 7/8', heightMode: 'overall', drawers: 3, base: 'none',
+      desk: true, deskLayout: 'left', deskOpenEnd: 'ledger', deskWidth: '76', deskHeight: '30', deskDepth: '30', deskTopLayers: 2,
+    },
+  },
+  {
+    id: 'corner-desk',
+    name: 'Corner desk',
+    description: 'An L-shaped desk into a corner: a drawer cabinet at each open end, knee space along both walls that meets in the corner, under one countertop at 30″.',
+    fields: {
+      ...SHAKER,
+      width: '18', height: '28 1/2', depth: '23 7/8', heightMode: 'overall', drawers: 3, base: 'kick', kickHeight: '4', kickSetback: '3',
+      run: runFields({
+        wallWidth: 72, leftEnd: 'open', rightEnd: 'wall', deskUppers: false,
+        sections: [{ kind: 'cabinet' }, { kind: 'desk', width: 30 }],
+        corner: { side: 'right', wallLength: 72, end: 'open', sections: [{ kind: 'desk', width: 30 }, { kind: 'cabinet', mirror: true }] },
+      }),
+    },
+  },
+  {
+    id: 'corner-storage',
+    name: 'Corner storage with top',
+    description: 'Base cabinets that wrap a corner under one deep countertop at 32″ — room for printers on top and tool drawers below — with tall open shelving above for spools and dry boxes.',
+    fields: {
+      ...SHAKER,
+      width: '30', height: '30 1/2', depth: '27', heightMode: 'overall', drawers: 4, base: 'kick', kickHeight: '4', kickSetback: '3',
+      bookcase: bookcaseToFields({
+        ...DEFAULT_BOOKCASE, enabled: true, height: 70, depth: 12, bays: 2, shelvesPerBay: 2, adjustablePerBay: 2, openBelow: 24,
+        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'cap' },
+      }, L),
+      run: runFields({
+        wallWidth: 90, leftEnd: 'open', rightEnd: 'wall',
+        sections: [{ kind: 'cabinet' }, { kind: 'cabinet', mirror: true }],
+        corner: { side: 'right', wallLength: 64, end: 'open', sections: [{ kind: 'cabinet' }] },
+      }),
+    },
+  },
+  {
+    id: 'upper-wall-cabinet',
+    name: 'Upper wall cabinet',
+    description: 'A 30″ × 30″ × 12″ cabinet on its own, hung on a French cleat 54″ off the floor, with a pair of doors over two adjustable shelves.',
+    fields: {
+      ...SHAKER,
+      width: '30', height: '30', depth: '12', heightMode: 'overall', drawers: 1, base: 'none',
+      mount: 'wall', mountHeight: '54', cleatHeight: '3',
+      insertKinds: ['door'], doorHinges: ['auto'], doorInside: ['shelves'], doorCounts: [2],
+    },
+  },
   {
     id: 'desk-wall',
     name: 'Built-in desk wall',

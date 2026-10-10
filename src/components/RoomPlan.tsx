@@ -6,7 +6,7 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react';
 import { DimH, DimV } from './builderControls';
 import {
-  WALL_THICKNESS, clampPlacement, frontLine, nextRotation, placedRect, snapPlacement, rectsTouch, wallBand, wallLength, wallsTouching,
+  WALL_THICKNESS, clampPlacement, frontLine, modelToPlan, nextRotation, placedRect, snapPlacement, rectsTouch, wallBand, wallLength, wallsTouching,
   type CabinetBox, type Placement, type Room, type RoomOpening, type Wall,
 } from '../lib/builtinRoom';
 
@@ -16,6 +16,8 @@ export interface PlanCabinet {
   placement: Placement;
   box: CabinetBox;
   wallHung: boolean;
+  /** A corner design's L from above (model x and z); otherwise its box is drawn. */
+  outline?: [number, number][] | null;
 }
 
 interface Props {
@@ -275,8 +277,10 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
             onKeyDown={e => onKeyDown(e, c)}
           >
             <title>{c.label}{c.wallHung ? ' (wall-hung)' : ''}</title>
-            <rect x={r.x0} y={r.y0} width={r.x1 - r.x0} height={r.y1 - r.y0} />
-            <line className="room-plan-front" x1={fx0} y1={fy0} x2={fx1} y2={fy1} />
+            {c.outline
+              ? <polygon points={c.outline.map(([x, z]) => modelToPlan(p, c.box, x, z).join(',')).join(' ')} />
+              : <rect x={r.x0} y={r.y0} width={r.x1 - r.x0} height={r.y1 - r.y0} />}
+            {!c.outline && <line className="room-plan-front" x1={fx0} y1={fy0} x2={fx1} y2={fy1} />}
             <text x={(r.x0 + r.x1) / 2} y={(r.y0 + r.y1) / 2} fontSize={Math.min(fs * 0.9, (r.x1 - r.x0) / 4, (r.y1 - r.y0) / 1.6)} textAnchor="middle" dominantBaseline="central">
               {c.label.length > 18 ? `${c.label.slice(0, 17)}…` : c.label}
             </text>

@@ -9410,6 +9410,14 @@ tbody td {
   .tour-spotlight.is-action { animation: none; }
 }
 
+/* The return of a wall run that turns a corner: set in under its toggle. */
+.drawer-run-corner {
+  display: grid;
+  gap: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--color-line);
+}
+
 /* Drawer Builder wall run: one row per section, left to right. */
 .drawer-run-sections {
   display: grid;
@@ -10100,7 +10108,8 @@ tbody td {
   fill: var(--color-action);
 }
 
-.room-plan-cabinet.is-snapped rect {
+.room-plan-cabinet.is-snapped rect,
+.room-plan-cabinet.is-snapped polygon {
   stroke: var(--color-action);
   stroke-width: 2.5;
   stroke-dasharray: 6 3;
@@ -10143,24 +10152,28 @@ tbody td {
   font-family: var(--font-rounded);
 }
 
-.room-plan-cabinet rect {
+.room-plan-cabinet rect,
+.room-plan-cabinet polygon {
   fill: var(--color-amber-fill);
   stroke: var(--color-amber-deep);
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
 
-.room-plan-cabinet.is-hung rect {
+.room-plan-cabinet.is-hung rect,
+.room-plan-cabinet.is-hung polygon {
   fill-opacity: 0.55;
   stroke-dasharray: 5 3;
 }
 
-.room-plan-cabinet.is-flagged rect {
+.room-plan-cabinet.is-flagged rect,
+.room-plan-cabinet.is-flagged polygon {
   fill: var(--color-warning-fill);
   stroke: var(--color-warning);
 }
 
-.room-plan-cabinet.is-selected rect {
+.room-plan-cabinet.is-selected rect,
+.room-plan-cabinet.is-selected polygon {
   stroke: var(--color-action);
   stroke-width: 3;
 }
@@ -10169,7 +10182,8 @@ tbody td {
   outline: none;
 }
 
-.room-plan-cabinet:focus-visible rect {
+.room-plan-cabinet:focus-visible rect,
+.room-plan-cabinet:focus-visible polygon {
   stroke: var(--color-action);
   stroke-width: 3;
   stroke-dasharray: none;

@@ -749,6 +749,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         'Lay the top on with its back edge flush with the units’ backs, then screw up through each unit’s top panel — 8 screws per unit, short enough not to come through.',
         ...(dk.openEnd?.kind === 'legs' ? [
           `With the top upside down, screw the two leg plates under the ${dk.openEnd.side} end, ${f(DESK_LEG_INSET)} in from the end and the front and back edges; thread the legs in, then turn the desk over onto the unit.`,
+        ] : dk.openEnd?.kind === 'ledger' ? [
+          `Screw the ledger level to the face of the cabinet the desk butts into, its top ${f(dk.openEnd.height)} up (the desk’s underside), into the cabinet’s sides or face frame — not just its door or drawer fronts.`,
+          `Set the ${dk.openEnd.side} end of the top on the ledger and screw down through the top into it.`,
         ] : dk.openEnd?.kind === 'panel' ? [
           `Screw the back rail to the end panel and the unit’s side, under where the top goes, then stand the panel at the ${dk.openEnd.side} end and screw down through the top into it and the rail.`,
         ] : []),
@@ -881,6 +884,31 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       scene: { view: 'front', visible: [...cabinetsOnly, ...lowerFillers, ...ledgerNames], highlight: ['Run countertop'] },
       minutes: 45 + 15 * ct.pieces,
     });
+    const cn = run.corner;
+    if (cn) {
+      const returnNames = all.filter(n => /^(Return |Corner )/.test(n) && !/· Bookcase /.test(n) && !/^Return (top cap|crown)/.test(n));
+      const rplace = cn.sections.map(x => `${x.kind === 'cabinet' ? `cabinet ${x.number}${x.mirror ? ' (mirrored)' : ''}` : `a ${f(x.width)} desk gap`} at ${f(x.x)}`).join(', ');
+      const rcab = cn.sections.filter(x => x.kind === 'cabinet').length;
+      steps.push({
+        id: 'run-corner',
+        title: 'Turn the corner',
+        summary: `A return along the ${cn.side} wall: ${rcab} cabinet${rcab === 1 ? '' : 's'}${cn.sections.some(x => x.kind === 'desk') ? ' and knee space' : ''}, ${f(cn.end - cn.start)} past a ${f(cn.cornerFiller.width)} corner filler.`,
+        instructions: [
+          `Screw a ledger into the studs of each wall in the corner square, tops on the ${f(plan.overallHeight)} line — they carry the countertop where there’s no cabinet.`,
+          `Measure along the ${cn.side} wall from the back wall and mark the return: ${rplace}.`,
+          'Set the return cabinets like the others, level with the main run, backs screwed to the studs.',
+          `Fit the ${f(cn.cornerFiller.width)} corner filler between the main run’s fronts and the first return section, flush with the return’s faces, so drawers and doors on both legs clear each other’s pulls.`,
+          ...(cn.sections.some(x => x.kind === 'desk') ? ['Fit a ledger and side cleats in each return desk gap, like the main run’s.'] : []),
+          ...(cn.filler && cn.filler.width > 0 ? ['Scribe the return’s end filler to the wall.'] : []),
+          'Lay the return countertop tight to the main one’s front edge, join them from below (biscuits and connector bolts, or countertop bolts for butcher block), and screw down into the cabinets and ledgers.',
+        ],
+        parts: sized(partsWhere(['Corner ', 'Return countertop', 'Return desk', 'Return filler'])),
+        tips: ['Join the two countertops before banding, so the joint can be sanded flush.'],
+        cautions: [],
+        scene: { view: 'front', visible: [...cabinetsOnly, ...lowerFillers, ...ledgerNames, 'Run countertop'], highlight: returnNames },
+        minutes: 30 * rcab + 60,
+      });
+    }
     if (run.uppers) {
       steps.push({
         id: 'run-uppers',
@@ -911,7 +939,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
             'Cope or butt the crown into the walls; splice long lengths with a scarf joint over the nailer.',
             ...(run.crown!.returns.length ? ['Mitre the returns at the open ends.'] : []),
           ],
-        parts: sized(partsWhere(['Run top cap', 'Run crown'])),
+        parts: sized(partsWhere(['Run top cap', 'Run crown', 'Return top cap', 'Return crown'])),
         tips: [],
         cautions: [],
         scene: { view: 'front', visible: all.filter(n => !trimNames.includes(n)), highlight: trimNames },

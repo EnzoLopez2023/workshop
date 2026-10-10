@@ -4,7 +4,7 @@
 import { ArrowLeft, ArrowRight, Plus, X } from 'lucide-react';
 import { Button, SegmentedControl } from './ui';
 import { LengthField, Toggle } from './builderControls';
-import type { RunFields } from '../lib/drawerRun';
+import { CORNER_FILLER, DEFAULT_CORNER, runNeedsWallWidth, type RunFields } from '../lib/drawerRun';
 import type { DrawerPlan } from '../lib/drawerUnit';
 import type { LengthUnit } from '../lib/shelving';
 
@@ -12,6 +12,13 @@ const END_OPTIONS = [
   { value: 'wall', label: 'Wall' },
   { value: 'open', label: 'Open' },
 ] as const;
+
+const CORNER_SIDE_OPTIONS = [
+  { value: 'left', label: 'Left end' },
+  { value: 'right', label: 'Right end' },
+] as const;
+
+type SectionField = RunFields['sections'][number];
 
 interface Props {
   value: RunFields;
@@ -38,6 +45,13 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
     onChange({ sections: next });
   };
   const add = (kind: 'cabinet' | 'desk') => onChange({ sections: [...r.sections, { kind, width: kind === 'desk' ? '48' : '', mirror: false }] });
+  const corner = r.corner ?? {
+    enabled: false, side: DEFAULT_CORNER.side, wallLength: String(DEFAULT_CORNER.wallLength),
+    sections: DEFAULT_CORNER.sections.map(x => ({ kind: x.kind, width: '30', mirror: false })), end: DEFAULT_CORNER.end,
+  };
+  const setCorner = (patch: Partial<typeof corner>) => onChange({ corner: { ...corner, ...patch } });
+  const cornerPlan = run?.corner ?? null;
+  const cornerSide = corner.enabled ? corner.side : null;
   let cab = 0;
   let desk = 0;
   return (
@@ -54,10 +68,14 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
       {r.enabled && (
         <>
           <div className="shelf-field-grid">
-            <SegmentedControl label="Left end" value={r.leftEnd} options={END_OPTIONS} onChange={leftEnd => onChange({ leftEnd })} />
-            <SegmentedControl label="Right end" value={r.rightEnd} options={END_OPTIONS} onChange={rightEnd => onChange({ rightEnd })} />
+            {cornerSide === 'left'
+              ? <p className="shelf-group-note">Left end: turns the corner</p>
+              : <SegmentedControl label="Left end" value={r.leftEnd} options={END_OPTIONS} onChange={leftEnd => onChange({ leftEnd })} />}
+            {cornerSide === 'right'
+              ? <p className="shelf-group-note">Right end: turns the corner</p>
+              : <SegmentedControl label="Right end" value={r.rightEnd} options={END_OPTIONS} onChange={rightEnd => onChange({ rightEnd })} />}
           </div>
-          {(r.leftEnd === 'wall' || r.rightEnd === 'wall') && (
+          {runNeedsWallWidth({ ...r, corner }) && (
             <LengthField unit={units} label="Wall width" value={r.wallWidth} error={errors.wallWidth}
               hint={run?.fillers.length ? `Fillers ${fmt(run.fillers[0].width)} at each wall (cut ${fmt(run.fillers[0].width + 0.5)} and scribed).` : 'Wall to wall, measured at the height of the countertop.'}
               onChange={wallWidth => onChange({ wallWidth })} />
@@ -89,6 +107,34 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
             <Button variant="ghost" onClick={() => add('cabinet')} disabled={r.sections.length >= 8}><Plus size={15} aria-hidden="true" /> Cabinet</Button>
             <Button variant="ghost" onClick={() => add('desk')} disabled={r.sections.length >= 8}><Plus size={15} aria-hidden="true" /> Desk gap</Button>
           </span>
+          <Toggle label="Turn a corner" checked={corner.enabled}
+            hint={`The run carries on along the side wall: an open corner square under the countertop, a ${CORNER_FILLER}″ corner filler, then the return’s cabinets and desk gaps.`}
+            onChange={enabled => setCorner({ enabled })} />
+          {corner.enabled && (
+            <div className="drawer-run-corner">
+              <SegmentedControl label="Corner at the" value={corner.side} options={CORNER_SIDE_OPTIONS} onChange={side => setCorner({ side })} />
+              <SegmentedControl label="Return ends at" value={corner.end} options={END_OPTIONS} onChange={end => setCorner({ end })} />
+              {corner.end === 'wall' && (
+                <LengthField unit={units} label="Side wall length" value={corner.wallLength} error={errors['corner.wallLength']}
+                  hint={cornerPlan?.filler ? `From the back wall to the far wall. End filler ${fmt(cornerPlan.filler.width)}.` : 'From the back wall to the wall the return stops at.'}
+                  onChange={wallLength => setCorner({ wallLength })} />
+              )}
+              <SectionList
+                label="Return"
+                sections={corner.sections}
+                max={6}
+                units={units}
+                cabinetWidth={cabinetWidth}
+                errors={Object.fromEntries(Object.entries(errors).filter(([k]) => k.startsWith('corner.sections.')).map(([k, v]) => [k.slice('corner.'.length), v]))}
+                onChange={sections => setCorner({ sections })}
+              />
+              {cornerPlan && (
+                <p className="shelf-group-note">
+                  Return: {fmt(cornerPlan.end - cornerPlan.start)} of sections starting {fmt(cornerPlan.start)} from the back wall; countertop {fmt(cornerPlan.countertop.x1 - cornerPlan.countertop.x0)} long.
+                </p>
+              )}
+            </div>
+          )}
           <Toggle label="Bookcase over the desk gaps too" checked={r.deskUppers}
             hint="Needs the bookcase on (below). Off leaves the wall over the desk open." onChange={deskUppers => onChange({ deskUppers })} />
           {run && (
@@ -101,5 +147,57 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
         </>
       )}
     </fieldset>
+  );
+}
+
+/** The return's sections: cabinets (this design) and desk gaps, in order from the corner. */
+function SectionList({ label, sections, max, units, cabinetWidth, errors, onChange }: {
+  label: string;
+  sections: SectionField[];
+  max: number;
+  units: LengthUnit;
+  cabinetWidth: string;
+  errors: Partial<Record<string, string>>;
+  onChange: (sections: SectionField[]) => void;
+}) {
+  const set = (i: number, patch: Partial<SectionField>) => onChange(sections.map((s, k) => (k === i ? { ...s, ...patch } : s)));
+  const move = (i: number, by: number) => {
+    const next = [...sections];
+    const [s] = next.splice(i, 1);
+    next.splice(i + by, 0, s);
+    onChange(next);
+  };
+  let cab = 0;
+  let desk = 0;
+  return (
+    <>
+      <ol className="drawer-run-sections">
+        {sections.map((s, i) => {
+          const name = s.kind === 'cabinet' ? `${label} cabinet ${++cab}` : `${label} desk gap ${++desk}`;
+          return (
+            <li key={i} className="drawer-run-section">
+              <span className="form-field-label">{name}</span>
+              {s.kind === 'cabinet'
+                ? (
+                  <>
+                    <small>{cabinetWidth}{units === 'mm' ? ' mm' : '″'} wide — this design</small>
+                    <Toggle label="Mirrored" checked={s.mirror} hint="Doors hinge the other way." onChange={mirror => set(i, { mirror })} />
+                  </>
+                )
+                : <LengthField unit={units} label="Knee space" value={s.width} error={errors[`sections.${i}`]} onChange={width => set(i, { width })} />}
+              <span className="drawer-run-actions">
+                <Button variant="ghost" aria-label={`Move ${name} toward the corner`} disabled={i === 0} onClick={() => move(i, -1)}><ArrowLeft size={15} aria-hidden="true" /></Button>
+                <Button variant="ghost" aria-label={`Move ${name} away from the corner`} disabled={i === sections.length - 1} onClick={() => move(i, 1)}><ArrowRight size={15} aria-hidden="true" /></Button>
+                <Button variant="ghost" aria-label={`Remove ${name}`} disabled={sections.length <= 1} onClick={() => onChange(sections.filter((_, k) => k !== i))}><X size={15} aria-hidden="true" /></Button>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <span className="shelf-source-actions">
+        <Button variant="ghost" onClick={() => onChange([...sections, { kind: 'cabinet', width: '', mirror: false }])} disabled={sections.length >= max}><Plus size={15} aria-hidden="true" /> {label} cabinet</Button>
+        <Button variant="ghost" onClick={() => onChange([...sections, { kind: 'desk', width: '30', mirror: false }])} disabled={sections.length >= max}><Plus size={15} aria-hidden="true" /> {label} desk gap</Button>
+      </span>
+    </>
   );
 }

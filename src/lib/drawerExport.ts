@@ -477,7 +477,11 @@ export function drawerJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: n
   }
   jigs.push(...buildJigs(plan, config, f));
   const order = JIG_STAGES.map(x => x.stage);
-  return jigs.sort((a, b2) => order.indexOf(a.stage) - order.indexOf(b2.stage));
+  // An all-door cabinet (an upper) has no drawer boxes or slides, so those jigs have nothing to make.
+  const boxed = boxedDrawers(plan).length > 0;
+  return jigs
+    .filter(j => j.face && (boxed || (j.stage !== 'slides' && j.stage !== 'boxes')))
+    .sort((a, b2) => order.indexOf(a.stage) - order.indexOf(b2.stage));
 }
 
 // ── More shop jigs, each sized from the design ───────────────────────────────
