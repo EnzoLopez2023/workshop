@@ -1,11 +1,12 @@
 // Room set-up for a Built-in Studio project: required size and wall height, which
 // walls exist, and the windows, doors, closets and doorways in them.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DoorOpen, Plus, Save, Trash2 } from 'lucide-react';
 import { Button, IconButton, SegmentedControl } from './ui';
 import { LengthField, Toggle } from './builderControls';
 import RoomPlan from './RoomPlan';
+import { useWorkbenchTop } from './useWorkbenchTop';
 import { formatLength, lengthToField, parseLength, type LengthUnit } from '../lib/shelving';
 import {
   OPENING_LABELS, WALLS, WALL_LABELS, defaultRoom, newOpening, roomProblems,
@@ -82,6 +83,15 @@ interface Props {
 export default function RoomEditor({ room, readOnly, saving, onSave, onRemove }: Props) {
   const [form, setForm] = useState<RoomForm | null>(() => (room ? toForm(room) : null));
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [selectedOpening, setSelectedOpening] = useState<string | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  useWorkbenchTop(editorRef);
+
+  // Selecting an opening on the plan brings its settings into view.
+  useEffect(() => {
+    if (!selectedOpening) return;
+    document.getElementById(`opening-${selectedOpening}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [selectedOpening]);
 
   const result = useMemo(() => (form ? fromForm(form) : null), [form]);
   const fmt = (inches: number) => formatLength(inches, form?.units ?? 'in');
@@ -128,7 +138,7 @@ export default function RoomEditor({ room, readOnly, saving, onSave, onRemove }:
   const save = () => { if (result?.room && problems.length === 0) onSave(result.room); };
 
   return (
-    <div className="builtin-room-editor">
+    <div ref={editorRef} className="builtin-room-editor">
       <section className="card builtin-room-fields" aria-labelledby="room-size-title">
         <div className="builtin-room-head">
           <h2 id="room-size-title">Room size</h2>
@@ -152,7 +162,13 @@ export default function RoomEditor({ room, readOnly, saving, onSave, onRemove }:
         {form.openings.length === 0 && <p className="builtin-hint">None yet. Add each one so cabinets can steer clear of them.</p>}
         <ol className="builtin-openings">
           {form.openings.map((o, i) => (
-            <li key={o.id} className="builtin-opening">
+            <li
+              key={o.id}
+              id={`opening-${o.id}`}
+              className={`builtin-opening${selectedOpening === o.id ? ' is-selected' : ''}`}
+              onFocus={() => setSelectedOpening(o.id)}
+              onPointerDown={() => setSelectedOpening(o.id)}
+            >
               <div className="builtin-opening-head">
                 <strong>{OPENING_LABELS[o.kind]} {i + 1}</strong>
                 <label className="builtin-select">
@@ -209,9 +225,23 @@ export default function RoomEditor({ room, readOnly, saving, onSave, onRemove }:
       <section className="card builtin-room-preview" aria-labelledby="room-preview-title">
         <h2 id="room-preview-title">Top view</h2>
         {result?.room ? (
-          <RoomPlan room={result.room} fmt={fmt} label={`Top view of a ${fmt(result.room.width)} by ${fmt(result.room.depth)} room`} />
+          <RoomPlan
+            room={result.room}
+            fmt={fmt}
+            editable={!readOnly}
+            openingDims
+            selectedOpeningId={selectedOpening}
+            onSelectOpening={setSelectedOpening}
+            onMoveOpening={(id, offset) => setOpening(id, { offset: lengthToField(offset, form.units) })}
+            label={`Top view of a ${fmt(result.room.width)} by ${fmt(result.room.depth)} room`}
+          />
         ) : (
           <p className="builtin-hint">Enter the width, depth and wall height to see the room.</p>
+        )}
+        {result?.room && result.room.openings.length > 0 && (
+          <p className="builtin-hint">
+            {readOnly ? 'Select a window, door or closet to see its settings.' : 'Drag a window, door or closet along its wall, or select it and use the arrow keys (Shift for 12″).'}
+          </p>
         )}
         {problems.length > 0 && (
           <ul className="drawer-error-list" role="status">{problems.map(p => <li key={p}>{p}</li>)}</ul>

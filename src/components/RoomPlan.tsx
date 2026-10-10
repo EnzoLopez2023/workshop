@@ -1,6 +1,7 @@
 // Top view of a room for Built-in Studio projects: walls with their windows, doors
 // and closets, and the project's cabinets, which can be dragged (pointer or
-// keyboard) and dropped in from the cabinet list.
+// keyboard) and dropped in from the cabinet list. Windows, doors, closets and doorways
+// can be dragged along their wall, with their positions dimensioned outside it.
 
 import { useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react';
 import { DimH, DimV } from './builderControls';
@@ -32,21 +33,33 @@ interface Props {
   onRemove?: (id: number) => void;
   /** Something from the cabinet list was dropped at plan point (x, y). */
   onDrop?: (id: number, x: number, y: number, others: PlanCabinet[]) => void;
+  /** The selected window, door, closet or doorway. */
+  selectedOpeningId?: string | null;
+  onSelectOpening?: (id: string | null) => void;
+  /** An opening was dragged (or nudged) along its wall to `offset` from its start corner. */
+  onMoveOpening?: (id: string, offset: number) => void;
+  /** Dimension each opening's position along its wall. */
+  openingDims?: boolean;
   label: string;
 }
 
 /** The MIME type cabinet-list items carry when dragged onto the plan. */
 export const CABINET_DRAG_TYPE = 'application/x-workshop-cabinet';
 
-export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, flagged, editable = false, onSelect, onMove, onRemove, onDrop, label }: Props) {
+export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, flagged, editable = false, onSelect, onMove, onRemove, onDrop,
+  selectedOpeningId = null, onSelectOpening, onMoveOpening, openingDims = false, label }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<{ id: number; dx: number; dy: number; placement: Placement; moved: boolean } | null>(null);
   const [dropHover, setDropHover] = useState(false);
+  const [openingDrag, setOpeningDrag] = useState<{ id: string; grab: number; offset: number; moved: boolean } | null>(null);
 
   const T = WALL_THICKNESS;
   const closetDepth = Math.max(0, ...room.openings.filter(o => o.kind === 'closet').map(o => o.depth ?? 0));
   const fs = Math.max(room.width, room.depth) / 38;
-  const margin = T + closetDepth + fs * 3.2;
+  const chainWalls = new Set(openingDims ? room.openings.filter(o => room.walls[o.wall]).map(o => o.wall) : []);
+  // Room for a row of position dimensions outside a wall, inside the overall one.
+  const chainRoom = (wall: Wall) => (chainWalls.has(wall) ? fs * 1.3 : 0);
+  const margin = T + closetDepth + fs * 3.2 + (chainWalls.size ? fs * 1.3 : 0);
   const viewBox = `${-margin} ${-margin} ${room.width + margin * 2} ${room.depth + margin * 2}`;
 
   const toPlan = (clientX: number, clientY: number): [number, number] | null => {
@@ -58,6 +71,34 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
     pt.y = clientY;
     const p = pt.matrixTransform(ctm.inverse());
     return [p.x, p.y];
+  };
+
+  // While an opening is dragged, the plan draws it where it's been dragged to.
+  const shown: Room = openingDrag
+    ? { ...room, openings: room.openings.map(o => (o.id === openingDrag.id ? { ...o, offset: openingDrag.offset } : o)) }
+    : room;
+  const along = (wall: Wall, [x, y]: [number, number]) => (wall === 'north' || wall === 'south' ? x : y);
+  const clampOffset = (o: RoomOpening, offset: number) =>
+    Math.min(Math.max(0, wallLength(room, o.wall) - o.width), Math.max(0, Math.round(offset * 4) / 4));
+
+  const onOpeningPointerDown = (e: PointerEvent<SVGGElement>, o: RoomOpening) => {
+    onSelectOpening?.(o.id);
+    if (!editable || !onMoveOpening || e.button !== 0) return;
+    const at = toPlan(e.clientX, e.clientY);
+    if (!at) return;
+    e.preventDefault();
+    e.stopPropagation();
+    svgRef.current?.setPointerCapture(e.pointerId);
+    setOpeningDrag({ id: o.id, grab: along(o.wall, at) - o.offset, offset: o.offset, moved: false });
+  };
+  const onOpeningKeyDown = (e: KeyboardEvent<SVGGElement>, o: RoomOpening) => {
+    if (e.key === 'Escape') { onSelectOpening?.(null); return; }
+    if (!editable || !onMoveOpening) return;
+    const step = e.shiftKey ? 12 : e.altKey ? 0.25 : 1;
+    const by: Record<string, number> = { ArrowLeft: -step, ArrowUp: -step, ArrowRight: step, ArrowDown: step };
+    if (by[e.key] === undefined) return;
+    e.preventDefault();
+    onMoveOpening(o.id, clampOffset(o, o.offset + by[e.key]));
   };
 
   const others = (id: number) => cabinets.filter(c => c.id !== id);
@@ -72,6 +113,14 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
     setDrag({ id: c.id, dx: at[0] - c.placement.x, dy: at[1] - c.placement.y, placement: c.placement, moved: false });
   };
   const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
+    if (openingDrag) {
+      const at = toPlan(e.clientX, e.clientY);
+      const o = room.openings.find(x => x.id === openingDrag.id);
+      if (!at || !o) return;
+      const offset = clampOffset(o, along(o.wall, at) - openingDrag.grab);
+      if (offset !== openingDrag.offset) setOpeningDrag({ ...openingDrag, offset, moved: true });
+      return;
+    }
     if (!drag) return;
     const at = toPlan(e.clientX, e.clientY);
     const c = cabinets.find(x => x.id === drag.id);
@@ -83,6 +132,11 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
     setDrag({ ...drag, placement: { x: snapped.x, y: snapped.y, rotation: snapped.rotation }, moved: true });
   };
   const endDrag = () => {
+    if (openingDrag) {
+      if (openingDrag.moved) onMoveOpening?.(openingDrag.id, openingDrag.offset);
+      setOpeningDrag(null);
+      return;
+    }
     if (drag?.moved) onMove?.(drag.id, drag.placement);
     setDrag(null);
   };
@@ -126,14 +180,16 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
   return (
     <svg
       ref={svgRef}
-      className={`room-plan${editable ? ' is-editable' : ''}${dropHover ? ' is-drop-target' : ''}${drag ? ' is-dragging' : ''}`}
+      className={`room-plan${editable ? ' is-editable' : ''}${dropHover ? ' is-drop-target' : ''}${drag || openingDrag ? ' is-dragging' : ''}`}
       viewBox={viewBox}
       role="group"
       aria-label={label}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
-      onPointerDown={e => { if (e.target === e.currentTarget || (e.target as Element).classList.contains('room-plan-floor')) onSelect?.(null); }}
+      onPointerDown={e => {
+        if (e.target === e.currentTarget || (e.target as Element).classList.contains('room-plan-floor')) { onSelect?.(null); onSelectOpening?.(null); }
+      }}
       onDragOver={onDragOver}
       onDragLeave={() => setDropHover(false)}
       onDrop={onDropEvent}
@@ -149,10 +205,43 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
         const b = wallBand(room, w, ns && room.walls.west ? -T : 0, wallLength(room, w) + (ns && room.walls.east ? T : 0));
         return <rect key={w} className="room-plan-wall" x={b.x0} y={b.y0} width={b.x1 - b.x0} height={b.y1 - b.y0} />;
       })}
-      {room.openings.filter(o => room.walls[o.wall]).map(o => <OpeningMark key={o.id} room={room} opening={o} fs={fs} />)}
+      {shown.openings.filter(o => room.walls[o.wall]).map((o, i) => {
+        const interactive = Boolean(onSelectOpening || (editable && onMoveOpening));
+        const selected = o.id === selectedOpeningId;
+        const hit = wallBand(room, o.wall, o.offset, o.offset + o.width, T + fs * 0.9);
+        const inner = wallBand(room, o.wall, o.offset, o.offset + o.width, fs * 0.9);
+        // The wall band plus a little of the room in front of it, so a thin window is easy to grab.
+        const box = {
+          x0: Math.min(hit.x0, inner.x0, wallPoint(room, o.wall, o.offset, fs * 0.9)[0]),
+          x1: Math.max(hit.x1, inner.x1, wallPoint(room, o.wall, o.offset + o.width, fs * 0.9)[0]),
+          y0: Math.min(hit.y0, inner.y0, wallPoint(room, o.wall, o.offset, fs * 0.9)[1]),
+          y1: Math.max(hit.y1, inner.y1, wallPoint(room, o.wall, o.offset + o.width, fs * 0.9)[1]),
+        };
+        const name = `${OPENING_NAMES[o.kind]} ${room.openings.findIndex(x => x.id === o.id) + 1 || i + 1}`;
+        const mark = <OpeningMark room={shown} opening={o} fs={fs} />;
+        if (!interactive) return <g key={o.id}>{mark}</g>;
+        return (
+          <g
+            key={o.id}
+            className={`room-plan-opening-item${selected ? ' is-selected' : ''}`}
+            tabIndex={0}
+            role="button"
+            aria-pressed={selected}
+            aria-label={`${name} on the ${WALL_NAMES[o.wall]} wall, ${fmt(o.offset)} ${o.wall === 'north' || o.wall === 'south' ? 'from the left corner' : 'from the top corner'}${editable && onMoveOpening ? '. Drag it or use the arrow keys to slide it along the wall.' : ''}`}
+            onPointerDown={e => onOpeningPointerDown(e, o)}
+            onFocus={() => onSelectOpening?.(o.id)}
+            onKeyDown={e => onOpeningKeyDown(e, o)}
+          >
+            <rect className="room-plan-hit" x={box.x0} y={box.y0} width={box.x1 - box.x0} height={box.y1 - box.y0} />
+            {mark}
+          </g>
+        );
+      })}
 
-      <DimH x1={0} x2={room.width} y={-T - closetDepthOn(room, 'north') - fs * 1.6} label={fmt(room.width)} fs={fs} />
-      <DimV y1={0} y2={room.depth} x={-T - closetDepthOn(room, 'west') - fs * 1.6} label={fmt(room.depth)} fs={fs} />
+      {[...chainWalls].map(w => <ChainDims key={w} room={shown} wall={w} fs={fs} fmt={fmt} selectedId={selectedOpeningId} />)}
+
+      <DimH x1={0} x2={room.width} y={-T - closetDepthOn(room, 'north') - chainRoom('north') - fs * 1.6} label={fmt(room.width)} fs={fs} />
+      <DimV y1={0} y2={room.depth} x={-T - closetDepthOn(room, 'west') - chainRoom('west') - fs * 1.6} label={fmt(room.depth)} fs={fs} />
 
       {cabinets.map(c => {
         const p = drag?.id === c.id ? drag.placement : c.placement;
@@ -182,6 +271,46 @@ export default function RoomPlan({ room, cabinets = [], fmt, selectedId = null, 
         );
       })}
     </svg>
+  );
+}
+
+const OPENING_NAMES: Record<RoomOpening['kind'], string> = { window: 'Window', door: 'Door', closet: 'Closet', opening: 'Doorway' };
+const WALL_NAMES: Record<Wall, string> = { north: 'top', east: 'right', south: 'bottom', west: 'left' };
+
+/**
+ * A row of dimensions just outside a wall: corner to each opening, each opening's width,
+ * and on to the far corner. The selected opening's numbers are highlighted.
+ */
+function ChainDims({ room, wall, fs, fmt, selectedId }: { room: Room; wall: Wall; fs: number; fmt: (inches: number) => string; selectedId: string | null }) {
+  const len = wallLength(room, wall);
+  const ops = room.openings.filter(o => o.wall === wall).sort((a, b) => a.offset - b.offset);
+  const marks = new Set<number>([0, len]);
+  for (const o of ops) { marks.add(o.offset); marks.add(o.offset + o.width); }
+  const pts = [...marks].filter(a => a >= 0 && a <= len).sort((a, b) => a - b);
+  const n = -WALL_THICKNESS - closetDepthOn(room, wall) - fs * 1.1;
+  const sel = ops.find(o => o.id === selectedId);
+  const small = fs * 0.78;
+  return (
+    <g className="room-plan-chain">
+      {pts.slice(1).map((b, i) => {
+        const a = pts[i];
+        if (b - a < 0.01) return null;
+        const isSel = sel !== undefined && a >= sel.offset - 0.01 && b <= sel.offset + sel.width + 0.01;
+        const touches = sel !== undefined && (Math.abs(a - sel.offset - sel.width) < 0.01 || Math.abs(b - sel.offset) < 0.01);
+        const cls = isSel || touches ? 'is-selected' : undefined;
+        // Too short for its label: keep the line and let the title carry the number.
+        const label = b - a < small * 2.2 ? '' : fmt(b - a);
+        const [p, q] = [wallPoint(room, wall, a, n), wallPoint(room, wall, b, n)];
+        return (
+          <g key={`${a}-${b}`} className={cls}>
+            <title>{fmt(b - a)}</title>
+            {wall === 'north' || wall === 'south'
+              ? <DimH x1={p[0]} x2={q[0]} y={p[1]} fs={small} label={label} />
+              : <DimV y1={p[1]} y2={q[1]} x={p[0]} fs={small} label={label} />}
+          </g>
+        );
+      })}
+    </g>
   );
 }
 

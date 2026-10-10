@@ -10183,8 +10183,105 @@ tbody td {
 }
 
 .room-plan.is-dragging,
-.room-plan.is-dragging .room-plan-cabinet {
+.room-plan.is-dragging .room-plan-cabinet,
+.room-plan.is-dragging .room-plan-opening-item {
   cursor: grabbing;
+}
+
+/* Windows, doors and closets on the plan: selectable, and dragged along their wall. */
+.room-plan-hit {
+  fill: transparent;
+  stroke: none;
+}
+
+.room-plan-opening-item {
+  cursor: pointer;
+}
+
+.room-plan.is-editable .room-plan-opening-item {
+  cursor: grab;
+}
+
+.room-plan-opening-item:focus {
+  outline: none;
+}
+
+.room-plan-opening-item.is-selected .room-plan-hit,
+.room-plan-opening-item:focus-visible .room-plan-hit {
+  fill: color-mix(in srgb, var(--color-action) 14%, transparent);
+  stroke: var(--color-action);
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.room-plan-chain .is-selected .shelf-dim line {
+  stroke: var(--color-action);
+  stroke-width: 1.5;
+}
+
+.room-plan-chain .is-selected .shelf-dim-text {
+  fill: var(--color-action);
+}
+
+.builtin-opening.is-selected {
+  border-color: var(--color-action);
+  box-shadow: 0 0 0 1px var(--color-action);
+}
+
+/* Desktop: the room and layout steps fill the window — settings at the left, the plan beside them. */
+@media (min-width: 1100px) {
+  .builtin-project-page.is-workbench {
+    width: 100%;
+    max-width: none !important;
+    padding: 20px 24px 16px;
+  }
+
+  .builtin-room-editor,
+  .builtin-layout {
+    grid-template-columns: clamp(360px, 28vw, 480px) minmax(0, 1fr);
+    align-items: stretch;
+    gap: 16px;
+    height: max(560px, calc(100dvh - var(--workbench-top, 160px) - 16px));
+  }
+
+  .builtin-layout {
+    grid-template-columns: clamp(280px, 22vw, 380px) minmax(0, 1fr);
+  }
+
+  .builtin-room-fields,
+  .builtin-palette {
+    /* Relative, so absolutely placed bits inside (hidden toggle inputs) scroll with it. */
+    position: relative;
+    top: auto;
+    align-content: start;
+    max-height: none;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .builtin-room-preview,
+  .builtin-plan {
+    position: static;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .builtin-room-preview > *,
+  .builtin-plan > * {
+    flex: none;
+  }
+
+  .builtin-room-preview > .room-plan,
+  .builtin-plan > .room-plan {
+    flex: 1 1 0;
+    min-height: 0;
+    height: 0;
+    max-height: none;
+  }
 }
 
 /* Room 3D */

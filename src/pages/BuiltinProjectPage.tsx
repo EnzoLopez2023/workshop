@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Button, IconButton, PageFrame, PageHeader, SegmentedControl, StatePanel } from '../components/ui';
 import RoomEditor from '../components/RoomEditor';
+import { useWorkbenchTop } from '../components/useWorkbenchTop';
 import RoomPlan, { CABINET_DRAG_TYPE, type PlanCabinet } from '../components/RoomPlan';
 import {
   addBuiltinCabinet, deleteBuiltinCabinet, getBuiltinProject, listLibraryDrawerDesigns, saveBuiltinLayout,
@@ -87,6 +88,8 @@ export default function BuiltinProjectPage() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const saveTimer = useRef<number | undefined>(undefined);
   const pendingLayout = useRef<Map<number, Placement | null> | null>(null);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  useWorkbenchTop(layoutRef);
 
   useEffect(() => {
     if (!Number.isInteger(projectId)) { setLoadError('That isn’t a project.'); return; }
@@ -266,7 +269,7 @@ export default function BuiltinProjectPage() {
     ? placedRect(selectedPlacement, models.get(selectedCabinet.design_id)!.box) : null;
 
   return (
-    <PageFrame maxWidth={1280} className="builtin-project-page">
+    <PageFrame maxWidth={1280} className={`builtin-project-page${step === 'room' || step === 'layout' ? ' is-workbench' : ''}`}>
       <Button variant="ghost" onClick={() => navigate('/built-ins/projects')} className="workflow-back">
         <ArrowLeft size={16} aria-hidden="true" /> All projects
       </Button>
@@ -387,7 +390,7 @@ export default function BuiltinProjectPage() {
       {step === 'layout' && (!room ? (
         <StatePanel title="Set up the room first" description="The layout needs the room’s size and walls." action={<Button variant="primary" onClick={() => setStep('room')}>Set up the room</Button>} />
       ) : (
-        <div className="builtin-layout">
+        <div ref={layoutRef} className="builtin-layout">
           <aside className="card builtin-palette" aria-labelledby="palette-title">
             <h2 id="palette-title">Cabinets</h2>
             {cabinets.length === 0 && <p className="builtin-hint">Add cabinets in step 1 first.</p>}
