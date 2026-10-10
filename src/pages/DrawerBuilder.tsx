@@ -73,6 +73,7 @@ import { DRAWER_TEMPLATES, drawerThumbnailDataUrl, type DrawerTemplate } from '.
 import { BOOKCASE_LENGTH_KEYS, bookcaseFromFields, bookcaseToFields, valanceSpan, type BookcasePlan } from '../lib/drawerBookcase';
 import { runFromFields, runToFields } from '../lib/drawerRun';
 import DrawerRunFields from '../components/DrawerRunFields';
+import { SideView, TopView } from '../components/DrawerViews';
 import { useWorkbenchTop } from '../components/useWorkbenchTop';
 import BuilderStepNav, { type BuilderStep } from '../components/BuilderStepNav';
 import DrawerBookcaseFields from '../components/DrawerBookcaseFields';
@@ -1904,6 +1905,10 @@ export default function DrawerBuilder() {
               ) : (
                 <div className="builder-drawings">
                   <DrawerElevation plan={plan} config={config} fmt={fmt} />
+                  <div className="builder-views">
+                    <SideView plan={plan} config={config} fmt={fmt} />
+                    <TopView plan={plan} config={config} fmt={fmt} />
+                  </div>
                   <DrawerSection plan={plan} config={config} fmt={fmt} />
                 </div>
               )}

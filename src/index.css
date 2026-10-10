@@ -10290,3 +10290,34 @@ tbody td {
     display: none !important;
   }
 }
+
+/* Side and top views beside each other under the front elevation. */
+.builder-views {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.shelf-drawing.is-view svg {
+  max-height: 340px;
+}
+
+/* Tops seen from above (desk top, countertop, uppers), drawn as dashed outlines over the units. */
+.drawer-overhead {
+  fill: color-mix(in srgb, var(--color-annotation) 6%, transparent);
+  stroke: var(--color-annotation);
+  stroke-width: 1.2;
+  stroke-dasharray: 5 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.drawer-overhead.is-upper {
+  stroke-dasharray: 2 3;
+}
+
+/* Something that's already there (an existing desk), for context. */
+.drawer-existing {
+  fill: none;
+  stroke-dasharray: 4 3;
+}
