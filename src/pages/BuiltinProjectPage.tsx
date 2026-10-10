@@ -17,7 +17,7 @@ import { drawerThumbnailDataUrl } from '../lib/drawerTemplates';
 import { formatLength, type LengthUnit, type Solid, type SolidKind } from '../lib/shelving';
 import {
   autoPlace, cabinetBox, clampPlacement, layoutIssues, nextRotation, placedRect, readRoom, snapPlacement,
-  type CabinetBox, type Placement, type Room,
+  OPENING_LABELS, WALL_LABELS, type CabinetBox, type Placement, type Room,
 } from '../lib/builtinRoom';
 import type { BuiltinProject, BuiltinProjectCabinet, LibraryDrawerDesign } from '../types/project';
 
@@ -119,6 +119,26 @@ export default function BuiltinProjectPage() {
       .catch(err => { setLayoutSave('error'); setError(`The layout wasn’t saved: ${message(err)}`); });
   }, [projectId]);
   useEffect(() => () => flushLayout(), [flushLayout]);
+
+  // Windows, doors and closets dragged on the layout plan: shown at once, saved shortly after.
+  const roomTimer = useRef<number | undefined>(undefined);
+  const pendingRoom = useRef<Room | null>(null);
+  const flushRoom = useCallback(() => {
+    window.clearTimeout(roomTimer.current);
+    const next = pendingRoom.current;
+    if (!next) return;
+    pendingRoom.current = null;
+    setLayoutSave('saving');
+    updateBuiltinProject(projectId, { room: next })
+      .then(updated => {
+        if (pendingRoom.current) return;
+        setLayoutSave('saved');
+        setProject(p => (p ? { ...p, updated_at: updated.updated_at } : p));
+      })
+      .catch(err => { setLayoutSave('error'); setError(`The room wasn’t saved: ${message(err)}`); });
+  }, [projectId]);
+  useEffect(() => () => flushRoom(), [flushRoom]);
+  const [selectedOpening, setSelectedOpening] = useState<string | null>(null);
 
   const room = useMemo(() => readRoom(project?.room ?? null), [project?.room]);
   const units: LengthUnit = room?.units ?? 'in';
@@ -260,6 +280,20 @@ export default function BuiltinProjectPage() {
       setSavingRoom(false);
     }
   };
+
+  const moveOpening = (id: string, offset: number) => {
+    if (!room) return;
+    const next: Room = { ...room, openings: room.openings.map(o => (o.id === id ? { ...o, offset } : o)) };
+    setProject(p => (p ? { ...p, room: next } : p));
+    pendingRoom.current = next;
+    setLayoutSave('saving');
+    window.clearTimeout(roomTimer.current);
+    roomTimer.current = window.setTimeout(flushRoom, 600);
+  };
+  const selectCabinet = (id: number | null) => { setSelected(id); if (id !== null) setSelectedOpening(null); };
+  const selectOpening = (id: string | null) => { setSelectedOpening(id); if (id !== null) setSelected(null); };
+  const openingIndex = room ? room.openings.findIndex(o => o.id === selectedOpening) : -1;
+  const shownOpening = room && openingIndex >= 0 ? room.openings[openingIndex] : null;
 
   const cabinets = project.cabinets;
   const placedCount = cabinets.filter(c => placements.get(c.id) && models.get(c.design_id)).length;
@@ -430,6 +464,14 @@ export default function BuiltinProjectPage() {
           <section className="card builtin-plan" aria-labelledby="plan-title">
             <div className="builtin-plan-head">
               <h2 id="plan-title"><LayoutGrid size={16} aria-hidden="true" /> Top view</h2>
+              {shownOpening && (
+                <div className="builtin-selection" aria-label={`${OPENING_LABELS[shownOpening.kind]} ${openingIndex + 1} selected`}>
+                  <strong>{OPENING_LABELS[shownOpening.kind]} {openingIndex + 1}</strong>
+                  <small>
+                    {WALL_LABELS[shownOpening.wall]} · {fmt(shownOpening.offset)} {shownOpening.wall === 'north' || shownOpening.wall === 'south' ? 'from the left corner' : 'from the top corner'} · {fmt(shownOpening.width)} wide
+                  </small>
+                </div>
+              )}
               {selectedCabinet && selectedPlacement && !demo && (
                 <div className="builtin-selection" aria-label={`${labelFor.get(selectedCabinet.id)} selected`}>
                   <strong>{labelFor.get(selectedCabinet.id)}</strong>
@@ -447,13 +489,17 @@ export default function BuiltinProjectPage() {
               selectedId={selected}
               flagged={flagged}
               editable={!demo}
-              onSelect={setSelected}
+              onSelect={selectCabinet}
+              selectedOpeningId={selectedOpening}
+              onSelectOpening={selectOpening}
+              onMoveOpening={moveOpening}
+              openingDims
               onMove={(cid, p) => setPlacement(cid, p)}
               onRemove={cid => { setPlacement(cid, null); setSelected(null); }}
               onDrop={dropAt}
               label={`Top view of the room with ${planCabinets.length} cabinet${planCabinets.length === 1 ? '' : 's'} placed. The front of each cabinet is the heavy edge.`}
             />
-            <p className="builtin-hint">The heavy edge is each cabinet’s front. Dashed cabinets hang on the wall. Select one and use the arrow keys to nudge (Shift for 12″), R to turn.</p>
+            <p className="builtin-hint">The heavy edge is each cabinet’s front. Dashed cabinets hang on the wall. Select one and use the arrow keys to nudge (Shift for 12″), R to turn. Windows, doors and closets slide along their wall the same way.</p>
             {issues.length > 0 && (
               <ul className="builder-notes builtin-issues" role="status">{issues.map((i, n) => <li key={n}>{i.message}</li>)}</ul>
             )}
