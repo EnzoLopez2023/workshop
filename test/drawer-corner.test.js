@@ -456,3 +456,22 @@ test('a run cabinet can be laid out position by position', () => {
   assert.deepEqual(fields.sections[0].cabinetPositions, ['drawer', 'open', 'door']);
   assert.deepEqual(runFromFields(fields, raw => Number(raw)).sections[0].cabinet, { layout: 'custom', positions: ['drawer', 'open', 'door'] });
 });
+
+test('a joint between uppers can be opened above the counter, leaving the others', () => {
+  const bookcase = { ...DEFAULT_BOOKCASE, enabled: true, height: 60, depth: 12, bays: 2, openBelow: 18 };
+  const run = { enabled: true, wallWidth: 0, leftEnd: 'open', rightEnd: 'open', deskUppers: false,
+    sections: [{ kind: 'cabinet' }, { kind: 'cabinet' }, { kind: 'cabinet' }], openJoints: [0] };
+  const config = { ...base, bookcase, run };
+  const p = buildDrawerPlan(config);
+  assert.deepEqual(p.errors, []);
+  const solids = runSolids(p, config);
+  const bottom = n => { const s = solids.find(x => x.name === n); return s.min[1]; };
+  const floor = p.bookcase.y0;
+  assert.ok(bottom('Cabinet 1 · Bookcase right side') > floor + 17, 'cabinet 1 right side stops above the counter');
+  assert.ok(bottom('Cabinet 2 · Bookcase left side') > floor + 17, 'cabinet 2 left side too');
+  close(bottom('Cabinet 2 · Bookcase right side'), floor, 'the joint with cabinet 3 keeps its side');
+  close(bottom('Cabinet 1 · Bookcase left side'), floor, 'the outer side keeps it');
+  assert.equal(p.parts.find(x => x.name === 'Bookcase side, short').qty, 2);
+  assert.equal(p.parts.find(x => x.name === 'Bookcase side').qty, 4);
+  assert.ok(drawerPartFaces(p, config).some(f => f.part === 'Bookcase side, short'));
+});

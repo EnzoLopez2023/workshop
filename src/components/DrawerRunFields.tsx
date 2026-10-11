@@ -39,10 +39,12 @@ interface Props {
   conflict?: string;
   /** The design's own positions, top to bottom: a custom cabinet starts from them. */
   designPositions: RunPosition[];
+  /** The uppers stand over open counter space (and aren't hung on the wall), so joints can be opened. */
+  openJointsAvailable?: boolean;
   onChange: (patch: Partial<RunFields>) => void;
 }
 
-export default function DrawerRunFields({ value: r, units, errors, plan, fmt, cabinetWidth, conflict, designPositions, onChange }: Props) {
+export default function DrawerRunFields({ value: r, units, errors, plan, fmt, cabinetWidth, conflict, designPositions, openJointsAvailable = false, onChange }: Props) {
   const run = plan?.run ?? null;
   const setSection = (i: number, patch: Partial<RunFields['sections'][number]>) =>
     onChange({ sections: r.sections.map((s, k) => (k === i ? { ...s, ...patch } : s)) });
@@ -119,6 +121,11 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
                   {s.kind === 'cabinet'
                     ? <CabinetControls s={s} label={label} units={units} cabinetWidth={cabinetWidth} designPositions={designPositions} widthError={errors[`sections.${i}.width`]} blind={i === blindIndex} onChange={patch => setSection(i, patch)} />
                     : <LengthField unit={units} label="Knee space" value={s.width} error={errors[`sections.${i}`]} onChange={width => setSection(i, { width })} />}
+                  {openJointsAvailable && i < r.sections.length - 1 && (
+                    <Toggle label="Open to the next section above the counter" checked={(r.openJoints ?? []).includes(i)}
+                      hint="Leaves out the upper sides between this and the next section in the open space, so it reads as one wide opening. Every other joint keeps its sides down to the counter."
+                      onChange={on => onChange({ openJoints: on ? [...(r.openJoints ?? []).filter(j => j !== i), i] : (r.openJoints ?? []).filter(j => j !== i) })} />
+                  )}
                   <span className="drawer-run-actions">
                     <Button variant="ghost" aria-label={`Move ${label} left`} disabled={i === 0} onClick={() => move(i, -1)}><ArrowLeft size={15} aria-hidden="true" /></Button>
                     <Button variant="ghost" aria-label={`Move ${label} right`} disabled={i === r.sections.length - 1} onClick={() => move(i, 1)}><ArrowRight size={15} aria-hidden="true" /></Button>

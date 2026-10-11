@@ -54,6 +54,12 @@ export interface RunConfig {
   corner?: RunCorner;
   /** A cord grommet through the countertop over each desk gap, 2″ from the back. */
   grommets?: boolean;
+  /**
+   * Joints between main-run sections (j = between section j and j + 1) left open above the
+   * counter: the two upper sides there stop at the bottom shelf instead of running down to
+   * the counter, so the open space reads as one wide opening.
+   */
+  openJoints?: number[];
 }
 
 /** A countertop cord grommet: 2″, centred over a desk gap, this far from the back edge to its centre. */
@@ -530,6 +536,7 @@ export function readRun(raw: unknown): RunConfig | undefined {
     deskUppers: v.deskUppers !== false,
     ...(readCorner(v.corner) ? { corner: readCorner(v.corner) } : {}),
     ...(v.grommets === true ? { grommets: true } : {}),
+    ...(Array.isArray(v.openJoints) ? { openJoints: (v.openJoints as unknown[]).filter((j): j is number => Number.isInteger(j) && (j as number) >= 0 && (j as number) < 8) } : {}),
   };
 }
 
@@ -583,6 +590,7 @@ export interface RunFields {
   rightEnd: 'wall' | 'open';
   deskUppers: boolean;
   grommets?: boolean;
+  openJoints?: number[];
   /** Turns a corner (optional on older saved forms). */
   corner?: {
     enabled: boolean;
@@ -608,6 +616,7 @@ export function runToFields(run: RunConfig | undefined, L: (inches: number) => s
     rightEnd: r.rightEnd,
     deskUppers: r.deskUppers,
     grommets: r.grommets === true,
+    openJoints: r.openJoints ?? [],
     corner: {
       enabled: !!r.corner,
       side: (r.corner ?? DEFAULT_CORNER).side,
@@ -633,6 +642,7 @@ export function runFromFields(fields: RunFields | undefined, num: (raw: string, 
     rightEnd: fields.rightEnd,
     deskUppers: fields.deskUppers,
     ...(fields.grommets ? { grommets: true } : {}),
+    ...(fields.openJoints?.length ? { openJoints: fields.openJoints.filter(j => j < fields.sections.length - 1) } : {}),
     ...(fields.corner?.enabled ? {
       corner: {
         side: fields.corner.side,

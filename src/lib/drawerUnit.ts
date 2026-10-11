@@ -1620,6 +1620,23 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
           parts.push({ ...p, name: p.name.replace(/^Bookcase /, `${leg}${sec.kind === 'cabinet' ? (leg ? 'cabinet' : 'Cabinet') : 'Desk'} ${sec.number} upper `) });
         }
       }
+      // Open joints: the two upper sides there stop at the bottom shelf, so they're cut shorter.
+      const jointCut = openJointCut(config);
+      if (jointCut > 0) {
+        for (const j of runOpenJoints(config, run)) {
+          for (const sec of [run.sections[j], run.sections[j + 1]]) {
+            const name = sec.upper ? `${sec.kind === 'cabinet' ? 'Cabinet' : 'Desk'} ${sec.number} upper side` : 'Bookcase side';
+            const side = parts.find(x => x.name === name);
+            if (!side || side.qty <= 0) continue;
+            side.qty -= 1;
+            const short = parts.find(x => x.name === 'Bookcase side, short' && Math.abs(x.length - (side.length - jointCut)) < EPS);
+            if (short) short.qty += 1;
+            else parts.push({ ...side, name: 'Bookcase side, short', qty: 1, length: side.length - jointCut,
+              note: `At an open joint between uppers: stops ${f(jointCut)} above the counter, so the open space runs straight across` });
+          }
+        }
+        for (let i = parts.length - 1; i >= 0; i--) if (parts[i].qty <= 0) parts.splice(i, 1);
+      }
       for (const [up, prefix] of [[run.corner?.cornerUpper, 'Corner upper '], [run.corner?.returnUpper?.plan, 'Corner side upper ']] as const) {
         for (const p of up?.parts ?? []) {
           if (RUN_REPLACED.test(p.name)) continue;
@@ -2199,6 +2216,22 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
   return out;
 }
 
+/** How far the upper sides at an open joint stop above the counter (0 when uppers can't have open joints). */
+export function openJointCut(config: DrawerConfig): number {
+  const bk = config.bookcase;
+  if (!bk?.enabled || !(bk.openBelow > 0) || bk.floating) return 0;
+  return bookcaseSideCut({ ...bk, floating: true });
+}
+
+/** The open joints that apply: between two main-run sections that both carry an upper. */
+export function runOpenJoints(config: DrawerConfig, run: RunPlan): number[] {
+  const hasUpper = (i: number) => {
+    const s = run.sections[i];
+    return !!s && (s.kind === 'cabinet' || !!s.upper);
+  };
+  return [...new Set(config.run?.openJoints ?? [])].filter(j => hasUpper(j) && hasUpper(j + 1)).sort((a, b) => a - b);
+}
+
 /**
  * A run cabinet that isn't a plain copy of the design: one with its own width or front
  * layout, or the blind corner cabinet. Same height, depth, base, fronts and finish; built
@@ -2314,6 +2347,25 @@ export function runSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
       out.push(box(`Desk ${sec.number} · ledger`, 'cleat', [sec.x, H - 3, cd - T], [sec.x + sec.width, H, cd]));
       out.push(box(`Desk ${sec.number} · left cleat`, 'cleat', [sec.x, H - 3, 1], [sec.x + T, H, cd - T]));
       out.push(box(`Desk ${sec.number} · right cleat`, 'cleat', [sec.x + sec.width - T, H - 3, 1], [sec.x + sec.width, H, cd - T]));
+    }
+  }
+  // Open joints: the upper sides facing each other there stop at the bottom shelf.
+  const jointCut = openJointCut(config);
+  if (jointCut > 0 && plan.bookcase) {
+    const floorY = plan.bookcase.y0 + jointCut;
+    for (const j of runOpenJoints(config, run)) {
+      run.sections.slice(j, j + 2).forEach((sec, k) => {
+        const prefix = `${sec.kind === 'cabinet' ? 'Cabinet' : 'Desk'} ${sec.number} · `;
+        const sides = out.filter(s => s.name.startsWith(prefix) && /· Bookcase (left|right) side$/.test(s.name) && s.shape === 'box');
+        if (sides.length < 2) return;
+        // The side toward the joint: the right one of the left section, the left one of the right.
+        const pick = sides.reduce((a, b) => {
+          const ax = a.shape === 'box' ? a.min[0] : 0;
+          const bx = b.shape === 'box' ? b.min[0] : 0;
+          return (k === 0 ? bx > ax : bx < ax) ? b : a;
+        });
+        if (pick.shape === 'box') pick.min = [pick.min[0], Math.max(pick.min[1], floorY), pick.min[2]];
+      });
     }
   }
   if (run.corner?.cornerUpper) {

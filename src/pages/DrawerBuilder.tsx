@@ -28,7 +28,7 @@ import { isDemoMode } from '../demo/demoMode';
 import type { LibraryDrawerDesign } from '../types/project';
 import { decimalString, formatLength, lengthToField, parseLength, type LengthUnit } from '../lib/shelving';
 import {
-  buildDrawerPlan, runSectionConfig,
+  buildDrawerPlan, openJointCut, runOpenJoints, runSectionConfig,
   DEFAULT_CASTER_HEIGHT,
   DEFAULT_FOOT_HEIGHT,
   DEFAULT_PULL,
@@ -1713,6 +1713,7 @@ export default function DrawerBuilder() {
             plan={plan}
             fmt={fmt}
             cabinetWidth={form.width}
+            openJointsAvailable={!!form.bookcase?.enabled && !!form.bookcase.openSpace && !form.bookcase.floating}
             designPositions={form.insertKinds.slice(0, form.drawers).map(k => (k === 'door' ? 'door' : k === 'cubby' ? 'open' : 'drawer'))}
             conflict={form.run?.enabled ? undefined : blockers.run}
             onChange={patch => update({ run: { ...form.run, ...patch } })}
@@ -2572,6 +2573,8 @@ function RunFront({ plan, config, y }: { plan: DrawerPlan; config: DrawerConfig;
   const run = plan.run!;
   const W = plan.overallWidth;
   const rect = (x: number, y0: number, w: number, h: number, className = 'shelf-ply') => <rect className={className} x={x} y={y(y0 + h)} width={w} height={h} />;
+  const jointCut = openJointCut(config);
+  const joints = jointCut > 0 ? runOpenJoints(config, run) : [];
   // Cabinets that aren't plain copies (their own width or fronts, or the blind corner) are drawn as built.
   const own = run.sections.map((_, i) => {
     const c = runSectionConfig(config, run, i, { H: plan.overallHeight, caseHeight: plan.caseHeight });
@@ -2584,14 +2587,18 @@ function RunFront({ plan, config, y }: { plan: DrawerPlan; config: DrawerConfig;
         const o = own[i];
         const w = o ? o.plan.overallWidth : W;
         const mirror = sec.mirror && !o?.plan.blind;
+        // Open joints: the upper sides there stop at the bottom shelf (swapped when drawn mirrored).
+        const atLeft = joints.includes(i - 1) ? jointCut : 0;
+        const atRight = joints.includes(i) ? jointCut : 0;
+        const [cutLeft, cutRight] = mirror ? [atRight, atLeft] : [atLeft, atRight];
         return (
           <g key={i} transform={mirror ? `translate(${sec.x + w} 0) scale(-1 1)` : `translate(${sec.x} 0)`}>
             {sec.kind === 'cabinet'
               ? <>
-                {sec.upper ? <BookcaseElevation plan={plan} bk={sec.upper} width={sec.width} y={y} noCounter /> : plan.bookcase && <BookcaseElevation plan={plan} bk={plan.bookcase} width={W} y={y} noCounter />}
+                {sec.upper ? <BookcaseElevation plan={plan} bk={sec.upper} width={sec.width} y={y} noCounter cutLeft={cutLeft} cutRight={cutRight} /> : plan.bookcase && <BookcaseElevation plan={plan} bk={plan.bookcase} width={W} y={y} noCounter cutLeft={cutLeft} cutRight={cutRight} />}
                 {o ? <CabinetFront plan={o.plan} config={o.config} y={y} /> : <CabinetFront plan={plan} config={config} y={y} />}
               </>
-              : sec.upper && <BookcaseElevation plan={plan} bk={sec.upper} width={sec.width} y={y} noCounter />}
+              : sec.upper && <BookcaseElevation plan={plan} bk={sec.upper} width={sec.width} y={y} noCounter cutLeft={cutLeft} cutRight={cutRight} />}
           </g>
         );
       })}
@@ -2642,7 +2649,7 @@ function FrontDecor({ config, x, y0, w, h, door, y }: { config: DrawerConfig; x:
 }
 
 /** The countertop and bookcase above the cabinet, in the front elevation. */
-function BookcaseElevation({ bk, width: W, y, noCounter = false }: { plan: DrawerPlan; bk: BookcasePlan; width: number; y: (v: number) => number; noCounter?: boolean }) {
+function BookcaseElevation({ bk, width: W, y, noCounter = false, cutLeft = 0, cutRight = 0 }: { plan: DrawerPlan; bk: BookcasePlan; width: number; y: (v: number) => number; noCounter?: boolean; cutLeft?: number; cutRight?: number }) {
   const sp = bk.shelfPlan;
   const t = bk.shelfConfig.thickness;
   const y0 = bk.y0;
@@ -2655,8 +2662,8 @@ function BookcaseElevation({ bk, width: W, y, noCounter = false }: { plan: Drawe
     <g>
       {bk.countertop && !noCounter && rect(bk.countertop.x0, bk.countertop.y0, bk.countertop.x1 - bk.countertop.x0, bk.countertop.y1 - bk.countertop.y0)}
       {rect(0, sideY0, W, top - sideY0, 'shelf-side-outline')}
-      {rect(0, sideY0, t, top - sideY0)}
-      {rect(W - t, sideY0, t, top - sideY0)}
+      {rect(0, Math.max(sideY0, y0 + cutLeft), t, top - Math.max(sideY0, y0 + cutLeft))}
+      {rect(W - t, Math.max(sideY0, y0 + cutRight), t, top - Math.max(sideY0, y0 + cutRight))}
       {rect(t, top - t, W - 2 * t, t)}
       {rect(t, y0 + sp.kick, W - 2 * t, t)}
       {(() => { const v = valanceSpan(bk.config); return v && rect(t, y0 + v[0], W - 2 * t, v[1] - v[0], 'drawer-foot'); })()}

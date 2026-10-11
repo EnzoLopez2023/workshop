@@ -14,6 +14,7 @@ import {
   boxNotchSpec,
   doorNotch,
   doorView,
+  openJointCut,
   frontNotch,
   HINGE_PLATE_SETBACK,
   PULL_HOLE,
@@ -129,6 +130,15 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
           ...base, id: slug(`${piece} inside`), piece, face: 'inside face', features, rightHanded, outline: plan.partOutlines.Side,
           orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, inside face up.${plan.partOutlines.Side ? ' The toe-kick notch is part of the outline cut.' : ''} Blue lines mark each slide’s bottom edge (not cut).`,
         });
+      }
+      continue;
+    }
+
+    if (part.name === 'Bookcase side, short' && bk) {
+      // An upper side at an open joint: the bookcase side's dados and pin holes, its bottom cut off.
+      const cut = openJointCut(config);
+      for (const face of bookFaces.filter(f => f.part === 'Bookcase side')) {
+        faces.push({ ...trimFloatingSide(face, 'Side', cut), id: `${face.id}-short`, part: part.name, piece: face.piece.replace(/^Bookcase /, 'Short bookcase '), length: part.length });
       }
       continue;
     }
