@@ -25,6 +25,11 @@ interface Props {
    * running left, or a corner run's return reaching forward — so it's centred and framed.
    */
   origin?: [number, number];
+  /** Parts to pick out (the settings being edited), by name; `highlightKey` changes when it does. */
+  highlight?: (name: string) => boolean;
+  highlightKey?: string;
+  /** A click on a part, by its name (a drawer still slides out, a door swings open). */
+  onPick?: (name: string) => void;
 }
 
 
@@ -66,7 +71,11 @@ interface DimLabel { axis: 'width' | 'height' | 'depth'; x: number; y: number; v
 const SLIDE_EASE = 0.22;
 const ZERO = new THREE.Vector3();
 
-export default function ShelfViewer3D({ solids, width, height, depth, wallMounted, label, colors, formatLength, origin }: Props) {
+export default function ShelfViewer3D({ solids, width, height, depth, wallMounted, label, colors, formatLength, origin, highlight, highlightKey, onPick }: Props) {
+  const pickRef = useRef(onPick);
+  pickRef.current = onPick;
+  const highlightRef = useRef(highlight);
+  highlightRef.current = highlight;
   const [originX, originZ] = origin ?? [0, 0];
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
@@ -202,10 +211,13 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
       const pointer = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       raycaster.setFromCamera(pointer, camera);
       for (const hit of raycaster.intersectObjects(stage.parts.children, true)) {
+        if (!(hit.object instanceof THREE.Mesh)) continue;
+        // The nearest solid part: report it, and open or shut it if it's a drawer or door.
+        pickRef.current?.(hit.object.name);
         let node: THREE.Object3D | null = hit.object;
         while (node && !node.userData.group) node = node.parent;
-        if (node) { toggleRef.current(node.userData.group as string); break; }
-        if (hit.object instanceof THREE.Mesh) break; // the nearest solid part isn't a drawer
+        if (node) toggleRef.current(node.userData.group as string);
+        break;
       }
     };
     // Hovering names the part under the pointer.
@@ -300,6 +312,7 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
       const geometry = solidGeometry(solid);
       const opaqueDoor = solid.kind === 'door' && solid.opaque;
       const mesh = new THREE.Mesh(geometry, opaqueDoor ? solidDoor : materials[solid.kind]);
+      mesh.userData.baseMaterial = mesh.material;
       mesh.castShadow = solid.kind !== 'door' || opaqueDoor === true;
       mesh.receiveShadow = true;
       mesh.name = solid.name;
@@ -374,8 +387,29 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
       stage.userMoved = false;
       frameCamera(stage, width, height, depth);
     }
+    applyHighlight(stage);
     stage.render();
   }, [solids, width, height, depth, wallMounted, originX, originZ]);
+
+  // The parts whose settings are being edited glow pencil-blue; the rest keep their finish.
+  const highlightMaterial = useRef<THREE.MeshStandardMaterial | null>(null);
+  const applyHighlight = (stage: Stage) => {
+    const pick = highlightRef.current;
+    if (!highlightMaterial.current) {
+      highlightMaterial.current = new THREE.MeshStandardMaterial({ color: 0x6fb0d4, emissive: 0x1b4a5e, emissiveIntensity: 0.55, roughness: 0.6, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    }
+    stage.parts.traverse(node => {
+      if (!(node instanceof THREE.Mesh) || !node.userData.baseMaterial) return;
+      node.material = pick && pick(node.name) ? highlightMaterial.current! : node.userData.baseMaterial as THREE.Material;
+    });
+  };
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    applyHighlight(stage);
+    stage.render();
+    // highlightKey stands in for the highlight function.
+  }, [highlightKey]);
 
   // Finish colours only recolour the shared materials; nothing is rebuilt.
   const colorKey = JSON.stringify(colors ?? {});

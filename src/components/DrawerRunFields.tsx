@@ -3,6 +3,7 @@
 
 import { ArrowLeft, ArrowRight, Plus, X } from 'lucide-react';
 import { Button, SegmentedControl } from './ui';
+import { scrollToSetting } from './scrollToSetting';
 import { LengthField, Toggle } from './builderControls';
 import { CORNER_FILLER, DEFAULT_CORNER, RUN_CABINET_LAYOUTS, runNeedsWallWidth, type RunCabinetLayout, type RunFields } from '../lib/drawerRun';
 import type { DrawerPlan } from '../lib/drawerUnit';
@@ -57,15 +58,34 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
   const setCorner = (patch: Partial<typeof corner>) => onChange({ corner: { ...corner, ...patch } });
   const cornerPlan = run?.corner ?? null;
   const cornerSide = corner.enabled ? corner.side : null;
+  // The main run's section that becomes the blind corner cabinet.
+  const blindIndex = corner.enabled && (corner.style ?? 'open') === 'blind' ? (corner.side === 'right' ? r.sections.length - 1 : 0) : -1;
+  // Jump links to each part of the run, so the cabinets, the return and the uppers are a click apart.
+  const jumps: { id: string; label: string }[] = [];
+  {
+    let c = 0;
+    let d = 0;
+    r.sections.forEach((s, i) => jumps.push({ id: `run-section-${i}`, label: s.kind === 'cabinet' ? `Cabinet ${++c}` : `Desk ${++d}` }));
+    if (corner.enabled) {
+      jumps.push({ id: 'run-corner', label: 'Corner' });
+      let rc = 0;
+      let rd = 0;
+      corner.sections.forEach((s, i) => jumps.push({ id: `run-return-${i}`, label: s.kind === 'cabinet' ? `Return ${++rc}` : `Return desk ${++rd}` }));
+    }
+    jumps.push({ id: 'drawer-bookcase', label: 'Uppers' });
+  }
+  const jumpTo = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) scrollToSetting(el);
+  };
   let cab = 0;
   let desk = 0;
   return (
-    <fieldset className="shelf-group" data-tour="fs-wall-run">
+    <fieldset className="shelf-group" data-tour="fs-wall-run" data-part="run">
       <legend>Wall run</legend>
-      {conflict && !r.enabled && <p className="shelf-group-note">{conflict}</p>}
       <Toggle
         label="Build a wall of built-ins"
-        disabled={!!conflict && !r.enabled}
+        disabledReason={r.enabled ? undefined : conflict}
         checked={r.enabled}
         hint="Copies of this cabinet with desk gaps between them and fillers scribed to the walls, under one countertop — and the bookcase over each, if it’s on."
         onChange={enabled => onChange({ enabled })}
@@ -85,32 +105,17 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
               hint={run?.fillers.length ? `Fillers ${fmt(run.fillers[0].width)} at each wall (cut ${fmt(run.fillers[0].width + 0.5)} and scribed).` : 'Wall to wall, measured at the height of the countertop.'}
               onChange={wallWidth => onChange({ wallWidth })} />
           )}
+          <nav className="drawer-run-jump" aria-label="Parts of the run">
+            {jumps.map(j => <button key={j.id} type="button" onClick={() => jumpTo(j.id)}>{j.label}</button>)}
+          </nav>
           <ol className="drawer-run-sections">
             {r.sections.map((s, i) => {
               const label = s.kind === 'cabinet' ? `Cabinet ${++cab}` : `Desk gap ${++desk}`;
               return (
-                <li key={i} className="drawer-run-section">
-                  <span className="form-field-label">{label}</span>
+                <li key={i} className="drawer-run-section" id={`run-section-${i}`} data-part={`run:${i}`}>
+                  <span className="form-field-label">{label}{i === blindIndex ? ' · blind corner' : ''}</span>
                   {s.kind === 'cabinet'
-                    ? (
-                      <>
-                        <span className="drawer-run-cabinet">
-                          <select aria-label={`${label} fronts`} value={s.cabinetLayout ?? ''} onChange={e => setSection(i, { cabinetLayout: e.target.value as RunCabinetLayout | '' })}>
-                            <option value="">Fronts: this design</option>
-                            {RUN_CABINET_LAYOUTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                          </select>
-                          {s.cabinetLayout === 'drawers' && (
-                            <select aria-label={`${label} drawer count`} value={s.cabinetDrawers ?? 4} onChange={e => setSection(i, { cabinetDrawers: Number(e.target.value) })}>
-                              {[1, 2, 3, 4, 5, 6, 7, 8].map(n => <option key={n} value={n}>{n} drawer{n === 1 ? '' : 's'}</option>)}
-                            </select>
-                          )}
-                        </span>
-                        <LengthField unit={units} label="Width" value={s.cabinetWidth ?? ''} placeholder={cabinetWidth} error={errors[`sections.${i}.width`]}
-                          hint={s.cabinetWidth?.trim() ? 'Its own width; its upper matches it.' : 'Blank: this design’s width.'}
-                          onChange={cabinetWidth => setSection(i, { cabinetWidth })} />
-                        <Toggle label="Mirrored" checked={s.mirror} hint="Doors hinge the other way." onChange={mirror => setSection(i, { mirror })} />
-                      </>
-                    )
+                    ? <CabinetControls s={s} label={label} units={units} cabinetWidth={cabinetWidth} widthError={errors[`sections.${i}.width`]} blind={i === blindIndex} onChange={patch => setSection(i, patch)} />
                     : <LengthField unit={units} label="Knee space" value={s.width} error={errors[`sections.${i}`]} onChange={width => setSection(i, { width })} />}
                   <span className="drawer-run-actions">
                     <Button variant="ghost" aria-label={`Move ${label} left`} disabled={i === 0} onClick={() => move(i, -1)}><ArrowLeft size={15} aria-hidden="true" /></Button>
@@ -129,7 +134,7 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
             hint={`The run carries on along the side wall: an open corner square under the countertop, a ${CORNER_FILLER}″ corner filler, then the return’s cabinets and desk gaps.`}
             onChange={enabled => setCorner({ enabled })} />
           {corner.enabled && (
-            <div className="drawer-run-corner">
+            <div className="drawer-run-corner" id="run-corner" data-part="corner">
               <SegmentedControl label="Corner at the" value={corner.side} options={CORNER_SIDE_OPTIONS} onChange={side => setCorner({ side })} />
               <SegmentedControl label="Return ends at" value={corner.end} options={END_OPTIONS} onChange={end => setCorner({ end })} />
               <SegmentedControl label="Corner square" value={corner.style ?? 'open'} options={CORNER_STYLE_OPTIONS} onChange={style => setCorner({ style })} />
@@ -200,15 +205,10 @@ function SectionList({ label, sections, max, units, cabinetWidth, errors, onChan
         {sections.map((s, i) => {
           const name = s.kind === 'cabinet' ? `${label} cabinet ${++cab}` : `${label} desk gap ${++desk}`;
           return (
-            <li key={i} className="drawer-run-section">
+            <li key={i} className="drawer-run-section" id={`run-return-${i}`} data-part={`ret:${i}`}>
               <span className="form-field-label">{name}</span>
               {s.kind === 'cabinet'
-                ? (
-                  <>
-                    <small>{cabinetWidth}{units === 'mm' ? ' mm' : '″'} wide — this design</small>
-                    <Toggle label="Mirrored" checked={s.mirror} hint="Doors hinge the other way." onChange={mirror => set(i, { mirror })} />
-                  </>
-                )
+                ? <CabinetControls s={s} label={name} units={units} cabinetWidth={cabinetWidth} widthError={errors[`sections.${i}.width`]} onChange={patch => set(i, patch)} />
                 : <LengthField unit={units} label="Knee space" value={s.width} error={errors[`sections.${i}`]} onChange={width => set(i, { width })} />}
               <span className="drawer-run-actions">
                 <Button variant="ghost" aria-label={`Move ${name} toward the corner`} disabled={i === 0} onClick={() => move(i, -1)}><ArrowLeft size={15} aria-hidden="true" /></Button>
@@ -223,6 +223,51 @@ function SectionList({ label, sections, max, units, cabinetWidth, errors, onChan
         <Button variant="ghost" onClick={() => onChange([...sections, { kind: 'cabinet', width: '', mirror: false }])} disabled={sections.length >= max}><Plus size={15} aria-hidden="true" /> {label} cabinet</Button>
         <Button variant="ghost" onClick={() => onChange([...sections, { kind: 'desk', width: '30', mirror: false }])} disabled={sections.length >= max}><Plus size={15} aria-hidden="true" /> {label} desk gap</Button>
       </span>
+    </>
+  );
+}
+
+/**
+ * One cabinet in a run: its fronts (this design's, or drawers, a door, a drawer over a door,
+ * open shelves), its own width if it differs, and mirroring. The blind corner cabinet is
+ * always one full-height door, so it only takes a width.
+ */
+function CabinetControls({ s, label, units, cabinetWidth, widthError, blind = false, onChange }: {
+  s: SectionField;
+  label: string;
+  units: LengthUnit;
+  cabinetWidth: string;
+  widthError?: string;
+  blind?: boolean;
+  onChange: (patch: Partial<SectionField>) => void;
+}) {
+  return (
+    <>
+      {blind
+        ? <small className="drawer-run-blind-note">One full-height door into the corner — a drawer would block reaching the blind space.</small>
+        : (
+          <span className="drawer-run-cabinet">
+            <label className="drawer-run-fronts">
+              <span>Fronts</span>
+              <select aria-label={`${label} fronts`} value={s.cabinetLayout ?? ''} onChange={e => onChange({ cabinetLayout: e.target.value as RunCabinetLayout | '' })}>
+                <option value="">Same as this design</option>
+                {RUN_CABINET_LAYOUTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </label>
+            {s.cabinetLayout === 'drawers' && (
+              <label className="drawer-run-fronts">
+                <span>How many</span>
+                <select aria-label={`${label} drawer count`} value={s.cabinetDrawers ?? 4} onChange={e => onChange({ cabinetDrawers: Number(e.target.value) })}>
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map(n => <option key={n} value={n}>{n} drawer{n === 1 ? '' : 's'}</option>)}
+                </select>
+              </label>
+            )}
+          </span>
+        )}
+      <LengthField unit={units} label="Width" value={s.cabinetWidth ?? ''} placeholder={cabinetWidth} error={widthError}
+        hint={s.cabinetWidth?.trim() ? 'Its own width; its upper matches it.' : 'Blank: this design’s width.'}
+        onChange={cabinetWidth => onChange({ cabinetWidth })} />
+      {!blind && <Toggle label="Mirrored" checked={s.mirror} hint="Doors hinge the other way." onChange={mirror => onChange({ mirror })} />}
     </>
   );
 }

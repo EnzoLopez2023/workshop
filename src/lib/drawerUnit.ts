@@ -1453,6 +1453,9 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       if (d.door.trays.length) errors.push(`${d.label}: pull-out trays need a spacer panel on both sides — use shelves behind a door beside the blind corner.`);
     }
     const hung = firstOpen === -1 ? stack : stack.slice(0, firstOpen);
+    if (hung.length && firstOpen !== -1) {
+      warnings.push(`The ${hung.length === 1 ? 'drawer' : 'drawers'} over the door hang from a slide panel that closes off the top of the blind space. A single full-height door reaches the whole corner — make ${colName === 'the cabinet' ? 'it' : colName} one door.`);
+    }
     const slideBottom = hung.length ? floor16(Math.min(...hung.map(d => Math.min(d.front.y - gap / 2, d.box.y)))) : null;
     // The case parts that carry on into the corner.
     const grow = (name: string, key: 'length' | 'width') => { const p = parts.find(x => x.name === name); if (p) p[key] += Bw; };
@@ -1610,28 +1613,40 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
         }
       }
       // Uppers over the desk gaps and closing the corner, then the run's countertop, ledgers, fillers and top trim.
-      for (const sec of run.sections) {
+      for (const [sec, leg] of [...run.sections.map(x => [x, ''] as const), ...(run.corner?.sections ?? []).map(x => [x, 'Return '] as const)]) {
         if (!sec.upper) continue;
         for (const p of sec.upper.parts) {
           if (RUN_REPLACED.test(p.name)) continue;
-          parts.push({ ...p, name: p.name.replace(/^Bookcase /, `${sec.kind === 'cabinet' ? 'Cabinet' : 'Desk'} ${sec.number} upper `) });
+          parts.push({ ...p, name: p.name.replace(/^Bookcase /, `${leg}${sec.kind === 'cabinet' ? (leg ? 'cabinet' : 'Cabinet') : 'Desk'} ${sec.number} upper `) });
         }
       }
       for (const [up, prefix] of [[run.corner?.cornerUpper, 'Corner upper '], [run.corner?.returnUpper?.plan, 'Corner side upper ']] as const) {
         for (const p of up?.parts ?? []) {
           if (RUN_REPLACED.test(p.name)) continue;
-          parts.push({ ...p, name: p.name.replace(/^Bookcase /, prefix) });
+          const name = p.name.replace(/^Bookcase /, prefix);
+          // The side-wall upper is open at the corner: one side, and strips that carry its shelves there.
+          if (prefix === 'Corner side upper ' && /^Corner side upper side$/i.test(name)) {
+            parts.push({ ...p, name, qty: p.qty - 1, note: `${p.note ? `${p.note}; ` : ''}only at the end away from the corner — the corner end is open, so its shelves meet the corner upper’s` });
+            parts.push({ name: 'Corner shelf strip', qty: 2, length: p.length, width: 1.5, thickness: config.thickness,
+              note: 'At the open corner end of the side-wall upper: one at the front (a slim corner post) and one against the side wall at the back; drilled for shelf pins, screwed to the top, bottom and fixed shelves', material: 'plywood' });
+            continue;
+          }
+          parts.push({ ...p, name });
         }
       }
       parts.push(...built.parts);
       // Cabinets that aren't plain copies (their own width or fronts, or the blind corner):
       // swap one copy's parts — and its upper, when it has its own — for theirs.
       const same = (a: ShelfPart, b: ShelfPart, name: string) => a.name === name && Math.abs(a.length - b.length) < EPS && Math.abs(a.width - b.width) < EPS && a.thickness === b.thickness;
-      run.sections.forEach((sec, si) => {
-        const sc = runSectionConfig(config, run!, si, { H, caseHeight });
+      const legs = [
+        ...run.sections.map((sec, si) => ({ sec, si, leg: 'main' as const, label: `Cabinet ${sec.number}` })),
+        ...(run.corner?.sections ?? []).map((sec, si) => ({ sec, si, leg: 'return' as const, label: `Return cabinet ${sec.number}` })),
+      ];
+      legs.forEach(({ sec, si, leg, label }) => {
+        const sc = runSectionConfig(config, run!, si, { H, caseHeight }, leg);
         if (!sc) return;
         const sp = buildDrawerPlan(sc);
-        errors.push(...sp.errors.map(e => `Cabinet ${sec.number}: ${e}`));
+        errors.push(...sp.errors.map(e => `${label}: ${e}`));
         if (sp.errors.length) return;
         const plain = buildDrawerPlan({ ...config, run: undefined, bookcase: undefined, desk: undefined });
         const own = [...plain.parts, ...(sec.upper && bookcase ? bookcase.parts.filter(p => !RUN_REPLACED.test(p.name)) : [])];
@@ -1645,7 +1660,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
           const p = turned ? { ...p0, name: swap(p0.name) } : p0;
           const q = parts.find(x => same(x, p, p.name));
           if (q) q.qty += p.qty;
-          else parts.push({ ...p, name: parts.some(x => x.name === p.name) ? `Cabinet ${sec.number} ${p.name.charAt(0).toLowerCase()}${p.name.slice(1)}` : p.name });
+          else parts.push({ ...p, name: parts.some(x => x.name === p.name) ? `${label} ${p.name.charAt(0).toLowerCase()}${p.name.slice(1)}` : p.name });
         }
         if (sp.partOutlines['End side']) partOutlines['End side'] = sp.partOutlines['End side'];
       });
@@ -2189,22 +2204,24 @@ export function deskSolids(plan: DrawerPlan, config: DrawerConfig, prefix = fals
  * layout, or the blind corner cabinet. Same height, depth, base, fronts and finish; built
  * on its own (its upper is the run's). Null for a plain copy.
  */
-export function runSectionConfig(config: DrawerConfig, run: RunPlan, index: number, dims: { H: number; caseHeight: number }): DrawerConfig | null {
-  const sec = run.sections[index];
+export function runSectionConfig(config: DrawerConfig, run: RunPlan, index: number, dims: { H: number; caseHeight: number }, leg: 'main' | 'return' = 'main'): DrawerConfig | null {
+  const sec = leg === 'return' ? run.corner?.sections[index] : run.sections[index];
   if (sec?.kind !== 'cabinet') return null;
-  const cab = config.run?.sections[index]?.cabinet;
+  const cab = leg === 'return' ? config.run?.corner?.sections[index]?.cabinet : config.run?.sections[index]?.cabinet;
   const cn = run.corner;
-  const blind = cn && cn.style === 'blind' && cn.blindSection === index;
+  const blind = leg === 'main' && cn && cn.style === 'blind' && cn.blindSection === index;
   if (!cab && !blind) return null;
   let c: DrawerConfig = { ...config, run: undefined, bookcase: undefined, desk: undefined };
   if (cab?.width !== undefined) c.width = cab.width;
-  if (cab?.layout) {
-    const shelves = { hinge: 'auto' as const, inside: 'shelves' as const, count: 1 };
+  // A blind corner is one full-height door: a drawer's slide panel would block reaching into the corner.
+  const layout = blind ? 'door' : cab?.layout;
+  if (layout) {
+    const shelves = { hinge: 'auto' as const, inside: 'shelves' as const, count: blind ? 2 : 1 };
     const fronts = dims.caseHeight - frontAllowance(config);
     c = { ...c, height: dims.H, frontHeights: undefined, columns: undefined, inserts: undefined, slideLengths: undefined, openSlots: undefined, doors: undefined };
-    if (cab.layout === 'drawers') c.drawers = cab.drawers ?? 4;
-    else if (cab.layout === 'door') { c.drawers = 1; c.doors = [shelves]; }
-    else if (cab.layout === 'drawer-door') { c.drawers = 2; c.frontHeights = [6, fronts - 6 - 2 * config.gap]; c.doors = [null, shelves]; }
+    if (layout === 'drawers') c.drawers = cab?.drawers ?? 4;
+    else if (layout === 'door') { c.drawers = 1; c.doors = [shelves]; }
+    else if (layout === 'drawer-door') { c.drawers = 2; c.frontHeights = [6, fronts - 6 - 2 * config.gap]; c.doors = [null, shelves]; }
     else { c.drawers = 2; c.openSlots = [true, true]; }
   }
   if (blind) c.blind = { side: cn.side, width: cn.bay.x1 - cn.bay.x0 };
@@ -2413,10 +2430,25 @@ function returnSolids(plan: DrawerPlan, config: DrawerConfig, unit: Solid[], spr
     out.push({ name: 'Corner ledger, side', kind: 'cleat', shape: 'box', min: [sx[0], H - 3, 1], max: [sx[1], H, cd - T] });
   }
 
-  for (const sec of cn.sections) {
+  cn.sections.forEach((sec, si) => {
     if (sec.kind === 'cabinet') {
       const prefix = `Return cabinet ${sec.number} · `;
       const at = right ? sec.x : U - sec.x - sec.width;
+      // A return cabinet with its own fronts or width is built from its own plan, with its own upper.
+      const sc = runSectionConfig(config, run, si, { H: plan.overallHeight, caseHeight: plan.caseHeight }, 'return');
+      const sp = sc ? buildDrawerPlan(sc) : null;
+      if (sc && sp && !sp.errors.length) {
+        for (const s of drawerSolids(sp, sc)) out.push(turn(placeSolid(s, at, sec.mirror ? sp.overallWidth : null), prefix + s.name));
+        if (sec.upper) {
+          for (const s of bookcaseSolids(sec.upper, sec.width, cd, T)) {
+            if (RUN_REPLACED.test(s.name) || /^Crown molding/.test(s.name)) continue;
+            out.push(turn(placeSolid(s, at, null), prefix + s.name));
+          }
+        } else {
+          for (const s of unit) if (s.name.startsWith('Bookcase ')) out.push(turn(placeSolid(s, at, sec.mirror ? W : null), prefix + s.name));
+        }
+        return;
+      }
       // Viewed from the room, a right-hand return's left end is at the corner; a left-hand one's is away from it.
       for (const s of unit) out.push(turn(placeSolid(s, at, sec.mirror ? W : null), prefix + s.name));
     } else {
@@ -2426,14 +2458,22 @@ function returnSolids(plan: DrawerPlan, config: DrawerConfig, unit: Solid[], spr
       out.push(along(`Return desk ${sec.number} · near cleat`, 'cleat', u0, u0 + T, H - 3, H, 1, cd - T));
       out.push(along(`Return desk ${sec.number} · far cleat`, 'cleat', u1 - T, u1, H - 3, H, 1, cd - T));
     }
-  }
+  });
   if (cn.returnUpper) {
     const ru = cn.returnUpper;
     const at = right ? ru.x0 : U - ru.x1;
+    // Its corner end is open (local left on a right-hand return, right on a left-hand one).
+    const cornerSide = right ? 'Bookcase left side' : 'Bookcase right side';
     for (const s of bookcaseSolids(ru.plan, ru.x1 - ru.x0, cd, T)) {
-      if (RUN_REPLACED.test(s.name) || /^Crown molding/.test(s.name)) continue;
+      if (RUN_REPLACED.test(s.name) || /^Crown molding/.test(s.name) || s.name === cornerSide) continue;
       out.push(turn(placeSolid(s, at, null), `Corner side upper · ${s.name}`));
     }
+    // A slim post at the front of the open end and a strip against the side wall carry its shelves.
+    const bp = ru.plan;
+    const front = cd - bp.config.depth;
+    const y0 = bp.y0 + bp.config.openBelow;
+    out.push(along('Corner shelf post', 'case', ru.x0, ru.x0 + T, y0, bp.topY, front, front + 1.5, [0, spread * 2, 0]));
+    out.push(along('Corner shelf strip', 'case', ru.x0, ru.x0 + T, y0, bp.topY, cd - 1.75, cd - 0.25, [0, spread * 2, 0]));
   }
   const fz: [number, number] = plan.frontInset > 0 ? [0, T] : [-T, 0];
   out.push(along('Corner filler', 'case', cn.cornerFiller.x, cn.cornerFiller.x + cn.cornerFiller.width, 0, H, fz[0], fz[1]));

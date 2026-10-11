@@ -207,8 +207,14 @@ test('a blind corner in a wall run: the cabinet beside the corner runs on throug
 test('a blind run corner needs a cabinet beside the corner, and the cabinet must open into it', () => {
   const noCab = buildDrawerPlan({ ...base, run: cornerRun({ style: 'blind' }, { sections: [{ kind: 'cabinet' }, { kind: 'desk', width: 30 }] }) });
   assert.match(noCab.errors.join(' '), /make the last section of the main run a cabinet/);
-  const allDrawers = buildDrawerPlan({ ...base, run: cornerRun({ style: 'blind' }) });
-  assert.match(allDrawers.errors.join(' '), /Cabinet 2: Nothing in the cabinet opens into the blind corner/);
+  // A blind corner is one full-height door, whatever the design's fronts, so nothing blocks the corner.
+  const config = { ...base, run: cornerRun({ style: 'blind' }) };
+  const p = buildDrawerPlan(config);
+  assert.deepEqual(p.errors, []);
+  const blindSolids = runSolids(p, config).filter(x => x.name.startsWith('Cabinet 2 · '));
+  assert.ok(blindSolids.some(x => x.name === 'Cabinet 2 · Door 1'), 'one door');
+  assert.ok(!blindSolids.some(x => /Drawer \d+ front/.test(x.name)), 'no drawers');
+  assert.ok(blindSolids.some(x => x.name === 'Cabinet 2 · End side'));
 });
 
 test('doors swing on their hinge line: unit doors, bookcase doors, mirrored and turned copies', () => {
@@ -266,9 +272,11 @@ test('a corner run with uppers closes the corner: an upper over the corner squar
   assert.deepEqual(p.errors, []);
   const cn = p.run.corner;
   assert.ok(cn.cornerUpper, 'corner upper');
-  assert.deepEqual([cn.returnUpper.x0, cn.returnUpper.x1], [12, cn.start], 'side-wall upper from the main uppers’ front to the return');
+  // Set back a side's thickness: its own side there is left off, so its shelves start at 12″, against the corner upper's.
+  assert.deepEqual([cn.returnUpper.x0, cn.returnUpper.x1], [12 - 0.75, cn.start], 'side-wall upper from the main uppers’ front to the return');
+  assert.equal(cn.cornerUpper.config.bays, 1, 'one open bay at the corner');
   close(p.run.cap.x1, p.run.width, 'main cap runs over the corner');
-  close(cn.cap.x0, 12, 'return cap starts where the side-wall upper does');
+  close(cn.cap.x0, 12 - 0.75, 'return cap starts where the side-wall upper does');
   assert.ok(p.parts.some(x => x.name.startsWith('Corner upper ')) && p.parts.some(x => x.name.startsWith('Corner side upper ')));
   const solids = runSolids(p, config);
   assert.equal(new Set(solids.map(s => s.name)).size, solids.length, 'names unique');
@@ -279,7 +287,13 @@ test('a corner run with uppers closes the corner: an upper over the corner squar
   close(ub.maxX, p.run.width, 'corner upper reaches the side wall');
   const sb = cabinetBox(side);
   assert.ok(sb.minX >= p.run.width - 12 - 1e-6, 'side-wall upper stays 12″ deep off the side wall');
-  assert.ok(sb.maxZ <= 24 - 12 + 1e-6, 'and starts in front of the main uppers');
+  const shelves = cabinetBox(side.filter(s => s.kind === 'shelf' || s.kind === 'adjustable'));
+  close(shelves.maxZ, 24 - 12, 'its shelves start right at the main uppers’ front, meeting the corner upper’s');
+  // Open at the corner: no side there, a slim post and a back strip instead.
+  assert.ok(!side.some(s => s.name === 'Corner side upper · Bookcase left side'));
+  assert.ok(solids.some(s => s.name === 'Corner shelf post') && solids.some(s => s.name === 'Corner shelf strip'));
+  assert.equal(p.parts.find(x => x.name === 'Corner side upper side').qty, 1);
+  assert.equal(p.parts.find(x => x.name === 'Corner shelf strip').qty, 2);
   const faces = drawerPartFaces(p, config);
   assert.ok(faces.some(f => f.part.startsWith('Corner side upper ')));
 });
@@ -398,4 +412,16 @@ test('an ALEX notch on the drawers and a knob on the doors', () => {
   // Saved and read back.
   const back = readSavedDrawerDesign(JSON.parse(JSON.stringify(toSavedDrawerDesign(config, 'in'))));
   assert.equal(back.config.doorHardware.kind, 'knob');
+});
+
+test('return cabinets can have their own fronts and width', () => {
+  const config = { ...base, run: cornerRun({ sections: [{ kind: 'cabinet', cabinet: { layout: 'drawers', drawers: 5, width: 30 } }] }) };
+  const p = buildDrawerPlan(config);
+  assert.deepEqual(p.errors, []);
+  close(p.run.corner.sections[0].width, 30, 'its own width');
+  const fronts = runSolids(p, config).filter(x => /^Return cabinet 1 · Drawer \d+ front$/.test(x.name));
+  assert.equal(fronts.length, 5);
+  const fields = runToFields(config.run, String);
+  assert.equal(fields.corner.sections[0].cabinetLayout, 'drawers');
+  assert.deepEqual(runFromFields(fields, raw => Number(raw)).corner.sections[0].cabinet, { width: 30, layout: 'drawers', drawers: 5 });
 });

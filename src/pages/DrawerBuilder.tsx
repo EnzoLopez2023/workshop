@@ -76,6 +76,7 @@ import { runFromFields, runToFields } from '../lib/drawerRun';
 import DrawerRunFields from '../components/DrawerRunFields';
 import { SideView, TopView } from '../components/DrawerViews';
 import { cabinetBox } from '../lib/builtinRoom';
+import { scrollToSetting } from '../components/scrollToSetting';
 import { useWorkbenchTop } from '../components/useWorkbenchTop';
 import BuilderStepNav, { type BuilderStep } from '../components/BuilderStepNav';
 import DrawerBookcaseFields from '../components/DrawerBookcaseFields';
@@ -616,6 +617,20 @@ export default function DrawerBuilder() {
     return count ? { ...step, badge: `${count} to fix` } : step;
   }), [fieldErrorKeys]);
 
+  // The settings and the 3D view point at each other: hovering or editing a setting lights up
+  // its part, and clicking a part jumps to its settings.
+  const [hoverPart, setHoverPart] = useState<string | null>(null);
+  const [focusPart, setFocusPart] = useState<string | null>(null);
+  const [pickedPart, setPickedPart] = useState<string | null>(null);
+  const activePart = hoverPart ?? focusPart ?? pickedPart;
+  // The settings for the part last clicked in 3D stay marked until another is picked.
+  useEffect(() => {
+    const root = configRef.current;
+    if (!root) return;
+    root.querySelectorAll('.is-picked').forEach(x => x.classList.remove('is-picked'));
+    if (pickedPart) root.querySelector(`[data-part="${pickedPart}"]`)?.classList.add('is-picked');
+  }, [pickedPart]);
+
   // The template shelf folds away once you're working on a design; the choice is remembered.
   const [templatesOpen, setTemplatesOpen] = useState(() => {
     try { return localStorage.getItem('workshop-builtins-templates') !== 'closed'; } catch { return true; }
@@ -1075,6 +1090,28 @@ export default function DrawerBuilder() {
     </div>
   );
 
+  // Options that rule each other out: the one that can't be turned on is greyed out with the
+  // reason in a tooltip, rather than turned on and then reported as an error.
+  const notFloor = form.mount === 'wall' ? 'hangs on the wall' : form.mount === 'under-desk' ? 'stands under an existing desk' : null;
+  const blockers: { bookcase?: string; run?: string; desk?: string; blind?: string } = {
+    bookcase: form.blind ? 'A blind corner cabinet is built on its own. Turn off “Run the case on into a corner” to add a bookcase — or build it in a wall run, where the uppers go over it.'
+      : form.desk ? 'A bookcase sits on a single cabinet, not a desk. Turn off the desk top to add one.'
+        : notFloor ? `A bookcase needs a floor-standing cabinet, and this one ${notFloor}. Set the mounting to the floor.`
+          : form.base === 'casters' ? 'A bookcase on a cabinet on casters would tip. Use feet, a toe kick or a plinth.' : undefined,
+    run: form.blind ? 'A blind corner cabinet is built on its own. Turn it off — in a wall run, use Turn a corner → Blind cabinet instead.'
+      : form.desk ? 'A wall run has its own desk gaps, so it replaces the desk top. Turn the desk top off to build a run.'
+        : notFloor ? `A wall run is built of floor-standing cabinets, and this one ${notFloor}. Set the mounting to the floor.`
+          : form.base === 'casters' ? 'Built-ins don’t go on casters. Use a toe kick, a plinth or leveling feet.' : undefined,
+    desk: form.blind ? 'A blind corner cabinet is built on its own. Turn off “Run the case on into a corner” to use a desk top.'
+      : form.run?.enabled ? 'The wall run’s desk gaps do this job. Turn the wall run off to use a desk top instead.'
+        : form.bookcase?.enabled ? 'A desk top and a bookcase don’t go on the same unit. Turn off the bookcase to use a desk top.'
+          : notFloor ? `A desk top needs floor-standing units, and this one ${notFloor}. Set the mounting to the floor.` : undefined,
+    blind: form.desk ? 'A blind corner cabinet is built on its own. Turn off the desk top first.'
+      : form.run?.enabled ? 'In a wall run, make the corner blind with Turn a corner → Corner square: Blind cabinet. Turn the wall run off to build one on its own.'
+        : form.bookcase?.enabled ? 'A blind corner cabinet is built on its own. Turn off the bookcase first — or build it in a wall run, where the uppers go over it.'
+          : notFloor ? `A blind corner cabinet stands on the floor, and this one ${notFloor}. Set the mounting to the floor.` : undefined,
+  };
+
   return (
     <PageFrame maxWidth={1200} className="shelf-page builder-workbench">
       <Button variant="ghost" onClick={() => navigate(-1)} className="workflow-back">
@@ -1099,7 +1136,11 @@ export default function DrawerBuilder() {
       />
 
       <div className="shelf-layout" ref={layoutRef}>
-        <section className="shelf-config" aria-labelledby="drawer-config-title" ref={configRef}>
+        <section className="shelf-config" aria-labelledby="drawer-config-title" ref={configRef}
+          onPointerOver={e => setHoverPart((e.target as HTMLElement).closest<HTMLElement>('[data-part]')?.dataset.part ?? null)}
+          onPointerLeave={() => setHoverPart(null)}
+          onFocus={e => setFocusPart((e.target as HTMLElement).closest<HTMLElement>('[data-part]')?.dataset.part ?? null)}
+          onBlur={() => setFocusPart(null)}>
           <BuilderStepNav steps={steps} containerRef={configRef} />
           <div className="builder-config-top">
       <details className="drawer-templates" open={templatesOpen} onToggle={e => setTemplatesOpen((e.currentTarget as HTMLDetailsElement).open)}>
@@ -1244,7 +1285,7 @@ export default function DrawerBuilder() {
             </p>
           </fieldset>
 
-          <fieldset className="shelf-group" data-tour="fs-size">
+          <fieldset className="shelf-group" data-tour="fs-size" data-part="case">
             <legend>Size</legend>
             <div className="shelf-field-grid">
               <LengthField
@@ -1324,7 +1365,7 @@ export default function DrawerBuilder() {
                     const layout = plan?.columns[c];
                     const last = c === form.columns - 1;
                     return (
-                      <div className="shelf-bay-card" key={c}>
+                      <div className="shelf-bay-card" key={c} data-part={`col:${c}`}>
                         <div className="shelf-bay-card-head">
                           <strong id={`column-${c}-label`}>Column {c + 1}</strong>
                           {layout && <small>{fmt(layout.width)} opening</small>}
@@ -1402,7 +1443,7 @@ export default function DrawerBuilder() {
                 {form.insertKinds.slice(0, form.drawers).map((kind, i) => {
                   const type = kind === 'door' ? 'door' : kind === 'cubby' ? 'cubby' : 'drawer';
                   return (
-                    <div className="drawer-insert-row" key={i}>
+                    <div className="drawer-insert-row" key={i} data-part={`pos:${i}`}>
                       <span className="form-field-label" id={`position-${i}`}>{drawerLabel(i)}</span>
                       <select aria-labelledby={`position-${i}`} value={type}
                         onChange={e => setInsert(i, { insertKinds: e.target.value === 'drawer' ? 'none' : e.target.value as FormState['insertKinds'][number] })}>
@@ -1591,7 +1632,7 @@ export default function DrawerBuilder() {
 
           <div className="builder-step" id="drawer-step-base">
             <h3 className="builder-step-title">Base</h3>
-          <fieldset className="shelf-group" data-tour="fs-base-mounting">
+          <fieldset className="shelf-group" data-tour="fs-base-mounting" data-part="base">
             <legend>Base &amp; mounting</legend>
             <SegmentedControl
               label="Mounting"
@@ -1665,7 +1706,20 @@ export default function DrawerBuilder() {
 
           <div className="builder-step" id="drawer-step-builtins">
             <h3 className="builder-step-title">Built-ins</h3>
+          <DrawerRunFields
+            value={form.run}
+            units={units}
+            errors={Object.fromEntries(Object.entries(fieldErrors).filter(([k]) => k.startsWith('run.')).map(([k, v]) => [k.slice(4), v]))}
+            plan={plan}
+            fmt={fmt}
+            cabinetWidth={form.width}
+            conflict={form.run?.enabled ? undefined : blockers.run}
+            onChange={patch => update({ run: { ...form.run, ...patch } })}
+          />
+
           <DrawerBookcaseFields
+            inRun={!!form.run?.enabled}
+            blockedReason={form.bookcase?.enabled ? undefined : blockers.bookcase}
             value={form.bookcase}
             units={units}
             errors={Object.fromEntries(Object.entries(fieldErrors).filter(([k]) => k.startsWith('bookcase.')).map(([k, v]) => [k.slice(9), v]))}
@@ -1674,22 +1728,11 @@ export default function DrawerBuilder() {
             onChange={patch => update({ bookcase: { ...form.bookcase, ...patch } })}
           />
 
-          <DrawerRunFields
-            value={form.run}
-            units={units}
-            errors={Object.fromEntries(Object.entries(fieldErrors).filter(([k]) => k.startsWith('run.')).map(([k, v]) => [k.slice(4), v]))}
-            plan={plan}
-            fmt={fmt}
-            cabinetWidth={form.width}
-            conflict={form.desk ? 'The desk top (below) and a wall run don’t mix — the run’s desk gaps replace it. Turn the desk off to build a run.' : undefined}
-            onChange={patch => update({ run: { ...form.run, ...patch } })}
-          />
 
-          <fieldset className="shelf-group" data-tour="fs-desk">
+          <fieldset className="shelf-group" data-tour="fs-desk" data-part="desk">
             <legend>Desk</legend>
-            {form.run?.enabled && <p className="shelf-group-note">The wall run’s desk gaps do this job — turn the wall run off to use a desk top instead.</p>}
             <Toggle
-              disabled={form.run?.enabled}
+              disabledReason={form.desk ? undefined : blockers.desk}
               label="Put the units under a desk top"
               checked={form.desk}
               hint="Like a desk on two ALEX units: a plywood top on one unit at each end, or one unit at one end. The units are sized to fit under it."
@@ -1747,13 +1790,10 @@ export default function DrawerBuilder() {
             )}
           </fieldset>
 
-          <fieldset className="shelf-group" data-tour="fs-blind">
+          <fieldset className="shelf-group" data-tour="fs-blind" data-part="blind">
             <legend>Blind corner</legend>
-            {(form.desk || form.run?.enabled || form.bookcase?.enabled) && !form.blind && (
-              <p className="shelf-group-note">A blind corner cabinet is built on its own — turn off the desk, wall run and bookcase to use it.</p>
-            )}
             <Toggle
-              disabled={!form.blind && (form.desk || !!form.run?.enabled || !!form.bookcase?.enabled)}
+              disabledReason={form.blind ? undefined : blockers.blind}
               label="Run the case on into a corner"
               checked={form.blind}
               hint="A blind corner base cabinet: the case carries on past the doors and drawers, behind the next run’s cabinet, so the corner isn’t wasted. Drawers on the blind side hang from a short slide panel and the door below opens straight into the corner."
@@ -1784,7 +1824,7 @@ export default function DrawerBuilder() {
                 // Doors and open cubbies are chosen under Drawers & doors; only drawers take inserts.
                 if (kind === 'cubby' || kind === 'door') return null;
                 return (
-                  <div className="drawer-insert-row" key={i}>
+                  <div className="drawer-insert-row" key={i} data-part={`pos:${i}`}>
                     <span className="form-field-label" id={`insert-${i}`}>{drawerLabel(i)}</span>
                     <select aria-labelledby={`insert-${i}`} value={kind} onChange={e => setInsert(i, { insertKinds: e.target.value as FormState['insertKinds'][number] })}>
                       <option value="none">Empty</option>
@@ -1899,7 +1939,7 @@ export default function DrawerBuilder() {
             {perDrawerSlides && plan && (
               <div className="drawer-inserts">
                 {form.drawerSlides.slice(0, form.drawers).map((value, i) => (
-                  <div className="drawer-insert-row" key={i}>
+                  <div className="drawer-insert-row" key={i} data-part={`pos:${i}`}>
                     <span className="form-field-label" id={`slide-${i}`}>{drawerLabel(i)}</span>
                     <select aria-labelledby={`slide-${i}`} value={value} onChange={e => setDrawerSlide(i, e.target.value)}>
                       <option value="">Same as the rest ({fmt(plan.slideLength)})</option>
@@ -1995,6 +2035,14 @@ export default function DrawerBuilder() {
               {view === '3d' && valid ? (
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
                   <ShelfViewer3D
+                    highlight={activePart ? partMatcher(activePart, plan, config) : undefined}
+                    highlightKey={activePart ?? ''}
+                    onPick={name => {
+                      const key = partOfSolid(name, plan, config);
+                      setPickedPart(key);
+                      const el = configRef.current?.querySelector<HTMLElement>(`[data-part="${key}"]`);
+                      if (el) scrollToSetting(el);
+                    }}
                     solids={solids}
                     formatLength={fmt}
                     width={extent.width}
@@ -2227,14 +2275,16 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
   const H = plan.overallHeight;
   const bk = plan.bookcase;
   const Ht = plan.totalHeight;
-  const whole = !!run || !!desk;
   const pad = Math.max(W, Ht) * 0.12;
   const fs = Math.max(W, Ht) * 0.03;
   const y = (v: number) => Ht - v;
+  const detail = elevationDetail(plan, config);
+  // Room on the left for the heights-from-the-floor dimensions.
+  const left = detail.heights.length ? pad * (0.45 + 0.42 * detail.heights.length) : pad * 0.4;
   return (
     <figure className="shelf-drawing">
       <svg
-        viewBox={`${-pad * 0.4} ${-pad * 0.6} ${W + pad * 2.2} ${Ht + pad * 1.6}`}
+        viewBox={`${-left} ${-pad * 0.6} ${W + left + pad * 1.8} ${Ht + pad * 1.85}`}
         role="img"
         aria-label={run
           ? `Front elevation of a ${fmt(W)} wall run: ${run.cabinetCount} cabinets${run.sections.some(x => x.kind === 'desk') ? ' with desk gaps' : ''}, ${fmt(Ht)} tall`
@@ -2247,10 +2297,20 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
             <CabinetFront plan={plan} config={config} y={y} />
           </>
         )}
-        {!whole && !blind && plan.drawers.map(d => (
-          <DimV key={d.index} y1={y(d.front.y + d.front.height)} y2={y(d.front.y)} x={W + pad * 0.3} fs={fs * 0.75} label={fmt(d.front.height)} />
+        {/* Detail: each front and the toe kick, each shelf opening, each section along a run, and key heights from the floor. */}
+        {[...detail.fronts, ...detail.shelves].map((d, i) => (
+          <DimV key={`v${i}`} y1={y(d.to)} y2={y(d.from)} x={W + pad * 0.3} fs={fs * 0.78} label={fmt(d.to - d.from)} />
         ))}
-        <DimH x1={0} x2={W} y={Ht + pad * 0.45} fs={fs} label={fmt(W)} />
+        {detail.sections.map((d, i) => (
+          <DimH key={`h${i}`} x1={d.from} x2={d.to} y={Ht + pad * 0.32} fs={fs * 0.78} label={fmt(d.to - d.from)} />
+        ))}
+        {detail.heights.map((h, i) => (
+          <g key={`f${i}`}>
+            <DimV y1={y(h.at)} y2={y(0)} x={-pad * (0.35 + 0.42 * i)} fs={fs * 0.8} label={fmt(h.at)} />
+            <text className="shelf-dim-text" x={-pad * (0.35 + 0.42 * i)} y={y(h.at) - fs * 0.5} fontSize={fs * 0.68} textAnchor="middle">{h.label}</text>
+          </g>
+        ))}
+        <DimH x1={0} x2={W} y={Ht + pad * (detail.sections.length ? 0.75 : 0.45)} fs={fs} label={fmt(W)} />
         <DimV y1={y(H)} y2={y(0)} x={W + pad * 1.05} fs={fs} label={fmt(H)} />
         {plan.mount === 'under-desk' && (
           <line className="drawer-door-swing" x1={-pad * 0.3} x2={W + pad * 0.3} y1={y((config.mountHeight ?? 28))} y2={y((config.mountHeight ?? 28))} />
@@ -2259,6 +2319,117 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
       </svg>
     </figure>
   );
+}
+
+// ── Settings ↔ parts ────────────────────────────────────────────────────────
+// Every 3D part belongs to one group of settings, named by a key on that group's element
+// (data-part): a drawer position "pos:N", a column "col:N", a run cabinet "run:N" or a
+// return cabinet "ret:N", or a section: case, base, uppers, desk, blind, run, corner.
+
+const RUN_PREFIX = /^(Return cabinet|Cabinet|Return desk|Desk) (\d+) · (.*)$/;
+const UPPERS = /^(Bookcase|Corner (side )?upper|Corner shelf|Run (top cap|crown)|Return (top cap|crown)|Pegboard|Backsplash outlet)|(lip|light rail)$/;
+
+/** The settings key for a part, by its 3D name. */
+function partOfSolid(name: string, plan: DrawerPlan, config: DrawerConfig): string {
+  const run = plan.run;
+  const m = RUN_PREFIX.exec(name);
+  let rest = name;
+  if (m && run) {
+    const [, kind, num, tail] = m;
+    const n = Number(num);
+    const ret = kind.startsWith('Return');
+    const list = ret ? run.corner?.sections ?? [] : run.sections;
+    const isDesk = kind.endsWith('desk') || kind === 'Desk';
+    const i = list.findIndex(x => x.kind === (isDesk ? 'desk' : 'cabinet') && x.number === n);
+    if (/^Bookcase /.test(tail) && !list[i]?.upper) return 'uppers';
+    // A cabinet with its own fronts (or the blind corner) is edited on its card; a plain copy through the design.
+    const own = !isDesk && i >= 0 && (ret ? config.run?.corner?.sections[i]?.cabinet : config.run?.sections[i]?.cabinet
+      || (!ret && run.corner?.style === 'blind' && run.corner.blindSection === i));
+    if (isDesk || own || list[i]?.upper) return `${ret ? 'ret' : 'run'}:${i}`;
+    rest = tail;
+  }
+  if (UPPERS.test(rest)) return 'uppers';
+  if (/^(Run countertop|Countertop|Return countertop|Filler|Upper filler|Run grommet)/.test(rest)) return plan.bookcase ? 'uppers' : 'run';
+  if (/^(Corner (ledger|filler)|Return (filler|grommet|countertop))/.test(rest)) return 'corner';
+  if (/^Desk (top|leg|end|back rail|grommet)/.test(rest)) return 'desk';
+  if (/^(End side|Slide panel|Blind panel)$/.test(rest)) return 'blind';
+  if (/^(Toe kick|Kick nailer|Plinth|Baseboard)/.test(rest) || /\b(foot|caster)\b/i.test(rest)) return 'base';
+  const d = plan.drawers.find(x => rest === x.label || rest.startsWith(`${x.label} `));
+  if (d) return `pos:${d.index}`;
+  return 'case';
+}
+
+/** Which parts light up for a settings key. */
+function partMatcher(key: string, plan: DrawerPlan, config: DrawerConfig): (name: string) => boolean {
+  const [kind, num] = key.split(':');
+  if (kind === 'run' && num !== undefined || kind === 'ret') {
+    const ret = kind === 'ret';
+    const sec = (ret ? plan.run?.corner?.sections : plan.run?.sections)?.[Number(num)];
+    if (!sec) return () => false;
+    const prefix = `${ret ? 'Return ' : ''}${sec.kind === 'desk' ? (ret ? 'desk' : 'Desk') : (ret ? 'cabinet' : 'Cabinet')} ${sec.number} · `;
+    return name => name.startsWith(prefix);
+  }
+  if (kind === 'col') {
+    const column = Number(num);
+    return name => {
+      const k = partOfSolid(name, plan, config);
+      return k.startsWith('pos:') && plan.drawers[Number(k.slice(4))]?.column === column;
+    };
+  }
+  return name => partOfSolid(name, plan, config) === key;
+}
+
+/**
+ * The detail dimensions for the front elevation, in model inches: the toe kick and each
+ * front (the cabinet's right-hand column, or the run's design), each shelf opening in the
+ * bookcase or uppers, each cabinet / desk gap / filler along a run, and the heights from the
+ * floor that matter when fitting it (counter, the bottom of the uppers).
+ */
+function elevationDetail(plan: DrawerPlan, config: DrawerConfig) {
+  type Span = { from: number; to: number };
+  const fronts: Span[] = [];
+  const shelves: Span[] = [];
+  const sections: Span[] = [];
+  const heights: { at: number; label: string }[] = [];
+  const T = config.thickness;
+  const H = plan.overallHeight;
+  const B = plan.baseHeight;
+  const half = config.gap / 2;
+  if (!plan.desk) {
+    // Fronts down the last column (where the dimensions sit), from the floor up.
+    if (B > 0 && plan.mount === 'floor') fronts.push({ from: 0, to: B });
+    const column = plan.columns.length - 1;
+    plan.drawers.filter(d => d.column === column).sort((a, b) => a.front.y - b.front.y)
+      .forEach(d => fronts.push({ from: d.front.y - half, to: d.front.y + d.front.height + half }));
+  } else {
+    plan.drawers.forEach(d => fronts.push({ from: d.front.y, to: d.front.y + d.front.height }));
+  }
+  const bk = plan.bookcase;
+  if (bk) {
+    const sp = bk.shelfPlan;
+    const bay = sp.bays[0];
+    const open = bk.config.openBelow;
+    if (open > 0) shelves.push({ from: bk.y0, to: bk.y0 + open });
+    if (bay) {
+      let prev = bk.y0 + sp.interiorBottom;
+      for (const sy of [...bay.shelfYs, ...bay.adjustableYs].sort((a, b) => a - b)) {
+        shelves.push({ from: prev, to: bk.y0 + sy });
+        prev = bk.y0 + sy + T;
+      }
+      shelves.push({ from: prev, to: bk.y0 + sp.interiorTop });
+    }
+  }
+  const run = plan.run;
+  if (run) {
+    for (const f of run.fillers) sections.push({ from: f.x, to: f.x + f.width });
+    for (const sec of run.sections) sections.push({ from: sec.x, to: sec.x + sec.width });
+    if (run.corner) sections.push({ from: run.corner.bay.x0, to: run.corner.bay.x1 });
+    sections.sort((a, b) => a.from - b.from);
+  }
+  const counter = run ? run.countertop.y1 : bk?.countertop ? bk.countertop.y1 : plan.desk ? plan.desk.height : null;
+  if (counter && counter > H - 1e-6) heights.push({ at: counter, label: plan.desk ? 'desk' : 'counter' });
+  if (bk && bk.config.openBelow > 0) heights.push({ at: bk.y0 + bk.config.openBelow, label: 'shelves' });
+  return { fronts: fronts.filter(x => x.to - x.from > 0.05), shelves: shelves.filter(x => x.to - x.from > 0.05), sections: sections.filter(x => x.to - x.from > 0.05), heights };
 }
 
 /** A desk: every unit under the top, the legs or end panel, and the room to sit. */

@@ -959,7 +959,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
           'Screw down through each upper’s bottom into the countertop.',
           ...(run.fillers.length ? ['Scribe and fit the upper fillers like the lower ones.'] : []),
         ],
-        parts: sized(partsWhere(['Bookcase ', 'Corner upper ', 'Corner side upper ', ...run.sections.filter(x => x.upper).map(x => `${x.kind === 'cabinet' ? 'Cabinet' : 'Desk'} ${x.number} upper `)])),
+        parts: sized(partsWhere(['Bookcase ', 'Corner upper ', 'Corner side upper ', 'Corner shelf strip', 'Return cabinet ', ...run.sections.filter(x => x.upper).map(x => `${x.kind === 'cabinet' ? 'Cabinet' : 'Desk'} ${x.number} upper `)])),
         tips: [],
         cautions: ['Anchor every upper to a stud before you load the shelves.'],
         scene: { view: 'front', visible: [...cabinetsOnly, ...lowerFillers, 'Run countertop'], highlight: [...upperNames, ...fillerNames.filter(n => n.startsWith('Upper'))] },

@@ -373,7 +373,7 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
   // The main run's fronts, then the corner filler, then the return's sections.
   const mainFront = cd + ctx.frontProjection;
   const start = mainFront + CORNER_FILLER;
-  const widths = sections.map(s => (s.kind === 'cabinet' ? W : s.width ?? 0));
+  const widths = sections.map(s => (s.kind === 'cabinet' ? s.cabinet?.width ?? W : s.width ?? 0));
   const used = widths.reduce((a, w) => a + w, 0);
   let end = start + used;
   let filler: RunCornerPlan['filler'] = null;
@@ -393,6 +393,17 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
   const plans: RunSectionPlan[] = sections.map((s, i) => {
     const plan: RunSectionPlan = { kind: s.kind, x, width: widths[i], mirror: s.kind === 'cabinet' && s.mirror === true, number: s.kind === 'cabinet' ? ++cabNo : ++deskNo, upper: null };
     x += widths[i];
+    // A return cabinet of its own width gets an upper of that width, like the main run's.
+    if (s.kind === 'cabinet' && ctx.upperBk && Math.abs(widths[i] - W) > 1e-6) {
+      const { bkc } = ctx.upperBk;
+      const perBay = (W - T) / Math.max(bkc.bays, 1);
+      const bays = Math.max(1, Math.round((widths[i] - T) / perBay));
+      plan.upper = buildBookcase({ ...bkc, bays, doors: bays === bkc.bays ? bkc.doors : [] }, {
+        width: widths[i], cabinetHeight: ctx.H, caseDepth: cd, frontProjection: ctx.frontProjection, thickness: T,
+        exposed: { left: false, right: false }, edgeBanding: ctx.edgeBanding, bandingThickness: ctx.bandingThickness, units: ctx.units, blockers: [],
+      });
+      errors.push(...plan.upper.errors.filter(e => !/countertop|ceiling/i.test(e)).map(e => `Over return cabinet ${plan.number}: ${e}`));
+    }
     return plan;
   });
 
@@ -442,18 +453,20 @@ function buildReturn(corner: RunCorner, ctx: RunContext & {
   let returnUpper: RunCornerPlan['returnUpper'] = null;
   if (ctx.upperBk && ctx.uppers) {
     const { bkc } = ctx.upperBk;
+    // One open bay each, so the corner reads as a single L of shelves, not skinny columns.
     const build = (w: number) => {
-      const perBay = (W - T) / Math.max(bkc.bays, 1);
-      return buildBookcase({ ...bkc, bays: Math.max(1, Math.round((w - T) / perBay)), doors: [] }, {
+      return buildBookcase({ ...bkc, bays: 1, doors: [] }, {
         width: w, cabinetHeight: ctx.H, caseDepth: cd, frontProjection: ctx.frontProjection, thickness: T,
         exposed: { left: false, right: false }, edgeBanding: ctx.edgeBanding, bandingThickness: ctx.bandingThickness, units: ctx.units, blockers: [],
       });
     };
     cornerUpper = build(ctx.bayWidth);
     errors.push(...cornerUpper.errors.filter(e => !/countertop|ceiling/i.test(e)).map(e => `Corner upper: ${e}`));
+    // The side-wall upper has no side at the corner: built a side's thickness longer and
+    // set back by it, so its shelves run right up to the corner upper's and form an L.
     const x0 = bkc.depth;
     if (start - x0 >= 6) {
-      returnUpper = { plan: build(start - x0), x0, x1: start };
+      returnUpper = { plan: build(start - x0 + T), x0: x0 - T, x1: start };
       errors.push(...returnUpper.plan.errors.filter(e => !/countertop|ceiling/i.test(e)).map(e => `Corner upper: ${e}`));
     }
   }
@@ -564,7 +577,7 @@ export interface RunFields {
     enabled: boolean;
     side: 'left' | 'right';
     wallLength: string;
-    sections: { kind: 'cabinet' | 'desk'; width: string; mirror: boolean }[];
+    sections: RunFields['sections'];
     end: 'wall' | 'open';
     style?: 'open' | 'blind';
   };
@@ -587,7 +600,10 @@ export function runToFields(run: RunConfig | undefined, L: (inches: number) => s
       enabled: !!r.corner,
       side: (r.corner ?? DEFAULT_CORNER).side,
       wallLength: L((r.corner ?? DEFAULT_CORNER).wallLength),
-      sections: (r.corner ?? DEFAULT_CORNER).sections.map(s => ({ kind: s.kind, width: L(s.width ?? 30), mirror: s.mirror === true })),
+      sections: (r.corner ?? DEFAULT_CORNER).sections.map(s => ({
+        kind: s.kind, width: L(s.width ?? 30), mirror: s.mirror === true,
+        cabinetLayout: s.cabinet?.layout ?? '', cabinetDrawers: s.cabinet?.drawers ?? 4, cabinetWidth: s.cabinet?.width !== undefined ? L(s.cabinet.width) : '',
+      })),
       end: (r.corner ?? DEFAULT_CORNER).end,
       style: (r.corner ?? DEFAULT_CORNER).style ?? 'open',
     },
@@ -599,15 +615,7 @@ export function runFromFields(fields: RunFields | undefined, num: (raw: string, 
   return {
     enabled: true,
     wallWidth: runNeedsWallWidth(fields) ? num(fields.wallWidth, 'run.wallWidth') : 0,
-    sections: fields.sections.map((s, i): RunSection => {
-      if (s.kind === 'desk') return { kind: 'desk', width: num(s.width, `run.sections.${i}`) };
-      const width = s.cabinetWidth?.trim() ? num(s.cabinetWidth, `run.sections.${i}.width`) : undefined;
-      const layout = s.cabinetLayout || undefined;
-      const cabinet: RunCabinet | undefined = width !== undefined || layout
-        ? { ...(width !== undefined ? { width } : {}), ...(layout ? { layout } : {}), ...(layout === 'drawers' ? { drawers: s.cabinetDrawers ?? 4 } : {}) }
-        : undefined;
-      return { kind: 'cabinet', mirror: s.mirror, ...(cabinet ? { cabinet } : {}) };
-    }),
+    sections: fields.sections.map((s, i) => sectionFromFields(s, i, num, 'run.sections')),
     leftEnd: fields.leftEnd,
     rightEnd: fields.rightEnd,
     deskUppers: fields.deskUppers,
@@ -616,7 +624,7 @@ export function runFromFields(fields: RunFields | undefined, num: (raw: string, 
       corner: {
         side: fields.corner.side,
         wallLength: fields.corner.end === 'wall' ? num(fields.corner.wallLength, 'run.corner.wallLength') : 0,
-        sections: fields.corner.sections.map((s, i): RunSection => (s.kind === 'desk' ? { kind: 'desk', width: num(s.width, `run.corner.sections.${i}`) } : { kind: 'cabinet', mirror: s.mirror })),
+        sections: fields.corner.sections.map((s, i) => sectionFromFields(s, i, num, 'run.corner.sections')),
         end: fields.corner.end,
         style: fields.corner.style ?? 'open',
       },
@@ -628,4 +636,15 @@ export function runFromFields(fields: RunFields | undefined, num: (raw: string, 
 export function runNeedsWallWidth(fields: Pick<RunFields, 'leftEnd' | 'rightEnd' | 'corner'>): boolean {
   const side = fields.corner?.enabled ? fields.corner.side : null;
   return (fields.leftEnd === 'wall' && side !== 'left') || (fields.rightEnd === 'wall' && side !== 'right');
+}
+
+/** One section from the form: a desk gap's knee space, or a cabinet with its own fronts and width if set. */
+function sectionFromFields(s: RunFields['sections'][number], i: number, num: (raw: string, key: string) => number, prefix: string): RunSection {
+  if (s.kind === 'desk') return { kind: 'desk', width: num(s.width, `${prefix}.${i}`) };
+  const width = s.cabinetWidth?.trim() ? num(s.cabinetWidth, `${prefix}.${i}.width`) : undefined;
+  const layout = s.cabinetLayout || undefined;
+  const cabinet: RunCabinet | undefined = width !== undefined || layout
+    ? { ...(width !== undefined ? { width } : {}), ...(layout ? { layout } : {}), ...(layout === 'drawers' ? { drawers: s.cabinetDrawers ?? 4 } : {}) }
+    : undefined;
+  return { kind: 'cabinet', mirror: s.mirror, ...(cabinet ? { cabinet } : {}) };
 }

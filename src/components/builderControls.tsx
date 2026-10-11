@@ -1,6 +1,8 @@
 // Form controls and drawing helpers shared by the Shelf Builder and Drawer Builder.
 
-import { Minus, Plus } from 'lucide-react';
+import { useState } from 'react';
+import { Lock, Minus, Plus } from 'lucide-react';
+import { autoUpdate, flip, FloatingPortal, offset, shift, useDismiss, useFloating, useFocus, useHover, useInteractions, useRole } from '@floating-ui/react';
 import { IconButton } from './ui';
 import type { LengthUnit } from '../lib/shelving';
 
@@ -60,23 +62,61 @@ export function Stepper({
   );
 }
 
+/**
+ * A checkbox with a label and a hint. When it's blocked by another setting, pass the reason:
+ * it's greyed out with a lock, and the reason shows as a tooltip on hover or keyboard focus.
+ */
 export function Toggle({
-  label, checked, onChange, hint, disabled,
+  label, checked, onChange, hint, disabled, disabledReason,
 }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   hint?: string;
   disabled?: boolean;
+  /** Why it can't be turned on right now; makes it disabled and explains on hover or focus. */
+  disabledReason?: string;
 }) {
+  const reason = disabledReason || undefined;
+  const [open, setOpen] = useState(false);
+  const { refs, floatingStyles, context } = useFloating({
+    open: open && !!reason,
+    onOpenChange: setOpen,
+    placement: 'top-start',
+    whileElementsMounted: autoUpdate,
+    middleware: [offset(6), flip(), shift({ padding: 8 })],
+  });
+  const hover = useHover(context, { enabled: !!reason, delay: { open: 120, close: 0 } });
+  const focus = useFocus(context, { enabled: !!reason });
+  const dismiss = useDismiss(context);
+  const role = useRole(context, { role: 'tooltip' });
+  const { getReferenceProps, getFloatingProps } = useInteractions([hover, focus, dismiss, role]);
   return (
-    <label className="shelf-toggle">
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} />
-      <span>
-        <span className="shelf-toggle-label">{label}</span>
-        {hint && <small>{hint}</small>}
-      </span>
-    </label>
+    <>
+      <label
+        ref={refs.setReference}
+        className={`shelf-toggle${reason ? ' is-blocked' : ''}`}
+        // A disabled checkbox can't take focus, so the label does, to reach the reason by keyboard.
+        tabIndex={reason ? 0 : undefined}
+        {...(reason ? getReferenceProps() : {})}
+      >
+        <input type="checkbox" checked={checked} disabled={disabled || !!reason} onChange={e => onChange(e.target.checked)} />
+        <span>
+          <span className="shelf-toggle-label">
+            {label}
+            {reason && <Lock size={12} aria-hidden="true" className="shelf-toggle-lock" />}
+          </span>
+          {hint && <small>{hint}</small>}
+        </span>
+      </label>
+      {open && reason && (
+        <FloatingPortal>
+          <div ref={refs.setFloating} className="tooltip tooltip-wrap" style={floatingStyles} {...getFloatingProps()}>
+            {reason}
+          </div>
+        </FloatingPortal>
+      )}
+    </>
   );
 }
 

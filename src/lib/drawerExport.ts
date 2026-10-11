@@ -61,6 +61,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
   // And the uppers closing a corner.
   const extraUppers = [
     ...(plan.run?.sections ?? []).map(sec => ({ up: sec.upper, id: `${sec.kind}-${sec.number}`, prefix: `${sec.kind === 'cabinet' ? 'Cabinet' : 'Desk'} ${sec.number} upper ` })),
+    ...(plan.run?.corner?.sections ?? []).map(sec => ({ up: sec.upper, id: `return-${sec.kind}-${sec.number}`, prefix: `Return ${sec.kind === 'cabinet' ? 'cabinet' : 'desk'} ${sec.number} upper ` })),
     { up: plan.run?.corner?.cornerUpper ?? null, id: 'corner-upper', prefix: 'Corner upper ' },
     { up: plan.run?.corner?.returnUpper?.plan ?? null, id: 'corner-side-upper', prefix: 'Corner side upper ' },
   ];

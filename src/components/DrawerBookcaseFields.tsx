@@ -38,9 +38,13 @@ interface Props {
   plan: DrawerPlan | null;
   fmt: (inches: number) => string;
   onChange: (patch: Partial<BookcaseFields>) => void;
+  /** Why it can't be turned on right now (another setting rules it out). */
+  blockedReason?: string;
+  /** In a wall run it's the run's uppers: one over each cabinet. */
+  inRun?: boolean;
 }
 
-export default function DrawerBookcaseFields({ value: b, units, errors, plan, fmt, onChange }: Props) {
+export default function DrawerBookcaseFields({ value: b, units, errors, plan, fmt, onChange, blockedReason, inRun = false }: Props) {
   const bp = plan?.bookcase ?? null;
   const setBays = (bays: number) => onChange({ bays, doors: Array.from({ length: bays }, (_, i) => b.doors[i] ?? false) });
   // Fill the bookcase for what it holds: depth, then as many shelves as clear the item.
@@ -63,10 +67,11 @@ export default function DrawerBookcaseFields({ value: b, units, errors, plan, fm
     return each > 0 ? `Openings about ${fmt(Math.floor(each * 8) / 8)} tall` : '';
   })();
   return (
-    <fieldset className="shelf-group" data-tour="fs-bookcase">
-      <legend>Bookcase above</legend>
+    <fieldset className="shelf-group" data-tour="fs-bookcase" id="drawer-bookcase" data-part="uppers">
+      <legend>{inRun ? 'Uppers' : 'Bookcase above'}</legend>
       <Toggle
-        label="Put a bookcase on top"
+        label={inRun ? 'Uppers over the run' : 'Put a bookcase on top'}
+        disabledReason={b.enabled ? undefined : blockedReason}
         checked={b.enabled}
         hint="A built-in hutch: shelves and doors above the drawers, on a countertop or straight on the case. Floor-standing units only."
         onChange={enabled => onChange({ enabled })}

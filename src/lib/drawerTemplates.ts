@@ -105,11 +105,11 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
   {
     id: 'blind-corner-base',
     name: 'Blind corner base',
-    description: 'A 45″ blind corner base cabinet: an 18″ opening with a drawer over a door, and the case running on 27″ into the corner behind the next run — reach in through the door to a long shelf.',
+    description: 'A 45″ blind corner base cabinet: one full-height 18″ door, and the case running on 27″ into the corner behind the next run — reach in through the door to two long shelves.',
     fields: {
       ...SHAKER,
-      width: '18', depth: '24', heightMode: 'fronts', drawers: 2, frontHeights: ['6', '23 3/4'], base: 'kick', kickHeight: '4', kickSetback: '3',
-      insertKinds: ['none', 'door'], doorHinges: ['auto', 'auto'], doorInside: ['shelves', 'shelves'], doorCounts: [1, 1],
+      width: '18', height: '35 1/2', depth: '24', heightMode: 'overall', drawers: 1, base: 'kick', kickHeight: '4', kickSetback: '3',
+      insertKinds: ['door'], doorHinges: ['auto'], doorInside: ['shelves'], doorCounts: [2],
       blind: true, blindSide: 'right', blindWidth: '27',
     },
   },

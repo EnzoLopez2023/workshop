@@ -10901,3 +10901,126 @@ tbody td {
     left: calc(100% + 12px);
   }
 }
+
+/* A setting another one rules out: greyed, with a lock; the reason shows in a tooltip. */
+.shelf-toggle.is-blocked {
+  cursor: not-allowed;
+}
+
+.shelf-toggle.is-blocked .shelf-toggle-label {
+  color: var(--color-muted);
+}
+
+.shelf-toggle.is-blocked small {
+  opacity: 0.75;
+}
+
+.shelf-toggle.is-blocked:focus-visible {
+  outline: 2px solid var(--color-annotation);
+  outline-offset: 3px;
+  border-radius: var(--radius-compact);
+}
+
+.shelf-toggle-lock {
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: -1px;
+  color: var(--color-muted);
+}
+
+.tooltip.tooltip-wrap {
+  max-width: 300px;
+  white-space: normal;
+  line-height: 1.4;
+  font-weight: 550;
+}
+
+/* Wall run: jump links to each part, so cabinets, the return and the uppers are a click apart. */
+.drawer-run-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.drawer-run-jump button {
+  min-height: 28px;
+  padding: 3px 9px;
+  border: 1px solid var(--color-divider);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.drawer-run-jump button:hover {
+  border-color: var(--color-action-fill);
+  color: var(--color-action);
+}
+
+.drawer-run-jump button:focus-visible {
+  outline: 2px solid var(--color-annotation);
+  outline-offset: 2px;
+}
+
+.drawer-run-section,
+.drawer-run-corner,
+#drawer-bookcase {
+  scroll-margin-top: 56px;
+}
+
+/* Where a jump lands: a brief annotation-blue ring. */
+.is-flash {
+  animation: run-flash 1.2s var(--motion-ease, ease-out);
+}
+
+@keyframes run-flash {
+  0% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-annotation) 55%, transparent); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-flash { animation: none; }
+}
+
+.drawer-run-fronts {
+  display: grid;
+  flex: 1 1 140px;
+  gap: 3px;
+  min-width: 0;
+}
+
+.drawer-run-fronts > span {
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.drawer-run-blind-note {
+  grid-column: 1 / -1;
+  color: var(--color-muted);
+}
+
+/* In the workbench the front elevation can use the canvas's height, so its detail
+ * dimensions (each front, each shelf opening) stay legible. */
+@media (min-width: 1100px) {
+  .builder-workbench .builder-drawings > .shelf-drawing:first-child svg {
+    max-height: max(560px, calc(100dvh - 190px));
+  }
+}
+
+/* The settings for the part picked in 3D. */
+.shelf-config .is-picked {
+  border-radius: var(--radius-compact);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-annotation) 60%, transparent);
+}
+
+.shelf-config fieldset.is-picked {
+  box-shadow: none;
+}
+
+.shelf-config fieldset.is-picked > legend {
+  color: var(--color-annotation-strong);
+}
