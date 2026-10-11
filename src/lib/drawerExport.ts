@@ -40,7 +40,26 @@ import {
 import { MM_PER_INCH } from './shelving.ts';
 import { pieceOutline } from './drawerInserts.ts';
 import { hingePositions, HINGE_CUP_DEPTH, HINGE_CUP_INSET, HINGE_CUP_RADIUS, partFaces, type Feature, type PartFace } from './shelfExport.ts';
-import { bookcaseName } from './drawerBookcase.ts';
+import { bookcaseName, bookcaseSideCut } from './drawerBookcase.ts';
+
+/**
+ * A floating bookcase's sides and dividers stop above the counter: the bottom `cut` comes off
+ * each one (u runs up from its bottom end), so every dado, pin hole and line moves down by it.
+ */
+function trimFloatingSide(face: PartFace, part: string, cut: number): PartFace {
+  if (!(cut > 0) || !(part === 'Side' || part.startsWith('Divider'))) return face;
+  const features = face.features.flatMap((f): Feature[] => {
+    if (f.kind === 'pocket') {
+      const u = f.u - cut;
+      const length = u < 0 ? f.length + u : f.length;
+      return length > 0.01 ? [{ ...f, u: Math.max(u, 0), length }] : [];
+    }
+    if (f.kind === 'hole') return f.u - cut >= 0 ? [{ ...f, u: f.u - cut }] : [];
+    if (f.kind === 'guide' || f.kind === 'cutout') return [{ ...f, points: f.points.map(([u, v]) => [u - cut, v] as [number, number]) }];
+    return [{ ...f, rings: f.rings.map(r => r.map(([u, v]) => [u - cut, v] as [number, number])) }];
+  });
+  return { ...face, length: face.length - cut, features, outline: undefined };
+}
 
 /** A 5/16" hole takes the barrel of a 1/4"-20 T-nut. */
 export const TNUT_HOLE = 5 / 16;
@@ -68,23 +87,23 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
   const deskFaces: PartFace[] = extraUppers.flatMap(({ up, id, prefix }) => (up
     ? partFaces(up.shelfPlan, up.shelfConfig)
       .filter(face => !(up.config.openBelow > 0 && face.part === 'Toe kick'))
-      .map(face => ({
+      .map(face => trimFloatingSide({
         ...face, id: `${id}-${face.id}`,
         part: bookcaseName(face.part).replace(/^Bookcase /, prefix),
         piece: bookcaseName(face.piece).replace(/^Bookcase /, prefix),
-        ...(up.config.openBelow > 0 && face.part.startsWith('Back') ? { length: up.config.height } : {}),
-      }))
+        ...(up.config.openBelow > 0 && !bookcaseSideCut(up.config) && face.part.startsWith('Back') ? { length: up.config.height } : {}),
+      }, face.part, bookcaseSideCut(up.config)))
     : []));
   const bookFaces: PartFace[] = bk
     ? partFaces(bk.shelfPlan, bk.shelfConfig)
       // With open space below, the toe kick becomes a short valance, cut as a plain part.
       .filter(face => !(bk.config.openBelow > 0 && face.part === 'Toe kick'))
       .flatMap(face => bookcaseDoorFaces(face, config))
-      .map(face => ({
+      .map(face => trimFloatingSide({
         ...face, id: `bookcase-${face.id}`, part: bookcaseName(face.part), piece: bookcaseName(face.piece),
-        // The back drops through the open space as a backsplash.
-        ...(bk.config.openBelow > 0 && face.part.startsWith('Back') ? { length: bk.config.height } : {}),
-      }))
+        // The back drops through the open space as a backsplash (unless the bookcase hangs on the wall).
+        ...(bk.config.openBelow > 0 && !bookcaseSideCut(bk.config) && face.part.startsWith('Back') ? { length: bk.config.height } : {}),
+      }, face.part, bookcaseSideCut(bk.config)))
     : [];
 
   for (const part of sheetParts(plan.parts)) {

@@ -18,7 +18,9 @@ export interface RunSection {
 }
 
 /** What goes in a cabinet's opening when it isn't a copy of the design. */
-export type RunCabinetLayout = 'drawers' | 'door' | 'drawer-door' | 'open';
+export type RunCabinetLayout = 'drawers' | 'door' | 'drawer-door' | 'open' | 'custom';
+/** One position in a custom cabinet, top to bottom. */
+export type RunPosition = 'drawer' | 'door' | 'open';
 
 export interface RunCabinet {
   /** Its own width (unset: the design's). */
@@ -27,6 +29,8 @@ export interface RunCabinet {
   layout?: RunCabinetLayout;
   /** With 'drawers': how many. */
   drawers?: number;
+  /** With 'custom': each position, top to bottom (equal heights). */
+  positions?: RunPosition[];
 }
 
 export const RUN_CABINET_LAYOUTS: { value: RunCabinetLayout; label: string }[] = [
@@ -34,6 +38,7 @@ export const RUN_CABINET_LAYOUTS: { value: RunCabinetLayout; label: string }[] =
   { value: 'door', label: 'Door' },
   { value: 'drawer-door', label: 'Drawer over a door' },
   { value: 'open', label: 'Open shelves' },
+  { value: 'custom', label: 'Custom — each position' },
 ];
 
 export interface RunConfig {
@@ -547,7 +552,13 @@ function readCabinet(raw: unknown): RunCabinet | undefined {
   const layout = RUN_CABINET_LAYOUTS.some(x => x.value === v.layout) ? v.layout as RunCabinetLayout : undefined;
   const drawers = typeof v.drawers === 'number' && Number.isInteger(v.drawers) && v.drawers >= 1 && v.drawers <= 8 ? v.drawers : undefined;
   if (width === undefined && layout === undefined) return undefined;
-  return { ...(width !== undefined ? { width } : {}), ...(layout ? { layout } : {}), ...(layout === 'drawers' && drawers ? { drawers } : {}) };
+  const positions = Array.isArray(v.positions)
+    ? (v.positions as unknown[]).slice(0, 8).map((p): RunPosition => (p === 'door' || p === 'open' ? p : 'drawer'))
+    : [];
+  return {
+    ...(width !== undefined ? { width } : {}), ...(layout ? { layout } : {}), ...(layout === 'drawers' && drawers ? { drawers } : {}),
+    ...(layout === 'custom' ? { positions: positions.length ? positions : ['drawer', 'door'] as RunPosition[] } : {}),
+  };
 }
 
 function readCorner(raw: unknown): RunCorner | undefined {
@@ -567,7 +578,7 @@ export interface RunFields {
   enabled: boolean;
   wallWidth: string;
   /** Sections; desk widths as typed. A cabinet's own layout ('' for the design's) and width ('' for the design's). */
-  sections: { kind: 'cabinet' | 'desk'; width: string; mirror: boolean; cabinetLayout?: RunCabinetLayout | ''; cabinetDrawers?: number; cabinetWidth?: string }[];
+  sections: { kind: 'cabinet' | 'desk'; width: string; mirror: boolean; cabinetLayout?: RunCabinetLayout | ''; cabinetDrawers?: number; cabinetWidth?: string; cabinetPositions?: RunPosition[] }[];
   leftEnd: 'wall' | 'open';
   rightEnd: 'wall' | 'open';
   deskUppers: boolean;
@@ -591,6 +602,7 @@ export function runToFields(run: RunConfig | undefined, L: (inches: number) => s
     sections: r.sections.map(s => ({
       kind: s.kind, width: L(s.width ?? 48), mirror: s.mirror === true,
       cabinetLayout: s.cabinet?.layout ?? '', cabinetDrawers: s.cabinet?.drawers ?? 4, cabinetWidth: s.cabinet?.width !== undefined ? L(s.cabinet.width) : '',
+      cabinetPositions: s.cabinet?.positions,
     })),
     leftEnd: r.leftEnd,
     rightEnd: r.rightEnd,
@@ -603,6 +615,7 @@ export function runToFields(run: RunConfig | undefined, L: (inches: number) => s
       sections: (r.corner ?? DEFAULT_CORNER).sections.map(s => ({
         kind: s.kind, width: L(s.width ?? 30), mirror: s.mirror === true,
         cabinetLayout: s.cabinet?.layout ?? '', cabinetDrawers: s.cabinet?.drawers ?? 4, cabinetWidth: s.cabinet?.width !== undefined ? L(s.cabinet.width) : '',
+        cabinetPositions: s.cabinet?.positions,
       })),
       end: (r.corner ?? DEFAULT_CORNER).end,
       style: (r.corner ?? DEFAULT_CORNER).style ?? 'open',
@@ -644,7 +657,10 @@ function sectionFromFields(s: RunFields['sections'][number], i: number, num: (ra
   const width = s.cabinetWidth?.trim() ? num(s.cabinetWidth, `${prefix}.${i}.width`) : undefined;
   const layout = s.cabinetLayout || undefined;
   const cabinet: RunCabinet | undefined = width !== undefined || layout
-    ? { ...(width !== undefined ? { width } : {}), ...(layout ? { layout } : {}), ...(layout === 'drawers' ? { drawers: s.cabinetDrawers ?? 4 } : {}) }
+    ? {
+      ...(width !== undefined ? { width } : {}), ...(layout ? { layout } : {}), ...(layout === 'drawers' ? { drawers: s.cabinetDrawers ?? 4 } : {}),
+      ...(layout === 'custom' ? { positions: s.cabinetPositions?.length ? s.cabinetPositions.slice(0, 8) : ['drawer', 'door'] as RunPosition[] } : {}),
+    }
     : undefined;
   return { kind: 'cabinet', mirror: s.mirror, ...(cabinet ? { cabinet } : {}) };
 }

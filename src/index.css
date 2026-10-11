@@ -11024,3 +11024,49 @@ tbody td {
 .shelf-config fieldset.is-picked > legend {
   color: var(--color-annotation-strong);
 }
+
+/* A run cabinet's own drawers and doors, top to bottom, edited in its card. */
+.drawer-run-positions {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drawer-run-positions li {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.drawer-run-positions li > span {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.drawer-run-positions li:last-child {
+  grid-template-columns: 1fr;
+}
+
+.drawer-run-link {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-annotation);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.drawer-run-link:hover {
+  color: var(--color-annotation-strong);
+}

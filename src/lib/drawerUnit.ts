@@ -25,7 +25,7 @@ import { hingePositions } from './shelfExport.ts';
 import { INSERT_NAMES, INSERT_PLAY, layoutInsert, pieceOutline, type DrawerInsert, type InsertLayout } from './drawerInserts.ts';
 import type { GridfinityBin } from './gridfinity.ts';
 import { buildRun, readRun, runToFields, RUN_GROMMET, RUN_REPLACED, type RunConfig, type RunFields, type RunPlan } from './drawerRun.ts';
-import { bookcaseSolids, bookcaseToFields, buildBookcase, readBookcase, type BookcaseConfig, type BookcaseFields, type BookcasePlan } from './drawerBookcase.ts';
+import { bookcaseSideCut, bookcaseSolids, bookcaseToFields, buildBookcase, readBookcase, type BookcaseConfig, type BookcaseFields, type BookcasePlan } from './drawerBookcase.ts';
 import type { ToolPocket } from './drawerInserts.ts';
 
 /**
@@ -2222,6 +2222,15 @@ export function runSectionConfig(config: DrawerConfig, run: RunPlan, index: numb
     if (layout === 'drawers') c.drawers = cab?.drawers ?? 4;
     else if (layout === 'door') { c.drawers = 1; c.doors = [shelves]; }
     else if (layout === 'drawer-door') { c.drawers = 2; c.frontHeights = [6, fronts - 6 - 2 * config.gap]; c.doors = [null, shelves]; }
+    else if (layout === 'custom') {
+      // Each position as chosen, top to bottom, sharing the height equally.
+      const positions = cab?.positions?.length ? cab.positions : ['drawer', 'door'] as const;
+      c.drawers = positions.length;
+      // A short door (under a foot) gets no shelf behind it — there isn't room for one.
+      const tall = fronts / positions.length >= 12;
+      c.doors = positions.map(p => (p === 'door' ? (tall ? shelves : { hinge: 'auto' as const, inside: 'empty' as const, count: 0 }) : null));
+      c.openSlots = positions.map(p => p === 'open');
+    }
     else { c.drawers = 2; c.openSlots = [true, true]; }
   }
   if (blind) c.blind = { side: cn.side, width: cn.bay.x1 - cn.bay.x0 };
@@ -2320,7 +2329,7 @@ export function runSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     const z0 = plan.frontInset > 0 ? 0 : -T;
     out.push(box(`Filler ${fl.side}`, 'case', [fl.x, 0, z0], [fl.x + fl.width, plan.overallHeight, z0 + T], [fl.side === 'left' ? -spread : spread, 0, 0]));
     if (run.uppers) {
-      out.push(box(`Upper filler ${fl.side}`, 'case', [fl.x, run.uppers.y0, cd - (config.bookcase?.depth ?? 12)], [fl.x + fl.width, run.uppers.topY, cd - (config.bookcase?.depth ?? 12) + T], [fl.side === 'left' ? -spread : spread, spread * 2, 0]));
+      out.push(box(`Upper filler ${fl.side}`, 'case', [fl.x, run.uppers.y0 + (plan.bookcase ? bookcaseSideCut(plan.bookcase.config) : 0), cd - (config.bookcase?.depth ?? 12)], [fl.x + fl.width, run.uppers.topY, cd - (config.bookcase?.depth ?? 12) + T], [fl.side === 'left' ? -spread : spread, spread * 2, 0]));
     }
   }
   if (run.cap) {

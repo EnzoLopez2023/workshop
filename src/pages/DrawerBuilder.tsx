@@ -71,7 +71,7 @@ import {
   type DrawerPlan,
 } from '../lib/drawerUnit';
 import { DRAWER_TEMPLATES, drawerThumbnailDataUrl, type DrawerTemplate } from '../lib/drawerTemplates';
-import { BOOKCASE_LENGTH_KEYS, bookcaseFromFields, bookcaseToFields, valanceSpan, type BookcasePlan } from '../lib/drawerBookcase';
+import { BOOKCASE_LENGTH_KEYS, bookcaseFromFields, bookcaseSideCut, bookcaseToFields, valanceSpan, type BookcasePlan } from '../lib/drawerBookcase';
 import { runFromFields, runToFields } from '../lib/drawerRun';
 import DrawerRunFields from '../components/DrawerRunFields';
 import { SideView, TopView } from '../components/DrawerViews';
@@ -1713,6 +1713,7 @@ export default function DrawerBuilder() {
             plan={plan}
             fmt={fmt}
             cabinetWidth={form.width}
+            designPositions={form.insertKinds.slice(0, form.drawers).map(k => (k === 'door' ? 'door' : k === 'cubby' ? 'open' : 'drawer'))}
             conflict={form.run?.enabled ? undefined : blockers.run}
             onChange={patch => update({ run: { ...form.run, ...patch } })}
           />
@@ -2602,7 +2603,7 @@ function RunFront({ plan, config, y }: { plan: DrawerPlan; config: DrawerConfig;
       {run.fillers.map(fl => (
         <g key={fl.side}>
           {rect(fl.x, 0, fl.width, plan.overallHeight)}
-          {run.uppers && rect(fl.x, run.uppers.y0, fl.width, run.uppers.topY - run.uppers.y0)}
+          {run.uppers && (() => { const y1 = run.uppers.y0 + (plan.bookcase ? bookcaseSideCut(plan.bookcase.config) : 0); return rect(fl.x, y1, fl.width, run.uppers.topY - y1); })()}
         </g>
       ))}
       {run.corner?.style === 'blind' && (
@@ -2646,14 +2647,16 @@ function BookcaseElevation({ bk, width: W, y, noCounter = false }: { plan: Drawe
   const t = bk.shelfConfig.thickness;
   const y0 = bk.y0;
   const top = bk.topY;
+  // Hung on the wall, the sides stop above the counter.
+  const sideY0 = y0 + bookcaseSideCut(bk.config);
   const rect = (x: number, y1: number, w: number, h: number, className = 'shelf-ply') =>
     <rect className={className} x={x} y={y(y1 + h)} width={w} height={h} />;
   return (
     <g>
       {bk.countertop && !noCounter && rect(bk.countertop.x0, bk.countertop.y0, bk.countertop.x1 - bk.countertop.x0, bk.countertop.y1 - bk.countertop.y0)}
-      {rect(0, y0, W, top - y0, 'shelf-side-outline')}
-      {rect(0, y0, t, top - y0)}
-      {rect(W - t, y0, t, top - y0)}
+      {rect(0, sideY0, W, top - sideY0, 'shelf-side-outline')}
+      {rect(0, sideY0, t, top - sideY0)}
+      {rect(W - t, sideY0, t, top - sideY0)}
       {rect(t, top - t, W - 2 * t, t)}
       {rect(t, y0 + sp.kick, W - 2 * t, t)}
       {(() => { const v = valanceSpan(bk.config); return v && rect(t, y0 + v[0], W - 2 * t, v[1] - v[0], 'drawer-foot'); })()}

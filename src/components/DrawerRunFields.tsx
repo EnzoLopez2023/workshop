@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Plus, X } from 'lucide-react';
 import { Button, SegmentedControl } from './ui';
 import { scrollToSetting } from './scrollToSetting';
 import { LengthField, Toggle } from './builderControls';
-import { CORNER_FILLER, DEFAULT_CORNER, RUN_CABINET_LAYOUTS, runNeedsWallWidth, type RunCabinetLayout, type RunFields } from '../lib/drawerRun';
+import { CORNER_FILLER, DEFAULT_CORNER, RUN_CABINET_LAYOUTS, runNeedsWallWidth, type RunCabinetLayout, type RunFields, type RunPosition } from '../lib/drawerRun';
 import type { DrawerPlan } from '../lib/drawerUnit';
 import type { LengthUnit } from '../lib/shelving';
 
@@ -37,10 +37,12 @@ interface Props {
   cabinetWidth: string;
   /** Why it can't be turned on right now. */
   conflict?: string;
+  /** The design's own positions, top to bottom: a custom cabinet starts from them. */
+  designPositions: RunPosition[];
   onChange: (patch: Partial<RunFields>) => void;
 }
 
-export default function DrawerRunFields({ value: r, units, errors, plan, fmt, cabinetWidth, conflict, onChange }: Props) {
+export default function DrawerRunFields({ value: r, units, errors, plan, fmt, cabinetWidth, conflict, designPositions, onChange }: Props) {
   const run = plan?.run ?? null;
   const setSection = (i: number, patch: Partial<RunFields['sections'][number]>) =>
     onChange({ sections: r.sections.map((s, k) => (k === i ? { ...s, ...patch } : s)) });
@@ -115,7 +117,7 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
                 <li key={i} className="drawer-run-section" id={`run-section-${i}`} data-part={`run:${i}`}>
                   <span className="form-field-label">{label}{i === blindIndex ? ' · blind corner' : ''}</span>
                   {s.kind === 'cabinet'
-                    ? <CabinetControls s={s} label={label} units={units} cabinetWidth={cabinetWidth} widthError={errors[`sections.${i}.width`]} blind={i === blindIndex} onChange={patch => setSection(i, patch)} />
+                    ? <CabinetControls s={s} label={label} units={units} cabinetWidth={cabinetWidth} designPositions={designPositions} widthError={errors[`sections.${i}.width`]} blind={i === blindIndex} onChange={patch => setSection(i, patch)} />
                     : <LengthField unit={units} label="Knee space" value={s.width} error={errors[`sections.${i}`]} onChange={width => setSection(i, { width })} />}
                   <span className="drawer-run-actions">
                     <Button variant="ghost" aria-label={`Move ${label} left`} disabled={i === 0} onClick={() => move(i, -1)}><ArrowLeft size={15} aria-hidden="true" /></Button>
@@ -147,6 +149,7 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
                   onChange={wallLength => setCorner({ wallLength })} />
               )}
               <SectionList
+                designPositions={designPositions}
                 label="Return"
                 sections={corner.sections}
                 max={6}
@@ -181,7 +184,8 @@ export default function DrawerRunFields({ value: r, units, errors, plan, fmt, ca
 }
 
 /** The return's sections: cabinets (this design) and desk gaps, in order from the corner. */
-function SectionList({ label, sections, max, units, cabinetWidth, errors, onChange }: {
+function SectionList({ label, sections, max, units, cabinetWidth, errors, designPositions, onChange }: {
+  designPositions: RunPosition[];
   label: string;
   sections: SectionField[];
   max: number;
@@ -208,7 +212,7 @@ function SectionList({ label, sections, max, units, cabinetWidth, errors, onChan
             <li key={i} className="drawer-run-section" id={`run-return-${i}`} data-part={`ret:${i}`}>
               <span className="form-field-label">{name}</span>
               {s.kind === 'cabinet'
-                ? <CabinetControls s={s} label={name} units={units} cabinetWidth={cabinetWidth} widthError={errors[`sections.${i}.width`]} onChange={patch => set(i, patch)} />
+                ? <CabinetControls s={s} label={name} units={units} cabinetWidth={cabinetWidth} designPositions={designPositions} widthError={errors[`sections.${i}.width`]} onChange={patch => set(i, patch)} />
                 : <LengthField unit={units} label="Knee space" value={s.width} error={errors[`sections.${i}`]} onChange={width => set(i, { width })} />}
               <span className="drawer-run-actions">
                 <Button variant="ghost" aria-label={`Move ${name} toward the corner`} disabled={i === 0} onClick={() => move(i, -1)}><ArrowLeft size={15} aria-hidden="true" /></Button>
@@ -232,15 +236,37 @@ function SectionList({ label, sections, max, units, cabinetWidth, errors, onChan
  * open shelves), its own width if it differs, and mirroring. The blind corner cabinet is
  * always one full-height door, so it only takes a width.
  */
-function CabinetControls({ s, label, units, cabinetWidth, widthError, blind = false, onChange }: {
+const POSITION_OPTIONS: { value: RunPosition; label: string }[] = [
+  { value: 'drawer', label: 'Drawer' },
+  { value: 'door', label: 'Door' },
+  { value: 'open', label: 'Open shelf' },
+];
+
+const describePositions = (list: RunPosition[]) => {
+  const n = (k: RunPosition) => list.filter(x => x === k).length;
+  return [
+    n('drawer') && `${n('drawer')} drawer${n('drawer') === 1 ? '' : 's'}`,
+    n('door') && `${n('door')} door${n('door') === 1 ? '' : 's'}`,
+    n('open') && `${n('open')} open`,
+  ].filter(Boolean).join(' + ');
+};
+
+function CabinetControls({ s, label, units, cabinetWidth, widthError, blind = false, designPositions, onChange }: {
   s: SectionField;
   label: string;
   units: LengthUnit;
   cabinetWidth: string;
   widthError?: string;
   blind?: boolean;
+  designPositions: RunPosition[];
   onChange: (patch: Partial<SectionField>) => void;
 }) {
+  const positions = s.cabinetPositions?.length ? s.cabinetPositions : designPositions;
+  const setPosition = (i: number, value: RunPosition) => onChange({ cabinetPositions: positions.map((p, k) => (k === i ? value : p)) });
+  const editDesign = () => {
+    const el = document.querySelector<HTMLElement>('[data-tour="fs-drawers"]');
+    if (el) scrollToSetting(el);
+  };
   return (
     <>
       {blind
@@ -248,9 +274,14 @@ function CabinetControls({ s, label, units, cabinetWidth, widthError, blind = fa
         : (
           <span className="drawer-run-cabinet">
             <label className="drawer-run-fronts">
-              <span>Fronts</span>
-              <select aria-label={`${label} fronts`} value={s.cabinetLayout ?? ''} onChange={e => onChange({ cabinetLayout: e.target.value as RunCabinetLayout | '' })}>
-                <option value="">Same as this design</option>
+              <span>Drawers &amp; doors</span>
+              <select aria-label={`${label} drawers and doors`} value={s.cabinetLayout ?? ''}
+                onChange={e => {
+                  const layout = e.target.value as RunCabinetLayout | '';
+                  // Custom starts from what the cabinet has now (the design's positions).
+                  onChange(layout === 'custom' && !s.cabinetPositions?.length ? { cabinetLayout: layout, cabinetPositions: designPositions } : { cabinetLayout: layout });
+                }}>
+                <option value="">Same as this design ({describePositions(designPositions)})</option>
                 {RUN_CABINET_LAYOUTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </label>
@@ -264,6 +295,28 @@ function CabinetControls({ s, label, units, cabinetWidth, widthError, blind = fa
             )}
           </span>
         )}
+      {!blind && !s.cabinetLayout && (
+        <button type="button" className="drawer-run-link" onClick={editDesign}>Edit this design’s drawers &amp; doors</button>
+      )}
+      {!blind && s.cabinetLayout === 'custom' && (
+        <ol className="drawer-run-positions" aria-label={`${label} positions, top to bottom`}>
+          {positions.map((p, i) => (
+            <li key={i}>
+              <span>{i === 0 ? 'Top' : i === positions.length - 1 ? 'Bottom' : `Position ${i + 1}`}</span>
+              <select aria-label={`${label} position ${i + 1}`} value={p} onChange={e => setPosition(i, e.target.value as RunPosition)}>
+                {POSITION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <Button variant="ghost" aria-label={`Remove ${label} position ${i + 1}`} disabled={positions.length <= 1}
+                onClick={() => onChange({ cabinetPositions: positions.filter((_, k) => k !== i) })}><X size={14} aria-hidden="true" /></Button>
+            </li>
+          ))}
+          <li>
+            <Button variant="ghost" disabled={positions.length >= 8} onClick={() => onChange({ cabinetPositions: [...positions, 'drawer'] })}>
+              <Plus size={14} aria-hidden="true" /> Add a position
+            </Button>
+          </li>
+        </ol>
+      )}
       <LengthField unit={units} label="Width" value={s.cabinetWidth ?? ''} placeholder={cabinetWidth} error={widthError}
         hint={s.cabinetWidth?.trim() ? 'Its own width; its upper matches it.' : 'Blank: this design’s width.'}
         onChange={cabinetWidth => onChange({ cabinetWidth })} />

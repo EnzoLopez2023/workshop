@@ -425,3 +425,34 @@ test('return cabinets can have their own fronts and width', () => {
   assert.equal(fields.corner.sections[0].cabinetLayout, 'drawers');
   assert.deepEqual(runFromFields(fields, raw => Number(raw)).corner.sections[0].cabinet, { width: 30, layout: 'drawers', drawers: 5 });
 });
+
+test('uppers can hang on the wall: no sides down to the counter, a hanging rail, trimmed CNC sides', () => {
+  const bookcase = { ...DEFAULT_BOOKCASE, enabled: true, height: 60, depth: 12, bays: 2, openBelow: 18, floating: true };
+  const config = { ...base, bookcase };
+  const p = buildDrawerPlan(config);
+  assert.deepEqual(p.errors, []);
+  const standing = buildDrawerPlan({ ...config, bookcase: { ...bookcase, floating: false } });
+  const side = n => p.parts.find(x => x.name === n);
+  close(side('Bookcase side').length, standing.parts.find(x => x.name === 'Bookcase side').length - 18, 'sides stop 18″ up');
+  assert.ok(side('Bookcase hanging rail'));
+  const solids = drawerSolids(p, config);
+  const left = solids.find(s => s.name === 'Bookcase left side');
+  const bottom = left.shape === 'box' ? left.min[1] : Math.min(...left.profile.map(q => q[1]));
+  close(bottom, p.bookcase.y0 + 18, 'nothing in the open space');
+  const faces = drawerPartFaces(p, config).filter(f => f.part === 'Bookcase side');
+  assert.ok(faces.length && faces.every(f => f.features.every(x => x.kind !== 'hole' || x.u >= 0)));
+});
+
+test('a run cabinet can be laid out position by position', () => {
+  const config = { ...base, run: { enabled: true, wallWidth: 0, leftEnd: 'open', rightEnd: 'open', deskUppers: false,
+    sections: [{ kind: 'cabinet', cabinet: { layout: 'custom', positions: ['drawer', 'open', 'door'] } }] } };
+  const p = buildDrawerPlan(config);
+  assert.deepEqual(p.errors, []);
+  const solids = runSolids(p, config);
+  assert.ok(solids.some(s => s.name === 'Cabinet 1 · Drawer 1 front'));
+  assert.ok(solids.some(s => s.name === 'Cabinet 1 · Door 3'));
+  assert.ok(!solids.some(s => s.name === 'Cabinet 1 · Drawer 2 front'), 'the middle is open');
+  const fields = runToFields(config.run, String);
+  assert.deepEqual(fields.sections[0].cabinetPositions, ['drawer', 'open', 'door']);
+  assert.deepEqual(runFromFields(fields, raw => Number(raw)).sections[0].cabinet, { layout: 'custom', positions: ['drawer', 'open', 'door'] });
+});

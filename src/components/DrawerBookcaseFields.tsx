@@ -129,6 +129,11 @@ export default function DrawerBookcaseFields({ value: b, units, errors, plan, fm
             onChange={openSpace => onChange({ openSpace, openHeight: b.openHeight || '18' })}
           />
           {b.openSpace && (
+            <Toggle label="Hang it on the wall" checked={b.floating === true}
+              hint="The sides stop at the bottom shelf, so nothing stands in the open space over the counter; a rail under the top screws into the studs. Off, the sides run down to the counter and the back makes a backsplash."
+              onChange={floating => onChange({ floating })} />
+          )}
+          {b.openSpace && (
             <LengthField unit={units} label="Open space height" value={b.openHeight ?? ''} error={errors.openHeight}
               hint={bp ? `Shelves from ${fmt(bp.y0 + bp.config.openBelow)} up from the floor; 15–18″ is typical.` : '15–18″ is typical.'} onChange={openHeight => onChange({ openHeight })} />
           )}

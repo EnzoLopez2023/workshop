@@ -4,6 +4,7 @@
 
 import { DimH, DimV } from './builderControls';
 import { DESK_LEG_INSET, DESK_LEG_SIZE, FOOT_SIZE, FOOT_INSET, type DrawerConfig, type DrawerPlan } from '../lib/drawerUnit';
+import { bookcaseSideCut } from '../lib/drawerBookcase';
 
 type Shape =
   | { kind: 'rect'; x: number; y: number; w: number; h: number; cls: string }
@@ -113,7 +114,7 @@ export function SideView({ plan, config, fmt }: ViewProps) {
   if (bk) {
     const y0 = run?.uppers ? run.uppers.y0 : bk.y0;
     const topY = run?.uppers ? run.uppers.topY : bk.topY;
-    shapes.push(rect(bk.z0, y0, cd, topY));
+    shapes.push(rect(bk.z0, y0 + bookcaseSideCut(bk.config), cd, topY));
     shapes.push(rect(bk.z0, y0 + bk.shelfPlan.kick, cd, y0 + bk.shelfPlan.kick + T));
     shapes.push(rect(bk.z0, topY - T, cd, topY));
     const cap = run ? run.cap : bk.cap;

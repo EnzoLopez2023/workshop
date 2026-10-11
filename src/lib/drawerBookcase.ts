@@ -50,7 +50,22 @@ export interface BookcaseConfig {
   shelfLights?: boolean;
   /** An outlet cutout in the backsplash (the back where it runs down through the open space). */
   outlet?: boolean;
+  /**
+   * Over open space, hang the bookcase on the wall instead of standing its sides on the
+   * counter: the sides stop at the bottom shelf (or the light valance), so nothing stands
+   * in the open space, and a rail under the top screws into the studs.
+   */
+  floating?: boolean;
 }
+
+/** How far a floating bookcase's sides and dividers stop above the counter (0 when they run down). */
+export function bookcaseSideCut(bk: Pick<BookcaseConfig, 'openBelow' | 'floating' | 'taskLight' | 'valanceHeight'>): number {
+  if (!bk.floating || !(bk.openBelow > 0)) return 0;
+  return Math.max(bk.openBelow - (bk.taskLight ? bk.valanceHeight : 0), 0);
+}
+
+/** The hanging rail under a floating bookcase's top. */
+export const HANGING_RAIL = 3;
 
 /** A shelf lip: 3/4″ stock 1 1/2″ wide, standing 3/4″ proud of the shelf. */
 export const LIP_HEIGHT = 1.5;
@@ -162,11 +177,16 @@ export function valanceSpan(bk: Pick<BookcaseConfig, 'openBelow' | 'taskLight' |
  * board full height, but only a valance at the top of the space is wanted, and the back
  * runs down to the counter as a backsplash.
  */
-export function withValance(bk: Pick<BookcaseConfig, 'openBelow' | 'taskLight' | 'valanceHeight'>, solids: Solid[]): Solid[] {
+export function withValance(bk: Pick<BookcaseConfig, 'openBelow' | 'taskLight' | 'valanceHeight' | 'floating'>, solids: Solid[]): Solid[] {
   if (!(bk.openBelow > 0)) return solids;
   const span = valanceSpan(bk);
+  const cut = bookcaseSideCut(bk);
   return solids.flatMap((s): Solid[] => {
-    if (s.kind === 'back' && s.shape === 'box') return [{ ...s, min: [s.min[0], 0, s.min[2]] }];
+    // Standing on the counter the back runs down as a backsplash; hung on the wall it doesn't,
+    // and the sides and dividers stop at the bottom shelf or the valance.
+    if (s.kind === 'back' && s.shape === 'box') return cut > 0 ? [s] : [{ ...s, min: [s.min[0], 0, s.min[2]] }];
+    if (cut > 0 && s.shape === 'box' && /^(Left side|Right side|Divider \d+)$/.test(s.name)) return [{ ...s, min: [s.min[0], Math.max(s.min[1], cut), s.min[2]] }];
+    if (cut > 0 && s.shape === 'prism' && /^(Left side|Right side|Divider \d+)$/.test(s.name)) return [{ ...s, profile: s.profile.map(([z, y]) => [z, Math.max(y, cut)] as [number, number]) }];
     if (s.name !== 'Toe kick') return [s];
     if (!span || s.shape !== 'box') return [];
     return [{ ...s, min: [s.min[0], span[0], s.min[2]], max: [s.max[0], span[1], s.max[2]] }];
@@ -288,7 +308,12 @@ export function buildBookcase(bk: BookcaseConfig, ctx: BookcaseContext): Bookcas
       parts.push({ ...p, name: bookcaseName(p.name), width: bk.valanceHeight, note: 'Flush with the front under the bottom; an LED strip goes behind it' });
       continue;
     }
-    if (bk.openBelow > 0 && p.name.startsWith('Back')) {
+    const cut = bookcaseSideCut(bk);
+    if (cut > 0 && (p.name === 'Side' || p.name.startsWith('Divider'))) {
+      parts.push({ ...p, name: bookcaseName(p.name), length: p.length - cut, note: `${p.note ? `${p.note}; ` : ''}stops ${f(cut)} above the counter — the bookcase hangs on the wall` });
+      continue;
+    }
+    if (bk.openBelow > 0 && p.name.startsWith('Back') && cut === 0) {
       // The back runs down through the open space to the counter as a backsplash.
       parts.push({ ...p, name: bookcaseName(p.name), length: bk.height, note: `${p.note ? `${p.note}; ` : ''}runs down to the counter as a backsplash` });
       continue;
@@ -310,9 +335,15 @@ export function buildBookcase(bk: BookcaseConfig, ctx: BookcaseContext): Bookcas
     parts.push({ name: 'Top light rail', qty: 1, length: W - 2 * T, width: LIGHT_RAIL, thickness: 0.75, note: 'Under the bookcase top’s front edge, hiding the strip that lights the top shelf', material: 'solid' });
     if (bk.adjustablePerBay > 0) warnings.push('Lights under adjustable shelves need their cords to move with them — use plug-in strips with slack, or make the lit shelves fixed.');
   }
+  // Hung on the wall: a rail under the top, screwed into the studs, carries it.
+  if (bookcaseSideCut(bk) > 0) {
+    parts.push({ name: 'Bookcase hanging rail', qty: 1, length: W - 2 * T, width: HANGING_RAIL, thickness: T,
+      note: 'Under the top, against the back, between the sides; screw through it into every stud. The bookcase hangs over the open space with nothing down to the counter', material: 'plywood' });
+  }
   // An outlet in the backsplash, centred, low in the open space.
   let outlet: BookcasePlan['outlet'] = null;
-  if (bk.outlet) {
+  if (bk.outlet && bookcaseSideCut(bk) > 0) warnings.push('Hung on the wall the bookcase has no backsplash, so the outlet goes in the wall itself — no cutout needed.');
+  else if (bk.outlet) {
     if (bk.openBelow < 7) errors.push('An outlet in the backsplash needs at least 7″ of open space above the counter.');
     else {
       const cy = y0 + Math.min(8, bk.openBelow / 2);
@@ -419,6 +450,10 @@ export function bookcaseSolids(bp: BookcasePlan, width: number, caseDepth: numbe
       out.push({ name: `${s.name} light rail`, kind: 'frame', shape: 'box', min: [s.min[0], s.min[1] - LIGHT_RAIL, s.min[2]], max: [s.max[0], s.min[1], s.min[2] + 0.75], explode: s.explode });
     }
   }
+  if (bookcaseSideCut(bk) > 0) {
+    const T2 = bp.shelfConfig.thickness;
+    out.push({ ...box('Bookcase hanging rail', { x0: T2, x1: width - T2, y0: bp.topY - T2 - HANGING_RAIL, y1: bp.topY - T2, z0: caseDepth - 0.25 - T2, z1: caseDepth - 0.25 }), explode: [0, spread * 2, spread] });
+  }
   if (bp.outlet) {
     const o = bp.outlet;
     out.push({ name: 'Backsplash outlet', kind: 'pinhole', shape: 'box', min: [o.x0, o.y0, caseDepth - 0.35], max: [o.x1, o.y1, caseDepth + 0.05], explode: [0, spread * 2, 0] });
@@ -490,6 +525,7 @@ export function readBookcase(raw: unknown): BookcaseConfig | undefined {
     ...(v.pegboard === true ? { pegboard: true } : {}),
     ...(v.shelfLights === true ? { shelfLights: true } : {}),
     ...(v.outlet === true ? { outlet: true } : {}),
+    ...(v.floating === true ? { floating: true } : {}),
   };
 }
 
@@ -522,6 +558,7 @@ export interface BookcaseFields {
   pegboard?: boolean;
   shelfLights?: boolean;
   outlet?: boolean;
+  floating?: boolean;
 }
 
 export const BOOKCASE_LENGTH_KEYS = [
@@ -557,6 +594,7 @@ export function bookcaseToFields(c: BookcaseConfig | undefined, L: (inches: numb
     pegboard: b.pegboard === true,
     shelfLights: b.shelfLights === true,
     outlet: b.outlet === true,
+    floating: b.floating === true,
   };
 }
 
@@ -598,5 +636,6 @@ export function bookcaseFromFields(
     ...(fields.pegboard ? { pegboard: true } : {}),
     ...(fields.shelfLights ? { shelfLights: true } : {}),
     ...(fields.outlet ? { outlet: true } : {}),
+    ...(fields.floating && fields.openSpace ? { floating: true } : {}),
   };
 }

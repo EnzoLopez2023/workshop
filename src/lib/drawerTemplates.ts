@@ -52,7 +52,7 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
       doorHinges: ['auto', 'auto', 'auto', 'auto'], doorInside: ['shelves', 'shelves', 'shelves', 'shelves'], doorCounts: [1, 1, 1, 1],
       bookcase: bookcaseToFields({
         ...DEFAULT_BOOKCASE, enabled: true, height: 64, depth: 12, bays: 2, shelvesPerBay: 1, adjustablePerBay: 2, openBelow: 18,
-        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'crown' }, taskLight: true, outlet: true,
+        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'crown' }, taskLight: true, floating: true,
       }, L),
       run: runFields({ wallWidth: 113, grommets: true, sections: [{ kind: 'cabinet', cabinet: { layout: 'drawers', drawers: 4 } }, { kind: 'cabinet' }, { kind: 'cabinet', mirror: true, cabinet: { layout: 'door' } }] }),
     },
@@ -93,7 +93,7 @@ export const DRAWER_TEMPLATES: DrawerTemplate[] = [
       doorHinges: ['auto', 'auto', 'auto', 'auto', 'auto', 'auto'], doorInside: ['shelves', 'shelves', 'shelves', 'shelves', 'shelves', 'shelves'], doorCounts: [1, 1, 1, 1, 1, 1],
       bookcase: bookcaseToFields({
         ...DEFAULT_BOOKCASE, enabled: true, height: 70, depth: 12, bays: 2, shelvesPerBay: 1, adjustablePerBay: 2, openBelow: 24,
-        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'cap' }, outlet: true,
+        countertop: { ...DEFAULT_BOOKCASE.countertop, layers: 2 }, top: { ...DEFAULT_BOOKCASE.top, style: 'cap' }, floating: true,
       }, L),
       run: runFields({
         wallWidth: 90, leftEnd: 'open', rightEnd: 'wall',
