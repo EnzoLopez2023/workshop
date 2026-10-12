@@ -313,3 +313,26 @@ test('open cubby shelves can sit in dados instead of being screwed', async () =>
   assert.equal(saved.config.cubbyShelfJoinery, 'dado');
   assert.equal(drawerDesignToFields(saved).cubbyShelfJoinery, 'dado');
 });
+
+test('the fixed shelf under a door can sit in dados instead of being screwed', async () => {
+  const { drawerPartFaces } = await import('../src/lib/drawerExport.ts');
+  const { drawerGuideSteps } = await import('../src/lib/drawerGuide.ts');
+  const screwedCfg = { ...base, width: 24, drawers: 2, frontHeights: [12, 14], doors: [{ hinge: 'auto', inside: 'empty', count: 0 }, null] };
+  const dadoCfg = { ...screwedCfg, doorFloorJoinery: 'dado' };
+  const screwed = buildDrawerPlan(screwedCfg);
+  const dado = buildDrawerPlan(dadoCfg);
+  assert.deepEqual(dado.errors, []);
+  const shelf = p => p.parts.find(x => x.name === 'Fixed shelf under door');
+  assert.ok(shelf(screwed), 'a door over a drawer gets a floor');
+  assert.equal(shelf(dado).length - shelf(screwed).length, 0.5);
+  assert.match(shelf(dado).note, /dados/);
+  const dados = cfg => drawerPartFaces(buildDrawerPlan(cfg), cfg).find(f => f.piece === 'Left side').features.filter(f => / shelf dado$/.test(f.label));
+  assert.equal(dados(screwedCfg).length, 0);
+  assert.equal(dados(dadoCfg).length, 1);
+  assert.ok(drawerGuideSteps(dado, dadoCfg, 'in').steps.some(s => s.id === 'door-shelf-dados'));
+  // Cubbies keep their own setting.
+  assert.equal(buildDrawerPlan({ ...dadoCfg, drawers: 3, frontHeights: [6, 8, 12], doors: undefined, openSlots: [false, true, false] }).drawers[1].shelfJoint, 'butt');
+  const saved = readSavedDrawerDesign(JSON.parse(JSON.stringify(toSavedDrawerDesign(dadoCfg, 'in'))));
+  assert.equal(saved.config.doorFloorJoinery, 'dado');
+  assert.equal(drawerDesignToFields(saved).doorFloorJoinery, 'dado');
+});

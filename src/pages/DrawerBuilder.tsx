@@ -508,6 +508,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     // Blank: the case plywood.
     ...(form.cubbyShelfThickness?.trim() && form.insertKinds.slice(0, form.drawers).includes('cubby') ? { cubbyShelfThickness: num('cubbyShelfThickness') } : {}),
     ...(form.cubbyShelfJoinery === 'dado' ? { cubbyShelfJoinery: 'dado' as const } : {}),
+    ...(form.doorFloorJoinery === 'dado' ? { doorFloorJoinery: 'dado' as const } : {}),
     ...(form.doorShelfThickness?.trim() && form.insertKinds.slice(0, form.drawers).includes('door') ? { doorShelfThickness: num('doorShelfThickness') } : {}),
     inserts: form.insertKinds.slice(0, form.drawers).map((kind, i) =>
       kind === 'grid' ? { kind: 'grid', columns: form.gridColumns[i] ?? 2, rows: form.gridRows[i] ?? 2 }
@@ -1512,6 +1513,16 @@ export default function DrawerBuilder() {
                   placeholder={`Same as the case${config ? ` (${fmt(config.thickness)})` : ''}`}
                   hint={`Blank matches the case${form.cubbyShelfJoinery === 'dado' ? '; the dados are cut to this width' : ''}.`}
                   onChange={cubbyShelfThickness => update({ cubbyShelfThickness })} />
+              </div>
+            )}
+            {plan?.drawers.some(d => d.door && d.shelfY !== null) && (
+              <div className="shelf-height-mode">
+                <span className="form-field-label">Fixed shelf under doors</span>
+                <SegmentedControl label="Fixed shelf under doors" value={form.doorFloorJoinery ?? 'butt'} options={CUBBY_SHELF_OPTIONS}
+                  onChange={doorFloorJoinery => update({ doorFloorJoinery })} />
+                <small>{form.doorFloorJoinery === 'dado'
+                  ? 'The floor of each door opening above another position sits in dados in the sides and partitions.'
+                  : 'The floor of each door opening above another position is glued and screwed through the sides and partitions.'}</small>
               </div>
             )}
             {form.insertKinds.slice(0, form.drawers).some((k, i) => k === 'door' && (form.doorInside[i] ?? 'shelves') === 'shelves') && (

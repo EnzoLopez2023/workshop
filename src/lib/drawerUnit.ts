@@ -239,6 +239,8 @@ export interface DrawerConfig {
   cubbyShelfThickness?: number;
   /** Open cubbies' floor shelves housed in dados; left out, glued and screwed through the sides. */
   cubbyShelfJoinery?: 'dado';
+  /** The fixed shelf under a door opening (its floor) housed in dados; left out, glued and screwed. */
+  doorFloorJoinery?: 'dado';
   /** Printer bed (mm) that Gridfinity baseplate tiles must fit. */
   gridfinityBed?: number;
   /**
@@ -1071,7 +1073,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       shelfY: open && zoneBottom > interiorBottom + EPS ? zoneBottom : null,
       // An open cubby's floor can be its own stock; a door's floor stays case plywood.
       shelfThickness: open && !doorSlot ? config.cubbyShelfThickness ?? T : T,
-      shelfJoint: open && !doorSlot && config.cubbyShelfJoinery === 'dado' ? 'dado' : 'butt',
+      shelfJoint: (doorSlot ? config.doorFloorJoinery : open ? config.cubbyShelfJoinery : undefined) === 'dado' ? 'dado' : 'butt',
       door: doorSlot ? layoutDoor(doorSlot, {
         front: { x: (inset ? columns[ci].x : bounds[ci]) + gap / 2, y, width: frontWidths[ci], height: h },
         column: ci, columns: k, inset, gap, T, slideLength,
@@ -2715,6 +2717,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       ...(num(c.doorShelfThickness, 0.05, 2) ? { doorShelfThickness: num(c.doorShelfThickness, 0.05, 2)! } : {}),
       ...(num(c.cubbyShelfThickness, 0.05, 2) ? { cubbyShelfThickness: num(c.cubbyShelfThickness, 0.05, 2)! } : {}),
       ...(c.cubbyShelfJoinery === 'dado' ? { cubbyShelfJoinery: 'dado' as const } : {}),
+      ...(c.doorFloorJoinery === 'dado' ? { doorFloorJoinery: 'dado' as const } : {}),
       gridfinityBed: num(c.gridfinityBed, 100, 1000) ?? 256,
       desk: readDesk(c.desk),
       blind: readBlind(c.blind),
@@ -2966,6 +2969,8 @@ export interface DrawerDesignFields {
   cubbyShelfThickness: string;
   /** Cubby floor shelves: dadoed, or glued and screwed. */
   cubbyShelfJoinery?: 'dado' | 'butt';
+  /** The fixed shelf under door openings: dadoed, or glued and screwed. */
+  doorFloorJoinery?: 'dado' | 'butt';
   load: DrawerLoad;
   finishFront: string;
   finishCase: string;
@@ -3059,6 +3064,7 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     doorShelfThickness: c.doorShelfThickness ? L(c.doorShelfThickness) : '',
     cubbyShelfThickness: c.cubbyShelfThickness ? L(c.cubbyShelfThickness) : '',
     cubbyShelfJoinery: c.cubbyShelfJoinery ?? 'butt',
+    doorFloorJoinery: c.doorFloorJoinery ?? 'butt',
     gridColumns: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'grid' ? x.columns : 2; }),
     gridfinityBins: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'gridfinity' ? x.bins ?? [] : []; }),
     toolPockets: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'tools' ? x.tools : []; }),

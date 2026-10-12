@@ -259,13 +259,13 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const fixedDoors = doorSlots.filter(d => d.door!.shelfYs.length && d.door!.shelfJoint !== 'pins');
   const dadoDoors = fixedDoors.filter(d => d.door!.shelfJoint === 'dado');
   const shelfMarks = (d: typeof doorSlots[number]) => d.door!.shelfYs.map(y => f(y - plan.sideBottom)).join(', ');
-  // Open cubbies whose floor shelf sits in dados.
-  const dadoCubbies = plan.drawers.filter(d => d.open && !d.door && d.shelfY !== null && d.shelfJoint === 'dado');
+  // Open cubbies and door openings whose floor shelf sits in dados.
+  const dadoCubbies = plan.drawers.filter(d => d.open && d.shelfY !== null && d.shelfJoint === 'dado');
   const onPartition = plan.partitionXs.length ? ` (${f(panelTop(plan, T))} less on a partition)` : '';
   if (dadoDoors.length || dadoCubbies.length) {
     const dd = doorShelfDadoDepth(T);
     const widths = [...new Set([...dadoDoors.map(d => d.door!.shelfThickness), ...dadoCubbies.map(d => d.shelfThickness)])].map(f).join(' or ');
-    const what = [dadoDoors.length ? `the fixed shelves behind ${dadoDoors.length === 1 ? 'the door' : `${dadoDoors.length} doors`}` : '', dadoCubbies.length ? `${dadoCubbies.length === 1 ? 'the cubby shelf' : `${dadoCubbies.length} cubby shelves`}` : ''].filter(Boolean).join(' and ');
+    const what = [dadoDoors.length ? `the fixed shelves behind ${dadoDoors.length === 1 ? 'the door' : `${dadoDoors.length} doors`}` : '', dadoCubbies.length ? `${dadoCubbies.length === 1 ? 'a floor shelf' : `${dadoCubbies.length} floor shelves`}` : ''].filter(Boolean).join(' and ');
     steps.push({
       id: 'door-shelf-dados',
       title: dadoDoors.length && !dadoCubbies.length ? 'Cut the shelf dados behind the doors' : 'Cut the shelf dados',
@@ -275,7 +275,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         ...dadoCubbies.map(d => `${d.label}: on both sides of its opening, a dado for its floor shelf, bottom edge ${f(d.shelfY! - plan.sideBottom)} up from the side’s bottom edge${onPartition}, front to back.`),
         'Clamp mirror-image panels together and mark across both so the shelves come out level; cut a test dado in scrap first.',
       ],
-      parts: sized(partsWhere([...(dadoDoors.length ? ['Door shelf'] : []), ...(dadoCubbies.length ? ['Cubby shelf'] : [])])),
+      parts: sized(partsWhere([...(dadoDoors.length ? ['Door shelf'] : []), ...(dadoCubbies.some(d => !d.door) ? ['Cubby shelf'] : []), ...(dadoCubbies.some(d => d.door) ? ['Fixed shelf under door'] : [])])),
       tips: ['The CNC files cut every dado; a router with a straightedge and a stop block works by hand.'],
       cautions: [],
       scene: { view: 'exploded', visible: [], highlight: ['Left side', 'Right side', ...partitionNames] },
@@ -320,7 +320,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         `Fix the cubby shelves: ${cubbies.filter(d => d.shelfY !== null && d.shelfJoint === 'butt').map(d => `${d.label.toLowerCase()}’s, its top ${f(d.shelfY! + d.shelfThickness - plan.sideBottom)} up from the bottom edge of the side`).join('; ')}. Glue and screw through the sides into their ends.`,
       ] : []),
       ...(dadoCubbies.length ? [
-        `Glue the cubby shel${dadoCubbies.length === 1 ? 'f' : 'ves'} into ${dadoCubbies.length === 1 ? 'its' : 'their'} dados as the sides go on, front edges flush.`,
+        `Glue the ${dadoCubbies.every(d => d.door) ? 'fixed shel' : dadoCubbies.every(d => !d.door) ? 'cubby shel' : 'floor shel'}${dadoCubbies.length === 1 ? 'f' : 'ves'} into ${dadoCubbies.length === 1 ? 'its' : 'their'} dados as the sides go on, front edges flush.`,
       ] : []),
       ...(plan.partitionXs.length ? [
         `Stand the partition${plan.partitionXs.length > 1 ? 's' : ''} between the top and bottom at ${plan.partitionXs.map(x => f(x - T)).join(' and ')} from the inside of the left side, front edges flush; glue and screw through the top and bottom into each.`,
