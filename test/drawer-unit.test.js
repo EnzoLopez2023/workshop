@@ -289,3 +289,27 @@ test('open cubby shelves take their own plywood thickness', () => {
   const plain = buildDrawerPlan({ ...config, cubbyShelfThickness: undefined });
   assert.equal(plain.parts.find(p => p.name === 'Cubby shelf').thickness, 0.75);
 });
+
+test('open cubby shelves can sit in dados instead of being screwed', async () => {
+  const { drawerPartFaces } = await import('../src/lib/drawerExport.ts');
+  const { drawerGuideSteps } = await import('../src/lib/drawerGuide.ts');
+  const screwedCfg = { ...base, drawers: 3, frontHeights: [6, 8, 12], openSlots: [false, true, false] };
+  const dadoCfg = { ...screwedCfg, cubbyShelfJoinery: 'dado', cubbyShelfThickness: 0.5 };
+  const screwed = buildDrawerPlan(screwedCfg);
+  const dado = buildDrawerPlan(dadoCfg);
+  assert.deepEqual(dado.errors, []);
+  const shelf = p => p.parts.find(x => x.name === 'Cubby shelf');
+  assert.equal(shelf(dado).length - shelf(screwed).length, 0.5, 'a 1/4" dado at each end');
+  assert.match(shelf(dado).note, /dados/);
+  const feat = cfg => drawerPartFaces(buildDrawerPlan(cfg), cfg).find(f => f.piece === 'Left side').features.filter(f => / shelf dado$/.test(f.label));
+  assert.equal(feat(screwedCfg).length, 0);
+  const [d] = feat(dadoCfg);
+  assert.equal(d.length, 0.5);
+  assert.equal(d.depth, 0.25);
+  const steps = drawerGuideSteps(dado, dadoCfg, 'in').steps;
+  assert.ok(steps.some(s => s.id === 'door-shelf-dados' && s.instructions.some(t => /floor shelf/.test(t))));
+  assert.ok(!drawerGuideSteps(screwed, screwedCfg, 'in').steps.some(s => s.id === 'door-shelf-dados'));
+  const saved = readSavedDrawerDesign(JSON.parse(JSON.stringify(toSavedDrawerDesign(dadoCfg, 'in'))));
+  assert.equal(saved.config.cubbyShelfJoinery, 'dado');
+  assert.equal(drawerDesignToFields(saved).cubbyShelfJoinery, 'dado');
+});

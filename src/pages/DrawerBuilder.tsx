@@ -300,6 +300,11 @@ const VIEW_OPTIONS = [
 ] as const;
 type PreviewMode = '3d' | 'drawing';
 
+const CUBBY_SHELF_OPTIONS = [
+  { value: 'butt', label: 'Screwed' },
+  { value: 'dado', label: 'Dadoed' },
+] as const;
+
 const DOOR_SHELF_OPTIONS = [
   { value: 'pins', label: 'On pins' },
   { value: 'dado', label: 'Dadoed' },
@@ -502,6 +507,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     ...(form.doorShelfJoinery === 'dado' || form.doorShelfJoinery === 'butt' ? { doorShelfJoinery: form.doorShelfJoinery } : {}),
     // Blank: the case plywood.
     ...(form.cubbyShelfThickness?.trim() && form.insertKinds.slice(0, form.drawers).includes('cubby') ? { cubbyShelfThickness: num('cubbyShelfThickness') } : {}),
+    ...(form.cubbyShelfJoinery === 'dado' ? { cubbyShelfJoinery: 'dado' as const } : {}),
     ...(form.doorShelfThickness?.trim() && form.insertKinds.slice(0, form.drawers).includes('door') ? { doorShelfThickness: num('doorShelfThickness') } : {}),
     inserts: form.insertKinds.slice(0, form.drawers).map((kind, i) =>
       kind === 'grid' ? { kind: 'grid', columns: form.gridColumns[i] ?? 2, rows: form.gridRows[i] ?? 2 }
@@ -1495,10 +1501,18 @@ export default function DrawerBuilder() {
               <small>A door can go over any opening — under a drawer, kitchen-style, or a whole column. Open cubbies get a fixed shelf for a floor.</small>
             </div>
             {form.insertKinds.slice(0, form.drawers).includes('cubby') && (
-              <LengthField unit={units} label="Cubby shelf plywood" value={form.cubbyShelfThickness ?? ''} error={fieldErrors.cubbyShelfThickness}
-                placeholder={`Same as the case${config ? ` (${fmt(config.thickness)})` : ''}`}
-                hint="The fixed floor under each open cubby (none at the bottom, where the case bottom is the floor). Glued and screwed through the sides. Blank matches the case."
-                onChange={cubbyShelfThickness => update({ cubbyShelfThickness })} />
+              <div className="shelf-height-mode">
+                <span className="form-field-label">Cubby shelves</span>
+                <SegmentedControl label="Cubby shelves" value={form.cubbyShelfJoinery ?? 'butt'} options={CUBBY_SHELF_OPTIONS}
+                  onChange={cubbyShelfJoinery => update({ cubbyShelfJoinery })} />
+                <small>{form.cubbyShelfJoinery === 'dado'
+                  ? 'The floor under each open cubby sits in dados in the sides and partitions — stronger, and it sets itself level.'
+                  : 'The floor under each open cubby is glued and screwed through the sides and partitions — no dados to cut.'} (None at the bottom, where the case bottom is the floor.)</small>
+                <LengthField unit={units} label="Cubby shelf plywood" value={form.cubbyShelfThickness ?? ''} error={fieldErrors.cubbyShelfThickness}
+                  placeholder={`Same as the case${config ? ` (${fmt(config.thickness)})` : ''}`}
+                  hint={`Blank matches the case${form.cubbyShelfJoinery === 'dado' ? '; the dados are cut to this width' : ''}.`}
+                  onChange={cubbyShelfThickness => update({ cubbyShelfThickness })} />
+              </div>
             )}
             {form.insertKinds.slice(0, form.drawers).some((k, i) => k === 'door' && (form.doorInside[i] ?? 'shelves') === 'shelves') && (
               <div className="shelf-height-mode">

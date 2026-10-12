@@ -917,7 +917,12 @@ function doorLines(plan: DrawerPlan, column: number, edge: 'left' | 'right', fro
   const out: Feature[] = [];
   const u = (y: number) => y - plan.sideBottom - from;
   for (const d of plan.drawers) {
-    if (d.column !== column || !d.door) continue;
+    if (d.column !== column) continue;
+    // An open cubby's floor shelf in a dado.
+    if (d.open && !d.door && d.shelfY !== null && d.shelfJoint === 'dado') {
+      out.push({ kind: 'pocket', label: `${d.label} shelf dado`, u: u(d.shelfY), v: 0, length: d.shelfThickness, width: plan.interiorDepth, depth: doorShelfDadoDepth(T) });
+    }
+    if (!d.door) continue;
     const door = d.door;
     const back = plan.interiorDepth - PIN_INSET;
     // Fixed shelves: a dado (case-plywood wide) or a pencil line for the screws, at each shelf's bottom face.

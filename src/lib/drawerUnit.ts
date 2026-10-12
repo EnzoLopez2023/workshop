@@ -237,6 +237,8 @@ export interface DrawerConfig {
   doorShelfThickness?: number;
   /** Plywood for the open cubbies' floor shelves; left out, the case plywood. */
   cubbyShelfThickness?: number;
+  /** Open cubbies' floor shelves housed in dados; left out, glued and screwed through the sides. */
+  cubbyShelfJoinery?: 'dado';
   /** Printer bed (mm) that Gridfinity baseplate tiles must fit. */
   gridfinityBed?: number;
   /**
@@ -595,6 +597,8 @@ export interface DrawerLayout {
   shelfY: number | null;
   /** That shelf's plywood thickness. */
   shelfThickness: number;
+  /** How that shelf is held: in dados, or glued and screwed through the sides. */
+  shelfJoint: 'dado' | 'butt';
   /** Front extent in the front elevation. */
   front: { x: number; y: number; width: number; height: number };
   /** Box extent: bottom, height, and outside width. */
@@ -1067,6 +1071,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       shelfY: open && zoneBottom > interiorBottom + EPS ? zoneBottom : null,
       // An open cubby's floor can be its own stock; a door's floor stays case plywood.
       shelfThickness: open && !doorSlot ? config.cubbyShelfThickness ?? T : T,
+      shelfJoint: open && !doorSlot && config.cubbyShelfJoinery === 'dado' ? 'dado' : 'butt',
       door: doorSlot ? layoutDoor(doorSlot, {
         front: { x: (inset ? columns[ci].x : bounds[ci]) + gap / 2, y, width: frontWidths[ci], height: h },
         column: ci, columns: k, inset, gap, T, slideLength,
@@ -1275,19 +1280,20 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       thickness: bt, material: 'plywood' });
   }
   // Cubby shelves: a fixed panel under each cubby that isn't at the bottom, one line per opening width.
-  const shelves: { width: number; indexes: number[]; door: boolean; thickness: number }[] = [];
+  const shelves: { width: number; indexes: number[]; door: boolean; thickness: number; joint: 'dado' | 'butt' }[] = [];
   for (const d of drawers) {
     if (!d.open || d.shelfY === null) continue;
     const w = columns[d.column].width;
     const g = shelves.find(x => Math.abs(x.width - w) < EPS && x.door === !!d.door);
-    if (g) g.indexes.push(d.index); else shelves.push({ width: w, indexes: [d.index], door: !!d.door, thickness: d.shelfThickness });
+    if (g) g.indexes.push(d.index); else shelves.push({ width: w, indexes: [d.index], door: !!d.door, thickness: d.shelfThickness, joint: d.shelfJoint });
   }
   for (const g of shelves) {
     const kind = g.door ? 'Fixed shelf under door' : 'Cubby shelf';
     const name = shelves.filter(x => x.door === g.door).length === 1 ? kind : `${kind} · ${range(g.indexes)}`;
     partDrawers[name] = g.indexes;
-    parts.push({ name, qty: g.indexes.length, length: g.width, width: interiorDepth - caseBanding, thickness: g.thickness,
-      note: 'Fixed: glue and screw through the sides (or partition) into its ends', material: 'plywood' });
+    const dd = g.joint === 'dado' ? doorShelfDadoDepth(T) : 0;
+    parts.push({ name, qty: g.indexes.length, length: g.width + 2 * dd, width: interiorDepth - caseBanding, thickness: g.thickness,
+      note: g.joint === 'dado' ? `Fixed: housed in ${f(dd)} dados in the sides${partitionXs.length ? ' (or partition)' : ''}, glued` : 'Fixed: glue and screw through the sides (or partition) into its ends', material: 'plywood' });
   }
 
   // Doors: one line per leaf size and hinge side (their cup holes differ), then shelves and trays behind them.
@@ -2708,6 +2714,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       ...(c.doorShelfJoinery === 'dado' || c.doorShelfJoinery === 'butt' ? { doorShelfJoinery: c.doorShelfJoinery } : {}),
       ...(num(c.doorShelfThickness, 0.05, 2) ? { doorShelfThickness: num(c.doorShelfThickness, 0.05, 2)! } : {}),
       ...(num(c.cubbyShelfThickness, 0.05, 2) ? { cubbyShelfThickness: num(c.cubbyShelfThickness, 0.05, 2)! } : {}),
+      ...(c.cubbyShelfJoinery === 'dado' ? { cubbyShelfJoinery: 'dado' as const } : {}),
       gridfinityBed: num(c.gridfinityBed, 100, 1000) ?? 256,
       desk: readDesk(c.desk),
       blind: readBlind(c.blind),
@@ -2957,6 +2964,8 @@ export interface DrawerDesignFields {
   doorShelfThickness: string;
   /** '': the case plywood. */
   cubbyShelfThickness: string;
+  /** Cubby floor shelves: dadoed, or glued and screwed. */
+  cubbyShelfJoinery?: 'dado' | 'butt';
   load: DrawerLoad;
   finishFront: string;
   finishCase: string;
@@ -3049,6 +3058,7 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     doorShelfJoinery: c.doorShelfJoinery ?? 'pins',
     doorShelfThickness: c.doorShelfThickness ? L(c.doorShelfThickness) : '',
     cubbyShelfThickness: c.cubbyShelfThickness ? L(c.cubbyShelfThickness) : '',
+    cubbyShelfJoinery: c.cubbyShelfJoinery ?? 'butt',
     gridColumns: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'grid' ? x.columns : 2; }),
     gridfinityBins: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'gridfinity' ? x.bins ?? [] : []; }),
     toolPockets: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'tools' ? x.tools : []; }),
