@@ -109,22 +109,25 @@ export function dadoGrooves(plan: ShelfPlan, config: ShelfConfig): Solid[] {
     grooves.push({ name, kind: 'groove', shape: 'box', min: [x0, y0, z0], max: [x1, y1, z1], on, face });
   };
   const n = plan.bays.length;
-  if (d > 0) {
-    // [bottom, width]: shelf dados are the shelf stock wide, top and bottom dados the case stock.
+  const sd = plan.shelfDadoDepth;
+  if (d > 0 || sd > 0) {
+    // [bottom, width, depth]: shelf dados are the shelf stock wide, top and bottom dados the case stock.
     const st = plan.shelfThickness;
-    const sideYs = (ys: number[]): [number, number][] => {
-      const list: [number, number][] = ys.map(y => [y, st]);
-      if (config.bottomPanel) list.push([plan.kick, t]);
-      if (config.topPanel) list.push([H - t, t]);
+    const sideYs = (ys: number[]): [number, number, number][] => {
+      const list: [number, number, number][] = sd > 0 ? ys.map(y => [y, st, sd]) : [];
+      if (d > 0 && config.bottomPanel) list.push([plan.kick, t, d]);
+      if (d > 0 && config.topPanel) list.push([H - t, t, d]);
       return list;
     };
-    sideYs(plan.bays[0].shelfYs).forEach(([y, w], i) => groove(`Groove left side ${i + 1}`, 'Left side', 1, t - d, t + lift, y, y + w));
-    sideYs(plan.bays[n - 1].shelfYs).forEach(([y, w], i) => groove(`Groove right side ${i + 1}`, 'Right side', -1, W - t - lift, W - t + d, y, y + w));
-    plan.dividerXs.forEach((x, j) => {
-      const on = `Divider ${j + 1}`;
-      plan.bays[j].shelfYs.forEach((y, i) => groove(`Groove divider ${j + 1} left ${i + 1}`, on, -1, x - lift, x + d, y, y + st));
-      plan.bays[j + 1].shelfYs.forEach((y, i) => groove(`Groove divider ${j + 1} right ${i + 1}`, on, 1, x + t - d, x + t + lift, y, y + st));
-    });
+    sideYs(plan.bays[0].shelfYs).forEach(([y, w, dd], i) => groove(`Groove left side ${i + 1}`, 'Left side', 1, t - dd, t + lift, y, y + w));
+    sideYs(plan.bays[n - 1].shelfYs).forEach(([y, w, dd], i) => groove(`Groove right side ${i + 1}`, 'Right side', -1, W - t - lift, W - t + dd, y, y + w));
+    if (sd > 0) {
+      plan.dividerXs.forEach((x, j) => {
+        const on = `Divider ${j + 1}`;
+        plan.bays[j].shelfYs.forEach((y, i) => groove(`Groove divider ${j + 1} left ${i + 1}`, on, -1, x - lift, x + sd, y, y + st));
+        plan.bays[j + 1].shelfYs.forEach((y, i) => groove(`Groove divider ${j + 1} right ${i + 1}`, on, 1, x + t - sd, x + t + lift, y, y + st));
+      });
+    }
   }
   const r = plan.backRabbet;
   if (r > 0) {
@@ -298,7 +301,11 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
   const grooves = names(s => s.kind === 'groove');
   const everything = names(s => !isGroove(s) && s.kind !== 'wall-cleat');
 
-  const dado = plan.dadoDepth > 0;
+  // The case (top, bottom, dividers) and the fixed shelves can each be dadoed or butt-jointed.
+  const caseDado = plan.dadoDepth > 0;
+  const shelfDado = plan.shelfDadoDepth > 0;
+  const dado = caseDado || shelfDado;
+  const dadoDepth = Math.max(plan.dadoDepth, plan.shelfDadoDepth);
   const cleat = plan.cleatGap > 0;
   const wall = config.mounting === 'wall';
   const n = plan.bays.length;
@@ -323,9 +330,11 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
   const screw = screwFor(t, units);
   const st = plan.shelfThickness;
   const shelfStock = Math.abs(st - t) > 1e-6;
-  const dadoWidths = shelfStock && (config.topPanel || config.bottomPanel)
+  const casePanels = caseDado && (config.topPanel || config.bottomPanel);
+  const dadoWidths = shelfDado && casePanels && shelfStock
     ? `${f(st)} wide for the shelves and ${f(t)} for the top and bottom`
-    : `${f(shelfStock ? st : t)} wide`;
+    : shelfDado ? `${f(st)} wide` : `${f(t)} wide`;
+  const dadoedParts = [shelfDado ? 'shelf' : null, casePanels ? 'top and bottom' : null].filter(Boolean).join(', ');
   const plural = (count: number) => `${count} full sheet${count === 1 ? '' : 's'}`;
   const steps: GuideStep[] = [];
 
@@ -390,7 +399,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       'Rip sheets to width first, then crosscut to length.',
       'Cut identical parts (sides, shelves, dividers) with one fence setting so they match exactly.',
       'Label each piece in pencil with its name and which face goes inside.',
-      dado ? `Shelf, top and bottom lengths already include ${f(plan.dadoDepth)} at each end for the dados — don’t subtract it again.` : 'All lengths are finished sizes for butt joints.',
+      dado && dadoedParts ? `${dadoedParts.charAt(0).toUpperCase()}${dadoedParts.slice(1)} lengths already include ${f(dadoDepth)} at each end for the dados — don’t subtract it again.${shelfDado && caseDado ? '' : shelfDado ? ' The top and bottom are butt-jointed, at finished size.' : ' The shelves are butt-jointed, at finished size.'}` : 'All lengths are finished sizes for butt joints.',
     ],
     parts: plan.parts.map(p => ({ name: p.name, qty: p.qty, size: `${f(p.length)} × ${f(p.width)}` })),
     tips: ['Put the best-looking face of each panel on the side that will show.'],
@@ -413,14 +422,15 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       id: 'dados',
       title: dado && rabbet ? `Cut the dados and back ${rabbetName}s` : dado ? 'Lay out and cut the dados' : `Cut the back ${rabbetName}s`,
       summary: dado
-        ? `Dados ${dadoWidths}, ${f(plan.dadoDepth)} deep, measured to the bottom edge of each groove.${rabbet ? ` Plus a ${rabbetName} for the back in each side.` : ''}`
+        ? `Dados ${dadoWidths}, ${f(dadoDepth)} deep, measured to the bottom edge of each groove.${rabbet ? ` Plus a ${rabbetName} for the back in each side.` : ''}`
         : `A ${rabbetName} in each side holds the back.`,
       instructions: [
-        ...(dado ? markLines : []),
-        ...(dado ? panelLines : []),
+        ...(shelfDado ? markLines : []),
+        ...(caseDado && !shelfDado ? [`Sides: ${[config.bottomPanel ? `the bottom dado ${f(plan.kick)}` : '', config.topPanel ? `the top dado ${f(plan.overallHeight - t)}` : ''].filter(Boolean).join(' and ')} up from the bottom end, to the groove’s bottom edge.`] : []),
+        ...(caseDado ? panelLines : []),
         ...(rabbet ? [rabbetLine] : []),
         dado ? 'Clamp mirror-image parts together and mark across both at once so shelves come out level.' : null,
-        dado ? 'Cut a test dado in scrap: the shelf should slide in with hand pressure, no hammering.' : null,
+        dado ? `Cut a test dado in scrap: the ${shelfDado ? 'shelf' : 'panel'} should slide in with hand pressure, no hammering.` : null,
       ].filter((x): x is string => x !== null),
       parts: [],
       tips: ['A stop block on the router guide or saw fence makes repeated spacings exact.'],
@@ -503,7 +513,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     title: 'Assemble the outer case',
     summary: `Join the two sides${config.topPanel || config.bottomPanel ? ' to the top and bottom' : ''}.`,
     instructions: [
-      dado ? 'Glue the top and bottom dados, set the panels in, and clamp across the sides.' : `Glue the joints and drive three ${screw} screws through each side into the top and bottom (pre-drill and countersink).`,
+      caseDado ? 'Glue the top and bottom dados, set the panels in, and clamp across the sides.' : `Glue the joints and drive three ${screw} screws through each side into the top and bottom (pre-drill and countersink).`,
       plan.kick > 0 ? `Fit the toe kick under the bottom, between the sides, ${f(plan.kick)} tall.` : null,
       config.topPanel && config.bottomPanel
         ? `Check the clear height between the bottom and the top is ${f(bayHeight)} at both sides — that is the bay height every divider has to fit.`
@@ -523,7 +533,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       title: `Install the ${n - 1} divider${n - 1 === 1 ? '' : 's'}`,
       summary: sameWidth ? `Each bay is ${f(widths[0])} clear.` : `Bays are ${widths.map(f).join(', ')} clear, left to right.`,
       instructions: [
-        dado && (config.topPanel || config.bottomPanel)
+        caseDado && (config.topPanel || config.bottomPanel)
           ? 'Glue and slide each divider into its top and bottom dados.'
           : `Set each divider and screw through the top and bottom into its edge with ${screw} screws.`,
         sameWidth
@@ -556,9 +566,9 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       ].filter(Boolean).join(' and ') + ` across ${n} bay${n === 1 ? '' : 's'}.`,
       instructions: [
         ...bayLines,
-        shelves.length === 0 ? null : dado ? 'Glue the dados and slide each shelf in from the front, flush with the front edge.'
+        shelves.length === 0 ? null : shelfDado ? 'Glue the dados and slide each shelf in from the front, flush with the front edge.'
           : `Mark each shelf line on both faces, then glue and screw through the side or divider with ${screw} screws.`,
-        shelves.length && !dado && n > 1 ? 'Where shelves meet a divider at the same height on both sides, offset the screws or use pocket screws from underneath.' : null,
+        shelves.length && !shelfDado && n > 1 ? 'Where shelves meet a divider at the same height on both sides, offset the screws or use pocket screws from underneath.' : null,
         adjustable.length ? `Set each adjustable shelf on four ${metricPins ? '5 mm' : '1/4″'} shelf pins — they lift out, so put them in last.` : null,
       ].filter((x): x is string => x !== null),
       parts: plan.parts.filter(p => p.name.startsWith('Shelf') || p.name.startsWith('Adjustable shelf'))

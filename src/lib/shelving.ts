@@ -44,7 +44,10 @@ export interface ShelfConfig {
   topPanel: boolean;
   bottomPanel: boolean;
   backPanel: boolean;
+  /** The case: top and bottom into the sides, dividers into the top and bottom. */
   joinery: Joinery;
+  /** Fixed shelves into the sides and dividers; left out, the same as the case. */
+  shelfJoinery?: Joinery;
   dadoDepth: number;
   mounting: Mounting;
   toeKick: number;
@@ -151,7 +154,10 @@ export interface ShelfPlan {
   interiorBottom: number;
   interiorTop: number;
   kick: number;
+  /** The case's dados (top, bottom, dividers); 0 for butt joints. */
   dadoDepth: number;
+  /** The fixed shelves' dados; 0 when they're butt-jointed and screwed. */
+  shelfDadoDepth: number;
   dividerXs: number[];
   bays: BayLayout[];
   parts: ShelfPart[];
@@ -254,11 +260,14 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   const hasBack = config.backPanel || cleat;
   const dado = config.joinery === 'dado';
   const d = dado ? config.dadoDepth : 0;
+  const shelfDado = (config.shelfJoinery ?? config.joinery) === 'dado';
+  const sd = shelfDado ? config.dadoDepth : 0;
+  const anyDado = dado || shelfDado;
   const kick = config.mounting === 'floor' && config.bottomPanel ? Math.max(0, config.toeKick) : 0;
   const rabbet = hasBack && config.backJoint === 'rabbet' ? t / 2 : 0;
 
-  if (dado && d >= t) errors.push('Dado depth must be less than the plywood thickness.');
-  else if (dado && d > t / 2 + EPS) warnings.push(`A ${fmt(d)} dado is more than half of ${fmt(t)} plywood; 1/3 of the thickness is typical.`);
+  if (anyDado && config.dadoDepth >= t) errors.push('Dado depth must be less than the plywood thickness.');
+  else if (anyDado && config.dadoDepth > t / 2 + EPS) warnings.push(`A ${fmt(config.dadoDepth)} dado is more than half of ${fmt(t)} plywood; 1/3 of the thickness is typical.`);
   widths.forEach((w, i) => { if (!(w > 0)) errors.push(`Bay ${i + 1} needs a width.`); });
   if (rabbet > 0 && bt > t + EPS) warnings.push(`A ${fmt(bt)} back is thicker than the ${fmt(t)} sides it's rabbeted into; inset it instead, or use thinner stock.`);
 
@@ -349,10 +358,10 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     parts.push({
       name: fixedGroups.length === 1 ? 'Shelf' : `Shelf (${bayLabel(g.bays)})`,
       qty: g.values.reduce((a, c) => a + c, 0),
-      length: g.key + 2 * d,
+      length: g.key + 2 * sd,
       width: D,
       thickness: st,
-      note: housed.trim() || undefined,
+      note: shelfDado ? 'Housed in dados.' : 'Butt-jointed: glued and screwed through the sides and dividers.',
     });
   }
   const adjustableGroups = groupBySize(bays.filter(b => adjustableCounts[b.index] > 0).map(b => ({ bay: b.index, key: b.width, value: adjustableCounts[b.index] })));
@@ -493,8 +502,8 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   }
 
   // ── Opposing dados in dividers ──────────────────────────────────────────────
-  if (dado) {
-    const web = t - 2 * d;
+  if (shelfDado) {
+    const web = t - 2 * sd;
     for (let i = 0; i < n - 1; i++) {
       const left = bays[i].shelfYs;
       const right = bays[i + 1].shelfYs;
@@ -568,6 +577,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     interiorTop,
     kick,
     dadoDepth: d,
+    shelfDadoDepth: sd,
     dividerXs,
     bays,
     parts,
@@ -912,6 +922,7 @@ export function readSavedShelfDesign(raw: unknown): SavedShelfDesign | null {
       bottomPanel: c.bottomPanel !== false,
       backPanel: c.backPanel !== false,
       joinery: c.joinery === 'butt' ? 'butt' : 'dado',
+      ...(c.shelfJoinery === 'butt' || c.shelfJoinery === 'dado' ? { shelfJoinery: c.shelfJoinery } : {}),
       dadoDepth: num('dadoDepth', 0, 3) ?? 0,
       mounting: c.mounting === 'wall' ? 'wall' : 'floor',
       toeKick: num('toeKick', 0, 24) ?? 0,
@@ -970,6 +981,8 @@ export interface ShelfDesignFields {
   bottomPanel: boolean;
   backPanel: boolean;
   joinery: Joinery;
+  /** '' (or left out): the same as the case. */
+  shelfJoinery?: '' | Joinery;
   dadoDepth: string;
   mounting: Mounting;
   toeKick: string;
@@ -1012,6 +1025,7 @@ export function shelfDesignToFields(saved: SavedShelfDesign): ShelfDesignFields 
     bottomPanel: config.bottomPanel,
     backPanel: config.backPanel,
     joinery: config.joinery,
+    shelfJoinery: config.shelfJoinery && config.shelfJoinery !== config.joinery ? config.shelfJoinery : '',
     dadoDepth: config.dadoDepth > 0 ? field(config.dadoDepth) : (units === 'mm' ? '6' : '1/4'),
     mounting: config.mounting,
     toeKick: config.toeKick > 0 ? field(config.toeKick) : '0',

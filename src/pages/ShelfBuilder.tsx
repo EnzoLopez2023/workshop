@@ -68,6 +68,7 @@ const DEFAULT_FORM: FormState = {
   bottomPanel: true,
   backPanel: true,
   joinery: 'dado',
+  shelfJoinery: '',
   dadoDepth: '1/4',
   mounting: 'floor',
   toeKick: '3',
@@ -176,6 +177,12 @@ function convertForm(form: FormState, units: LengthUnit): FormState {
   return next;
 }
 
+const SHELF_JOINERY_OPTIONS = [
+  { value: 'same', label: 'Same as case' },
+  { value: 'dado', label: 'Dadoed' },
+  { value: 'butt', label: 'Screwed' },
+] as const;
+
 const JOINERY_OPTIONS = [
   { value: 'dado', label: 'Dadoed' },
   { value: 'butt', label: 'Butt joint' },
@@ -254,7 +261,8 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
   const backThickness = form.backThickness.trim() && (form.backPanel || (form.mounting === 'wall' && form.frenchCleat)) ? num('backThickness') : undefined;
   const bayWidth = num('bayWidth');
   const shelfDepth = num('shelfDepth');
-  const dadoDepth = form.joinery === 'dado' ? num('dadoDepth') : 0;
+  const shelfJoinery = form.shelfJoinery || undefined;
+  const dadoDepth = form.joinery === 'dado' || shelfJoinery === 'dado' ? num('dadoDepth') : 0;
   const toeKick = form.mounting === 'floor' && form.bottomPanel ? num('toeKick', { allowZero: true }) : 0;
   // In opening mode the overall height is built up from the openings, shelves, panels and toe kick.
   const height = form.heightMode === 'opening'
@@ -279,6 +287,7 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
       bottomPanel: form.bottomPanel,
       backPanel: form.backPanel,
       joinery: form.joinery,
+      ...(shelfJoinery && shelfJoinery !== form.joinery ? { shelfJoinery } : {}),
       dadoDepth,
       mounting: form.mounting,
       toeKick,
@@ -942,14 +951,28 @@ export default function ShelfBuilder() {
 
           <fieldset className="shelf-group" data-tour="fs-joinery">
             <legend>Joinery</legend>
-            <SegmentedControl label="Shelf joinery" value={form.joinery} options={JOINERY_OPTIONS} onChange={joinery => update({ joinery })} />
-            {form.joinery === 'dado' && (
+            <div className="shelf-height-mode">
+              <span className="form-field-label">Case</span>
+              <SegmentedControl label="Case joinery" value={form.joinery} options={JOINERY_OPTIONS} onChange={joinery => update({ joinery })} />
+              <small>The top and bottom into the sides, and the dividers into the top and bottom.</small>
+            </div>
+            <div className="shelf-height-mode">
+              <span className="form-field-label">Fixed shelves</span>
+              <SegmentedControl label="Shelf joinery" value={form.shelfJoinery || 'same'} options={SHELF_JOINERY_OPTIONS}
+                onChange={v => update({ shelfJoinery: v === 'same' ? '' : v })} />
+              <small>
+                {(form.shelfJoinery || form.joinery) === 'dado'
+                  ? 'Each shelf sits in a dado in the sides and dividers — stronger, and it sets the shelf height for you.'
+                  : 'Each shelf is glued and screwed through the sides and dividers — quicker, no dados to cut.'}
+              </small>
+            </div>
+            {(form.joinery === 'dado' || form.shelfJoinery === 'dado') && (
               <LengthField
                 unit={units}
                 label="Dado depth"
                 value={form.dadoDepth}
                 error={fieldErrors.dadoDepth}
-                hint="Shelves, top, and bottom grow by twice this depth. About 1/3 of the thickness is typical."
+                hint={`${[(form.shelfJoinery || form.joinery) === 'dado' ? 'Shelves' : '', form.joinery === 'dado' ? 'the top and bottom' : ''].filter(Boolean).join(', ')} grow by twice this depth. About 1/3 of the thickness is typical.`.replace(/^t/, 'T')}
                 onChange={dadoDepth => update({ dadoDepth })}
               />
             )}
@@ -1156,7 +1179,9 @@ export default function ShelfBuilder() {
                 <h2 id="shelf-cutlist-title">Cut list</h2>
                 <p>
                   {plywoodSummary(plan, config!, fmt)}
-                  {plan.dadoDepth > 0 ? ` · ${fmt(plan.dadoDepth)} dados included in lengths` : ' · butt joints'}
+                  {plan.dadoDepth > 0 && plan.shelfDadoDepth > 0 ? ` · ${fmt(plan.dadoDepth)} dados included in lengths`
+                    : plan.shelfDadoDepth > 0 ? ` · shelves in ${fmt(plan.shelfDadoDepth)} dados, butt-jointed case`
+                      : plan.dadoDepth > 0 ? ` · ${fmt(plan.dadoDepth)} dados for the case, screwed shelves` : ' · butt joints'}
                   {plan.cleatGap > 0 ? ` · back inset ${fmt(plan.cleatGap)} for the cleat` : ''}
                 </p>
               </div>
@@ -1263,9 +1288,9 @@ export default function ShelfBuilder() {
           <section className="shelf-section" aria-labelledby="shelf-marks-title">
             <header className="shelf-section-head">
               <div>
-                <h2 id="shelf-marks-title">{plan.dadoDepth > 0 ? 'Dado layout' : 'Shelf positions'}</h2>
+                <h2 id="shelf-marks-title">{plan.shelfDadoDepth > 0 ? 'Dado layout' : 'Shelf positions'}</h2>
                 <p>
-                  Distances to the bottom edge of each {plan.dadoDepth > 0
+                  Distances to the bottom edge of each {plan.shelfDadoDepth > 0
                     ? (Math.abs(plan.shelfThickness - config!.thickness) > 1e-6
                       ? `dado (${fmt(plan.shelfThickness)} wide for shelves, ${fmt(config!.thickness)} for the top and bottom)`
                       : `${fmt(config!.thickness)}-wide dado`)

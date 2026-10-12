@@ -112,6 +112,7 @@ export function hardwareList(plan: ShelfPlan, config: ShelfConfig, units: Length
   const t = config.thickness;
   const n = plan.bays.length;
   const dado = plan.dadoDepth > 0;
+  const shelfDado = plan.shelfDadoDepth > 0;
   const fixedShelves = plan.bays.reduce((sum, b) => sum + b.shelfYs.length, 0);
   const adjustable = plan.bays.reduce((sum, b) => sum + b.adjustableYs.length, 0);
   const panels = (config.topPanel ? 1 : 0) + (config.bottomPanel ? 1 : 0);
@@ -124,7 +125,7 @@ export function hardwareList(plan: ShelfPlan, config: ShelfConfig, units: Length
   const perEnd = dado ? 2 : 3;
   let caseScrews = panels * 2 * perEnd; // top/bottom into each side
   caseScrews += (n - 1) * panels * perEnd; // through top/bottom into each divider
-  if (!dado) caseScrews += fixedShelves * 2 * 3; // shelves have no dado to carry them
+  if (!shelfDado) caseScrews += fixedShelves * 2 * 3; // shelves have no dado to carry them
   if (plan.kick > 0) caseScrews += 4;
   const cabinetCleat = plan.cleatGap > 0;
   if (cabinetCleat) caseScrews += Math.ceil(plan.innerSpan / 6) * 2; // cabinet cleat + bottom spacer through the back
@@ -138,7 +139,7 @@ export function hardwareList(plan: ShelfPlan, config: ShelfConfig, units: Length
     qty: boxes(caseScrews, 100),
     unit: 'box of 100',
     uses: caseScrews,
-    note: `${dado ? 'Dadoed joints are glued; screws pull them tight at the case corners.' : 'Pre-drill and countersink every one.'}${plan.backScrewed ? ' Includes the screws for the back.' : ''}`,
+    note: `${dado && shelfDado ? 'Dadoed joints are glued; screws pull them tight at the case corners.' : dado ? 'The case is dadoed; the shelves are screwed through the sides — pre-drill and countersink.' : shelfDado ? 'The shelves are dadoed; the case corners are screwed — pre-drill and countersink.' : 'Pre-drill and countersink every one.'}${plan.backScrewed ? ' Includes the screws for the back.' : ''}`,
     priceKey: 'caseScrews',
   });
 

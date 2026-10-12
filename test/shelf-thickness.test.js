@@ -137,3 +137,39 @@ test('a back as thick as the case is glued and screwed; a thinner one is bradded
   assert.ok(thinHw.some(h => h.key === 'brads'));
   assert.ok(hw.find(h => h.key === 'case-screws').uses > thinHw.find(h => h.key === 'case-screws').uses);
 });
+
+test('the shelves can be joined differently from the case', () => {
+  // Case dadoed, shelves screwed.
+  const screwed = { ...base, shelfJoinery: 'butt' };
+  const a = buildShelfPlan(screwed);
+  assert.equal(a.dadoDepth, 0.25);
+  assert.equal(a.shelfDadoDepth, 0);
+  assert.equal(part(a, 'Shelf').length, 30, 'shelf at the bay width, no dado allowance');
+  assert.equal(part(a, 'Top').length, buildShelfPlan(base).parts.find(p => p.name === 'Top').length, 'top keeps its dado allowance');
+  assert.match(part(a, 'Shelf').note, /screwed through the sides/);
+  const left = partFaces(a, screwed).find(f => f.piece === 'Left side');
+  assert.ok(!left.features.some(f => f.label.startsWith('Shelf dado')));
+  assert.ok(left.features.some(f => f.label === 'Top dado'));
+  assert.ok(!partFaces(a, screwed).filter(f => f.piece.startsWith('Divider')).some(f => f.features.some(x => x.label.startsWith('Shelf dado'))));
+  const hw = hardwareList(a, screwed, 'in').find(h => h.key === 'case-screws');
+  assert.ok(hw.uses > hardwareList(buildShelfPlan(base), base, 'in').find(h => h.key === 'case-screws').uses);
+  const steps = buildGuideSteps(a, screwed, 'in').steps;
+  assert.ok(steps.find(s => s.id === 'shelves').instructions.some(t => /screw through the side or divider/.test(t)));
+  assert.ok(steps.find(s => s.id === 'case').instructions.some(t => /top and bottom dados/.test(t)));
+  // Case butt-jointed, shelves dadoed.
+  const housed = { ...base, joinery: 'butt', shelfJoinery: 'dado' };
+  const b = buildShelfPlan(housed);
+  assert.equal(b.dadoDepth, 0);
+  assert.equal(b.shelfDadoDepth, 0.25);
+  assert.equal(part(b, 'Shelf').length, 30.5);
+  const bLeft = partFaces(b, housed).find(f => f.piece === 'Left side');
+  assert.ok(bLeft.features.some(f => f.label.startsWith('Shelf dado')));
+  assert.ok(!bLeft.features.some(f => f.label === 'Top dado'));
+  const grooves = dadoGrooves(b, housed).filter(g => g.on === 'Left side' && g.name.startsWith('Groove'));
+  assert.equal(grooves.length, 3);
+  // Saved and reopened; the same as the case reads back blank.
+  const saved = readSavedShelfDesign(JSON.parse(JSON.stringify(toSavedShelfDesign(housed, 'in'))));
+  assert.equal(saved.config.shelfJoinery, 'dado');
+  assert.equal(shelfDesignToFields(saved).shelfJoinery, 'dado');
+  assert.equal(shelfDesignToFields(readSavedShelfDesign(JSON.parse(JSON.stringify(toSavedShelfDesign(base, 'in'))))).shelfJoinery, '');
+});
