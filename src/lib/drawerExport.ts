@@ -923,7 +923,7 @@ function doorLines(plan: DrawerPlan, column: number, edge: 'left' | 'right', fro
     // Fixed shelves: a dado (case-plywood wide) or a pencil line for the screws, at each shelf's bottom face.
     door.shelfYs.forEach((y, k) => {
       if (door.shelfJoint === 'dado') {
-        out.push({ kind: 'pocket', label: `${d.label} shelf dado ${k + 1}`, u: u(y), v: plan.frontInset, length: T, width: plan.interiorDepth - plan.frontInset, depth: doorShelfDadoDepth(T) });
+        out.push({ kind: 'pocket', label: `${d.label} shelf dado ${k + 1}`, u: u(y), v: plan.frontInset, length: door.shelfThickness, width: plan.interiorDepth - plan.frontInset, depth: doorShelfDadoDepth(T) });
       } else if (door.shelfJoint === 'butt') {
         out.push({ kind: 'guide', label: `${d.label} shelf ${k + 1} (screw line)`, points: [[u(y), plan.frontInset], [u(y), plan.interiorDepth]] });
       }

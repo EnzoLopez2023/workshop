@@ -264,7 +264,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     steps.push({
       id: 'door-shelf-dados',
       title: 'Cut the shelf dados behind the doors',
-      summary: `${f(T)} wide, ${f(dd)} deep, for the fixed shelves behind ${dadoDoors.length === 1 ? 'the door' : `${dadoDoors.length} doors`}.`,
+      summary: `${f(dadoDoors[0].door!.shelfThickness)} wide, ${f(dd)} deep, for the fixed shelves behind ${dadoDoors.length === 1 ? 'the door' : `${dadoDoors.length} doors`}.`,
       instructions: [
         ...dadoDoors.map(d => `${d.label}: on both sides of its opening, the dados’ bottom edges ${shelfMarks(d)} up from the side’s bottom edge${plan.partitionXs.length ? ` (${f(panelTop(plan, T))} less on a partition)` : ''}, from ${f(plan.frontInset)} behind the front edge to the back.`),
         'Clamp mirror-image panels together and mark across both so the shelves come out level; cut a test dado in scrap first.',

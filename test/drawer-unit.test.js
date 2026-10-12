@@ -246,3 +246,29 @@ test('shelves behind a door can be loose on pins, dadoed, or screwed', async () 
     assert.equal(screws(butt) - screws(pins), 2 * 6);
   }
 });
+
+test('door shelves take their own plywood thickness', async () => {
+  const { drawerPartFaces } = await import('../src/lib/drawerExport.ts');
+  const { sheetPriceKey } = await import('../src/lib/drawerEstimate.ts');
+  const config = { ...base, width: 24, drawers: 2, frontHeights: [6, 20], doors: [null, { hinge: 'auto', inside: 'shelves', count: 1 }], doorShelfJoinery: 'dado', doorShelfThickness: 1 };
+  const plan = buildDrawerPlan(config);
+  assert.deepEqual(plan.errors, []);
+  assert.equal(plan.parts.find(p => p.name === 'Door shelf').thickness, 1);
+  assert.equal(plan.parts.find(p => p.name === 'Side').thickness, 0.75);
+  const shelf = drawerSolids(plan, config).find(s => / shelf 1$/.test(s.name) && s.kind === 'shelf');
+  assert.equal(shelf.max[1] - shelf.min[1], 1);
+  // Centred in the space behind the door either way.
+  const door = plan.drawers[1].door;
+  assert.ok(Math.abs(door.shelfYs[0] + 0.5 - (door.zoneBottom + door.zoneTop) / 2) <= 1 / 16);
+  const dado = drawerPartFaces(plan, config).find(f => f.piece === 'Left side').features.find(f => / shelf dado /.test(f.label));
+  assert.equal(dado.length, 1, 'dado as wide as the shelf');
+  assert.equal(dado.depth, 0.25, 'depth still a third of the side');
+  assert.equal(sheetPriceKey(1, config), 'sheetThick');
+  // Saved and reopened; blank follows the case.
+  const saved = readSavedDrawerDesign(JSON.parse(JSON.stringify(toSavedDrawerDesign(config, 'in'))));
+  assert.equal(saved.config.doorShelfThickness, 1);
+  assert.equal(drawerDesignToFields(saved).doorShelfThickness, '1');
+  const plain = readSavedDrawerDesign(JSON.parse(JSON.stringify(toSavedDrawerDesign({ ...config, doorShelfThickness: undefined }, 'in'))));
+  assert.equal(drawerDesignToFields(plain).doorShelfThickness, '');
+  assert.equal(buildDrawerPlan(plain.config).parts.find(p => p.name === 'Door shelf').thickness, 0.75);
+});

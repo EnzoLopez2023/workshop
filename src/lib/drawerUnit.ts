@@ -233,6 +233,8 @@ export interface DrawerConfig {
   insertThickness?: number;
   /** Shelves behind doors fixed in dados or glued and screwed; left out, they're loose on shelf pins. */
   doorShelfJoinery?: 'dado' | 'butt';
+  /** Plywood for the shelves behind doors; left out, the case plywood. */
+  doorShelfThickness?: number;
   /** Printer bed (mm) that Gridfinity baseplate tiles must fit. */
   gridfinityBed?: number;
   /**
@@ -404,6 +406,8 @@ export interface DoorPlan {
   shelfYs: number[];
   /** How the shelves are held: loose on pins, or fixed in dados or with screws. */
   shelfJoint: 'pins' | 'dado' | 'butt';
+  /** The shelves' plywood thickness. */
+  shelfThickness: number;
   /** Shelf-pin hole centres, from the floor (both sides of the opening). */
   pinYs: number[];
   trays: TrayLayout[];
@@ -784,6 +788,7 @@ function layoutDoor(slot: DoorSlot, c: {
   zoneBottom: number; zoneTop: number;
   name: string; f: (inches: number) => string; errors: string[]; warnings: string[];
   shelfJoint: DoorPlan['shelfJoint'];
+  shelfThickness: number;
   /** A side with no case side to hinge on (a blind corner's open side): 'auto' hinges away from it, never in pairs. */
   avoid?: 'left' | 'right';
 }): DoorPlan {
@@ -809,7 +814,7 @@ function layoutDoor(slot: DoorSlot, c: {
   const zoneH = c.zoneTop - c.zoneBottom;
   const count = Math.max(0, Math.floor(slot.count));
   const shelfYs = slot.inside === 'shelves'
-    ? Array.from({ length: count }, (_, k) => Math.round((c.zoneBottom + zoneH * (k + 1) / (count + 1) - c.T / 2) * 16) / 16)
+    ? Array.from({ length: count }, (_, k) => Math.round((c.zoneBottom + zoneH * (k + 1) / (count + 1) - c.shelfThickness / 2) * 16) / 16)
     : [];
   const pinYs: number[] = [];
   if (shelfYs.length && c.shelfJoint === 'pins') for (let y = c.zoneBottom + 2; y <= c.zoneTop - 2 + EPS; y += PIN_SPACING) pinYs.push(Math.round(y * 32) / 32);
@@ -829,7 +834,7 @@ function layoutDoor(slot: DoorSlot, c: {
       trays.push({ y, height, x: c.opening.x + c.T + SLIDE_CLEARANCE, width, depth: c.slideLength, slideY: y + slideOffset });
     }
   }
-  return { leaves, hinges: hingePositions(front.height), inside: slot.inside, zoneBottom: c.zoneBottom, zoneTop: c.zoneTop, shelfYs, shelfJoint: c.shelfJoint, pinYs, trays };
+  return { leaves, hinges: hingePositions(front.height), inside: slot.inside, zoneBottom: c.zoneBottom, zoneTop: c.zoneTop, shelfYs, shelfJoint: c.shelfJoint, shelfThickness: c.shelfThickness, pinYs, trays };
 }
 
 /** Height under the case. */
@@ -1061,7 +1066,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
         column: ci, columns: k, inset, gap, T, slideLength,
         opening: { x: columns[ci].x, width: openings[ci] },
         zoneBottom: zoneBottom > interiorBottom + EPS ? zoneBottom + T : zoneBottom, zoneTop,
-        name, f, errors, warnings, avoid: ci === blindCol ? blindCfg!.side : undefined, shelfJoint: config.doorShelfJoinery ?? 'pins',
+        name, f, errors, warnings, avoid: ci === blindCol ? blindCfg!.side : undefined, shelfJoint: config.doorShelfJoinery ?? 'pins', shelfThickness: config.doorShelfThickness ?? T,
       }) : null,
     });
     if (open) {
@@ -1320,7 +1325,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const doorJoint = config.doorShelfJoinery ?? 'pins';
   for (const g of doorShelves) {
     const name = doorShelves.length === 1 ? 'Door shelf' : `Door shelf · ${f(g.length)}`;
-    parts.push({ name, qty: g.count, length: g.length, width: depthBehind - (doorJoint === 'pins' ? 1 / 8 : 0) - caseBanding, thickness: T,
+    parts.push({ name, qty: g.count, length: g.length, width: depthBehind - (doorJoint === 'pins' ? 1 / 8 : 0) - caseBanding, thickness: config.doorShelfThickness ?? T,
       note: doorJoint === 'pins' ? `Loose, on shelf pins; ${f(1 / 16)} short of the opening so it lifts out`
         : doorJoint === 'dado' ? `Fixed: housed in ${f(doorShelfDadoDepth(T))} dados in the sides${partitionXs.length ? ' and partitions' : ''}, glued`
           : `Fixed: glued and screwed through the sides${partitionXs.length ? ' and partitions' : ''}`,
@@ -2151,8 +2156,8 @@ function doorSolids(d: DrawerLayout, door: DoorPlan, plan: DrawerPlan, unitConfi
       .map(x => ({ ...(finished ? { ...x, opaque: true } : x), group: name, swing })));
   });
   door.shelfYs.forEach((y, k) => out.push(door.shelfJoint === 'pins'
-    ? box(`${d.label} shelf ${k + 1}`, 'adjustable', [c.x + 1 / 32, y, zf], [c.x + c.width - 1 / 32, y + T, id - 1 / 8])
-    : box(`${d.label} shelf ${k + 1}`, 'shelf', [c.x, y, zf], [c.x + c.width, y + T, id])));
+    ? box(`${d.label} shelf ${k + 1}`, 'adjustable', [c.x + 1 / 32, y, zf], [c.x + c.width - 1 / 32, y + door.shelfThickness, id - 1 / 8])
+    : box(`${d.label} shelf ${k + 1}`, 'shelf', [c.x, y, zf], [c.x + c.width, y + door.shelfThickness, id])));
   if (door.trays.length) {
     out.push(box(`${d.label} left spacer`, 'case', [c.x, door.zoneBottom, zf], [c.x + T, door.zoneTop, id]));
     out.push(box(`${d.label} right spacer`, 'case', [c.x + c.width - T, door.zoneBottom, zf], [c.x + c.width, door.zoneTop, id]));
@@ -2695,6 +2700,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
         : undefined,
       insertThickness: num(c.insertThickness, 0.05, 1) ?? 1 / 4,
       ...(c.doorShelfJoinery === 'dado' || c.doorShelfJoinery === 'butt' ? { doorShelfJoinery: c.doorShelfJoinery } : {}),
+      ...(num(c.doorShelfThickness, 0.05, 2) ? { doorShelfThickness: num(c.doorShelfThickness, 0.05, 2)! } : {}),
       gridfinityBed: num(c.gridfinityBed, 100, 1000) ?? 256,
       desk: readDesk(c.desk),
       blind: readBlind(c.blind),
@@ -2940,6 +2946,8 @@ export interface DrawerDesignFields {
   doorCounts: number[];
   /** Shelves behind the doors: loose on pins, or fixed in dados or with screws. */
   doorShelfJoinery?: 'pins' | 'dado' | 'butt';
+  /** '': the case plywood. */
+  doorShelfThickness: string;
   load: DrawerLoad;
   finishFront: string;
   finishCase: string;
@@ -2967,6 +2975,7 @@ export type InsertKind = 'none' | 'grid' | 'markers' | 'gridfinity' | 'tools' | 
 /** Form defaults for the inside-the-drawer and desk fields (inch strings). */
 export const EXTRA_FIELD_DEFAULTS = {
   insertThickness: '1/4',
+  doorShelfThickness: '',
   markerDiameter: '0.63',
   markerLength: '5.91',
   markerSpacing: '1/8',
@@ -3028,6 +3037,7 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     doorInside: Array.from({ length: c.drawers }, (_, i) => c.doors?.[i]?.inside ?? 'shelves'),
     doorCounts: Array.from({ length: c.drawers }, (_, i) => c.doors?.[i]?.count ?? 1),
     doorShelfJoinery: c.doorShelfJoinery ?? 'pins',
+    doorShelfThickness: c.doorShelfThickness ? L(c.doorShelfThickness) : '',
     gridColumns: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'grid' ? x.columns : 2; }),
     gridfinityBins: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'gridfinity' ? x.bins ?? [] : []; }),
     toolPockets: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'tools' ? x.tools : []; }),

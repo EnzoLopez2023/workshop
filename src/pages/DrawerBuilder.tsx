@@ -149,6 +149,7 @@ const DEFAULT_FORM: FormState = {
   toolClearance: '1/32',
   toolFingerHoles: true,
   insertThickness: EXTRA_FIELD_DEFAULTS.insertThickness,
+  doorShelfThickness: '',
   markerDiameter: lengthToField(MARKER_PRESETS[0].diameter, 'in'),
   markerLength: lengthToField(MARKER_PRESETS[0].length, 'in'),
   markerSpacing: EXTRA_FIELD_DEFAULTS.markerSpacing,
@@ -188,7 +189,7 @@ const DEFAULT_FORM: FormState = {
 const LENGTH_FIELDS = [
   'thickness', 'width', 'height', 'depth', 'gap', 'pullWidth', 'pullDepth',
   'boxThickness', 'bottomThickness', 'backThickness', 'footHeight', 'casterHeight',
-  'insertThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
+  'insertThickness', 'doorShelfThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
   'mountHeight', 'cleatHeight', 'toolBoardThickness', 'toolPocketDepth', 'toolClearance',
   'kickHeight', 'kickSetback', 'baseboardHeight', 'baseboardThickness',
   'hardwareSpacing', 'doorHardwareSpacing', 'profileRail', 'profileDepth', 'blindWidth', 'outletHeight',
@@ -242,6 +243,7 @@ const DRAWER_STEPS: BuilderStep[] = [
 /** Which step a form field lives in (for the step bar's "to fix" badges). */
 function stepOfField(key: string): string {
   if (/^(thickness|boxThickness|bottomThickness|backThickness)$/.test(key)) return 'drawer-step-materials';
+  if (key === 'doorShelfThickness') return 'drawer-step-size';
   if (/^(pull|hardware|profile|bandingThickness)/.test(key)) return 'drawer-step-look';
   if (/^(footHeight|casterHeight|kick|baseboard|mountHeight|cleatHeight)/.test(key)) return 'drawer-step-base';
   if (/^(bookcase|run|desk|blind|outlet)/.test(key)) return 'drawer-step-builtins';
@@ -497,6 +499,8 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
         : null))
       : undefined,
     ...(form.doorShelfJoinery === 'dado' || form.doorShelfJoinery === 'butt' ? { doorShelfJoinery: form.doorShelfJoinery } : {}),
+    // Blank: the case plywood.
+    ...(form.doorShelfThickness?.trim() && form.insertKinds.slice(0, form.drawers).includes('door') ? { doorShelfThickness: num('doorShelfThickness') } : {}),
     inserts: form.insertKinds.slice(0, form.drawers).map((kind, i) =>
       kind === 'grid' ? { kind: 'grid', columns: form.gridColumns[i] ?? 2, rows: form.gridRows[i] ?? 2 }
         : kind === 'markers' ? marker
@@ -1498,6 +1502,10 @@ export default function DrawerBuilder() {
                   : form.doorShelfJoinery === 'dado'
                     ? 'Fixed in dados in the sides and partitions — they stiffen the case and set themselves level.'
                     : 'Fixed, glued and screwed through the sides and partitions — no dados or pin holes to cut.'}</small>
+                <LengthField unit={units} label="Door shelf plywood" value={form.doorShelfThickness ?? ''} error={fieldErrors.doorShelfThickness}
+                  placeholder={`Same as the case${config ? ` (${fmt(config.thickness)})` : ''}`}
+                  hint={`Thicker shelves sag less under heavy things${(form.doorShelfJoinery ?? 'pins') === 'dado' ? '; the dados are cut to this width' : ''}. Blank matches the case.`}
+                  onChange={doorShelfThickness => update({ doorShelfThickness })} />
               </div>
             )}
             <span className="shelf-source-actions">
