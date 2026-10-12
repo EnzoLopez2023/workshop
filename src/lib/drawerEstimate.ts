@@ -155,7 +155,11 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   const laminate = desk && config.desk?.topLayers === 2 ? Math.ceil(desk.width / 8) * Math.ceil(desk.depth / 8) : 0;
   // Each partition is screwed through the top and bottom: 4 at each end.
   // A toe-kick base adds 8: the case down onto a plinth, or the kick board and nailer between the sides.
-  const caseScrews = (2 * 2 * 4 + plan.partitionXs.length * 2 * 4 + (plan.base ? 8 : 0)) * unitCount + (desk ? 8 * unitCount + laminate : 0);
+  // A screwed-in back: every 8" into the top, bottom and partitions, and through the sides into its edges.
+  const backScrews = plan.backJoint === 'screwed'
+    ? 2 * Math.ceil(plan.interiorWidth / 8) + 2 * Math.ceil(plan.caseHeight / 8) + plan.partitionXs.length * Math.ceil(plan.caseHeight / 8)
+    : 0;
+  const caseScrews = (2 * 2 * 4 + plan.partitionXs.length * 2 * 4 + (plan.base ? 8 : 0) + backScrews) * unitCount + (desk ? 8 * unitCount + laminate : 0);
   items.push({
     key: 'case-screws',
     name: `Wood screws, ${f(config.thickness < 0.6 ? 1.25 : 1.625)}`,
@@ -178,12 +182,12 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
     priceKey: 'frontScrews',
   });
 
-  // Back every 6" around the case; 3 per box corner.
+  // A rabbeted back every 6" around the case (a screwed-in back takes screws instead); 3 per box corner.
   const perimeter = 2 * (plan.caseHeight + plan.overallWidth);
-  const brads = Math.ceil(perimeter / 6) * unitCount + n * 4 * 3;
+  const brads = (plan.backJoint === 'rabbet' ? Math.ceil(perimeter / 6) * unitCount : 0) + n * 4 * 3;
   items.push({
     key: 'brads', name: `Brad nails, ${f(1.25)}`, qty: boxes(brads, 1000), unit: 'box of 1000', uses: brads,
-    note: 'The case back and the drawer-box corners, with glue.', priceKey: 'brads',
+    note: plan.backJoint === 'rabbet' ? 'The case back and the drawer-box corners, with glue.' : 'The drawer-box corners, with glue.', priceKey: 'brads',
   });
 
   if (plan.mount === 'wall') {

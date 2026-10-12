@@ -111,7 +111,9 @@ test('the finger-pull notch has the asked width and depth, and the box front cle
 test('measurement problems are explained with the numbers to fix them', () => {
   assert.match(buildDrawerPlan({ ...base, width: 6 }).errors.join(' '), /at least 6 1\/2" wide/);
   assert.match(buildDrawerPlan({ ...base, height: 10, drawers: 5 }).errors.join(' '), /slides need at least 2 1\/4"/);
-  assert.match(buildDrawerPlan({ ...base, backThickness: 0.75 }).errors.join(' '), /thinner than the case/);
+  // A back as thick as the case is screwed in between the sides rather than rabbeted: no error.
+  assert.deepEqual(buildDrawerPlan({ ...base, backThickness: base.thickness }).errors, []);
+  assert.ok(buildDrawerPlan({ ...base, backThickness: base.thickness + 0.25 }).warnings.some(w => /thicker than the .* case/.test(w)));
   assert.ok(buildDrawerPlan({ ...base, width: 40 }).warnings.some(w => w.includes('twists and binds')));
   assert.ok(buildDrawerPlan({ ...base, thickness: 0.5, base: 'feet' }).warnings.some(w => w.includes('T-nuts')));
   const metric = buildDrawerPlan({ ...base, units: 'mm', depth: 11 });
@@ -173,4 +175,30 @@ test('saved designs round-trip and bad ones are rejected rather than guessed', (
   assert.equal(fields.frontHeights.length, 4);
   assert.equal(fields.units, 'mm');
   assert.equal(fields.base, 'casters');
+});
+
+test('a back as thick as the case fits between the sides, glued and screwed, with no rabbet', async () => {
+  const { drawerPartFaces } = await import('../src/lib/drawerExport.ts');
+  const { drawerGuideSteps } = await import('../src/lib/drawerGuide.ts');
+  const thin = buildDrawerPlan(base);
+  assert.equal(thin.backJoint, 'rabbet');
+  const config = { ...base, backThickness: base.thickness };
+  const plan = buildDrawerPlan(config);
+  assert.equal(plan.backJoint, 'screwed');
+  const back = plan.parts.find(p => p.name === 'Back');
+  assert.equal(back.thickness, base.thickness);
+  assert.equal(back.width, plan.interiorWidth);
+  assert.match(back.note, /between the sides/);
+  // Same overall depth; the drawers lose only the extra back thickness.
+  assert.equal(plan.overallDepth, thin.overallDepth);
+  assert.equal(plan.interiorDepth, thin.interiorDepth - (base.thickness - base.backThickness));
+  assert.doesNotMatch(plan.parts.find(p => p.name === 'Side').note, /rabbet on the back/);
+  const side = drawerPartFaces(plan, config).find(f => f.piece === 'Left side');
+  assert.ok(!side.features.some(f => /^Back (rabbet|groove)/.test(f.label)));
+  const solids = drawerSolids(plan, config);
+  const b = solids.find(s => s.name === 'Back');
+  assert.deepEqual([b.min[0], b.max[0]], [base.thickness, plan.overallWidth - base.thickness]);
+  const guide = drawerGuideSteps(plan, config, 'in');
+  const steps = guide.steps ?? guide;
+  assert.ok(steps.find(s => s.id === 'back').instructions.some(t => /Screw through the back/.test(t)));
 });

@@ -107,6 +107,12 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       }, face.part, bookcaseSideCut(bk.config)))
     : [];
 
+  // The back's rabbet (a groove with a wall cleat) along each side; a screwed-in back needs none.
+  const backRabbet = (length: number, width: number): Feature[] => (plan.backJoint === 'screwed' ? []
+    : [plan.cleatGap > 0
+      ? { kind: 'pocket', label: 'Back groove', u: 0, v: width - plan.cleatGap - config.backThickness, length, width: config.backThickness, depth: T / 2 }
+      : { kind: 'pocket', label: 'Back rabbet', u: 0, v: width - config.backThickness, length, width: config.backThickness, depth: T / 2 }]);
+
   for (const part of sheetParts(plan.parts)) {
     if (bookFaces.some(face => face.part === part.name) || deskFaces.some(face => face.part === part.name)) continue;
     const base = { part: part.name, length: part.length, width: part.width, thickness: part.thickness, material: 'plywood' as const };
@@ -120,9 +126,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       const sides = ([['Left side', false, 0], ['Right side', true, lastColumn]] as const).filter(([piece]) => !plan.blind || piece !== (plan.blind.side === 'right' ? 'Right side' : 'Left side'));
       for (const [piece, rightHanded, column] of sides) {
         const features: Feature[] = [
-          plan.cleatGap > 0
-            ? { kind: 'pocket', label: 'Back groove', u: 0, v: part.width - plan.cleatGap - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 }
-            : { kind: 'pocket', label: 'Back rabbet', u: 0, v: part.width - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 },
+          ...backRabbet(part.length, part.width),
           ...slideLines(plan, column, 0),
           ...doorLines(plan, column, rightHanded ? 'right' : 'left', 0, false),
         ];
@@ -148,8 +152,10 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       const o = plan.outlet;
       const u0 = o.y0 - plan.baseHeight;
       const u1 = o.y1 - plan.baseHeight;
-      const v0 = o.x0 - config.thickness / 2;
-      const v1 = o.x1 - config.thickness / 2;
+      // (A screwed-in back fits between the sides, so it starts a whole side thickness in.)
+      const edge = plan.backJoint === 'screwed' ? config.thickness : config.thickness / 2;
+      const v0 = o.x0 - edge;
+      const v1 = o.x1 - edge;
       faces.push({
         ...base, id: 'back', piece: 'Back', face: 'face up', rightHanded: true,
         features: [{ kind: 'cutout', label: 'Outlet cutout', points: [[u0, v0], [u1, v0], [u1, v1], [u0, v1]] }],
@@ -164,9 +170,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       faces.push({
         ...base, id: 'end-side-inside', piece: 'End side', face: 'inside face', rightHanded, outline: plan.partOutlines['End side'],
         features: [
-          plan.cleatGap > 0
-            ? { kind: 'pocket', label: 'Back groove', u: 0, v: part.width - plan.cleatGap - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 }
-            : { kind: 'pocket', label: 'Back rabbet', u: 0, v: part.width - config.backThickness, length: part.length, width: config.backThickness, depth: T / 2 },
+          ...backRabbet(part.length, part.width),
           ...doorLines(plan, plan.blind.column, plan.blind.side, 0, false),
         ],
         orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, inside face up.${plan.partOutlines['End side'] ? ' The toe-kick notch is part of the outline cut.' : ''}`,
@@ -719,8 +723,10 @@ function buildJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) =
     { value: BOTTOM_GROOVE_OFFSET, what: 'groove up from the bottom edge' },
     { value: b / 2, what: 'box rabbet depth' },
     { value: b, what: 'box rabbet width' },
-    { value: T / 2, what: 'back rabbet depth' },
-    { value: config.backThickness, what: 'back rabbet width' },
+    ...(plan.backJoint === 'rabbet' ? [
+      { value: T / 2, what: 'back rabbet depth' },
+      { value: config.backThickness, what: 'back rabbet width' },
+    ] : []),
   ];
   const steps: { value: number; what: string[] }[] = [];
   for (const x of settings) {

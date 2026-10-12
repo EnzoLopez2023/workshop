@@ -469,7 +469,8 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
       : undefined,
     boxThickness: num('boxThickness'),
     bottomThickness: num('bottomThickness'),
-    backThickness: num('backThickness'),
+    // Blank: a back in the case plywood, screwed in between the sides.
+    backThickness: form.backThickness.trim() ? num('backThickness') : num('thickness'),
     base: form.base,
     footHeight: form.base === 'feet' ? num('footHeight', { allowZero: true }) : DEFAULT_FOOT_HEIGHT,
     casterHeight: form.base === 'casters' ? num('casterHeight') : DEFAULT_CASTER_HEIGHT,
@@ -1070,11 +1071,14 @@ export default function DrawerBuilder() {
     }
   };
 
-  const thicknessChips = (field: 'thickness' | 'boxThickness' | 'backThickness', presets: string[]) => (
+  const thicknessChips = (field: 'thickness' | 'boxThickness' | 'backThickness', presets: string[], sameAsCase = false) => (
     <div className="shelf-chips" role="group" aria-label={field === 'backThickness' ? 'Common back thicknesses' : 'Common plywood thicknesses'}>
+      {sameAsCase && (
+        <button type="button" className="shelf-chip" aria-pressed={!form[field].trim()} onClick={() => update({ [field]: '' })}>Same as case</button>
+      )}
       {presets.map(preset => {
         const inches = parseLength(preset, units)!;
-        const current = parseLength(form[field], units);
+        const current = form[field].trim() ? parseLength(form[field], units) : null;
         return (
           <button
             key={preset}
@@ -1976,10 +1980,13 @@ export default function DrawerBuilder() {
               label="Back panel plywood"
               value={form.backThickness}
               error={fieldErrors.backThickness}
-              hint={`The case back, let into a rabbet cut to its thickness, so it must be thinner than the case${config ? ` (${fmt(config.thickness)})` : ''}. 1/4″ is light and cheap; 1/2″ is stiffer and takes screws.`}
+              placeholder={`Same as the case${config ? ` (${fmt(config.thickness)})` : ''}`}
+              hint={plan?.backJoint === 'screwed'
+                ? 'As thick as the case: it fits between the sides behind the top and bottom, glued and screwed — no rabbet to cut. Stiffest, and it takes wall screws anywhere.'
+                : `Thinner than the case, it’s let into a rabbet in each side. 1/4″ is light and cheap; 1/2″ is stiffer. Blank (or the case thickness) screws it in between the sides instead.`}
               onChange={backThickness => update({ backThickness })}
             />
-            {thicknessChips('backThickness', units === 'mm' ? ['6 mm', '9 mm', '12 mm'] : ['1/4"', '3/8"', '1/2"'])}
+            {thicknessChips('backThickness', units === 'mm' ? ['6 mm', '9 mm', '12 mm'] : ['1/4"', '3/8"', '1/2"'], true)}
           </fieldset>
           </div>
 

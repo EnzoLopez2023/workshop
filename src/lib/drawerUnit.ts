@@ -625,6 +625,11 @@ export interface DrawerPlan {
   run: RunPlan | null;
   interiorWidth: number;
   interiorDepth: number;
+  /**
+   * How the case back is fixed: thinner than the case, it's let into a rabbet (or a groove for a
+   * wall cleat) in each side; as thick as the case, it fits between the sides and is glued and screwed.
+   */
+  backJoint: 'rabbet' | 'screwed';
   slideLength: number;
   drawers: DrawerLayout[];
   parts: ShelfPart[];
@@ -894,6 +899,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   // A wall-hung unit's back moves forward by the cleat's thickness; the sides hide the cleat.
   const cleatGap = mount === 'wall' ? T : 0;
   const interiorDepth = caseDepth - cleatGap - backT;
+  // A back as thick as the case can't go in a T/2 rabbet: it fits between the sides instead.
+  const backJoint: DrawerPlan['backJoint'] = backT >= T - EPS ? 'screwed' : 'rabbet';
   const banding = config.edgeBanding ? (config.bandingThickness ?? 0.02) : 0;
 
   // Column openings: given widths first, the rest share what's left; partitions are case stock.
@@ -930,7 +937,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   else if (b > 0 && BOTTOM_GROOVE_DEPTH >= b - 0.125) {
     errors.push(`The ${f(BOTTOM_GROOVE_DEPTH)} bottom groove would leave less than ${f(1 / 8)} of the ${f(b)} box sides. Use box plywood at least ${f(BOTTOM_GROOVE_DEPTH + 1 / 4)} thick.`);
   }
-  if (!(backT > 0) || backT >= T) errors.push(`The back (${f(backT)}) must be thinner than the case plywood (${f(T)}) — it sits in a rabbet in the sides.`);
+  if (!(backT > 0)) errors.push('The back needs a thickness.');
+  else if (backT > T + EPS) warnings.push(`The ${f(backT)} back is thicker than the ${f(T)} case — it fits between the sides, but it’s heavier than it needs to be.`);
   if (k > MAX_COLUMNS) errors.push(`Choose up to ${MAX_COLUMNS} columns.`);
   cols.forEach((c, ci) => {
     if (!Number.isInteger(c.drawers) || c.drawers < 1 || c.drawers > 12) errors.push(`${k > 1 ? `Column ${ci + 1}: c` : 'C'}hoose between 1 and 12 drawers.`);
@@ -1154,9 +1162,11 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const panelLength = interiorWidth;
   const sideLength = sideHeight + B - sideBottom;
   parts.push({ name: 'Side', qty: 2, length: sideLength, width: caseDepth - caseBanding, thickness: T,
-    note: [cleatGap > 0
-      ? `${f(backT)} × ${f(T / 2)} groove for the back, ${f(cleatGap)} in from the back edge (room for the cleat)`
-      : `${f(backT)} × ${f(T / 2)} rabbet on the back inside edge for the back`,
+    note: [backJoint === 'screwed'
+      ? `The back fits between the sides${cleatGap > 0 ? `, ${f(cleatGap)} in from the back edge (room for the cleat)` : ', flush with their back edges'}; no rabbet`
+      : cleatGap > 0
+        ? `${f(backT)} × ${f(T / 2)} groove for the back, ${f(cleatGap)} in from the back edge (room for the cleat)`
+        : `${f(backT)} × ${f(T / 2)} rabbet on the back inside edge for the back`,
     ...(baseKind === 'kick' ? [`${f(basePlan!.setback)} × ${f(B)} toe-kick notch at the front of the bottom end`] : [])].join('; '), material: 'plywood' });
   if (baseKind === 'kick') {
     // u = up from the bottom end, v = back from the front edge.
@@ -1171,7 +1181,9 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
         : baseKind === 'kick' ? `Between the sides, ${f(B)} up; the kick board and nailer go under it`
           : baseKind ? 'Sits on the plinth; screw down through it into the plinth' : undefined,
     material: 'plywood' });
-  parts.push({ name: 'Back', qty: 1, length: sideHeight, width: W - T, thickness: backT, note: `Sits in ${f(T / 2)} rabbets in the sides`, material: 'plywood' });
+  parts.push(backJoint === 'screwed'
+    ? { name: 'Back', qty: 1, length: sideHeight, width: interiorWidth, thickness: backT, note: 'Fits between the sides behind the top and bottom; glued and screwed', material: 'plywood' }
+    : { name: 'Back', qty: 1, length: sideHeight, width: W - T, thickness: backT, note: `Sits in ${f(T / 2)} rabbets in the sides`, material: 'plywood' });
   if (cleatGap > 0) {
     parts.push({ name: 'Cabinet cleat', qty: 1, length: interiorWidth, width: cleatHeight, thickness: T, note: '45° bevel along one edge; screwed to the back and the top', material: 'plywood' });
     parts.push({ name: 'Wall cleat', qty: 1, length: interiorWidth, width: cleatHeight, thickness: T, note: '45° bevel along one edge; screwed into the studs', material: 'plywood' });
@@ -1715,6 +1727,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     run,
     interiorWidth,
     interiorDepth,
+    backJoint,
     slideLength,
     drawers,
     parts,
@@ -1788,7 +1801,7 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     side('Right side', W - T, W),
     box('Top', 'case', [T, H - T, 0], [W - T, H, id]),
     box('Bottom', 'case', [T, B, 0], [W - T, B + T, id]),
-    box('Back', 'back', [T / 2, B, id], [W - T / 2, H, id + config.backThickness]),
+    box('Back', 'back', [plan.backJoint === 'screwed' ? T : T / 2, B, id], [W - (plan.backJoint === 'screwed' ? T : T / 2), H, id + config.backThickness]),
     ...plan.partitionXs.map((x, i) => box(plan.partitionXs.length === 1 ? 'Partition' : `Partition ${i + 1}`, 'case', [x, B + T, 0], [x + T, H - T, id])),
   ];
   for (const d of plan.drawers) {
@@ -2976,7 +2989,8 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     profileDepth: L(c.frontProfile?.depth ?? DEFAULT_PROFILE.depth),
     boxThickness: L(c.boxThickness),
     bottomThickness: L(c.bottomThickness),
-    backThickness: L(c.backThickness),
+    // A back in the case stock reads back as "same as the case".
+    backThickness: Math.abs(c.backThickness - c.thickness) < 1e-6 ? '' : L(c.backThickness),
     base: c.base,
     footHeight: L(c.footHeight),
     casterHeight: L(c.casterHeight),

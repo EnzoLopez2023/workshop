@@ -97,7 +97,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     title: 'What you’re building',
     summary: `A ${f(plan.overallWidth)} wide, ${f(plan.overallHeight)} tall, ${f(plan.overallDepth)} deep unit with ${n} drawer${n === 1 ? '' : 's'}, ${baseText}.`,
     instructions: [
-      `The case is ${f(T)} plywood: full-height sides with the top and bottom fitted between them, and a ${f(config.backThickness)} back let into rabbets in the sides.`,
+      `The case is ${f(T)} plywood: full-height sides with the top and bottom fitted between them, and a ${f(config.backThickness)} back ${plan.backJoint === 'screwed' ? 'fitted between the sides behind them, glued and screwed' : 'let into rabbets in the sides'}.`,
       `Each drawer is a ${f(b)} plywood box riding on a pair of ${f(plan.slideLength)} LONTAN soft-close slides, with a ${f(T)} ${plan.frontInset > 0 ? 'inset front (flush with the case, like the ALEX)' : 'full-overlay front'} screwed on from inside.`,
       !pull ? 'The fronts have no finger pull — add knobs or pulls of your choice.'
         : pull.shape === 'handhole'
@@ -159,9 +159,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   steps.push({
     id: 'joinery',
     title: 'Cut the rabbets and grooves',
-    summary: 'A rabbet for the case back, rabbets for each drawer’s front and back, and a groove for every drawer bottom.',
+    summary: `${plan.backJoint === 'rabbet' ? 'A rabbet for the case back, rabbets' : 'Rabbets'} for each drawer’s front and back, and a groove for every drawer bottom.`,
     instructions: [
-      `Case sides: a ${f(config.backThickness)} wide, ${f(T / 2)} deep rabbet along the back inside edge of each side. Make a left and a right.`,
+      ...(plan.backJoint === 'rabbet' ? [`Case sides: a ${f(config.backThickness)} wide, ${f(T / 2)} deep ${plan.cleatGap > 0 ? `groove, ${f(plan.cleatGap)} in from the back edge,` : 'rabbet'} along the back inside edge of each side. Make a left and a right.`] : []),
       `Box sides: a ${f(b)} wide, ${f(b / 2)} deep rabbet across the inside face at each end, for the box front and back.`,
       `All four box parts: a ${f(bottomGrooveWidth(config.bottomThickness))} groove (just wider than the ${f(config.bottomThickness)} bottom — test with an offcut), ${f(BOTTOM_GROOVE_DEPTH)} deep, ${f(BOTTOM_GROOVE_OFFSET)} up from the bottom edge, on the inside face. It runs the full length, through the rabbets on the sides.`,
       'Mark the inside face of every box part before you cut: the rabbets and the groove all go on that face, and the sides come out as mirror-image pairs.',
@@ -281,8 +281,8 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     summary: 'Glue and screw the top and bottom between the sides, front edges flush.',
     instructions: [
       plan.base?.kind === 'kick'
-        ? `Lay a side inside face up; stand the top on it at the top end and the bottom ${f(plan.baseHeight)} up from the bottom end (just above the notch), both flush at the front and set back from the rabbet.`
-        : 'Lay a side inside face up; stand the top and bottom on it, flush at the front and set back from the rabbet.',
+        ? `Lay a side inside face up; stand the top on it at the top end and the bottom ${f(plan.baseHeight)} up from the bottom end (just above the notch), both flush at the front and set back ${plan.backJoint === 'rabbet' ? 'from the rabbet' : `${f(config.backThickness)} from the back edge for the back`}.`
+        : `Lay a side inside face up; stand the top and bottom on it, flush at the front and set back ${plan.backJoint === 'rabbet' ? 'from the rabbet' : `${f(config.backThickness)} from the back edge for the back`}.`,
       'Glue, then drive four screws through the side into each panel. Repeat with the other side.',
       ...(plan.blind ? [
         `This is a blind corner cabinet: the top, bottom and toe kick run ${f(plan.blind.width)} past the opening on the ${plan.blind.side}, and the end side closes that end — there’s no side between the opening and the blind space.`,
@@ -315,7 +315,12 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     summary: 'The back squares the case, so it goes on before the slides.',
     instructions: [
       'Lay the case face down. Check the diagonals once more.',
-      'Glue the rabbets and the back edges of the top and bottom, drop the back in, and brad it every 6″.',
+      ...(plan.backJoint === 'rabbet'
+        ? ['Glue the rabbets and the back edges of the top and bottom, drop the back in, and brad it every 6″.']
+        : [
+          `Glue the back edges of the top, bottom${plan.partitionXs.length ? ' and partitions' : ''}, and drop the back in between the sides${plan.cleatGap > 0 ? `, ${f(plan.cleatGap)} in from their back edges` : ', flush with their back edges'}.`,
+          `Screw through the back into the top, bottom${plan.partitionXs.length ? ' and partitions' : ''} every 8″, and through each side into the back’s edges every 8″ — pre-drill and countersink, ${f(T / 2)} from the edge.`,
+        ]),
     ],
     parts: sized(partsWhere(['Back'])),
     tips: [],
