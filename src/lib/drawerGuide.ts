@@ -27,7 +27,7 @@ import {
   PIN_INSET,
   PIN_SPACING,
   SLIDE_CLEARANCE,
-  supportPositions,
+  supportPositions, doorShelfDadoDepth,
   type DrawerConfig,
   type DrawerPlan,
 } from './drawerUnit.ts';
@@ -255,6 +255,28 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     });
   }
 
+  // 6a ── Dados for fixed shelves behind doors, while the panels lie flat
+  const fixedDoors = doorSlots.filter(d => d.door!.shelfYs.length && d.door!.shelfJoint !== 'pins');
+  const dadoDoors = fixedDoors.filter(d => d.door!.shelfJoint === 'dado');
+  const shelfMarks = (d: typeof doorSlots[number]) => d.door!.shelfYs.map(y => f(y - plan.sideBottom)).join(', ');
+  if (dadoDoors.length) {
+    const dd = doorShelfDadoDepth(T);
+    steps.push({
+      id: 'door-shelf-dados',
+      title: 'Cut the shelf dados behind the doors',
+      summary: `${f(T)} wide, ${f(dd)} deep, for the fixed shelves behind ${dadoDoors.length === 1 ? 'the door' : `${dadoDoors.length} doors`}.`,
+      instructions: [
+        ...dadoDoors.map(d => `${d.label}: on both sides of its opening, the dados’ bottom edges ${shelfMarks(d)} up from the side’s bottom edge${plan.partitionXs.length ? ` (${f(panelTop(plan, T))} less on a partition)` : ''}, from ${f(plan.frontInset)} behind the front edge to the back.`),
+        'Clamp mirror-image panels together and mark across both so the shelves come out level; cut a test dado in scrap first.',
+      ],
+      parts: sized(partsWhere(['Door shelf'])),
+      tips: ['The CNC files cut every dado; a router with a straightedge and a stop block works by hand.'],
+      cautions: [],
+      scene: { view: 'exploded', visible: [], highlight: ['Left side', 'Right side', ...partitionNames] },
+      minutes: 15 * dadoDoors.length,
+    });
+  }
+
   // 6b ── Shelf-pin holes behind doors, before the case goes together
   const pinned = doorSlots.filter(d => d.door!.pinYs.length);
   if (pinned.length) {
@@ -297,9 +319,12 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       ...(plan.base?.kind === 'kick' ? [
         `Under the bottom, glue and screw the toe kick between the sides ${f(plan.base.setback)} back from the front edge (its face lines up with the back of the notches), and the kick nailer at the back.`,
       ] : []),
+      ...fixedDoors.map(d => (d.door!.shelfJoint === 'dado'
+        ? `${d.label}: glue the shelf${d.door!.shelfYs.length === 1 ? '' : 'ves'} into the dados as the sides go on, front edges flush with the opening.`
+        : `${d.label}: mark the shelf line${d.door!.shelfYs.length === 1 ? '' : 's'} ${shelfMarks(d)} up from the side’s bottom edge on both sides of the opening, then glue and drive three screws through the side${plan.partitionXs.length ? ' or partition' : ''} into each shelf end (pre-drill and countersink).`)),
       'Measure both diagonals across the front; they must match before the glue sets.',
     ],
-    parts: sized(partsWhere(['Side', 'End side', 'Slide panel', 'Top', 'Bottom', 'Partition', 'Toe kick', 'Kick nailer'])),
+    parts: sized(partsWhere(['Side', 'End side', 'Slide panel', 'Top', 'Bottom', 'Partition', 'Toe kick', 'Kick nailer', ...(fixedDoors.length ? ['Door shelf'] : [])])),
     tips: [
       'Clamp a clamping square (shop jigs) inside each corner to hold it at 90° while you screw.',
       ...(plan.partitionXs.length ? ['Stand the partition spacers between the side and each partition so every opening is its exact width.'] : []),
@@ -642,7 +667,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         `Screw the mounting plates to the cabinet at the same heights, their centres ${f(plan.frontInset + HINGE_PLATE_SETBACK)} back from the front edge (the CNC files mark them).`,
         'Press the hinges into the cups, screw them down square to the edge, and clip the doors onto the plates.',
         `Use the hinges’ three adjustment screws to even the gaps to ${f(config.gap)} and bring each door flush${plan.frontInset > 0 ? ' with the case' : ''}.`,
-        ...doorSlots.filter(d => d.door!.shelfYs.length).map(d => `${d.label}: set ${d.door!.shelfYs.length} shelf${d.door!.shelfYs.length === 1 ? '' : 'ves'} on pins where you want them.`),
+        ...doorSlots.filter(d => d.door!.shelfYs.length && d.door!.shelfJoint === 'pins').map(d => `${d.label}: set ${d.door!.shelfYs.length} shelf${d.door!.shelfYs.length === 1 ? '' : 'ves'} on pins where you want them.`),
       ],
       parts: sized(partsWhere(['Door'])),
       tips: ['Hang the doors before the finish goes on, then take them off to paint — the holes are already right.'],

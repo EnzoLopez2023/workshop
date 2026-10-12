@@ -202,3 +202,47 @@ test('a back as thick as the case fits between the sides, glued and screwed, wit
   const steps = guide.steps ?? guide;
   assert.ok(steps.find(s => s.id === 'back').instructions.some(t => /Screw through the back/.test(t)));
 });
+
+test('shelves behind a door can be loose on pins, dadoed, or screwed', async () => {
+  const { drawerPartFaces } = await import('../src/lib/drawerExport.ts');
+  const { drawerGuideSteps } = await import('../src/lib/drawerGuide.ts');
+  const { drawerHardwareList: drawerHardware } = await import('../src/lib/drawerEstimate.ts');
+  const doorCfg = joint => ({ ...base, width: 24, drawers: 2, frontHeights: [6, 20], doors: [null, { hinge: 'auto', inside: 'shelves', count: 2 }], ...(joint ? { doorShelfJoinery: joint } : {}) });
+  const run = joint => {
+    const config = doorCfg(joint);
+    const plan = buildDrawerPlan(config);
+    assert.deepEqual(plan.errors, [], joint);
+    const shelf = plan.parts.find(p => p.name === 'Door shelf');
+    const side = drawerPartFaces(plan, config).find(f => f.piece === 'Left side');
+    const steps = drawerGuideSteps(plan, config, 'in').steps.map(s => s.id);
+    const hw = drawerHardware ? drawerHardware(plan, config, 'in') : [];
+    const solid = drawerSolids(plan, config).find(s => / shelf 1$/.test(s.name) && (s.kind === 'shelf' || s.kind === 'adjustable'));
+    return { plan, shelf, side, steps, hw, solid, opening: plan.columns[0].width };
+  };
+  const pins = run(undefined);
+  assert.equal(pins.shelf.length, pins.opening - 1 / 16);
+  assert.ok(pins.side.features.some(f => /^Shelf pin/.test(f.label)));
+  assert.ok(pins.steps.includes('door-pins'));
+  assert.equal(pins.solid.kind, 'adjustable');
+
+  const dado = run('dado');
+  assert.equal(dado.shelf.length, dado.opening + 2 * 0.25);
+  assert.match(dado.shelf.note, /dados/);
+  assert.ok(!dado.side.features.some(f => /^Shelf pin/.test(f.label)));
+  assert.equal(dado.side.features.filter(f => / shelf dado /.test(f.label)).length, 2);
+  assert.ok(dado.steps.includes('door-shelf-dados') && !dado.steps.includes('door-pins'));
+  assert.equal(dado.solid.kind, 'shelf');
+
+  const butt = run('butt');
+  assert.equal(butt.shelf.length, butt.opening);
+  assert.match(butt.shelf.note, /screwed/);
+  assert.ok(butt.side.features.some(f => /screw line/.test(f.label)));
+  assert.ok(!butt.side.features.some(f => f.kind === 'pocket' && / shelf dado /.test(f.label)));
+
+  if (drawerHardware) {
+    assert.ok(pins.hw.some(h => h.key === 'shelf-pins'));
+    assert.ok(!dado.hw.some(h => h.key === 'shelf-pins'));
+    const screws = r => r.hw.find(h => h.key === 'case-screws').uses;
+    assert.equal(screws(butt) - screws(pins), 2 * 6);
+  }
+});

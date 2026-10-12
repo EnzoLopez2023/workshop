@@ -297,6 +297,12 @@ const VIEW_OPTIONS = [
 ] as const;
 type PreviewMode = '3d' | 'drawing';
 
+const DOOR_SHELF_OPTIONS = [
+  { value: 'pins', label: 'On pins' },
+  { value: 'dado', label: 'Dadoed' },
+  { value: 'butt', label: 'Screwed' },
+] as const;
+
 const THICKNESS_PRESETS: Record<LengthUnit, string[]> = {
   in: ['3/4"', '23/32"', '1/2"', '18 mm'],
   mm: ['18 mm', '15 mm', '12 mm', '3/4"'],
@@ -490,6 +496,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
         ? { hinge: form.doorHinges[i] ?? 'auto', inside: form.doorInside[i] ?? 'shelves', count: form.doorCounts[i] ?? 1 }
         : null))
       : undefined,
+    ...(form.doorShelfJoinery === 'dado' || form.doorShelfJoinery === 'butt' ? { doorShelfJoinery: form.doorShelfJoinery } : {}),
     inserts: form.insertKinds.slice(0, form.drawers).map((kind, i) =>
       kind === 'grid' ? { kind: 'grid', columns: form.gridColumns[i] ?? 2, rows: form.gridRows[i] ?? 2 }
         : kind === 'markers' ? marker
@@ -1465,7 +1472,7 @@ export default function DrawerBuilder() {
                           </select>
                           <select aria-label={`${drawerLabel(i)} inside`} value={form.doorInside[i] ?? 'shelves'} onChange={e => setForm(prev => ({ ...prev, doorInside: prev.doorInside.map((v, k) => (k === i ? e.target.value as FormState['doorInside'][number] : v)) }))}>
                             <option value="empty">Empty inside</option>
-                            <option value="shelves">Adjustable shelves</option>
+                            <option value="shelves">Shelves</option>
                             <option value="trays">Pull-out trays</option>
                           </select>
                           {(form.doorInside[i] ?? 'shelves') !== 'empty' && (
@@ -1481,6 +1488,18 @@ export default function DrawerBuilder() {
               </div>
               <small>A door can go over any opening — under a drawer, kitchen-style, or a whole column. Open cubbies get a fixed shelf for a floor.</small>
             </div>
+            {form.insertKinds.slice(0, form.drawers).some((k, i) => k === 'door' && (form.doorInside[i] ?? 'shelves') === 'shelves') && (
+              <div className="shelf-height-mode">
+                <span className="form-field-label">Shelves behind doors</span>
+                <SegmentedControl label="Shelves behind doors" value={form.doorShelfJoinery ?? 'pins'} options={DOOR_SHELF_OPTIONS}
+                  onChange={doorShelfJoinery => update({ doorShelfJoinery })} />
+                <small>{(form.doorShelfJoinery ?? 'pins') === 'pins'
+                  ? 'Loose on shelf pins, so you can move them; the CNC files drill the holes.'
+                  : form.doorShelfJoinery === 'dado'
+                    ? 'Fixed in dados in the sides and partitions — they stiffen the case and set themselves level.'
+                    : 'Fixed, glued and screwed through the sides and partitions — no dados or pin holes to cut.'}</small>
+              </div>
+            )}
             <span className="shelf-source-actions">
               <Button variant="ghost" onClick={shallowTopDrawer} disabled={!plan || (form.columns > 1 ? form.columnDrawers.some(n => n < 2) : form.drawers < 2)}>
                 Shallow top drawer{form.columns > 1 ? 's' : ''} (pencil tray)

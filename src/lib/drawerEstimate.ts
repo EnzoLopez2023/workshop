@@ -134,7 +134,7 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
       priceKey: 'doorPull', url: amazonSearch(hw.kind === 'knob' ? 'cabinet knobs' : hw.kind === 'cup' ? `cup pulls ${hw.spacing} inch` : `cabinet bar pulls ${hw.spacing} inch center`),
     });
   }
-  const doorShelves = doors.reduce((a, d) => a + d.door!.shelfYs.length, 0) * unitCount;
+  const doorShelves = doors.filter(d => d.door!.shelfJoint === 'pins').reduce((a, d) => a + d.door!.shelfYs.length, 0) * unitCount;
   if (doorShelves) {
     items.push({ key: 'shelf-pins', name: `Shelf pins, ${units === 'mm' ? '5 mm' : '1/4″'}`, qty: doorShelves * 4 + 4, unit: 'ea', note: '4 per shelf plus spares.', priceKey: 'shelfPin' });
   }
@@ -159,7 +159,9 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   const backScrews = plan.backJoint === 'screwed'
     ? 2 * Math.ceil(plan.interiorWidth / 8) + 2 * Math.ceil(plan.caseHeight / 8) + plan.partitionXs.length * Math.ceil(plan.caseHeight / 8)
     : 0;
-  const caseScrews = (2 * 2 * 4 + plan.partitionXs.length * 2 * 4 + (plan.base ? 8 : 0) + backScrews) * unitCount + (desk ? 8 * unitCount + laminate : 0);
+  // Fixed shelves behind doors that are screwed, not dadoed: three through each side into each end.
+  const screwedShelves = plan.drawers.filter(d => d.door?.shelfJoint === 'butt').reduce((a, d) => a + d.door!.shelfYs.length, 0);
+  const caseScrews = (2 * 2 * 4 + plan.partitionXs.length * 2 * 4 + (plan.base ? 8 : 0) + backScrews + screwedShelves * 6) * unitCount + (desk ? 8 * unitCount + laminate : 0);
   items.push({
     key: 'case-screws',
     name: `Wood screws, ${f(config.thickness < 0.6 ? 1.25 : 1.625)}`,

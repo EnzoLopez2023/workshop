@@ -22,7 +22,7 @@ import {
   shakerRail,
   PIN_DEPTH,
   PIN_HOLE,
-  PIN_INSET,
+  PIN_INSET, doorShelfDadoDepth,
   PIN_SPACING,
   handHole,
   notchedOutline,
@@ -128,7 +128,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
         const features: Feature[] = [
           ...backRabbet(part.length, part.width),
           ...slideLines(plan, column, 0),
-          ...doorLines(plan, column, rightHanded ? 'right' : 'left', 0, false),
+          ...doorLines(plan, column, rightHanded ? 'right' : 'left', 0, false, T),
         ];
         faces.push({
           ...base, id: slug(`${piece} inside`), piece, face: 'inside face', features, rightHanded, outline: plan.partOutlines.Side,
@@ -171,7 +171,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
         ...base, id: 'end-side-inside', piece: 'End side', face: 'inside face', rightHanded, outline: plan.partOutlines['End side'],
         features: [
           ...backRabbet(part.length, part.width),
-          ...doorLines(plan, plan.blind.column, plan.blind.side, 0, false),
+          ...doorLines(plan, plan.blind.column, plan.blind.side, 0, false, T),
         ],
         orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, inside face up.${plan.partOutlines['End side'] ? ' The toe-kick notch is part of the outline cut.' : ''}`,
       });
@@ -198,7 +198,7 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
         faces.push({
           ...base, id: slug(`${part.name} ${side}`), piece: part.name, face: `${side} face`, rightHanded,
           // The partition's right face holds the column to its right, whose left edge it is.
-          features: [...slideLines(plan, column, panelTop(plan, T)), ...doorLines(plan, column, side === 'left' ? 'right' : 'left', panelTop(plan, T), side === 'right')],
+          features: [...slideLines(plan, column, panelTop(plan, T)), ...doorLines(plan, column, side === 'left' ? 'right' : 'left', panelTop(plan, T), side === 'right', T)],
           orientation: `The bottom end is at the left and the front edge at the ${rightHanded ? 'bottom' : 'top'} of the drawing, ${side} face up. Blue lines mark the slides (not cut).`,
         });
       }
@@ -913,13 +913,21 @@ function notchesOf(outline: [number, number][], height: number): { center: numbe
  * from the front edge. `stagger` shifts pin holes half a step so ones drilled from the
  * other face of a partition never meet.
  */
-function doorLines(plan: DrawerPlan, column: number, edge: 'left' | 'right', from: number, stagger: boolean): Feature[] {
+function doorLines(plan: DrawerPlan, column: number, edge: 'left' | 'right', from: number, stagger: boolean, T: number): Feature[] {
   const out: Feature[] = [];
   const u = (y: number) => y - plan.sideBottom - from;
   for (const d of plan.drawers) {
     if (d.column !== column || !d.door) continue;
     const door = d.door;
     const back = plan.interiorDepth - PIN_INSET;
+    // Fixed shelves: a dado (case-plywood wide) or a pencil line for the screws, at each shelf's bottom face.
+    door.shelfYs.forEach((y, k) => {
+      if (door.shelfJoint === 'dado') {
+        out.push({ kind: 'pocket', label: `${d.label} shelf dado ${k + 1}`, u: u(y), v: plan.frontInset, length: T, width: plan.interiorDepth - plan.frontInset, depth: doorShelfDadoDepth(T) });
+      } else if (door.shelfJoint === 'butt') {
+        out.push({ kind: 'guide', label: `${d.label} shelf ${k + 1} (screw line)`, points: [[u(y), plan.frontInset], [u(y), plan.interiorDepth]] });
+      }
+    });
     door.pinYs.forEach((y, k) => {
       const at = u(y) + (stagger ? PIN_SPACING / 2 : 0);
       if (stagger && y + PIN_SPACING / 2 > door.zoneTop - 2 + 1e-6) return;
