@@ -85,7 +85,9 @@ export function partFaces(plan: ShelfPlan, config: ShelfConfig): PartFace[] {
 
   // Banded case parts are cut narrower; their features are measured from the plywood edge, not the banding.
   const front = plan.banding?.caseFronts ? plan.banding.thickness : 0;
-  const dado = (label: string, at: number): Feature => ({ kind: 'pocket', label, u: at, v: 0, length: t, width: D - front, depth: d });
+  // Shelf dados are as wide as the shelf stock; top, bottom and divider dados the case stock.
+  const st = plan.shelfThickness;
+  const dado = (label: string, at: number, width = t): Feature => ({ kind: 'pocket', label, u: at, v: 0, length: width, width: D - front, depth: d });
   const pins = (panel: string, face: 'left' | 'right', origin: number): Feature[] =>
     plan.pinHoles.filter(r => r.panel === panel && r.face === face).flatMap(run =>
       run.ys.flatMap(y => [run.frontInset, run.backInset].map(v => ({
@@ -100,7 +102,7 @@ export function partFaces(plan: ShelfPlan, config: ShelfConfig): PartFace[] {
         const features: Feature[] = [];
         if (d > 0) {
           const bay = piece === 'Left side' ? plan.bays[0] : plan.bays[n - 1];
-          bay.shelfYs.forEach((y, i) => features.push(dado(`Shelf dado ${i + 1}`, y)));
+          bay.shelfYs.forEach((y, i) => features.push(dado(`Shelf dado ${i + 1}`, y, st)));
           if (config.bottomPanel) features.push(dado('Bottom dado', plan.kick));
           if (config.topPanel) features.push(dado('Top dado', H - t));
         }
@@ -120,7 +122,7 @@ export function partFaces(plan: ShelfPlan, config: ShelfConfig): PartFace[] {
         const piece = `Divider ${k}`;
         for (const side of ['left', 'right'] as const) {
           const bay = side === 'left' ? plan.bays[k - 1] : plan.bays[k];
-          const features: Feature[] = d > 0 ? bay.shelfYs.map((y, i) => dado(`Shelf dado ${i + 1}`, y - dividerBottom)) : [];
+          const features: Feature[] = d > 0 ? bay.shelfYs.map((y, i) => dado(`Shelf dado ${i + 1}`, y - dividerBottom, st)) : [];
           features.push(...pins(piece, side, dividerBottom));
           if (features.length === 0 && side === 'right') continue; // a plain divider needs one file, not two
           const rightHanded = side === 'left'; // left face points −X, like the right side's inside face

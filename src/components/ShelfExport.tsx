@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { AlertTriangle, Download } from 'lucide-react';
 import { Button } from './ui';
 import CncExport, { DXF_TYPE, saveFile, SVG_TYPE, svgThumb } from './CncExport';
-import { planGuideSheets } from '../lib/buildGuide';
+import { planShelfSheetGroups } from '../lib/buildGuide';
 import { fileName, flipFaces, partFaces, pinJig, pinJigDxf, pinJigSvg, type PartFace } from '../lib/shelfExport';
 import { formatLength, type LengthUnit, type ShelfConfig, type ShelfPlan } from '../lib/shelving';
 
@@ -26,7 +26,11 @@ function featureSummary(face: PartFace): string {
 
 export default function ShelfExport({ plan, config, units }: Props) {
   const faces = useMemo(() => partFaces(plan, config), [plan, config]);
-  const sheets = useMemo(() => planGuideSheets(plan, config, units), [plan, config, units]);
+  const sheetGroups = useMemo(() => {
+    const groups = planShelfSheetGroups(plan, config, units);
+    // One thickness needs no label; several are labelled by thickness, like the Drawer Builder's.
+    return groups.length === 1 ? [{ sheets: groups[0].sheets }] : groups.map(g => ({ label: formatLength(g.thickness, units), sheets: g.sheets }));
+  }, [plan, config, units]);
   const flips = flipFaces(faces);
   const jig = useMemo(() => pinJig(plan), [plan]);
   const f = (inches: number) => formatLength(inches, units);
@@ -34,7 +38,7 @@ export default function ShelfExport({ plan, config, units }: Props) {
   return (
     <CncExport
       faces={faces}
-      sheetGroups={[{ sheets }]}
+      sheetGroups={sheetGroups}
       units={units}
       prefix="shelf"
       summary={featureSummary}

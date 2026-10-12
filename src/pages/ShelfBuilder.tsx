@@ -55,6 +55,8 @@ type FormState = ShelfDesignFields;
 const DEFAULT_FORM: FormState = {
   units: 'in',
   thickness: '3/4',
+  shelfThickness: '',
+  backThickness: '',
   bayWidth: '17 1/2',
   shelfDepth: '11 1/4',
   heightMode: 'opening',
@@ -132,7 +134,7 @@ const UNIT_OPTIONS = [
   { value: 'mm', label: 'Millimeters' },
 ] as const;
 
-const LENGTH_FIELDS = ['thickness', 'bayWidth', 'shelfDepth', 'openingHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight', 'stileWidth', 'railWidth', 'frameThickness'] as const;
+const LENGTH_FIELDS = ['thickness', 'shelfThickness', 'backThickness', 'bayWidth', 'shelfDepth', 'openingHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight', 'stileWidth', 'railWidth', 'frameThickness'] as const;
 
 /** The settings in design order: how big, the case, what's on the front, how it stands, then materials. */
 const SHELF_STEPS: BuilderStep[] = [
@@ -145,7 +147,7 @@ const SHELF_STEPS: BuilderStep[] = [
 
 /** Which step a form field lives in (for the step bar's "to fix" badges). */
 function stepOfField(key: string): string {
-  if (key === 'thickness') return 'shelf-step-materials';
+  if (/^(thickness|shelfThickness|backThickness)$/.test(key)) return 'shelf-step-materials';
   if (key === 'dadoDepth') return 'shelf-step-case';
   if (/^(toeKick|cleatHeight)$/.test(key)) return 'shelf-step-mounting';
   if (/^(stileWidth|railWidth|frameThickness)$/.test(key)) return 'shelf-step-fronts';
@@ -247,6 +249,9 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
     return value ?? 0;
   };
   const thickness = num('thickness');
+  // Blank shelf and back thicknesses follow the case.
+  const shelfThickness = form.shelfThickness.trim() ? num('shelfThickness') : undefined;
+  const backThickness = form.backThickness.trim() && (form.backPanel || (form.mounting === 'wall' && form.frenchCleat)) ? num('backThickness') : undefined;
   const bayWidth = num('bayWidth');
   const shelfDepth = num('shelfDepth');
   const dadoDepth = form.joinery === 'dado' ? num('dadoDepth') : 0;
@@ -254,7 +259,7 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
   // In opening mode the overall height is built up from the openings, shelves, panels and toe kick.
   const height = form.heightMode === 'opening'
     ? overallFromOpeningHeight(num('openingHeight'), form.shelvesPerBay, {
-      thickness, topPanel: form.topPanel, bottomPanel: form.bottomPanel, mounting: form.mounting, toeKick,
+      thickness, shelfThickness, topPanel: form.topPanel, bottomPanel: form.bottomPanel, mounting: form.mounting, toeKick,
     })
     : num('height');
   const cleatHeight = form.mounting === 'wall' && form.frenchCleat ? num('cleatHeight') : 3;
@@ -267,7 +272,7 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
   if (Object.keys(fieldErrors).length > 0) return { config: null, fieldErrors };
   return {
     config: {
-      thickness, bayWidth, shelfDepth, height,
+      thickness, shelfThickness, backThickness, bayWidth, shelfDepth, height,
       bays: form.bays,
       shelvesPerBay: form.shelvesPerBay,
       topPanel: form.topPanel,
@@ -1048,29 +1053,37 @@ export default function ShelfBuilder() {
             <legend>Material</legend>
             <LengthField
               unit={units}
-              label="Plywood thickness"
+              label="Case plywood"
               value={form.thickness}
               error={fieldErrors.thickness}
-              hint="Use the actual thickness. The back and French cleat use the same stock."
+              hint={`Sides, dividers, top and bottom${form.mounting === 'wall' && form.frenchCleat ? ', and the French cleat' : ''}${form.doorsPerBay.slice(0, form.bays).some(Boolean) ? ', and the doors' : ''}. Use the actual thickness.`}
               onChange={thickness => update({ thickness })}
             />
-            <div className="shelf-chips" role="group" aria-label="Common plywood thicknesses">
-              {THICKNESS_PRESETS[units].map(preset => {
-                const inches = parseLength(preset, units)!;
-                const current = parseLength(form.thickness, units);
-                return (
-                  <button
-                    key={preset}
-                    type="button"
-                    className="shelf-chip"
-                    aria-pressed={current !== null && Math.abs(current - inches) < 0.002}
-                    onClick={() => update({ thickness: lengthToField(inches, units) })}
-                  >
-                    {preset}
-                  </button>
-                );
-              })}
-            </div>
+            <ThicknessChips units={units} label="Common case thicknesses" value={form.thickness} onPick={thickness => update({ thickness })} />
+            <LengthField
+              unit={units}
+              label="Shelf plywood"
+              value={form.shelfThickness}
+              error={fieldErrors.shelfThickness}
+              placeholder={`Same as the case${config ? ` (${fmt(config.thickness)})` : ''}`}
+              hint="Fixed and adjustable shelves. Thicker shelves sag less; leave blank to match the case."
+              onChange={shelfThickness => update({ shelfThickness })}
+            />
+            <ThicknessChips units={units} label="Common shelf thicknesses" value={form.shelfThickness} onPick={shelfThickness => update({ shelfThickness })} sameAsCase />
+            {(form.backPanel || (form.mounting === 'wall' && form.frenchCleat)) && (
+              <>
+                <LengthField
+                  unit={units}
+                  label="Back panel plywood"
+                  value={form.backThickness}
+                  error={fieldErrors.backThickness}
+                  placeholder={`Same as the case${config ? ` (${fmt(config.thickness)})` : ''}`}
+                  hint={`A thinner back (1/4″ or 1/2″) saves weight and money${form.backJoint === 'rabbet' ? '; the rabbet is cut to its thickness' : ''}. Leave blank to match the case.`}
+                  onChange={backThickness => update({ backThickness })}
+                />
+                <ThicknessChips units={units} label="Common back thicknesses" value={form.backThickness} onPick={backThickness => update({ backThickness })} sameAsCase back />
+              </>
+            )}
           </fieldset>
           </div>
 
@@ -1141,7 +1154,7 @@ export default function ShelfBuilder() {
               <div>
                 <h2 id="shelf-cutlist-title">Cut list</h2>
                 <p>
-                  {fmt(config!.thickness)} plywood
+                  {plywoodSummary(plan, config!, fmt)}
                   {plan.dadoDepth > 0 ? ` · ${fmt(plan.dadoDepth)} dados included in lengths` : ' · butt joints'}
                   {plan.cleatGap > 0 ? ` · back inset ${fmt(plan.cleatGap)} for the cleat` : ''}
                 </p>
@@ -1251,7 +1264,11 @@ export default function ShelfBuilder() {
               <div>
                 <h2 id="shelf-marks-title">{plan.dadoDepth > 0 ? 'Dado layout' : 'Shelf positions'}</h2>
                 <p>
-                  Distances to the bottom edge of each {plan.dadoDepth > 0 ? `${fmt(config!.thickness)}-wide dado` : 'shelf'}.
+                  Distances to the bottom edge of each {plan.dadoDepth > 0
+                    ? (Math.abs(plan.shelfThickness - config!.thickness) > 1e-6
+                      ? `dado (${fmt(plan.shelfThickness)} wide for shelves, ${fmt(config!.thickness)} for the top and bottom)`
+                      : `${fmt(config!.thickness)}-wide dado`)
+                    : 'shelf'}.
                   Mark matching parts together to keep shelves level.
                 </p>
               </div>
@@ -1306,6 +1323,49 @@ export default function ShelfBuilder() {
   );
 }
 
+/** "3/4″ plywood", or "3/4″ case, 1″ shelves, 1/4″ back" when they differ. */
+function plywoodSummary(plan: ShelfPlan, config: ShelfConfig, fmt: (inches: number) => string): string {
+  const t = config.thickness;
+  const differs = (v: number) => v > 0 && Math.abs(v - t) > 1e-6;
+  const extra = [
+    differs(plan.shelfThickness) ? `${fmt(plan.shelfThickness)} shelves` : '',
+    differs(plan.backThickness) ? `${fmt(plan.backThickness)} back` : '',
+  ].filter(Boolean);
+  return extra.length ? `${fmt(t)} case, ${extra.join(', ')}` : `${fmt(t)} plywood`;
+}
+
+/** Quick picks for a plywood thickness field; `sameAsCase` adds a chip that clears it. */
+function ThicknessChips({ units, label, value, onPick, sameAsCase = false, back = false }: {
+  units: LengthUnit; label: string; value: string; onPick: (value: string) => void; sameAsCase?: boolean; back?: boolean;
+}) {
+  const current = value.trim() ? parseLength(value, units) : null;
+  // Backs are often thinner, shelves sometimes thicker, than the case.
+  const presets = back
+    ? [units === 'mm' ? '6 mm' : '1/4"', ...THICKNESS_PRESETS[units]]
+    : sameAsCase ? [...THICKNESS_PRESETS[units], units === 'mm' ? '25 mm' : '1"'] : THICKNESS_PRESETS[units];
+  return (
+    <div className="shelf-chips" role="group" aria-label={label}>
+      {sameAsCase && (
+        <button type="button" className="shelf-chip" aria-pressed={!value.trim()} onClick={() => onPick('')}>Same as case</button>
+      )}
+      {presets.map(preset => {
+        const inches = parseLength(preset, units)!;
+        return (
+          <button
+            key={preset}
+            type="button"
+            className="shelf-chip"
+            aria-pressed={current !== null && Math.abs(current - inches) < 0.002}
+            onClick={() => onPick(lengthToField(inches, units))}
+          >
+            {preset}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Drawings ──────────────────────────────────────────────────────────────────
 
 function FrontElevation({ plan, thickness: t, fmt }: { plan: ShelfPlan; thickness: number; fmt: (inches: number) => string }) {
@@ -1343,7 +1403,7 @@ function FrontElevation({ plan, thickness: t, fmt }: { plan: ShelfPlan; thicknes
 
         {/* Shelves */}
         {plan.bays.map(bay => bay.shelfYs.map(sy => (
-          <rect key={`${bay.index}-${sy}`} className="shelf-ply is-shelf" x={bay.x} y={y(sy + t)} width={bay.width} height={t} />
+          <rect key={`${bay.index}-${sy}`} className="shelf-ply is-shelf" x={bay.x} y={y(sy + plan.shelfThickness)} width={bay.width} height={plan.shelfThickness} />
         )))}
 
         {/* Bay width dimensions */}
@@ -1359,6 +1419,7 @@ function FrontElevation({ plan, thickness: t, fmt }: { plan: ShelfPlan; thicknes
 
 function SideSection({ plan, config, fmt }: { plan: ShelfPlan; config: ShelfConfig; fmt: (inches: number) => string }) {
   const t = config.thickness;
+  const bt = plan.backThickness;
   const D = config.shelfDepth;
   const depth = plan.sideDepth;
   const H = Math.min(plan.overallHeight, Math.max(depth * 1.6, 14));
@@ -1374,15 +1435,15 @@ function SideSection({ plan, config, fmt }: { plan: ShelfPlan; config: ShelfConf
         aria-label={`Side section: ${fmt(D)} shelf, ${fmt(plan.backThickness)} back, ${fmt(plan.cleatGap)} cleat gap, ${fmt(depth)} side`}
       >
         <rect className="shelf-side-outline" x={0} y={0} width={depth} height={H} />
-        <rect className="shelf-ply is-shelf" x={0} y={H * 0.45} width={D} height={t} />
+        <rect className="shelf-ply is-shelf" x={0} y={H * 0.45} width={D} height={plan.shelfThickness} />
         {plan.backThickness > 0 && <rect className="shelf-ply" x={D} y={0} width={plan.backThickness} height={H} />}
         {plan.cleatGap > 0 && (
           <>
             <polygon
               className="shelf-ply is-cleat"
-              points={`${D + t},${t} ${depth},${t} ${depth},${t + cleatH - plan.cleatGap} ${D + t},${t + cleatH}`}
+              points={`${D + bt},${t} ${depth},${t} ${depth},${t + cleatH - plan.cleatGap} ${D + bt},${t + cleatH}`}
             />
-            <rect className="shelf-ply is-cleat" x={D + t} y={H - cleatH * 0.8} width={plan.cleatGap} height={cleatH * 0.8} />
+            <rect className="shelf-ply is-cleat" x={D + bt} y={H - cleatH * 0.8} width={plan.cleatGap} height={cleatH * 0.8} />
           </>
         )}
         <line className="shelf-wall" x1={depth} y1={-pad * 0.6} x2={depth} y2={H + pad * 0.3} />

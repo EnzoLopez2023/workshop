@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { Button } from './ui';
-import { planGuideSheets } from '../lib/buildGuide';
+import { planShelfSheetGroups } from '../lib/buildGuide';
 import {
-  costEstimate, defaultPrices, hardwareList, PRICE_LABELS, quantityLabel,
+  costEstimate, defaultPrices, hardwareList, PRICE_LABELS, quantityLabel, sheetPriceKey,
   type HardwareItem, type PriceKey, type Prices,
 } from '../lib/shelfEstimate';
 import { formatLength, type LengthUnit, type ShelfConfig, type ShelfPlan } from '../lib/shelving';
@@ -28,11 +28,19 @@ export function useShelfEstimate(plan: ShelfPlan | null, config: ShelfConfig | n
 
   return useMemo(() => {
     if (!plan || !config) return null;
-    const prices: Prices = { ...defaultPrices(config.thickness), ...overrides };
+    const prices: Prices = { ...defaultPrices(config.thickness, plan.shelfThickness, plan.backThickness || config.thickness), ...overrides };
     const hardware = hardwareList(plan, config, units);
-    const sheets = planGuideSheets(plan, config, units);
-    const sheetLabel = `${formatLength(config.thickness, units)} plywood (${sheets.sheetSize})`;
-    const estimate = costEstimate(plan, sheets.layouts.length, sheetLabel, hardware, prices);
+    const groups = planShelfSheetGroups(plan, config, units);
+    const sheetLines = groups.map(g => {
+      const priceKey = sheetPriceKey(g.thickness, plan, config);
+      // Name what each extra thickness is for, so the lines read "1/4″ plywood … — back".
+      const uses = groups.length === 1 ? ''
+        : priceKey === 'sheet' ? ' — case'
+          : priceKey === 'shelfSheet' ? (Math.abs(plan.backThickness - g.thickness) < 1e-6 ? ' — shelves and back' : ' — shelves')
+            : ' — back';
+      return { count: g.sheets.layouts.length, label: `${formatLength(g.thickness, units)} plywood (${g.sheets.sheetSize})${uses}`, priceKey };
+    });
+    const estimate = costEstimate(plan, sheetLines, '', hardware, prices);
     return {
       hardware,
       estimate,

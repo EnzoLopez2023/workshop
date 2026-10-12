@@ -110,18 +110,20 @@ export function dadoGrooves(plan: ShelfPlan, config: ShelfConfig): Solid[] {
   };
   const n = plan.bays.length;
   if (d > 0) {
-    const sideYs = (ys: number[]) => {
-      const list = [...ys];
-      if (config.bottomPanel) list.push(plan.kick);
-      if (config.topPanel) list.push(H - t);
+    // [bottom, width]: shelf dados are the shelf stock wide, top and bottom dados the case stock.
+    const st = plan.shelfThickness;
+    const sideYs = (ys: number[]): [number, number][] => {
+      const list: [number, number][] = ys.map(y => [y, st]);
+      if (config.bottomPanel) list.push([plan.kick, t]);
+      if (config.topPanel) list.push([H - t, t]);
       return list;
     };
-    sideYs(plan.bays[0].shelfYs).forEach((y, i) => groove(`Groove left side ${i + 1}`, 'Left side', 1, t - d, t + lift, y, y + t));
-    sideYs(plan.bays[n - 1].shelfYs).forEach((y, i) => groove(`Groove right side ${i + 1}`, 'Right side', -1, W - t - lift, W - t + d, y, y + t));
+    sideYs(plan.bays[0].shelfYs).forEach(([y, w], i) => groove(`Groove left side ${i + 1}`, 'Left side', 1, t - d, t + lift, y, y + w));
+    sideYs(plan.bays[n - 1].shelfYs).forEach(([y, w], i) => groove(`Groove right side ${i + 1}`, 'Right side', -1, W - t - lift, W - t + d, y, y + w));
     plan.dividerXs.forEach((x, j) => {
       const on = `Divider ${j + 1}`;
-      plan.bays[j].shelfYs.forEach((y, i) => groove(`Groove divider ${j + 1} left ${i + 1}`, on, -1, x - lift, x + d, y, y + t));
-      plan.bays[j + 1].shelfYs.forEach((y, i) => groove(`Groove divider ${j + 1} right ${i + 1}`, on, 1, x + t - d, x + t + lift, y, y + t));
+      plan.bays[j].shelfYs.forEach((y, i) => groove(`Groove divider ${j + 1} left ${i + 1}`, on, -1, x - lift, x + d, y, y + st));
+      plan.bays[j + 1].shelfYs.forEach((y, i) => groove(`Groove divider ${j + 1} right ${i + 1}`, on, 1, x + t - d, x + t + lift, y, y + st));
     });
   }
   const r = plan.backRabbet;
@@ -157,10 +159,20 @@ export function pinHoleSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
   return solids;
 }
 
-/** Lays the parts out on full sheets of the design's plywood: 4×8 (or 2440×1220 in mm) and a typical kerf. */
+/**
+ * Lays the case-thickness parts out on full sheets: 4×8 (or 2440×1220 in mm) and a typical kerf.
+ * With shelves or a back in other stock, planShelfSheetGroups has a plan for each thickness.
+ */
 export function planGuideSheets(plan: ShelfPlan, config: ShelfConfig, units: LengthUnit): GuideSheets {
-  // Solid-wood parts (the face frame) are bought as boards, not cut from sheets.
-  return planPartSheets(plan.parts.filter(part => part.material !== 'solid'), config.thickness, units);
+  return planShelfSheetGroups(plan, config, units)[0].sheets;
+}
+
+/** One sheet plan per plywood thickness, the case's first. Solid-wood parts (the face frame) are bought as boards. */
+export function planShelfSheetGroups(plan: ShelfPlan, config: ShelfConfig, units: LengthUnit): { thickness: number; sheets: GuideSheets }[] {
+  const groups = planSheetsByThickness(plan.parts.filter(part => part.material !== 'solid'), units);
+  const isCase = (g: { thickness: number }) => Math.abs(g.thickness - config.thickness) < 1e-6;
+  const ordered = [...groups.filter(isCase), ...groups.filter(g => !isCase(g))];
+  return ordered.length ? ordered : [{ thickness: config.thickness, sheets: planPartSheets([], config.thickness, units) }];
 }
 
 /** Lays parts of one thickness out on full 4×8 (or 2440×1220) sheets with a typical kerf. */
@@ -297,7 +309,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     return p ? [{ name: p.name, qty: p.qty, size: `${f(p.length)} × ${f(p.width)}` }] : [];
   };
   const backParts = plan.parts.filter(p => p.name.startsWith('Back'));
-  const sheets = planGuideSheets(plan, config, units);
+  const sheetGroups = planShelfSheetGroups(plan, config, units);
   /** Clear height inside each bay: bottom panel's top face to the top panel's underside. */
   const bayHeight = plan.interiorTop - plan.interiorBottom;
   const widths = plan.bays.map(b => b.width);
@@ -308,14 +320,19 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
   const rabbet = plan.backRabbet > 0;
   const metricPins = config.pinSystem === 'metric';
   const openings = describeOpenings(plan, f);
-  const sheetCount = sheets.layouts.length;
   const screw = screwFor(t, units);
+  const st = plan.shelfThickness;
+  const shelfStock = Math.abs(st - t) > 1e-6;
+  const dadoWidths = shelfStock && (config.topPanel || config.bottomPanel)
+    ? `${f(st)} wide for the shelves and ${f(t)} for the top and bottom`
+    : `${f(shelfStock ? st : t)} wide`;
+  const plural = (count: number) => `${count} full sheet${count === 1 ? '' : 's'}`;
   const steps: GuideStep[] = [];
 
   // 1 ── Overview, materials and tools
   const tools = [
     'Table saw or track saw (a circular saw with a straightedge guide works)',
-    dado ? `Router with a straight bit or a dado stack set to ${f(t)} wide — test it on scrap of this sheet` : null,
+    dado ? `Router with a straight bit or a dado stack set to ${dadoWidths} — test it on scrap of the same plywood` : null,
     rabbet && !dado ? `Router with a rabbeting bit, or a table saw, for the ${f(plan.backRabbet)} back rabbets` : null,
     plan.pinHoles.length ? `Shelf-pin jig and a ${metricPins ? '5 mm' : '1/4″'} bit with a stop collar` : null,
     plan.frame ? 'Pocket-hole jig for the face frame' : null,
@@ -329,7 +346,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     title: 'What you’re building',
     summary: `A ${n}-bay ${wall ? 'wall-mounted' : 'floor-standing'} unit, ${f(plan.overallWidth)} wide × ${f(plan.overallHeight)} tall × ${f(plan.sideDepth)} deep. Each bay is ${widthText} wide with ${openings.phrase}.`,
     instructions: [
-      `Plywood: ${sheetCount} full sheet${sheetCount === 1 ? '' : 's'} of ${f(t)} (${sheets.sheetSize}), laid out in step 2. Buy one extra if you want room for a miscut.`,
+      `Plywood: ${sheetGroups.map(g => `${plural(g.sheets.layouts.length)} of ${f(g.thickness)}`).join(', ')} (${sheetGroups[0].sheets.sheetSize}), laid out in step 2. Buy one extra if you want room for a miscut.`,
       ...(plan.frame ? [`Solid wood for the face frame: ${f(plan.frame.thickness)} thick, ${f(plan.frame.stileWidth)} wide and up — see the cut list.`] : []),
       `Hardware: ${hardware.filter(h => !h.optional).map(h => `${quantityLabel(h.qty, h.unit)} × ${h.name.charAt(0).toLowerCase()}${h.name.slice(1)}`).join('; ')}.`,
       `Tools: ${tools.join('; ')}.`,
@@ -340,11 +357,14 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     scene: { view: 'front', visible: everything, highlight: [] },
   });
 
-  // 2 ── Sheet layout
+  // 2 ── Sheet layout, one step per plywood thickness (the case's first)
+  sheetGroups.forEach(({ thickness, sheets }, i) => {
+  const sheetCount = sheets.layouts.length;
+  const holds = sheetGroups.length === 1 ? '' : ` — ${plan.parts.filter(p => p.material !== 'solid' && Math.abs(p.thickness - thickness) < 1e-6).map(p => p.name.toLowerCase().replace(/ \(.*\)$/, '')).filter((x, k, all) => all.indexOf(x) === k).join(', ')}`;
   steps.push({
-    id: 'sheets',
-    title: 'Lay out your sheets',
-    summary: `${sheetCount} sheet${sheetCount === 1 ? '' : 's'} of ${sheets.sheetSize}, ${sheets.yieldPercent.toFixed(0)}% of the plywood used.`,
+    id: i === 0 ? 'sheets' : `sheets-${thickness}`,
+    title: sheetGroups.length === 1 ? 'Lay out your sheets' : `Lay out the ${f(thickness)} sheet${sheetCount === 1 ? '' : 's'}`,
+    summary: `${sheetCount} sheet${sheetCount === 1 ? '' : 's'} of ${sheets.sheetSize}${sheetGroups.length === 1 ? '' : ` ${f(thickness)} plywood`}, ${sheets.yieldPercent.toFixed(0)}% of the plywood used${holds}.`,
     instructions: [
       `Mark each part on its sheet as drawn below, leaving a ${sheets.kerf} saw kerf between cuts.`,
       'Make the long rip cuts first to break each sheet into strips, then crosscut the strips into parts.',
@@ -358,6 +378,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     ],
     scene: null,
     sheets,
+  });
   });
 
   // 3 ── Cut the parts
@@ -392,7 +413,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       id: 'dados',
       title: dado && rabbet ? `Cut the dados and back ${rabbetName}s` : dado ? 'Lay out and cut the dados' : `Cut the back ${rabbetName}s`,
       summary: dado
-        ? `${f(t)}-wide dados, ${f(plan.dadoDepth)} deep, measured to the bottom edge of each groove.${rabbet ? ` Plus a ${rabbetName} for the back in each side.` : ''}`
+        ? `Dados ${dadoWidths}, ${f(plan.dadoDepth)} deep, measured to the bottom edge of each groove.${rabbet ? ` Plus a ${rabbetName} for the back in each side.` : ''}`
         : `A ${rabbetName} in each side holds the back.`,
       instructions: [
         ...(dado ? markLines : []),

@@ -50,16 +50,18 @@ export function sagCheck(plan: ShelfPlan, config: ShelfConfig, load: ShelfLoad =
   const psf = SHELF_LOADS[load].psf;
   const results: SagResult[] = [];
   for (const bay of plan.bays) {
-    const kinds: { kind: 'fixed' | 'adjustable'; span: number; depth: number }[] = [];
-    // Fixed shelves, and the bottom panel, which carries load over the same span.
-    if (bay.shelfYs.length > 0 || config.bottomPanel) kinds.push({ kind: 'fixed', span: bay.width, depth: config.shelfDepth });
-    if (bay.adjustableYs.length > 0) kinds.push({ kind: 'adjustable', span: bay.width, depth: config.shelfDepth - 0.125 });
+    const kinds: { kind: 'fixed' | 'adjustable'; span: number; depth: number; thickness: number }[] = [];
+    // Fixed shelves, and the bottom panel (case stock), which carries load over the same span.
+    const st = plan.shelfThickness;
+    const fixedThickness = bay.shelfYs.length > 0 ? (config.bottomPanel ? Math.min(st, config.thickness) : st) : config.thickness;
+    if (bay.shelfYs.length > 0 || config.bottomPanel) kinds.push({ kind: 'fixed', span: bay.width, depth: config.shelfDepth, thickness: fixedThickness });
+    if (bay.adjustableYs.length > 0) kinds.push({ kind: 'adjustable', span: bay.width, depth: config.shelfDepth - 0.125, thickness: st });
     for (const k of kinds) {
-      const sag = shelfSag(k.span, k.depth, config.thickness, psf);
+      const sag = shelfSag(k.span, k.depth, k.thickness, psf);
       const limit = SAG_LIMIT_PER_FOOT * k.span / 12;
       const ok = sag <= limit;
       const thicknessNeeded = ok ? null
-        : COMMON_THICKNESSES.find(t => t > config.thickness && shelfSag(k.span, k.depth, t, psf) <= limit) ?? null;
+        : COMMON_THICKNESSES.find(t => t > k.thickness && shelfSag(k.span, k.depth, t, psf) <= limit) ?? null;
       results.push({ bay: bay.index, kind: k.kind, span: k.span, sag, limit, ok, thicknessNeeded });
     }
   }
@@ -77,7 +79,7 @@ export function maxSpan(depth: number, thickness: number, loadPsf: number): numb
 // ── Hardware ──────────────────────────────────────────────────────────────────
 
 export type PriceKey =
-  | 'sheet' | 'solidFoot' | 'glue' | 'caseScrews' | 'brads' | 'pocketScrews' | 'structuralScrew'
+  | 'sheet' | 'shelfSheet' | 'backSheet' | 'solidFoot' | 'glue' | 'caseScrews' | 'brads' | 'pocketScrews' | 'structuralScrew'
   | 'shelfPin' | 'hinge' | 'pull' | 'bumper' | 'antiTip' | 'edgeBanding' | 'finish';
 
 export interface HardwareItem {
@@ -197,10 +199,15 @@ export function hardwareList(plan: ShelfPlan, config: ShelfConfig, units: Length
 
 export type Prices = Record<PriceKey, number>;
 
-/** Typical US retail prices; every one is editable in the Shelf Builder. */
-export function defaultPrices(thickness: number): Prices {
+/** A typical sheet price for a plywood thickness. */
+const sheetPrice = (thickness: number) => (thickness >= 0.9 ? 95 : thickness >= 0.7 ? 75 : thickness >= 0.45 ? 60 : 40);
+
+/** Typical US retail prices; every one is editable in the Shelf Builder. Shelf and back stock default to the case's. */
+export function defaultPrices(thickness: number, shelfThickness = thickness, backThickness = thickness): Prices {
   return {
-    sheet: thickness >= 0.7 ? 75 : thickness >= 0.45 ? 60 : 40,
+    sheet: sheetPrice(thickness),
+    shelfSheet: sheetPrice(shelfThickness),
+    backSheet: sheetPrice(backThickness),
     solidFoot: 2.5,
     glue: 8,
     caseScrews: 12,
@@ -219,6 +226,8 @@ export function defaultPrices(thickness: number): Prices {
 
 export const PRICE_LABELS: Record<PriceKey, string> = {
   sheet: 'Plywood, per sheet',
+  shelfSheet: 'Shelf plywood, per sheet',
+  backSheet: 'Back plywood, per sheet',
   solidFoot: 'Solid wood (face frame), per linear foot',
   glue: 'Wood glue, per bottle',
   caseScrews: 'Wood screws, per box',
@@ -269,18 +278,31 @@ export function quantityLabel(qty: number, unit: string): string {
   return `${qty} ${unit}${qty === 1 ? '' : 's'}`;
 }
 
+/** Plywood bought for one thickness: how many sheets, what to call it, and which price it takes. */
+export interface SheetLine { count: number; label: string; priceKey: 'sheet' | 'shelfSheet' | 'backSheet' }
+
+/** Which price a sheet thickness takes: the case's, else the shelves', else the back's. */
+export function sheetPriceKey(thickness: number, plan: ShelfPlan, config: ShelfConfig): SheetLine['priceKey'] {
+  const same = (a: number) => Math.abs(a - thickness) < 1e-6;
+  return same(config.thickness) ? 'sheet' : same(plan.shelfThickness) ? 'shelfSheet' : 'backSheet';
+}
+
+/** `sheets` is one line per plywood thickness, or (one thickness) a sheet count with `sheetLabel`. */
 export function costEstimate(
   plan: ShelfPlan,
-  sheetCount: number,
+  sheets: number | SheetLine[],
   sheetLabel: string,
   hardware: HardwareItem[],
   prices: Prices,
 ): CostEstimate {
   const lines: CostLine[] = [];
-  lines.push({
-    key: 'sheets', name: sheetLabel, qtyLabel: `${sheetCount} sheet${sheetCount === 1 ? '' : 's'}`,
-    unitPrice: prices.sheet, total: sheetCount * prices.sheet, priceKey: 'sheet', optional: false,
-  });
+  const sheetLines: SheetLine[] = typeof sheets === 'number' ? [{ count: sheets, label: sheetLabel, priceKey: 'sheet' }] : sheets;
+  for (const s of sheetLines) {
+    lines.push({
+      key: s.priceKey === 'sheet' ? 'sheets' : `sheets-${s.priceKey}`, name: s.label, qtyLabel: `${s.count} sheet${s.count === 1 ? '' : 's'}`,
+      unitPrice: prices[s.priceKey], total: s.count * prices[s.priceKey], priceKey: s.priceKey, optional: false,
+    });
+  }
   const feet = solidFeet(plan);
   if (feet > 0) {
     lines.push({

@@ -112,8 +112,8 @@ export function designThumbnailSvg(plan: ShelfPlan, thickness: number): string {
   if (plan.interiorBottom > 0) parts.push(rect(t, plan.kick, W - 2 * t, t, ply));
   if (plan.kick > 0) parts.push(rect(t, 0, W - 2 * t, plan.kick, '#B9A27E'));
   for (const bay of plan.bays) {
-    bay.shelfYs.forEach(y => parts.push(rect(bay.x, y, bay.width, t, shelf)));
-    bay.adjustableYs.forEach(y => parts.push(rect(bay.x, y, bay.width, t, shelf, ' opacity="0.6"')));
+    bay.shelfYs.forEach(y => parts.push(rect(bay.x, y, bay.width, plan.shelfThickness, shelf)));
+    bay.adjustableYs.forEach(y => parts.push(rect(bay.x, y, bay.width, plan.shelfThickness, shelf, ' opacity="0.6"')));
   }
   if (plan.frame) {
     const f = plan.frame;
