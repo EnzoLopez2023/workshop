@@ -218,3 +218,25 @@ test('the bookcase shelves and back take their own plywood; the rest stays the c
   // Fitting shelves counts the thicker shelf stock.
   assert.ok(shelvesForOpening(48, 0, 0.75, 10, 1.5).each < shelvesForOpening(48, 0, 0.75, 10).each);
 });
+
+test('the bookcase’s fixed shelves can be screwed instead of dadoed; the case keeps its dados', async () => {
+  const { bookcaseToFields, readBookcase } = await import('../src/lib/drawerBookcase.ts');
+  const { drawerPartFaces } = await import('../src/lib/drawerExport.ts');
+  const shelf = p => p.parts.find(x => x.name === 'Bookcase shelf');
+  const dadoed = plan({ bookcase: bookcase({ bays: 2, height: 48, depth: 12, shelvesPerBay: 1 }) });
+  const screwedCfg = { ...base, bookcase: bookcase({ bays: 2, height: 48, depth: 12, shelvesPerBay: 1, shelfJoinery: 'butt' }) };
+  const screwed = buildDrawerPlan(screwedCfg);
+  assert.deepEqual(screwed.errors, []);
+  close(shelf(dadoed).length - shelf(screwed).length, 2 * dadoed.bookcase.shelfPlan.dadoDepth, 'no dado allowance on screwed shelves');
+  assert.match(shelf(screwed).note, /screwed through the sides/);
+  assert.equal(screwed.bookcase.shelfPlan.dadoDepth, dadoed.bookcase.shelfPlan.dadoDepth, 'top and bottom stay dadoed');
+  const side = drawerPartFaces(screwed, screwedCfg).find(f => f.piece === 'Bookcase left side');
+  assert.ok(!side.features.some(f => f.label.startsWith('Shelf dado')));
+  assert.ok(side.features.some(f => f.label === 'Top dado'));
+  const read = readBookcase(JSON.parse(JSON.stringify(screwed.bookcase.config)));
+  assert.equal(read.shelfJoinery, 'butt');
+  const fields = bookcaseToFields(read, String);
+  assert.equal(fields.shelvesScrewed, true);
+  assert.equal(bookcaseFromFields(fields, key => Number(fields[key])).shelfJoinery, 'butt');
+  assert.equal(bookcaseFromFields({ ...fields, shelvesScrewed: false }, key => Number(fields[key])).shelfJoinery, undefined);
+});

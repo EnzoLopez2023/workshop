@@ -24,6 +24,11 @@ const LAYER_OPTIONS = [
   { value: '2', label: 'Double thickness' },
 ] as const;
 
+const SHELF_JOINT_OPTIONS = [
+  { value: 'dado', label: 'Dadoed' },
+  { value: 'butt', label: 'Screwed' },
+] as const;
+
 const TOP_OPTIONS = [
   { value: 'none', label: 'Plain' },
   { value: 'cap', label: 'Top cap' },
@@ -106,6 +111,14 @@ export default function DrawerBookcaseFields({ value: b, units, errors, plan, fm
               placeholder={`Same as the case${bp ? ` (${fmt(bp.shelfConfig.thickness)})` : ''}`}
               hint="Fixed and adjustable shelves; thicker sags less. Blank matches the case."
               onChange={shelfThickness => onChange({ shelfThickness })} />
+            <div className="form-field">
+              <span className="form-field-label" id="bookcase-shelf-joint">Fixed shelves</span>
+              <SegmentedControl label="Fixed shelf joinery" value={b.shelvesScrewed ? 'butt' : 'dado'} options={SHELF_JOINT_OPTIONS}
+                onChange={v => onChange({ shelvesScrewed: v === 'butt' })} />
+              <small>{b.shelvesScrewed
+                ? 'Glued and screwed through the sides and dividers — no shelf dados to cut. The top and bottom stay in dados.'
+                : 'Housed in dados in the sides and dividers — stronger, and they set the shelf heights for you.'}</small>
+            </div>
             <LengthField unit={units} label="Back plywood" value={b.backThickness ?? ''} error={errors.backThickness}
               placeholder={`Same as the case${bp ? ` (${fmt(bp.shelfConfig.thickness)})` : ''}`}
               hint={`The back${b.openSpace && !b.floating ? ' and backsplash' : ''}; 1/4″ or 1/2″ is lighter. Blank matches the case.`}

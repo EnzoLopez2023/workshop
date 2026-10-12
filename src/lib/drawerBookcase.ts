@@ -24,6 +24,8 @@ export interface BookcaseConfig {
   doors: boolean[];
   /** Fixed and adjustable shelves' plywood; left out, the cabinet's case plywood. */
   shelfThickness?: number;
+  /** Fixed shelves glued and screwed through the sides instead of housed in dados (the case stays dadoed). */
+  shelfJoinery?: 'butt';
   /** The back panel's plywood; left out, the cabinet's case plywood. */
   backThickness?: number;
   countertop: {
@@ -205,6 +207,7 @@ export function bookcaseShelfConfig(bk: BookcaseConfig, ctx: Pick<BookcaseContex
   return {
     thickness: T,
     shelfThickness: bk.shelfThickness,
+    ...(bk.shelfJoinery === 'butt' ? { shelfJoinery: 'butt' as const } : {}),
     backThickness: bk.backThickness,
     bayWidth: (ctx.width - (n + 1) * T) / n,
     // The depth includes the back, whatever its thickness.
@@ -513,6 +516,7 @@ export function readBookcase(raw: unknown): BookcaseConfig | undefined {
     adjustablePerBay: Math.floor(n(v.adjustablePerBay, 0, 12, d.adjustablePerBay)),
     doors: Array.from({ length: bays }, (_, i) => Array.isArray(v.doors) && v.doors[i] === true),
     ...(typeof v.shelfThickness === 'number' && v.shelfThickness >= 0.05 && v.shelfThickness <= 3 ? { shelfThickness: v.shelfThickness } : {}),
+    ...(v.shelfJoinery === 'butt' ? { shelfJoinery: 'butt' as const } : {}),
     ...(typeof v.backThickness === 'number' && v.backThickness >= 0.05 && v.backThickness <= 3 ? { backThickness: v.backThickness } : {}),
     countertop: {
       material: c.material === 'butcher' ? 'butcher' : 'plywood',
@@ -551,6 +555,8 @@ export interface BookcaseFields {
   doors: boolean[];
   /** '' (or left out): the same as the cabinet's case plywood. */
   shelfThickness?: string;
+  /** Fixed shelves screwed instead of dadoed. */
+  shelvesScrewed?: boolean;
   backThickness?: string;
   counterMaterial: 'plywood' | 'butcher';
   counterThickness: string;
@@ -590,6 +596,7 @@ export function bookcaseToFields(c: BookcaseConfig | undefined, L: (inches: numb
     adjustable: b.adjustablePerBay,
     doors: Array.from({ length: b.bays }, (_, i) => b.doors[i] === true),
     shelfThickness: b.shelfThickness ? L(b.shelfThickness) : '',
+    shelvesScrewed: b.shelfJoinery === 'butt',
     backThickness: b.backThickness ? L(b.backThickness) : '',
     counterMaterial: b.countertop.material,
     counterThickness: L(b.countertop.thickness),
@@ -631,6 +638,7 @@ export function bookcaseFromFields(
     adjustablePerBay: fields.adjustable,
     doors: Array.from({ length: fields.bays }, (_, i) => fields.doors[i] === true),
     ...(fields.shelfThickness?.trim() ? { shelfThickness: num('shelfThickness') } : {}),
+    ...(fields.shelvesScrewed ? { shelfJoinery: 'butt' as const } : {}),
     ...(fields.backThickness?.trim() ? { backThickness: num('backThickness') } : {}),
     countertop: {
       material: fields.counterMaterial,
