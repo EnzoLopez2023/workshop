@@ -235,6 +235,8 @@ export interface DrawerConfig {
   doorShelfJoinery?: 'dado' | 'butt';
   /** Plywood for the shelves behind doors; left out, the case plywood. */
   doorShelfThickness?: number;
+  /** Plywood for the open cubbies' floor shelves; left out, the case plywood. */
+  cubbyShelfThickness?: number;
   /** Printer bed (mm) that Gridfinity baseplate tiles must fit. */
   gridfinityBed?: number;
   /**
@@ -591,6 +593,8 @@ export interface DrawerLayout {
   open: boolean;
   /** For a cubby above another drawer or cubby: the fixed shelf's underside, from the floor (null at the bottom). */
   shelfY: number | null;
+  /** That shelf's plywood thickness. */
+  shelfThickness: number;
   /** Front extent in the front elevation. */
   front: { x: number; y: number; width: number; height: number };
   /** Box extent: bottom, height, and outside width. */
@@ -1061,6 +1065,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       open,
       // A cubby needs a floor unless the case bottom is right under it.
       shelfY: open && zoneBottom > interiorBottom + EPS ? zoneBottom : null,
+      // An open cubby's floor can be its own stock; a door's floor stays case plywood.
+      shelfThickness: open && !doorSlot ? config.cubbyShelfThickness ?? T : T,
       door: doorSlot ? layoutDoor(doorSlot, {
         front: { x: (inset ? columns[ci].x : bounds[ci]) + gap / 2, y, width: frontWidths[ci], height: h },
         column: ci, columns: k, inset, gap, T, slideLength,
@@ -1070,7 +1076,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       }) : null,
     });
     if (open) {
-      if (zoneTop - zoneBottom - (zoneBottom > interiorBottom + EPS ? T : 0) < 1) errors.push(`${name} is only ${f(Math.max(zoneTop - zoneBottom, 0))} tall — too small to be useful.`);
+      if (zoneTop - zoneBottom - (zoneBottom > interiorBottom + EPS ? (doorSlot ? T : config.cubbyShelfThickness ?? T) : 0) < 1) errors.push(`${name} is only ${f(Math.max(zoneTop - zoneBottom, 0))} tall — too small to be useful.`);
       return;
     }
     if (h > 0 && boxHeight < MIN_BOX_HEIGHT) {
@@ -1269,18 +1275,18 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       thickness: bt, material: 'plywood' });
   }
   // Cubby shelves: a fixed panel under each cubby that isn't at the bottom, one line per opening width.
-  const shelves: { width: number; indexes: number[]; door: boolean }[] = [];
+  const shelves: { width: number; indexes: number[]; door: boolean; thickness: number }[] = [];
   for (const d of drawers) {
     if (!d.open || d.shelfY === null) continue;
     const w = columns[d.column].width;
     const g = shelves.find(x => Math.abs(x.width - w) < EPS && x.door === !!d.door);
-    if (g) g.indexes.push(d.index); else shelves.push({ width: w, indexes: [d.index], door: !!d.door });
+    if (g) g.indexes.push(d.index); else shelves.push({ width: w, indexes: [d.index], door: !!d.door, thickness: d.shelfThickness });
   }
   for (const g of shelves) {
     const kind = g.door ? 'Fixed shelf under door' : 'Cubby shelf';
     const name = shelves.filter(x => x.door === g.door).length === 1 ? kind : `${kind} · ${range(g.indexes)}`;
     partDrawers[name] = g.indexes;
-    parts.push({ name, qty: g.indexes.length, length: g.width, width: interiorDepth - caseBanding, thickness: T,
+    parts.push({ name, qty: g.indexes.length, length: g.width, width: interiorDepth - caseBanding, thickness: g.thickness,
       note: 'Fixed: glue and screw through the sides (or partition) into its ends', material: 'plywood' });
   }
 
@@ -1828,7 +1834,7 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     const name = d.label;
     if (d.open) {
       const c = plan.columns[d.column];
-      if (d.shelfY !== null) solids.push(box(`${name} shelf`, 'shelf', [c.x, d.shelfY, 0], [c.x + c.width, d.shelfY + T, id]));
+      if (d.shelfY !== null) solids.push(box(`${name} shelf`, 'shelf', [c.x, d.shelfY, 0], [c.x + c.width, d.shelfY + d.shelfThickness, id]));
       if (d.door) solids.push(...doorSolids(d, d.door, plan, config));
       continue;
     }
@@ -2701,6 +2707,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       insertThickness: num(c.insertThickness, 0.05, 1) ?? 1 / 4,
       ...(c.doorShelfJoinery === 'dado' || c.doorShelfJoinery === 'butt' ? { doorShelfJoinery: c.doorShelfJoinery } : {}),
       ...(num(c.doorShelfThickness, 0.05, 2) ? { doorShelfThickness: num(c.doorShelfThickness, 0.05, 2)! } : {}),
+      ...(num(c.cubbyShelfThickness, 0.05, 2) ? { cubbyShelfThickness: num(c.cubbyShelfThickness, 0.05, 2)! } : {}),
       gridfinityBed: num(c.gridfinityBed, 100, 1000) ?? 256,
       desk: readDesk(c.desk),
       blind: readBlind(c.blind),
@@ -2948,6 +2955,8 @@ export interface DrawerDesignFields {
   doorShelfJoinery?: 'pins' | 'dado' | 'butt';
   /** '': the case plywood. */
   doorShelfThickness: string;
+  /** '': the case plywood. */
+  cubbyShelfThickness: string;
   load: DrawerLoad;
   finishFront: string;
   finishCase: string;
@@ -2976,6 +2985,7 @@ export type InsertKind = 'none' | 'grid' | 'markers' | 'gridfinity' | 'tools' | 
 export const EXTRA_FIELD_DEFAULTS = {
   insertThickness: '1/4',
   doorShelfThickness: '',
+  cubbyShelfThickness: '',
   markerDiameter: '0.63',
   markerLength: '5.91',
   markerSpacing: '1/8',
@@ -3038,6 +3048,7 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     doorCounts: Array.from({ length: c.drawers }, (_, i) => c.doors?.[i]?.count ?? 1),
     doorShelfJoinery: c.doorShelfJoinery ?? 'pins',
     doorShelfThickness: c.doorShelfThickness ? L(c.doorShelfThickness) : '',
+    cubbyShelfThickness: c.cubbyShelfThickness ? L(c.cubbyShelfThickness) : '',
     gridColumns: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'grid' ? x.columns : 2; }),
     gridfinityBins: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'gridfinity' ? x.bins ?? [] : []; }),
     toolPockets: Array.from({ length: c.drawers }, (_, i) => { const x = c.inserts?.[i]; return x?.kind === 'tools' ? x.tools : []; }),

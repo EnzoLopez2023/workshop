@@ -311,7 +311,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         ...(plan.blind.slideBottom !== null ? [`Hang the slide panel where the ${plan.blind.side} side of the opening would be: screw down through the top into its top edge, square to the front, and fix its back edge to a cleat on the back once the back is on. It stops ${f(plan.blind.slideBottom - plan.sideBottom)} above the side’s bottom edge, so the door opening below runs straight into the corner.`] : []),
       ] : []),
       ...(cubbies.some(d => d.shelfY !== null) ? [
-        `Fix the cubby shelves: ${cubbies.filter(d => d.shelfY !== null).map(d => `${d.label.toLowerCase()}’s, its top ${f(d.shelfY! + T - plan.sideBottom)} up from the bottom edge of the side`).join('; ')}. Glue and screw through the sides into their ends.`,
+        `Fix the cubby shelves: ${cubbies.filter(d => d.shelfY !== null).map(d => `${d.label.toLowerCase()}’s, its top ${f(d.shelfY! + d.shelfThickness - plan.sideBottom)} up from the bottom edge of the side`).join('; ')}. Glue and screw through the sides into their ends.`,
       ] : []),
       ...(plan.partitionXs.length ? [
         `Stand the partition${plan.partitionXs.length > 1 ? 's' : ''} between the top and bottom at ${plan.partitionXs.map(x => f(x - T)).join(' and ')} from the inside of the left side, front edges flush; glue and screw through the top and bottom into each.`,

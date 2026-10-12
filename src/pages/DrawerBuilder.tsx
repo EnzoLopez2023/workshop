@@ -150,6 +150,7 @@ const DEFAULT_FORM: FormState = {
   toolFingerHoles: true,
   insertThickness: EXTRA_FIELD_DEFAULTS.insertThickness,
   doorShelfThickness: '',
+  cubbyShelfThickness: '',
   markerDiameter: lengthToField(MARKER_PRESETS[0].diameter, 'in'),
   markerLength: lengthToField(MARKER_PRESETS[0].length, 'in'),
   markerSpacing: EXTRA_FIELD_DEFAULTS.markerSpacing,
@@ -189,7 +190,7 @@ const DEFAULT_FORM: FormState = {
 const LENGTH_FIELDS = [
   'thickness', 'width', 'height', 'depth', 'gap', 'pullWidth', 'pullDepth',
   'boxThickness', 'bottomThickness', 'backThickness', 'footHeight', 'casterHeight',
-  'insertThickness', 'doorShelfThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
+  'insertThickness', 'doorShelfThickness', 'cubbyShelfThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
   'mountHeight', 'cleatHeight', 'toolBoardThickness', 'toolPocketDepth', 'toolClearance',
   'kickHeight', 'kickSetback', 'baseboardHeight', 'baseboardThickness',
   'hardwareSpacing', 'doorHardwareSpacing', 'profileRail', 'profileDepth', 'blindWidth', 'outletHeight',
@@ -243,7 +244,7 @@ const DRAWER_STEPS: BuilderStep[] = [
 /** Which step a form field lives in (for the step bar's "to fix" badges). */
 function stepOfField(key: string): string {
   if (/^(thickness|boxThickness|bottomThickness|backThickness)$/.test(key)) return 'drawer-step-materials';
-  if (key === 'doorShelfThickness') return 'drawer-step-size';
+  if (key === 'doorShelfThickness' || key === 'cubbyShelfThickness') return 'drawer-step-size';
   if (/^(pull|hardware|profile|bandingThickness)/.test(key)) return 'drawer-step-look';
   if (/^(footHeight|casterHeight|kick|baseboard|mountHeight|cleatHeight)/.test(key)) return 'drawer-step-base';
   if (/^(bookcase|run|desk|blind|outlet)/.test(key)) return 'drawer-step-builtins';
@@ -500,6 +501,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
       : undefined,
     ...(form.doorShelfJoinery === 'dado' || form.doorShelfJoinery === 'butt' ? { doorShelfJoinery: form.doorShelfJoinery } : {}),
     // Blank: the case plywood.
+    ...(form.cubbyShelfThickness?.trim() && form.insertKinds.slice(0, form.drawers).includes('cubby') ? { cubbyShelfThickness: num('cubbyShelfThickness') } : {}),
     ...(form.doorShelfThickness?.trim() && form.insertKinds.slice(0, form.drawers).includes('door') ? { doorShelfThickness: num('doorShelfThickness') } : {}),
     inserts: form.insertKinds.slice(0, form.drawers).map((kind, i) =>
       kind === 'grid' ? { kind: 'grid', columns: form.gridColumns[i] ?? 2, rows: form.gridRows[i] ?? 2 }
@@ -1492,6 +1494,12 @@ export default function DrawerBuilder() {
               </div>
               <small>A door can go over any opening — under a drawer, kitchen-style, or a whole column. Open cubbies get a fixed shelf for a floor.</small>
             </div>
+            {form.insertKinds.slice(0, form.drawers).includes('cubby') && (
+              <LengthField unit={units} label="Cubby shelf plywood" value={form.cubbyShelfThickness ?? ''} error={fieldErrors.cubbyShelfThickness}
+                placeholder={`Same as the case${config ? ` (${fmt(config.thickness)})` : ''}`}
+                hint="The fixed floor under each open cubby (none at the bottom, where the case bottom is the floor). Glued and screwed through the sides. Blank matches the case."
+                onChange={cubbyShelfThickness => update({ cubbyShelfThickness })} />
+            )}
             {form.insertKinds.slice(0, form.drawers).some((k, i) => k === 'door' && (form.doorInside[i] ?? 'shelves') === 'shelves') && (
               <div className="shelf-height-mode">
                 <span className="form-field-label">Shelves behind doors</span>
@@ -2585,7 +2593,7 @@ function CabinetFront({ plan, config, y }: { plan: DrawerPlan; config: DrawerCon
             return (
               <g key={d.index}>
                 <rect className="drawer-notch" x={c.x} y={y(d.front.y + d.front.height + config.gap / 2)} width={c.width} height={d.front.height + config.gap} />
-                {d.shelfY !== null && <rect className="shelf-ply" x={c.x} y={y(d.shelfY + config.thickness)} width={c.width} height={config.thickness} />}
+                {d.shelfY !== null && <rect className="shelf-ply" x={c.x} y={y(d.shelfY + d.shelfThickness)} width={c.width} height={d.shelfThickness} />}
               </g>
             );
           }

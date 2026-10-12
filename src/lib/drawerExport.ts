@@ -618,7 +618,7 @@ function buildJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) =
     let floor = panelTop(plan, T); // the bottom panel's top, measured like slide marks (from the side's bottom edge)
     bottomUp.forEach((d, k) => {
       // A cubby has no slide; the next block stands on its shelf (or the bottom panel).
-      if (d.open) { floor = d.shelfY !== null ? d.shelfY + T - plan.sideBottom : floor; return; }
+      if (d.open) { floor = d.shelfY !== null ? d.shelfY + d.shelfThickness - plan.sideBottom : floor; return; }
       const height = r32(d.slideMark - floor);
       floor = d.slideMark + SLIDE_HEIGHT;
       if (height <= 0.05) return;

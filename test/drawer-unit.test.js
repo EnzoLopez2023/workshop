@@ -272,3 +272,20 @@ test('door shelves take their own plywood thickness', async () => {
   assert.equal(drawerDesignToFields(plain).doorShelfThickness, '');
   assert.equal(buildDrawerPlan(plain.config).parts.find(p => p.name === 'Door shelf').thickness, 0.75);
 });
+
+test('open cubby shelves take their own plywood thickness', () => {
+  const config = { ...base, drawers: 3, frontHeights: [6, 8, 12], openSlots: [false, true, false], cubbyShelfThickness: 0.5 };
+  const plan = buildDrawerPlan(config);
+  assert.deepEqual(plan.errors, []);
+  const cubby = plan.drawers[1];
+  assert.equal(cubby.shelfThickness, 0.5);
+  assert.equal(plan.parts.find(p => p.name === 'Cubby shelf').thickness, 0.5);
+  assert.equal(plan.parts.find(p => p.name === 'Side').thickness, 0.75);
+  const solid = drawerSolids(plan, config).find(s => s.name === `${cubby.label} shelf`);
+  assert.equal(solid.max[1] - solid.min[1], 0.5);
+  const saved = readSavedDrawerDesign(JSON.parse(JSON.stringify(toSavedDrawerDesign(config, 'in'))));
+  assert.equal(saved.config.cubbyShelfThickness, 0.5);
+  assert.equal(drawerDesignToFields(saved).cubbyShelfThickness, '1/2');
+  const plain = buildDrawerPlan({ ...config, cubbyShelfThickness: undefined });
+  assert.equal(plain.parts.find(p => p.name === 'Cubby shelf').thickness, 0.75);
+});
