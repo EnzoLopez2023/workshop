@@ -37,7 +37,9 @@ test('the sag check flags long spans and suggests a thicker shelf', () => {
 
 test('hardware follows the design', () => {
   const keys = config => hardwareList(buildShelfPlan(config), config, 'in').map(i => i.key);
-  assert.deepEqual(keys(base), ['glue', 'case-screws', 'brads', 'anti-tip', 'finish']);
+  // A back in the case stock is screwed (no brads); a thin back is bradded.
+  assert.deepEqual(keys(base), ['glue', 'case-screws', 'anti-tip', 'finish']);
+  assert.deepEqual(keys({ ...base, backThickness: 0.25 }), ['glue', 'case-screws', 'brads', 'anti-tip', 'finish']);
   assert.ok(keys({ ...base, edgeBanding: true }).includes('banding'), 'edge banding only when it is turned on');
   const fancy = { ...base, mounting: 'wall', adjustablePerBay: [2, 0, 1], doorsPerBay: [true, true, false], faceFrame: { enabled: true, stileWidth: 1.5, railWidth: 1.5, thickness: 0.75 } };
   const list = hardwareList(buildShelfPlan(fancy), fancy, 'in');

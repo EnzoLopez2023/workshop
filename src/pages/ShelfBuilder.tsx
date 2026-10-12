@@ -934,6 +934,7 @@ export default function ShelfBuilder() {
                   {form.backJoint === 'rabbet'
                     ? `In a ${cleat ? 'groove' : 'rabbet'} cut into each side${config ? `, ${fmt(config.thickness / 2)} deep` : ''} — stronger and hides the back's edges.`
                     : 'Between the sides, fastened to the back edges of the shelves.'}
+                  {plan?.backScrewed ? ' As thick as the case, it’s glued and screwed rather than bradded.' : ''}
                 </small>
               </div>
             )}
@@ -1078,7 +1079,7 @@ export default function ShelfBuilder() {
                   value={form.backThickness}
                   error={fieldErrors.backThickness}
                   placeholder={`Same as the case${config ? ` (${fmt(config.thickness)})` : ''}`}
-                  hint={`A thinner back (1/4″ or 1/2″) saves weight and money${form.backJoint === 'rabbet' ? '; the rabbet is cut to its thickness' : ''}. Leave blank to match the case.`}
+                  hint={`A thinner back (1/4″ or 1/2″) is bradded on and saves weight and money${form.backJoint === 'rabbet' ? '; the rabbet is cut to its thickness' : ''}. Blank matches the case: a stiff back that’s glued and screwed.`}
                   onChange={backThickness => update({ backThickness })}
                 />
                 <ThicknessChips units={units} label="Common back thicknesses" value={form.backThickness} onPick={backThickness => update({ backThickness })} sameAsCase back />

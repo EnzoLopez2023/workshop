@@ -117,3 +117,23 @@ test('shelf and back thicknesses survive saving and reopening', () => {
   assert.equal(old.shelfThickness, '');
   assert.equal(old.backThickness, '');
 });
+
+test('a back as thick as the case is glued and screwed; a thinner one is bradded', () => {
+  const thick = buildShelfPlan({ ...base, backJoint: 'inset' });
+  assert.equal(thick.backScrewed, true);
+  assert.match(part(thick, 'Back').note, /Glued and screwed/);
+  const hw = hardwareList(thick, { ...base, backJoint: 'inset' }, 'in');
+  assert.ok(!hw.some(h => h.key === 'brads'));
+  assert.match(hw.find(h => h.key === 'case-screws').note, /screws for the back/);
+  const steps = buildGuideSteps(thick, { ...base, backJoint: 'inset' }, 'in').steps;
+  assert.ok(steps.find(s => s.id === 'back').instructions.some(t => /screw through each side into the back’s edges/.test(t)));
+  const rabbeted = buildShelfPlan(base);
+  assert.ok(buildGuideSteps(rabbeted, base, 'in').steps.find(s => s.id === 'back').instructions.some(t => /screw through the back into the rabbets/.test(t)));
+  // The plain screw count grows by the back's screws.
+  const thinCfg = { ...base, backThickness: 0.25 };
+  const thin = buildShelfPlan(thinCfg);
+  assert.equal(thin.backScrewed, false);
+  const thinHw = hardwareList(thin, thinCfg, 'in');
+  assert.ok(thinHw.some(h => h.key === 'brads'));
+  assert.ok(hw.find(h => h.key === 'case-screws').uses > thinHw.find(h => h.key === 'case-screws').uses);
+});

@@ -160,6 +160,8 @@ export interface ShelfPlan {
   errors: string[];
   /** Rabbet/groove width cut into each side for the back (0 when the back is inset). */
   backRabbet: number;
+  /** A back as thick as the case is glued and screwed (brads won't hold it); a thinner one is bradded. */
+  backScrewed: boolean;
   pinHoles: PinHoleRun[];
   pinSpacing: number;
   pinDiameter: number;
@@ -261,6 +263,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   if (rabbet > 0 && bt > t + EPS) warnings.push(`A ${fmt(bt)} back is thicker than the ${fmt(t)} sides it's rabbeted into; inset it instead, or use thinner stock.`);
 
   const backThickness = hasBack ? bt : 0;
+  const backScrewed = hasBack && bt >= t - EPS;
   const cleatGap = cleat ? t : 0;
   const sideDepth = D + backThickness + cleatGap;
   const widthSum = widths.reduce((sum, w) => sum + w, 0);
@@ -373,7 +376,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
         length: backHeight,
         width: piece.width,
         thickness: bt,
-        note: piece.note,
+        note: backScrewed ? `${piece.note} Glued and screwed.` : piece.note,
       });
     }
   }
@@ -572,6 +575,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     warnings,
     errors,
     backRabbet: rabbet,
+    backScrewed,
     pinHoles,
     pinSpacing,
     pinDiameter,

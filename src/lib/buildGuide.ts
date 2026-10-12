@@ -583,7 +583,9 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
           ? `Drop the back into the ${cleat ? 'grooves' : 'rabbets'} in the sides, tight against the back of every shelf and divider.`
           : `Set the back ${f(config.shelfDepth)} from the front edge, tight against the back of every shelf and divider.`,
         backParts.length > 1 ? `The back is ${backParts.length} pieces; their seams land on the middle of a divider so each edge has something to fasten to.` : rabbet ? 'One piece spans the sides, its edges hidden in the rabbets.' : 'One piece fits between the sides.',
-        'Glue and fasten into every shelf, divider, top and bottom — this is what makes the unit rigid and square.',
+        plan.backScrewed
+          ? `Glue, then ${rabbet ? `screw through the back into the ${cleat ? 'grooves' : 'rabbets'} every 8″` : 'screw through each side into the back’s edges every 8″'}, and through the back into each shelf, divider, top and bottom every 10″ — pre-drill and countersink. A back this thick is too heavy for brads, and it’s what makes the unit rigid and square.`
+          : 'Glue and fasten into every shelf, divider, top and bottom — this is what makes the unit rigid and square.',
       ],
       parts: backParts.map(p => ({ name: p.name, qty: p.qty, size: `${f(p.length)} × ${f(p.width)}` })),
       tips: ['Square the case again before the first fastener; the back will lock it that way.'],

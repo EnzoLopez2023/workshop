@@ -128,22 +128,24 @@ export function hardwareList(plan: ShelfPlan, config: ShelfConfig, units: Length
   if (plan.kick > 0) caseScrews += 4;
   const cabinetCleat = plan.cleatGap > 0;
   if (cabinetCleat) caseScrews += Math.ceil(plan.innerSpan / 6) * 2; // cabinet cleat + bottom spacer through the back
+  // A back as thick as the case is screwed rather than bradded: around the edge every 8", into each shelf and divider every 10".
+  const backHeight = plan.overallHeight - plan.kick;
+  const backInto = plan.bays.reduce((sum, b) => sum + b.shelfYs.length * b.width, 0) + (n - 1) * backHeight;
+  if (plan.backScrewed) caseScrews += Math.ceil(2 * (plan.innerSpan + backHeight) / 8) + Math.ceil(backInto / 10);
   items.push({
     key: 'case-screws',
     name: `Wood screws, ${f(screwLength(t))}`,
     qty: boxes(caseScrews, 100),
     unit: 'box of 100',
     uses: caseScrews,
-    note: dado ? 'Dadoed joints are glued; screws pull them tight at the case corners.' : 'Pre-drill and countersink every one.',
+    note: `${dado ? 'Dadoed joints are glued; screws pull them tight at the case corners.' : 'Pre-drill and countersink every one.'}${plan.backScrewed ? ' Includes the screws for the back.' : ''}`,
     priceKey: 'caseScrews',
   });
 
-  if (plan.backThickness > 0) {
+  if (plan.backThickness > 0 && !plan.backScrewed) {
     // Around the perimeter every 6", and into each shelf and divider every 8".
-    const backHeight = plan.overallHeight - plan.kick;
     const perimeter = 2 * (plan.innerSpan + backHeight);
-    const into = plan.bays.reduce((sum, b) => sum + b.shelfYs.length * b.width, 0) + (n - 1) * backHeight;
-    const brads = Math.ceil(perimeter / 6) + Math.ceil(into / 8);
+    const brads = Math.ceil(perimeter / 6) + Math.ceil(backInto / 8);
     items.push({ key: 'brads', name: `Brad nails, ${f(1.25)}`, qty: boxes(brads, 1000), unit: 'box of 1000', uses: brads, note: 'For the back, with glue.', priceKey: 'brads' });
   }
 
