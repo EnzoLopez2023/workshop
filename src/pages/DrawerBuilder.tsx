@@ -1070,8 +1070,8 @@ export default function DrawerBuilder() {
     }
   };
 
-  const thicknessChips = (field: 'thickness' | 'boxThickness', presets: string[]) => (
-    <div className="shelf-chips" role="group" aria-label="Common plywood thicknesses">
+  const thicknessChips = (field: 'thickness' | 'boxThickness' | 'backThickness', presets: string[]) => (
+    <div className="shelf-chips" role="group" aria-label={field === 'backThickness' ? 'Common back thicknesses' : 'Common plywood thicknesses'}>
       {presets.map(preset => {
         const inches = parseLength(preset, units)!;
         const current = parseLength(form[field], units);
@@ -1970,8 +1970,16 @@ export default function DrawerBuilder() {
             <div className="shelf-field-grid">
               <LengthField unit={units} label="Drawer box plywood" value={form.boxThickness} error={fieldErrors.boxThickness} onChange={boxThickness => update({ boxThickness })} />
               <LengthField unit={units} label="Drawer bottoms" value={form.bottomThickness} error={fieldErrors.bottomThickness} onChange={bottomThickness => update({ bottomThickness })} />
-              <LengthField unit={units} label="Case back" value={form.backThickness} error={fieldErrors.backThickness} onChange={backThickness => update({ backThickness })} />
             </div>
+            <LengthField
+              unit={units}
+              label="Back panel plywood"
+              value={form.backThickness}
+              error={fieldErrors.backThickness}
+              hint={`The case back, let into a rabbet cut to its thickness, so it must be thinner than the case${config ? ` (${fmt(config.thickness)})` : ''}. 1/4″ is light and cheap; 1/2″ is stiffer and takes screws.`}
+              onChange={backThickness => update({ backThickness })}
+            />
+            {thicknessChips('backThickness', units === 'mm' ? ['6 mm', '9 mm', '12 mm'] : ['1/4"', '3/8"', '1/2"'])}
           </fieldset>
           </div>
 
