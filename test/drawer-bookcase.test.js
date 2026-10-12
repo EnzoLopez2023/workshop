@@ -180,3 +180,41 @@ test('open space above the counter: sides run down, bottom and shelves start hig
   assert.ok(!drawerSolids(dark, base).some(s => s.name === 'Bookcase light valance'));
   assert.match(buildDrawerPlan({ ...base, bookcase: bookcase({ height: 24, openBelow: 16 }) }).errors.join(' '), /room for shelves|less than 12"/);
 });
+
+test('the bookcase shelves and back take their own plywood; the rest stays the case stock', async () => {
+  const { bookcaseToFields, readBookcase, shelvesForOpening } = await import('../src/lib/drawerBookcase.ts');
+  const { sheetPriceKey } = await import('../src/lib/drawerEstimate.ts');
+  const p = plan({ bookcase: bookcase({ bays: 2, height: 48, depth: 12, shelvesPerBay: 1, adjustablePerBay: 1, shelfThickness: 1, backThickness: 0.25 }) });
+  assert.deepEqual(p.errors, []);
+  const thick = name => p.parts.find(x => x.name.startsWith(name)).thickness;
+  assert.equal(thick('Bookcase side'), 0.75);
+  assert.equal(thick('Bookcase top'), 0.75);
+  assert.equal(thick('Bookcase shelf'), 1);
+  assert.equal(thick('Bookcase adjustable shelf'), 1);
+  assert.equal(thick('Bookcase back'), 0.25);
+  // Still 12" deep overall: the thin back leaves more shelf.
+  close(p.bookcase.shelfConfig.shelfDepth, 11.75, 'shelf depth');
+  close(p.bookcase.shelfPlan.sideDepth, 12, 'side depth');
+  const solids = drawerSolids(p, base);
+  const shelf = solids.find(s => /^Bookcase bay 1 shelf 1$/i.test(s.name));
+  close(shelf.max[1] - shelf.min[1], 1, '1" shelf in 3D');
+  close(box(solids, 'Bookcase left side').max[2], p.caseDepth, 'back still flush with the case back');
+  // Thick shelf sheets get their own price.
+  assert.equal(sheetPriceKey(1, base), 'sheetThick');
+  // Saved, reopened and back as fields.
+  const read = readBookcase(JSON.parse(JSON.stringify(p.bookcase.config)));
+  assert.equal(read.shelfThickness, 1);
+  assert.equal(read.backThickness, 0.25);
+  const fields = bookcaseToFields(read, String);
+  assert.equal(fields.shelfThickness, '1');
+  assert.equal(fields.backThickness, '0.25');
+  const back = bookcaseFromFields(fields, key => Number(fields[key]));
+  assert.equal(back.shelfThickness, 1);
+  assert.equal(back.backThickness, 0.25);
+  // Blank fields follow the case.
+  const plain = bookcaseFromFields({ ...fields, shelfThickness: '', backThickness: '' }, key => Number(fields[key]));
+  assert.equal(plain.shelfThickness, undefined);
+  assert.equal(plain.backThickness, undefined);
+  // Fitting shelves counts the thicker shelf stock.
+  assert.ok(shelvesForOpening(48, 0, 0.75, 10, 1.5).each < shelvesForOpening(48, 0, 0.75, 10).each);
+});

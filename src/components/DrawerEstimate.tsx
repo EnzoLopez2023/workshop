@@ -19,7 +19,7 @@ function readPriceOverrides(): Partial<DrawerPrices> {
   }
 }
 
-const ROLE: Record<string, string> = { sheetCase: 'case and fronts', sheetBox: 'drawer boxes', sheetThin: 'back and bottoms' };
+const ROLE: Record<string, string> = { sheetCase: 'case and fronts', sheetBox: 'drawer boxes', sheetThin: 'backs and bottoms', sheetThick: 'shelves' };
 
 export function useDrawerEstimate(plan: DrawerPlan | null, config: DrawerConfig | null, units: LengthUnit) {
   const [overrides, setOverrides] = useState<Partial<DrawerPrices>>(readPriceOverrides);

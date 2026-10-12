@@ -46,6 +46,8 @@ interface Props {
 
 export default function DrawerBookcaseFields({ value: b, units, errors, plan, fmt, onChange, blockedReason, inRun = false }: Props) {
   const bp = plan?.bookcase ?? null;
+  // The shelves' own plywood when it's set, otherwise the case's.
+  const shelfStock = (caseT: number) => (b.shelfThickness?.trim() ? parseLength(b.shelfThickness, units) : null) ?? caseT;
   const setBays = (bays: number) => onChange({ bays, doors: Array.from({ length: bays }, (_, i) => b.doors[i] ?? false) });
   // Fill the bookcase for what it holds: depth, then as many shelves as clear the item.
   const applyPreset = (id: ShelfPresetId) => {
@@ -54,7 +56,7 @@ export default function DrawerBookcaseFields({ value: b, units, errors, plan, fm
     if (!preset || height === null) return;
     const T = plan?.bookcase?.shelfConfig.thickness ?? 0.75;
     const open = b.openSpace ? parseLength(b.openHeight ?? '', units) ?? 0 : 0;
-    const fit = shelvesForOpening(height, open, T, preset.opening);
+    const fit = shelvesForOpening(height, open, T, preset.opening, shelfStock(T));
     onChange({ depth: units === 'mm' ? String(Math.round(preset.depth * 25.4)) : String(preset.depth), shelves: fit.fixed, adjustable: fit.adjustable });
   };
   const fitNote = (() => {
@@ -63,7 +65,7 @@ export default function DrawerBookcaseFields({ value: b, units, errors, plan, fm
     const T = plan?.bookcase?.shelfConfig.thickness ?? 0.75;
     const open = b.openSpace ? parseLength(b.openHeight ?? '', units) ?? 0 : 0;
     const n = b.shelves + b.adjustable;
-    const each = (height - open - 2 * T - n * T) / (n + 1);
+    const each = (height - open - 2 * T - n * shelfStock(T)) / (n + 1);
     return each > 0 ? `Openings about ${fmt(Math.floor(each * 8) / 8)} tall` : '';
   })();
   return (
@@ -98,6 +100,16 @@ export default function DrawerBookcaseFields({ value: b, units, errors, plan, fm
               hint={b.seat === 'countertop' ? 'Back included; 10–12″ suits books and leaves a work surface.' : 'Back included; up to the case depth.'} onChange={depth => onChange({ depth })} />
             <LengthField unit={units} label="Ceiling height" value={b.ceilingHeight} error={errors.ceilingHeight} placeholder="Optional"
               hint="Checks it fits, and that you can tilt it up in place." onChange={ceilingHeight => onChange({ ceilingHeight })} />
+          </div>
+          <div className="shelf-field-grid">
+            <LengthField unit={units} label="Shelf plywood" value={b.shelfThickness ?? ''} error={errors.shelfThickness}
+              placeholder={`Same as the case${bp ? ` (${fmt(bp.shelfConfig.thickness)})` : ''}`}
+              hint="Fixed and adjustable shelves; thicker sags less. Blank matches the case."
+              onChange={shelfThickness => onChange({ shelfThickness })} />
+            <LengthField unit={units} label="Back plywood" value={b.backThickness ?? ''} error={errors.backThickness}
+              placeholder={`Same as the case${bp ? ` (${fmt(bp.shelfConfig.thickness)})` : ''}`}
+              hint={`The back${b.openSpace && !b.floating ? ' and backsplash' : ''}; 1/4″ or 1/2″ is lighter. Blank matches the case.`}
+              onChange={backThickness => onChange({ backThickness })} />
           </div>
           <div className="form-field">
             <label className="form-field-label" htmlFor="bookcase-preset">Shelves for</label>

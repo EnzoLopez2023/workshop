@@ -6,7 +6,7 @@ import { hardwareList, quantityLabel, type HardwareItem, type PriceKey } from '.
 import { formatLength, type LengthUnit } from './shelving.ts';
 
 export type DrawerPriceKey =
-  | 'sheetCase' | 'sheetBox' | 'sheetThin' | 'slidePair' | 'feetPack' | 'caster'
+  | 'sheetCase' | 'sheetBox' | 'sheetThin' | 'sheetThick' | 'slidePair' | 'feetPack' | 'caster'
   | 'glue' | 'caseScrews' | 'frontScrews' | 'brads' | 'antiTip' | 'edgeBanding' | 'finish'
   | 'shims' | 'baseboardFt'
   | 'deskLeg'
@@ -275,7 +275,8 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
 export function sheetPriceKey(thickness: number, config: DrawerConfig): DrawerPriceKey {
   if (Math.abs(thickness - config.thickness) < 1e-6) return 'sheetCase';
   if (Math.abs(thickness - config.boxThickness) < 1e-6) return 'sheetBox';
-  return 'sheetThin';
+  // Thicker than the case: bookcase shelves in heavier stock.
+  return thickness > config.thickness ? 'sheetThick' : 'sheetThin';
 }
 
 /** Rough US retail; every one is editable. */
@@ -284,6 +285,7 @@ export function defaultDrawerPrices(): DrawerPrices {
     sheetCase: 75,
     sheetBox: 60,
     sheetThin: 40,
+    sheetThick: 95,
     slidePair: 12,
     feetPack: 12,
     caster: 5,
@@ -314,6 +316,7 @@ export const DRAWER_PRICE_LABELS: Record<DrawerPriceKey, string> = {
   sheetCase: 'Case plywood, per sheet',
   sheetBox: 'Drawer-box plywood, per sheet',
   sheetThin: 'Back and bottom plywood, per sheet',
+  sheetThick: 'Thick shelf plywood, per sheet',
   slidePair: 'Drawer slides, per pair',
   feetPack: 'Leveling feet, per pack of 12',
   caster: 'Caster, each',

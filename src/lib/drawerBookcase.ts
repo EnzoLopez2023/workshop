@@ -22,6 +22,10 @@ export interface BookcaseConfig {
   adjustablePerBay: number;
   /** Per bay: a door over it. */
   doors: boolean[];
+  /** Fixed and adjustable shelves' plywood; left out, the cabinet's case plywood. */
+  shelfThickness?: number;
+  /** The back panel's plywood; left out, the cabinet's case plywood. */
+  backThickness?: number;
   countertop: {
     material: 'plywood' | 'butcher';
     /** Butcher block thickness; a plywood top is `layers` of the case plywood. */
@@ -109,11 +113,12 @@ export type ShelfPresetId = typeof SHELF_PRESETS[number]['id'];
  * How many shelves fit a bookcase so every opening is at least `opening` tall: one fixed
  * shelf in a dado once there are three or more (it stiffens the case), the rest on pins.
  */
-export function shelvesForOpening(height: number, openBelow: number, thickness: number, opening: number): { fixed: number; adjustable: number; each: number } {
+/** `shelfThickness` defaults to the case `thickness` (the top and bottom). */
+export function shelvesForOpening(height: number, openBelow: number, thickness: number, opening: number, shelfThickness = thickness): { fixed: number; adjustable: number; each: number } {
   const usable = height - openBelow - 2 * thickness;
-  const n = Math.max(0, Math.floor((usable - opening) / (opening + thickness) + 1e-9));
+  const n = Math.max(0, Math.floor((usable - opening) / (opening + shelfThickness) + 1e-9));
   const fixed = n >= 3 ? 1 : 0;
-  return { fixed, adjustable: n - fixed, each: (usable - n * thickness) / (n + 1) };
+  return { fixed, adjustable: n - fixed, each: (usable - n * shelfThickness) / (n + 1) };
 }
 
 /** A cord grommet: a hole this size through the countertop. */
@@ -199,8 +204,11 @@ export function bookcaseShelfConfig(bk: BookcaseConfig, ctx: Pick<BookcaseContex
   const n = Math.max(1, Math.floor(bk.bays));
   return {
     thickness: T,
+    shelfThickness: bk.shelfThickness,
+    backThickness: bk.backThickness,
     bayWidth: (ctx.width - (n + 1) * T) / n,
-    shelfDepth: bk.depth - T,
+    // The depth includes the back, whatever its thickness.
+    shelfDepth: bk.depth - (bk.backThickness ?? T),
     height: bk.height,
     bays: n,
     shelvesPerBay: Array.from({ length: n }, () => Math.max(0, Math.floor(bk.shelvesPerBay))),
@@ -504,6 +512,8 @@ export function readBookcase(raw: unknown): BookcaseConfig | undefined {
     shelvesPerBay: Math.floor(n(v.shelvesPerBay, 0, 12, d.shelvesPerBay)),
     adjustablePerBay: Math.floor(n(v.adjustablePerBay, 0, 12, d.adjustablePerBay)),
     doors: Array.from({ length: bays }, (_, i) => Array.isArray(v.doors) && v.doors[i] === true),
+    ...(typeof v.shelfThickness === 'number' && v.shelfThickness >= 0.05 && v.shelfThickness <= 3 ? { shelfThickness: v.shelfThickness } : {}),
+    ...(typeof v.backThickness === 'number' && v.backThickness >= 0.05 && v.backThickness <= 3 ? { backThickness: v.backThickness } : {}),
     countertop: {
       material: c.material === 'butcher' ? 'butcher' : 'plywood',
       thickness: n(c.thickness, 0.25, 4, d.countertop.thickness),
@@ -539,6 +549,9 @@ export interface BookcaseFields {
   shelves: number;
   adjustable: number;
   doors: boolean[];
+  /** '' (or left out): the same as the cabinet's case plywood. */
+  shelfThickness?: string;
+  backThickness?: string;
   counterMaterial: 'plywood' | 'butcher';
   counterThickness: string;
   counterLayers: 1 | 2;
@@ -562,7 +575,7 @@ export interface BookcaseFields {
 }
 
 export const BOOKCASE_LENGTH_KEYS = [
-  'height', 'depth', 'counterThickness', 'overhangFront', 'overhangSides', 'capProjection', 'crownHeight', 'crownProjection', 'openHeight', 'valanceHeight', 'ceilingHeight',
+  'height', 'depth', 'shelfThickness', 'backThickness', 'counterThickness', 'overhangFront', 'overhangSides', 'capProjection', 'crownHeight', 'crownProjection', 'openHeight', 'valanceHeight', 'ceilingHeight',
 ] as const;
 
 export function bookcaseToFields(c: BookcaseConfig | undefined, L: (inches: number) => string): BookcaseFields {
@@ -576,6 +589,8 @@ export function bookcaseToFields(c: BookcaseConfig | undefined, L: (inches: numb
     shelves: b.shelvesPerBay,
     adjustable: b.adjustablePerBay,
     doors: Array.from({ length: b.bays }, (_, i) => b.doors[i] === true),
+    shelfThickness: b.shelfThickness ? L(b.shelfThickness) : '',
+    backThickness: b.backThickness ? L(b.backThickness) : '',
     counterMaterial: b.countertop.material,
     counterThickness: L(b.countertop.thickness),
     counterLayers: b.countertop.layers,
@@ -615,6 +630,8 @@ export function bookcaseFromFields(
     shelvesPerBay: fields.shelves,
     adjustablePerBay: fields.adjustable,
     doors: Array.from({ length: fields.bays }, (_, i) => fields.doors[i] === true),
+    ...(fields.shelfThickness?.trim() ? { shelfThickness: num('shelfThickness') } : {}),
+    ...(fields.backThickness?.trim() ? { backThickness: num('backThickness') } : {}),
     countertop: {
       material: fields.counterMaterial,
       thickness: counter && butcher ? num('counterThickness') : DEFAULT_BOOKCASE.countertop.thickness,
