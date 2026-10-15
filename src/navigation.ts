@@ -16,7 +16,7 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     compactLabel: 'Projects',
     href: '/',
     exact: true,
-    matchPrefixes: ['/projects', '/shaper', '/bambu', '/library'],
+    matchPrefixes: ['/projects', '/shaper', '/bambu'],
   },
   {
     id: 'shopping',
@@ -73,11 +73,6 @@ export const APP_ROUTE_PATHS = [
   '/bambu/new',
   '/bambu/:id',
   '/bambu/:id/edit',
-  '/library/organize',
-  '/library/inbox',
-  '/library/review',
-  '/library/manage',
-  '/library/:id',
   '/conversions',
   '/shelves',
   '/built-ins',
@@ -101,11 +96,6 @@ export function routeTitleForPath(pathname: string): string {
   if (pathname === '/bambu/new') return 'New Bambu Project · Workshop';
   if (/^\/bambu\/[^/]+\/edit$/.test(pathname)) return 'Edit Bambu Project · Workshop';
   if (/^\/bambu\/[^/]+$/.test(pathname)) return 'Bambu Project · Workshop';
-  if (pathname === '/library/organize') return 'Organize Library · Workshop';
-  if (pathname === '/library/inbox') return 'Library Inbox · Workshop';
-  if (pathname === '/library/review') return 'Library Review · Workshop';
-  if (pathname === '/library/manage') return 'Library Categories & Collections · Workshop';
-  if (/^\/library\/[^/]+$/.test(pathname)) return 'Model · Workshop';
   if (pathname === '/conversions') return 'Conversion Tables · Workshop';
   if (pathname === '/shelves') return 'Shelf Builder · Workshop';
   if (pathname === '/built-ins' || pathname === '/drawers') return 'Built-in Studio · Workshop';
@@ -124,18 +114,17 @@ export function isNavigationItemCurrent(item: NavigationItem, pathname: string):
   return item.matchPrefixes.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-export type DashboardPage = 'projects' | 'shaper' | 'bambu' | 'library';
+export type DashboardPage = 'projects' | 'shaper' | 'bambu';
 
 export const DASHBOARD_PAGE_STORAGE_KEY = 'workshop-dashboard-page';
 
 export function readDashboardPage(value: string | null): DashboardPage {
-  return value === 'shaper' || value === 'bambu' || value === 'library' ? value : 'projects';
+  return value === 'shaper' || value === 'bambu' ? value : 'projects';
 }
 
 export function dashboardPageForPath(pathname: string): DashboardPage | null {
   if (pathname === '/shaper' || pathname.startsWith('/shaper/')) return 'shaper';
   if (pathname === '/bambu' || pathname.startsWith('/bambu/')) return 'bambu';
-  if (pathname === '/library' || pathname.startsWith('/library/')) return 'library';
   if (pathname === '/projects' || pathname.startsWith('/projects/')) return 'projects';
   return null;
 }

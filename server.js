@@ -33,13 +33,6 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { fileTypeFromFile } from 'file-type';
 import { createBackupBundle, resolveStorageConfig } from './recovery.js';
 import { loadDeploymentInfo } from './deployment-info.js';
-import {
-  buildLibraryStmts,
-  importShapePilotJobs,
-  initLibrarySchema,
-  registerLibraryRoutes,
-  registerLibrarySyncRoutes,
-} from './library-server.js';
 
 dotenv.config();
 
@@ -451,7 +444,6 @@ db.prepare(`
   VALUES (1, ?, ?)
 `).run(randomUUID(), acceptLegacySessionTokens ? 1 : 0);
 
-initLibrarySchema(db);
 }
 
 // ── Prepared statements ───────────────────────────────────────────────────────
@@ -820,7 +812,6 @@ function buildStmts(db) {
   // UNION-based link listing doesn't double-count an unordered pair.
   reverseLinkExists:  db.prepare(`SELECT 1 FROM project_links WHERE project_id = ? AND linked_project_id = ?`),
 
-  library: buildLibraryStmts(db),
   };
 }
 
@@ -3045,16 +3036,12 @@ function isExemptPath(path) {
     || path === '/ready'
     || /^\/images\/\d+$/.test(path)
     || /^\/bambu-assets\/\d+\/image$/.test(path)
-    || /^\/build-log\/\d+\/image$/.test(path)
-    || /^\/library\/thumbs\/[0-9a-f]{64}$/.test(path);
+    || /^\/build-log\/\d+\/image$/.test(path);
 }
 
 const app = express();
 app.set('trust proxy', 1);   // IIS/ARR is one hop in front
-// Library sync batches from the local organizer are larger than the default
-// 100 KB limit; those routes parse their own bodies (see library-server.js).
-const defaultJsonParser = express.json();
-app.use((req, res, next) => (req.path.startsWith('/api/library/sync/') ? next() : defaultJsonParser(req, res, next)));
+app.use(express.json());
 app.use(express.static(join(__dirname, 'dist')));
 app.use('/api', recoveryStorageGate);
 
@@ -3255,12 +3242,6 @@ app.post(
     });
   }
 );
-
-registerLibrarySyncRoutes(app, {
-  getExistingUserDb,
-  beginActiveUserOperation,
-  userKeyRe: USER_KEY_RE,
-});
 
 app.use('/api', (req, res, next) => {
   // Exemption is GET-only — only `<img>`/`<iframe>` loads need it. Any write
@@ -4966,38 +4947,8 @@ app.delete('/api/shaper-projects/:id', async (req, res) => {
   res.json({ success: true });
 });
 
-// ── Library hub (3D model files indexed from the owner's Mac) ─────────────────
-
-const SHAPEPILOT_PRINT_HISTORY = {
-  url: process.env.SHAPEPILOT_URL || '',
-  key: process.env.SHAPEPILOT_INTEGRATION_KEY || '',
-};
-
-registerLibraryRoutes(app, {
-  // ShapePilot is a single-owner app; only the primary Workshop account may read its print history.
-  isPrimaryUser: req => Boolean(PRIMARY_USER_OID) && req.user?.userKey === PRIMARY_USER_OID,
-  shapePilot: SHAPEPILOT_PRINT_HISTORY,
-  resolveReadDb,
-});
-
-let libraryPrintHistoryTimer = null;
-
-function startLibraryPrintHistorySchedule() {
-  if (!PRIMARY_USER_OID || !SHAPEPILOT_PRINT_HISTORY.url || !SHAPEPILOT_PRINT_HISTORY.key) return;
-  const run = () => {
-    try {
-      const { stmts } = getUserDb(PRIMARY_USER_OID);
-      importShapePilotJobs(stmts.library, SHAPEPILOT_PRINT_HISTORY)
-        .then(result => console.log('[library] print history', result))
-        .catch(err => console.error('[library] print history sync failed:', err.message));
-    } catch (err) {
-      console.error('[library] print history sync failed:', err.message);
-    }
-  };
-  libraryPrintHistoryTimer = setInterval(run, 60 * 60 * 1000);
-  libraryPrintHistoryTimer.unref();
-  setTimeout(run, 30_000).unref();
-}
+// Library hub removed: the model Library (and its Mac organizer) moved to
+// ShapePilot on 2026-10-15. The library_* tables are left in place but unused.
 
 // Notebook routes removed: the Workshop notebook UI is now a read-only view
 // onto a Tabloom notebook (see src/services/tabloomApi.ts). The notebook_pages
@@ -5011,7 +4962,6 @@ app.get('/{*path}', (_req, res) => {
 
 function closeAllDatabases() {
   stopRecoverySchedule();
-  if (libraryPrintHistoryTimer) clearInterval(libraryPrintHistoryTimer);
   for (const { db } of dbHandles.values()) {
     if (db.open) db.close();
   }
@@ -5026,7 +4976,6 @@ if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`Workshop API listening on http://localhost:${PORT}`);
     startRecoverySchedule();
-    startLibraryPrintHistorySchedule();
   });
 }
 

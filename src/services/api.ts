@@ -11,8 +11,6 @@ import type {
   MakerWorldBridgeJob, MakerWorldBridgeStart,
   ProviderConnections, ThingiverseConnectionStatus,
   BuildLogEntry, FinishLogEntry, ShoppingListItem, TemplateListItem,
-  LibraryDevice, LibraryDuplicateGroup, LibraryModel, LibraryModelDetail, LibraryModelPage,
-  LibraryCollection, LibraryModelQuery, LibraryOverview, LibraryPlan, LibraryPrint, LibrarySmartQuery, LibraryStatus,
 } from '../types/project';
 
 const BASE = '/api';
@@ -470,97 +468,5 @@ export const deleteTemplate = (id: number) =>
 // notebook UI is a read-only window onto Tabloom's "Workshop" notebook. See
 // src/services/tabloomApi.ts.
 
-// ── Library hub ───────────────────────────────────────────────────────────────
-
-export const libraryThumbUrl = (hash: string) => {
-  const userKey = currentUserKey();
-  return userKey
-    ? `${BASE}/library/thumbs/${hash}?userKey=${encodeURIComponent(userKey)}`
-    : `${BASE}/library/thumbs/${hash}`;
-};
-
-export const getLibraryOverview = () => request<LibraryOverview>('/library/overview');
-
-function libraryQueryString(query: LibraryModelQuery) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) {
-    if (value === undefined || value === '' || value === false) continue;
-    params.set(key, value === true ? '1' : String(value));
-  }
-  const qs = params.toString();
-  return qs ? `?${qs}` : '';
-}
-
-export const listLibraryModels = (query: LibraryModelQuery = {}) =>
-  request<LibraryModelPage>(`/library/models${libraryQueryString(query)}`);
-
-/** Every model id matching the filters, in display order (limit/offset are ignored). */
-export const listLibraryModelIds = (query: LibraryModelQuery = {}) =>
-  request<{ ids: string[] }>(`/library/model-ids${libraryQueryString(query)}`);
-
-export const getLibraryModel = (id: string) =>
-  request<LibraryModelDetail>(`/library/models/${encodeURIComponent(id)}`);
-
-export interface LibraryModelUpdate {
-  title?: string;
-  status?: LibraryStatus;
-  tags?: string[];
-  notes?: string;
-  favorite?: boolean;
-  designer?: string | null;
-  source_url?: string | null;
-  bambu_project_id?: number | null;
-}
-
-export const updateLibraryModel = (id: string, update: LibraryModelUpdate) =>
-  request<LibraryModel>(`/library/models/${encodeURIComponent(id)}`, json('PUT', update));
-
-export const logLibraryPrint = (id: string, print: { result: 'completed' | 'failed'; notes?: string; started_at?: string }) =>
-  request<LibraryPrint>(`/library/models/${encodeURIComponent(id)}/prints`, json('POST', print));
-
-export const deleteLibraryPrint = (id: number) =>
-  request<void>(`/library/prints/${id}`, { method: 'DELETE' });
-
-export const listLibraryMatches = () => request<LibraryPrint[]>('/library/matches');
-
-export const confirmLibraryMatch = (printId: number, modelId?: string) =>
-  request<LibraryPrint>(`/library/matches/${printId}/confirm`, json('POST', { model_id: modelId }));
-
-export const rejectLibraryMatch = (printId: number) =>
-  request<LibraryPrint>(`/library/matches/${printId}/reject`, json('POST'));
-
-export const syncLibraryPrintHistory = () =>
-  request<{ imported: number; auto: number; suggested: number; unmatched: number }>('/library/print-history/sync', json('POST'));
-
-export const listLibraryCollections = () => request<LibraryCollection[]>('/library/collections');
-
-export const createLibraryCollection = (collection: {
-  name: string;
-  kind: LibraryCollection['kind'];
-  query?: LibrarySmartQuery;
-  model_ids?: string[];
-}) => request<LibraryCollection>('/library/collections', json('POST', collection));
-
-export const updateLibraryCollection = (id: number, update: { name?: string; query?: LibrarySmartQuery }) =>
-  request<LibraryCollection>(`/library/collections/${id}`, json('PUT', update));
-
-export const deleteLibraryCollection = (id: number) =>
-  request<void>(`/library/collections/${id}`, { method: 'DELETE' });
-
-export const addToLibraryCollection = (id: number, modelId: string) =>
-  request<void>(`/library/collections/${id}/models/${encodeURIComponent(modelId)}`, { method: 'PUT' });
-
-export const removeFromLibraryCollection = (id: number, modelId: string) =>
-  request<void>(`/library/collections/${id}/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' });
-
-export const listLibraryDuplicates = () => request<LibraryDuplicateGroup[]>('/library/duplicates');
-
-export const getLibraryPlan = () => request<LibraryPlan | null>('/library/plan');
-
-export const listLibraryDevices = () => request<LibraryDevice[]>('/library/devices');
-
-export const createLibraryDevice = (name: string) =>
-  request<{ id: number; name: string; token: string }>('/library/devices', json('POST', { name }));
-
-export const revokeLibraryDevice = (id: number) =>
-  request<void>(`/library/devices/${id}`, { method: 'DELETE' });
+// Library hub removed: the model Library moved to ShapePilot
+// (shapepilot.nintek.com/library, 2026-10-15).

@@ -25,11 +25,6 @@ const BuiltinProjectPage = lazy(() => import('./pages/BuiltinProjectPage'));
 const NotebookList = lazy(() => import('./pages/NotebookList'));
 const NotebookPage = lazy(() => import('./pages/NotebookPage'));
 const Settings = lazy(() => import('./pages/Settings'));
-const LibraryModelDetail = lazy(() => import('./pages/LibraryModelDetail'));
-const LibraryOrganize = lazy(() => import('./pages/LibraryOrganize'));
-const LibraryInbox = lazy(() => import('./pages/LibraryInbox'));
-const LibraryReview = lazy(() => import('./pages/LibraryReview'));
-const LibraryManage = lazy(() => import('./pages/LibraryManage'));
 
 function AppRoutes() {
   const location = useLocation();
@@ -82,11 +77,6 @@ function AppRoutes() {
               <Route path="/bambu/new"         element={<BambuProjectForm />} />
               <Route path="/bambu/:id"         element={<BambuProjectDetail />} />
               <Route path="/bambu/:id/edit"    element={<BambuProjectForm />} />
-              <Route path="/library/organize"  element={<LibraryOrganize />} />
-              <Route path="/library/inbox"     element={<LibraryInbox />} />
-              <Route path="/library/review"    element={<LibraryReview />} />
-              <Route path="/library/manage"    element={<LibraryManage />} />
-              <Route path="/library/:id"       element={<LibraryModelDetail />} />
               <Route path="/conversions"       element={<ConversionTables />} />
               <Route path="/shelves"           element={<ShelfBuilder />} />
               <Route path="/built-ins"         element={<DrawerBuilder />} />
