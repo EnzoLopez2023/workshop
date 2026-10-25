@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, FolderPlus, LayoutGrid, Loader2, Printer, RotateCcw, Save,
+  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, FolderPlus, LayoutGrid, Loader2, Printer, RotateCcw, Save, Trash2,
 } from 'lucide-react';
 import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
 import { DimH, DimV, LengthField, Stat, Stepper, Toggle } from '../components/builderControls';
@@ -22,7 +22,7 @@ import { DRAWER_PRICE_LABELS } from '../lib/drawerEstimate';
 import DrawerAddToProject from '../components/DrawerAddToProject';
 import DrawerBuildGuide from '../components/DrawerBuildGuide';
 import {
-  createLibraryDrawerDesign, getDrawerDesign, getLibraryDrawerDesign, getProject, listLibraryDrawerDesigns, updateLibraryDrawerDesign,
+  createLibraryDrawerDesign, deleteLibraryDrawerDesign, getDrawerDesign, getLibraryDrawerDesign, getProject, listLibraryDrawerDesigns, updateLibraryDrawerDesign,
 } from '../services/api';
 import { isDemoMode } from '../demo/demoMode';
 import type { LibraryDrawerDesign } from '../types/project';
@@ -602,6 +602,7 @@ export default function DrawerBuilder() {
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(storedSource.snapshot);
   const pendingSnapshot = useRef(false);
   const [naming, setNaming] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [designName, setDesignName] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -861,6 +862,8 @@ export default function DrawerBuilder() {
     } catch { /* convenience only */ }
   }, [source, savedSnapshot]);
   const openDesign = source?.kind === 'library' ? source : null;
+  const openDesignId = openDesign?.id;
+  useEffect(() => setConfirmDelete(false), [openDesignId]);
   const dirty = Boolean(openDesign && currentSnapshot && savedSnapshot && currentSnapshot !== savedSnapshot);
 
   useEffect(() => {
@@ -903,6 +906,23 @@ export default function DrawerBuilder() {
       setSaveMessage({ ok: true, text: `Saved as “${entry.name}”. Find it on the Projects page or under Start from.` });
     } catch (err) {
       setSaveMessage({ ok: false, text: `The design wasn’t saved: ${errorText(err)}` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteOpenDesign = async () => {
+    if (!openDesign || saving) return;
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      await deleteLibraryDrawerDesign(openDesign.id);
+      setConfirmDelete(false);
+      setSource(null);
+      setSavedSnapshot(null);
+      setSaveMessage({ ok: true, text: `Deleted “${openDesign.title}”. The design on screen is now unsaved.` });
+    } catch (err) {
+      setSaveMessage({ ok: false, text: `The design wasn’t deleted: ${errorText(err)}` });
     } finally {
       setSaving(false);
     }
@@ -1259,6 +1279,17 @@ export default function DrawerBuilder() {
             {openDesign && hasPrevious && (
               <Button variant="ghost" onClick={restorePrevious}><RotateCcw size={16} aria-hidden="true" /> Restore previous design</Button>
             )}
+            {openDesign && (confirmDelete ? (
+              <>
+                <span className="is-muted">Delete “{openDesign.title}”? It’s also removed from any room using it.</span>
+                <Button variant="danger" onClick={() => void deleteOpenDesign()} disabled={saving}>Delete</Button>
+                <Button variant="ghost" onClick={() => setConfirmDelete(false)} disabled={saving}>Keep</Button>
+              </>
+            ) : (
+              <Button variant="ghost" onClick={() => setConfirmDelete(true)} disabled={saving}>
+                <Trash2 size={16} aria-hidden="true" /> Delete design
+              </Button>
+            ))}
           </span>
         )}
         {saveMessage && (
