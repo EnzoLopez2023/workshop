@@ -9899,7 +9899,7 @@ tbody td {
 .wb-page {
   width: 100%;
   max-width: none !important;
-  padding: 12px 16px 40px;
+  padding: 12px 16px 12px;
 }
 
 .wb-topbar {
@@ -9974,7 +9974,7 @@ tbody td {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr) 330px;
   grid-template-rows: minmax(0, 1fr) auto;
-  height: max(560px, calc(100dvh - 230px));
+  height: max(420px, calc(100dvh - var(--workbench-top, 230px) - var(--wb-bottom-gap, 12px)));
   border: 1px solid var(--color-divider);
   border-top: 0;
   border-radius: 0 0 var(--radius-compact) var(--radius-compact);
@@ -10284,4 +10284,214 @@ tbody td {
 
 .wb-inspector .shelf-stepper {
   justify-self: end;
+}
+
+/* The design name and save actions sit in the top bar. */
+.wb-topbar .shelf-design-bar {
+  flex: 1 1 320px;
+  flex-wrap: nowrap;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.wb-topbar .shelf-design-bar-name strong {
+  font-size: 0.9rem;
+}
+
+.wb-topbar .wb-topbar-actions {
+  margin-left: 0;
+}
+
+.wb-topbar .shelf-design-bar-name {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.wb-topbar .shelf-design-bar .is-muted {
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+/* ── Workbench controls: flat, compact, instrument-panel styling ───────────── */
+.wb-page {
+  --wb-radius: 4px;
+  --wb-control-h: 28px;
+}
+
+.wb-page .btn {
+  min-height: var(--wb-control-h);
+  padding: 4px 10px;
+  gap: 6px;
+  border-radius: var(--wb-radius);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.wb-page .btn:active:not(:disabled) {
+  transform: none;
+}
+
+.wb-page .btn-ghost {
+  color: var(--color-ink);
+}
+
+.wb-page .btn-ghost:hover:not(:disabled) {
+  background: var(--tint-amber);
+}
+
+.wb-page .btn-primary {
+  box-shadow: none;
+}
+
+.wb-page .btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Ribbon-style tabs: an underline marks the open workspace. */
+.wb-tabs {
+  align-self: stretch;
+  gap: 0;
+  margin-left: 6px;
+}
+
+.wb-tab {
+  position: relative;
+  padding: 6px 14px;
+  border-radius: 0;
+  font-size: 0.8rem;
+}
+
+.wb-tab[aria-selected="true"] {
+  background: transparent;
+  color: var(--color-ink);
+}
+
+.wb-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 8px 0;
+  height: 2px;
+  background: var(--color-action);
+}
+
+/* Segmented switches: a flat pill track, the active choice raised. */
+.wb-page .segmented-control {
+  grid-auto-columns: minmax(0, 1fr);
+  padding: 2px;
+  border-radius: var(--wb-radius);
+}
+
+.wb-page .segmented-control button {
+  min-height: 24px;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.wb-page .segmented-control button[aria-pressed="true"] {
+  background: var(--color-action-fill);
+  box-shadow: none;
+}
+
+.wb-inspector .segmented-control {
+  display: grid;
+  width: 100%;
+}
+
+/* Fields: a thin outline, tabular numbers, the unit quiet at the end. */
+.wb-page input:not([type="checkbox"]):not([type="radio"]),
+.wb-page select {
+  min-height: var(--wb-control-h);
+  padding: 2px 8px;
+  border-radius: var(--wb-radius);
+  background: var(--color-canvas);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-page input:focus,
+.wb-page select:focus {
+  box-shadow: 0 0 0 1px var(--color-annotation);
+}
+
+.wb-page .shelf-inch-input input {
+  padding-right: 28px;
+  text-align: right;
+}
+
+.wb-page .shelf-inch-input > span {
+  right: 8px;
+  font-size: 0.7rem;
+}
+
+.wb-page select {
+  padding-right: 22px;
+}
+
+/* Checkboxes: small squares in a tight row. */
+.wb-page .shelf-toggle {
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.wb-page .shelf-toggle input,
+.wb-page input[type="checkbox"] {
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  min-height: 14px;
+  margin: 0;
+  flex: 0 0 14px;
+  border-radius: 3px;
+}
+
+.wb-page .shelf-toggle-label {
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+/* Steppers: a compact [-] n [+] control. */
+.wb-page .shelf-stepper {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--wb-radius);
+  background: var(--color-canvas);
+}
+
+.wb-page .shelf-stepper .icon-btn,
+.wb-page .shelf-stepper button {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border-radius: 0;
+}
+
+.wb-page .shelf-stepper output {
+  min-width: 3ch;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.wb-inspector .shelf-bay-card {
+  border-radius: var(--wb-radius);
+  background: var(--color-canvas);
+}
+
+.wb-inspector .shelf-sag,
+.wb-inspector .builder-issues {
+  border-radius: var(--wb-radius);
+}
+
+.wb-inspector .form-field {
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
 }

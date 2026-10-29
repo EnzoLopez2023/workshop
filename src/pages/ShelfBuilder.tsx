@@ -12,6 +12,7 @@ import { CostTable, HardwareTable, money, useShelfEstimate } from '../components
 import ShelfExport from '../components/ShelfExport';
 import ShelfLibrary from '../components/ShelfLibrary';
 import { TutorialButton } from '../tour/TourLaunchers';
+import { useWorkbenchTop } from '../components/useWorkbenchTop';
 import type { BuilderStep } from '../components/BuilderStepNav';
 import type { ShelfTemplate } from '../lib/shelfTemplates';
 import { createLibraryShelfDesign, getLibraryShelfDesign, getProject, getShelfDesign, updateLibraryShelfDesign } from '../services/api';
@@ -115,6 +116,7 @@ const BAY_WIDTH_OPTIONS = [
 const CUTOUT_SHAPE_OPTIONS = [
   { value: 'curve', label: 'Scoop' },
   { value: 'square', label: 'Square notch' },
+  { value: 'alex', label: 'ALEX notch' },
 ] as const;
 
 const BACK_JOINT_OPTIONS = [
@@ -359,6 +361,9 @@ function readStoredSource(): { source: DesignSource | null; snapshot: string | n
 export default function ShelfBuilder() {
   const navigate = useNavigate();
   // What the inspector shows: the whole unit, or one bay picked in the tree or the 3D view.
+  // The workbench fills the window below the top bar: its top is measured so it ends at the bottom edge.
+  const gridRef = useRef<HTMLDivElement>(null);
+  useWorkbenchTop(gridRef);
   const [selectedBay, setSelectedBay] = useState<number | null>(null);
   const [tab, setTab] = useState<WorkbenchTab>('model');
   const [closedSteps, setClosedSteps] = useState<string[]>([]);
@@ -747,44 +752,6 @@ export default function ShelfBuilder() {
             <button key={t.value} type="button" role="tab" aria-selected={tab === t.value} className="wb-tab" onClick={() => setTab(t.value)}>{t.label}</button>
           ))}
         </div>
-        <span className="wb-topbar-actions">
-          <TutorialButton tour="shelves" />
-          <Button variant={showLibrary ? 'secondary' : 'ghost'} onClick={() => setShowLibrary(open => !open)} aria-expanded={showLibrary} aria-controls="shelf-library">
-            <Library size={16} aria-hidden="true" /> Library
-          </Button>
-          <Button variant="ghost" onClick={() => { setSelectedBay(null); setForm(convertForm(DEFAULT_FORM, units)); }}>
-            <RotateCcw size={16} aria-hidden="true" /> Reset design
-          </Button>
-        </span>
-      </header>
-
-      {showLibrary && (
-        <div id="shelf-library">
-          <ShelfLibrary
-            config={valid ? config : null}
-            units={units}
-            heightMode={form.heightMode}
-            openId={source?.kind === 'library' ? source.id : null}
-            templateConfig={templateConfig}
-            onUseTemplate={template => applyDesign(
-              convertForm(normalizeBays({ ...DEFAULT_FORM, ...template.fields, units: 'in' }), units),
-              { kind: 'template', title: template.name },
-            )}
-            onOpen={({ id, name, saved }) => applyDesign(shelfDesignToFields(saved), { kind: 'library', id, title: name })}
-            onSaved={({ id, name }) => { setSource({ kind: 'library', id, title: name }); setSavedSnapshot(currentSnapshot); }}
-            onClose={() => setShowLibrary(false)}
-          />
-        </div>
-      )}
-
-      <div className="wb-docbar">
-          <div className="builder-config-top">
-      {loadNotice && (
-        <p className={`shelf-source-banner ${loadNotice.tone === 'error' ? 'is-error' : ''}`} role={loadNotice.tone === 'error' ? 'alert' : 'status'}>
-          {loadNotice.tone === 'error' && <AlertCircle size={16} aria-hidden="true" />}
-          <span>{loadNotice.text}</span>
-        </p>
-      )}
       <div className="shelf-design-bar" role="region" aria-label="Saved design">
         <div className="shelf-design-bar-name">
           <Save size={16} aria-hidden="true" />
@@ -829,14 +796,46 @@ export default function ShelfBuilder() {
             )}
           </span>
         )}
-        {saveMessage && (
-          <p className={saveMessage.ok ? 'shelf-add-project-ok' : 'shelf-add-project-error'} role="status">
-            {saveMessage.ok ? <Check size={16} aria-hidden="true" /> : <AlertCircle size={16} aria-hidden="true" />}
-            <span>{saveMessage.text}</span>
-          </p>
-        )}
       </div>
+        <span className="wb-topbar-actions">
+          <TutorialButton tour="shelves" />
+          <Button variant={showLibrary ? 'secondary' : 'ghost'} onClick={() => setShowLibrary(open => !open)} aria-expanded={showLibrary} aria-controls="shelf-library">
+            <Library size={16} aria-hidden="true" /> Library
+          </Button>
+          <Button variant="ghost" onClick={() => { setSelectedBay(null); setForm(convertForm(DEFAULT_FORM, units)); }}>
+            <RotateCcw size={16} aria-hidden="true" /> Reset design
+          </Button>
+        </span>
+      </header>
 
+      {showLibrary && (
+        <div id="shelf-library">
+          <ShelfLibrary
+            config={valid ? config : null}
+            units={units}
+            heightMode={form.heightMode}
+            openId={source?.kind === 'library' ? source.id : null}
+            templateConfig={templateConfig}
+            onUseTemplate={template => applyDesign(
+              convertForm(normalizeBays({ ...DEFAULT_FORM, ...template.fields, units: 'in' }), units),
+              { kind: 'template', title: template.name },
+            )}
+            onOpen={({ id, name, saved }) => applyDesign(shelfDesignToFields(saved), { kind: 'library', id, title: name })}
+            onSaved={({ id, name }) => { setSource({ kind: 'library', id, title: name }); setSavedSnapshot(currentSnapshot); }}
+            onClose={() => setShowLibrary(false)}
+          />
+        </div>
+      )}
+
+      {(loadNotice || saveMessage || (source && source.kind !== 'library')) && (
+      <div className="wb-docbar">
+          <div className="builder-config-top">
+      {loadNotice && (
+        <p className={`shelf-source-banner ${loadNotice.tone === 'error' ? 'is-error' : ''}`} role={loadNotice.tone === 'error' ? 'alert' : 'status'}>
+          {loadNotice.tone === 'error' && <AlertCircle size={16} aria-hidden="true" />}
+          <span>{loadNotice.text}</span>
+        </p>
+      )}
       {source && source.kind !== 'library' && (
         <div className="shelf-source-banner" role="status">
           <FolderOpen size={16} aria-hidden="true" />
@@ -866,11 +865,18 @@ export default function ShelfBuilder() {
         </div>
       )}
 
+      {saveMessage && (
+          <p className={saveMessage.ok ? 'shelf-add-project-ok' : 'shelf-add-project-error'} role="status">
+            {saveMessage.ok ? <Check size={16} aria-hidden="true" /> : <AlertCircle size={16} aria-hidden="true" />}
+            <span>{saveMessage.text}</span>
+          </p>
+        )}
           </div>
       </div>
+      )}
 
       {tab === 'model' && (
-        <div className="wb-grid">
+        <div className="wb-grid" ref={gridRef}>
           <nav className="wb-tree" aria-label="Design tree">
             <button type="button" className={`wb-tree-item is-root${selectedBay === null ? ' is-active' : ''}`} onClick={() => setSelectedBay(null)}>
               <ChevronDown size={14} aria-hidden="true" /> Shelf unit
@@ -1150,19 +1156,12 @@ export default function ShelfBuilder() {
               onChange={edgeBanding => update({ edgeBanding })}
             />
             {form.edgeBanding && (
-              <div className="shelf-chips" role="group" aria-label="Edge banding thickness">
-                {BANDING_PRESETS.map(p => (
-                  <button
-                    key={p.value}
-                    type="button"
-                    className="shelf-chip"
-                    aria-pressed={form.bandingThickness === p.value}
-                    onClick={() => update({ bandingThickness: p.value })}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
+              <label className="form-field">
+                <span className="form-field-label">Banding</span>
+                <select value={form.bandingThickness} onChange={e => update({ bandingThickness: e.target.value })}>
+                  {BANDING_PRESETS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </select>
+              </label>
             )}
             <div className="shelf-height-mode">
               <span className="form-field-label">Doors</span>
@@ -1218,37 +1217,37 @@ export default function ShelfBuilder() {
           <InspectorSection id="shelf-step-materials" title="Materials" open={!closedSteps.includes('shelf-step-materials')} onToggle={() => toggleStep('shelf-step-materials')}>
           <fieldset className="shelf-group" data-tour="fs-material">
             <legend>Material</legend>
-            <LengthField
-              unit={units}
+            <ThicknessField
+              units={units}
               label="Case plywood"
               value={form.thickness}
               error={fieldErrors.thickness}
-              hint={`Sides, dividers, top and bottom${form.mounting === 'wall' && form.frenchCleat ? ', and the French cleat' : ''}${form.doorsPerBay.slice(0, form.bays).some(Boolean) ? ', and the doors' : ''}. Use the actual thickness.`}
+              hint="Sides, dividers, top and bottom, plus the French cleat and doors. Use the actual thickness."
               onChange={thickness => update({ thickness })}
             />
-            <ThicknessChips units={units} label="Common case thicknesses" value={form.thickness} onPick={thickness => update({ thickness })} />
-            <LengthField
-              unit={units}
+            <ThicknessField
+              units={units}
               label="Shelf plywood"
               value={form.shelfThickness}
               error={fieldErrors.shelfThickness}
-              placeholder={`Same as the case${config ? ` (${fmt(config.thickness)})` : ''}`}
-              hint="Fixed and adjustable shelves. Thicker shelves sag less; leave blank to match the case."
+              hint="Fixed and adjustable shelves. Thicker shelves sag less."
+              placeholder={`Same as case${config ? ` (${fmt(config.thickness)})` : ''}`}
               onChange={shelfThickness => update({ shelfThickness })}
+              sameAsCase
             />
-            <ThicknessChips units={units} label="Common shelf thicknesses" value={form.shelfThickness} onPick={shelfThickness => update({ shelfThickness })} sameAsCase />
             {(form.backPanel || (form.mounting === 'wall' && form.frenchCleat)) && (
               <>
-                <LengthField
-                  unit={units}
+                <ThicknessField
+                  units={units}
                   label="Back panel plywood"
                   value={form.backThickness}
                   error={fieldErrors.backThickness}
-                  placeholder={`Same as the case${config ? ` (${fmt(config.thickness)})` : ''}`}
-                  hint={`A thinner back (1/4″ or 1/2″) is bradded on and saves weight and money${form.backJoint === 'rabbet' ? '; the rabbet is cut to its thickness' : ''}. Blank matches the case: a stiff back that’s glued and screwed.`}
+                  hint="A thinner back (1/4 or 1/2 in) is bradded on and saves weight. Same as case is a stiff back, glued and screwed."
+                  placeholder={`Same as case${config ? ` (${fmt(config.thickness)})` : ''}`}
                   onChange={backThickness => update({ backThickness })}
+                  sameAsCase
+                  back
                 />
-                <ThicknessChips units={units} label="Common back thicknesses" value={form.backThickness} onPick={backThickness => update({ backThickness })} sameAsCase back />
               </>
             )}
           </fieldset>
@@ -1485,37 +1484,48 @@ function plywoodSummary(plan: ShelfPlan, config: ShelfConfig, fmt: (inches: numb
   return extra.length ? `${fmt(t)} case, ${extra.join(', ')}` : `${fmt(t)} plywood`;
 }
 
-/** Quick picks for a plywood thickness field; `sameAsCase` adds a chip that clears it. */
-function ThicknessChips({ units, label, value, onPick, sameAsCase = false, back = false }: {
-  units: LengthUnit; label: string; value: string; onPick: (value: string) => void; sameAsCase?: boolean; back?: boolean;
+/**
+ * A plywood thickness as a drop-down of the usual sizes; "Custom…" shows a box for any other size.
+ * `sameAsCase` adds a choice that clears it.
+ */
+function ThicknessField({ units, label, value, error, placeholder, hint, onChange, sameAsCase = false, back = false }: {
+  units: LengthUnit; label: string; value: string; error?: string; placeholder?: string; hint?: string;
+  onChange: (value: string) => void; sameAsCase?: boolean; back?: boolean;
 }) {
+  const [forceCustom, setForceCustom] = useState(false);
   const current = value.trim() ? parseLength(value, units) : null;
   // Backs are often thinner, shelves sometimes thicker, than the case.
   const presets = back
     ? [units === 'mm' ? '6 mm' : '1/4"', ...THICKNESS_PRESETS[units]]
     : sameAsCase ? [...THICKNESS_PRESETS[units], units === 'mm' ? '25 mm' : '1"'] : THICKNESS_PRESETS[units];
+  const match = presets.find(preset => current !== null && Math.abs(parseLength(preset, units)! - current) < 0.002);
+  const same = sameAsCase && !value.trim();
+  const custom = forceCustom || Boolean(error) || (!same && !match);
+  const selected = custom ? CUSTOM_CHOICE : same ? '' : match!;
   return (
-    <div className="shelf-chips" role="group" aria-label={label}>
-      {sameAsCase && (
-        <button type="button" className="shelf-chip" aria-pressed={!value.trim()} onClick={() => onPick('')}>Same as case</button>
-      )}
-      {presets.map(preset => {
-        const inches = parseLength(preset, units)!;
-        return (
-          <button
-            key={preset}
-            type="button"
-            className="shelf-chip"
-            aria-pressed={current !== null && Math.abs(current - inches) < 0.002}
-            onClick={() => onPick(lengthToField(inches, units))}
-          >
-            {preset}
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <label className="form-field" title={hint}>
+        <span className="form-field-label">{label}</span>
+        <select
+          value={selected}
+          onChange={e => {
+            const choice = e.target.value;
+            if (choice === CUSTOM_CHOICE) { setForceCustom(true); return; }
+            setForceCustom(false);
+            onChange(choice === '' ? '' : lengthToField(parseLength(choice, units)!, units));
+          }}
+        >
+          {sameAsCase && <option value="">{placeholder ?? 'Same as case'}</option>}
+          {presets.map(preset => <option key={preset} value={preset}>{preset}</option>)}
+          <option value={CUSTOM_CHOICE}>Custom…</option>
+        </select>
+      </label>
+      {custom && <LengthField unit={units} label="Custom size" value={value} error={error} onChange={onChange} />}
+    </>
   );
 }
+
+const CUSTOM_CHOICE = '__custom';
 
 // ── Drawings ──────────────────────────────────────────────────────────────────
 

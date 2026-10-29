@@ -12,6 +12,8 @@
 // the front and back in rabbets in the box sides, and a bottom in a groove.
 
 import {
+  ALEX_TAPER,
+  alexNotch,
   fitsSheet,
   formatLength,
   lengthToField,
@@ -62,8 +64,7 @@ export interface NotchSpec {
   depth: number;
 }
 
-/** Share of each half of an ALEX notch that curves up to the top edge (the rest is the flat bottom). */
-export const ALEX_TAPER = 0.55;
+export { ALEX_TAPER };
 /** A wide pull stops this far from each end of the front. */
 export const WIDE_PULL_MARGIN = 2;
 /** A hand hole's top sits this far below the front's top edge. */
@@ -686,18 +687,7 @@ export function pullProfile(pull: NotchSpec, segments = 24): [number, number][] 
   const w = pull.width;
   const d = pull.depth;
   if (pull.shape === 'alex') {
-    // The ALEX scoop: a flat bottom across the middle and smooth S-curves at each end,
-    // tangent to the top edge — a raised-cosine fall over the outer ALEX_TAPER of each half.
-    const flat = 1 - ALEX_TAPER;
-    const steps = Math.max(segments * 2, 48);
-    const pts: [number, number][] = [];
-    for (let i = 0; i <= steps; i++) {
-      const x = -w / 2 + (w * i) / steps;
-      const t = Math.abs(x) / (w / 2);
-      const fall = t <= flat ? 1 : 0.5 * (1 + Math.cos(Math.PI * (t - flat) / ALEX_TAPER));
-      pts.push([x, -d * fall]);
-    }
-    return pts;
+    return alexNotch(w, d, Math.max(segments * 2, 48)).map(([x, y]) => [x, -y]);
   }
   if (pull.shape === 'slot') {
     // A rounded-bottom slot: straight sides, corners rounded by up to 1/2".

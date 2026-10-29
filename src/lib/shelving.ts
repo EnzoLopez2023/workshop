@@ -21,8 +21,28 @@ export type PinSystem = 'imperial' | 'metric';
 /** Expected shelf load, for the sag check. */
 export type ShelfLoad = 'light' | 'books' | 'heavy';
 
-/** A scoop ('curve') or rectangular ('square') cut into the front edge of each shelf, to reach in and grab what's on it. */
-export type CutoutShape = 'curve' | 'square';
+/** A scoop ('curve'), rectangular ('square') or IKEA ALEX-style ('alex') cut into the front edge of each shelf, to reach in and grab what's on it. */
+export type CutoutShape = 'curve' | 'square' | 'alex';
+
+/** Share of each half of an ALEX notch that curves up to the top edge (the rest is the flat bottom). */
+export const ALEX_TAPER = 0.55;
+
+/**
+ * The ALEX notch: a flat bottom across the middle and smooth S-curves at each end,
+ * tangent to the edge — a raised-cosine fall over the outer ALEX_TAPER of each half.
+ * Left to right as (dx from the centre, depth below the edge, positive); starts and ends on the edge.
+ */
+export function alexNotch(width: number, depth: number, steps = 48): [number, number][] {
+  const flat = 1 - ALEX_TAPER;
+  const pts: [number, number][] = [];
+  for (let i = 0; i <= steps; i++) {
+    const x = -width / 2 + (width * i) / steps;
+    const t = Math.abs(x) / (width / 2);
+    const fall = t <= flat ? 1 : 0.5 * (1 + Math.cos(Math.PI * (t - flat) / ALEX_TAPER));
+    pts.push([x, depth * fall]);
+  }
+  return pts;
+}
 
 export interface ShelfCutoutConfig {
   enabled: boolean;
@@ -343,7 +363,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     else cutout = { shape: co.shape, depth: co.depth, margin: co.margin };
   }
   const cutoutNote = cutout
-    ? ` Front-edge ${cutout.shape === 'curve' ? 'scoop' : 'notch'}: ${fmt(cutout.depth)} deep, leaving ${fmt(cutout.margin)} at each end.`
+    ? ` Front-edge ${cutout.shape === 'curve' ? 'scoop' : cutout.shape === 'alex' ? 'ALEX notch' : 'notch'}: ${fmt(cutout.depth)} deep, leaving ${fmt(cutout.margin)} at each end.`
     : '';
 
   // ── Parts ───────────────────────────────────────────────────────────────────
@@ -717,6 +737,8 @@ export function cutoutShelfOutline(
   const front: [number, number][] = [];
   if (cut.shape === 'square') {
     front.push([a, cut.depth], [b, cut.depth]);
+  } else if (cut.shape === 'alex') {
+    for (const [dx, dy] of alexNotch(b - a, cut.depth)) front.push([mid + dx, dy]);
   } else {
     const steps = 24;
     for (let i = 0; i <= steps; i++) {
@@ -1033,7 +1055,7 @@ function readShelfCutout(raw: unknown): ShelfCutoutConfig | undefined {
   const f = raw as Record<string, unknown>;
   const ok = (v: unknown, min: number, max: number) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
   if (f.enabled !== true || !ok(f.depth, 0.1, 50) || !ok(f.margin, 0, 50)) return undefined;
-  return { enabled: true, shape: f.shape === 'square' ? 'square' : 'curve', depth: f.depth as number, margin: f.margin as number };
+  return { enabled: true, shape: f.shape === 'square' || f.shape === 'alex' ? f.shape : 'curve', depth: f.depth as number, margin: f.margin as number };
 }
 
 function readFaceFrame(raw: unknown): FaceFrameConfig | undefined {
