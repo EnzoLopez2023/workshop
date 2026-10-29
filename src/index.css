@@ -9892,3 +9892,396 @@ tbody td {
 .drawer-run-link:hover {
   color: var(--color-annotation-strong);
 }
+
+/* ── Shelf Builder workbench ───────────────────────────────────────────────────
+ * A CAD-style shell: top bar with workspace tabs, design tree, viewport,
+ * properties inspector and a status bar. Uses the app's light/dark tokens. */
+.wb-page {
+  width: 100%;
+  max-width: none !important;
+  padding: 12px 16px 40px;
+}
+
+.wb-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-compact) var(--radius-compact) 0 0;
+  background: var(--color-recessed);
+}
+
+.wb-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.wb-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.wb-tab {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wb-tab:hover {
+  color: var(--color-ink);
+}
+
+.wb-tab[aria-selected="true"] {
+  background: var(--color-action-fill);
+  color: var(--color-on-action);
+}
+
+.wb-topbar-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.wb-docbar {
+  border: 1px solid var(--color-divider);
+  border-top: 0;
+  background: var(--color-surface);
+  font-size: 0.84rem;
+}
+
+.wb-docbar:empty {
+  display: none;
+}
+
+.wb-docbar .shelf-design-bar,
+.wb-docbar .shelf-source-banner {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.wb-grid {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr) 330px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: max(560px, calc(100dvh - 230px));
+  border: 1px solid var(--color-divider);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-compact) var(--radius-compact);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.wb-tree {
+  grid-row: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+  border-right: 1px solid var(--color-divider);
+  background: var(--color-recessed);
+  font-size: 0.82rem;
+}
+
+.wb-tree-label {
+  padding: 12px 12px 4px;
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.wb-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-tree-item.is-child {
+  padding-left: 28px;
+}
+
+.wb-tree-item:hover {
+  background: var(--tint-amber);
+}
+
+.wb-tree-item.is-active {
+  background: var(--color-action-fill);
+  color: var(--color-on-action);
+}
+
+.wb-tree-item.is-active .wb-tree-meta {
+  color: inherit;
+}
+
+.wb-tree-meta {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-tree-badge {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--tint-red);
+  color: var(--color-danger);
+  font-size: 0.7rem;
+}
+
+.wb-tree-part {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 12px 3px 28px;
+  color: var(--color-muted);
+}
+
+/* The viewport: edge to edge, with the view switch as its toolbar. */
+.wb-grid .shelf-preview {
+  display: flex;
+  flex-direction: column;
+  grid-row: 1;
+  gap: 0;
+  padding: 0;
+  min-height: 0;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.wb-grid .shelf-preview-head {
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-glass-strong);
+}
+
+.wb-grid .shelf-preview-head h2 {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.wb-grid .shelf-preview > .builder-issues {
+  margin: 8px;
+}
+
+.wb-grid .shelf-preview > .shelf-viewer {
+  flex: 1 1 0;
+  min-height: 360px;
+  max-height: none;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+}
+
+.wb-grid .shelf-preview > .builder-drawings {
+  padding: 14px;
+}
+
+/* The inspector: compact rows, label left and control right. */
+.wb-inspector {
+  grid-row: 1;
+  align-content: start;
+  gap: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--color-divider);
+  border-radius: 0;
+  background: var(--color-surface);
+  font-size: 0.84rem;
+}
+
+.wb-section {
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.wb-section-head,
+.wb-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: var(--color-recessed);
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.wb-crumbs {
+  cursor: default;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 0.82rem;
+}
+
+.wb-crumbs button {
+  border: 0;
+  background: none;
+  color: var(--color-action);
+  font: inherit;
+  cursor: pointer;
+}
+
+.wb-crumbs strong {
+  color: var(--color-ink);
+}
+
+.wb-section-body {
+  padding: 4px 12px 10px;
+}
+
+.wb-hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.wb-inspector .shelf-group {
+  gap: 6px;
+  padding: 6px 0;
+  border-top: 0;
+}
+
+.wb-inspector .shelf-group > legend,
+.wb-inspector .shelf-group-note,
+.wb-inspector .form-field > small:not(.shelf-field-error),
+.wb-inspector .shelf-toggle small {
+  display: none;
+}
+
+.wb-inspector .shelf-height-mode small {
+  font-size: 0.74rem;
+}
+
+.wb-inspector .form-field {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.wb-inspector .form-field > .shelf-field-error {
+  grid-column: 1 / -1;
+}
+
+.wb-inspector .form-field-label {
+  font-weight: 500;
+}
+
+.wb-inspector .shelf-field-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.wb-inspector input:not([type="checkbox"]):not([type="radio"]),
+.wb-inspector select {
+  min-height: 30px;
+  padding-block: 3px;
+  font-size: 0.84rem;
+}
+
+.wb-inspector .shelf-height-mode {
+  display: grid;
+  gap: 4px;
+}
+
+.wb-inspector .shelf-bay-card {
+  margin: 8px 12px;
+}
+
+.wb-status {
+  display: flex;
+  gap: 18px;
+  grid-column: 1 / -1;
+  padding: 4px 12px;
+  border-top: 1px solid var(--color-divider);
+  background: var(--color-recessed);
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.wb-status-end {
+  margin-left: auto;
+}
+
+.wb-sheet {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+@media (max-width: 1100px) {
+  .wb-grid {
+    grid-template-columns: 170px minmax(0, 1fr) 290px;
+  }
+}
+
+@media (max-width: 820px) {
+  .wb-grid {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    overflow: visible;
+  }
+
+  .wb-tree {
+    max-height: 200px;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  .wb-grid .shelf-preview > .shelf-viewer {
+    height: 60vw;
+    min-height: 280px;
+  }
+
+  .wb-inspector {
+    border-left: 0;
+    border-top: 1px solid var(--color-divider);
+  }
+}
+
+.wb-inspector .shelf-bay-card {
+  padding: 8px 10px;
+}
+
+.wb-inspector .shelf-bay-card-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.wb-inspector .shelf-stepper {
+  justify-self: end;
+}

@@ -21,7 +21,7 @@ export function LengthField({
   placeholder?: string;
 }) {
   return (
-    <label className="form-field">
+    <label className="form-field" title={hint}>
       <span className="form-field-label">{label}</span>
       <span className="shelf-inch-input">
         <input
@@ -96,6 +96,7 @@ export function Toggle({
       <label
         ref={refs.setReference}
         className={`shelf-toggle${reason ? ' is-blocked' : ''}`}
+        title={hint}
         // A disabled checkbox can't take focus, so the label does, to reach the reason by keyboard.
         tabIndex={reason ? 0 : undefined}
         {...(reason ? getReferenceProps() : {})}

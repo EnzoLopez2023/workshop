@@ -1,9 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, Library, Loader2, Save, FolderPlus, Printer, RotateCcw,
+  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, Clipboard, FolderOpen, Library, Loader2, Save, FolderPlus, Printer, RotateCcw,
 } from 'lucide-react';
-import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
+import { Button, PageFrame, SegmentedControl } from '../components/ui';
 import { DimH, DimV, LengthField, Stat, Stepper, Toggle } from '../components/builderControls';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import ShelfAddToProject from '../components/ShelfAddToProject';
@@ -12,8 +12,7 @@ import { CostTable, HardwareTable, money, useShelfEstimate } from '../components
 import ShelfExport from '../components/ShelfExport';
 import ShelfLibrary from '../components/ShelfLibrary';
 import { TutorialButton } from '../tour/TourLaunchers';
-import { useWorkbenchTop } from '../components/useWorkbenchTop';
-import BuilderStepNav, { type BuilderStep } from '../components/BuilderStepNav';
+import type { BuilderStep } from '../components/BuilderStepNav';
 import type { ShelfTemplate } from '../lib/shelfTemplates';
 import { createLibraryShelfDesign, getLibraryShelfDesign, getProject, getShelfDesign, updateLibraryShelfDesign } from '../services/api';
 import { isDemoMode } from '../demo/demoMode';
@@ -51,6 +50,14 @@ const MAX_BAYS = 12;
 const MAX_SHELVES = 20;
 
 type FormState = ShelfDesignFields;
+
+type WorkbenchTab = 'model' | 'cutlist' | 'estimate' | 'guide';
+const WORKBENCH_TABS: { value: WorkbenchTab; label: string }[] = [
+  { value: 'model', label: 'Model' },
+  { value: 'cutlist', label: 'Cut list' },
+  { value: 'estimate', label: 'Estimate' },
+  { value: 'guide', label: 'Build guide' },
+];
 
 const DEFAULT_FORM: FormState = {
   units: 'in',
@@ -351,10 +358,10 @@ function readStoredSource(): { source: DesignSource | null; snapshot: string | n
 
 export default function ShelfBuilder() {
   const navigate = useNavigate();
-  // Desktop workbench: the settings and preview fill the window below the page header.
-  const layoutRef = useRef<HTMLDivElement>(null);
-  const configRef = useRef<HTMLElement>(null);
-  useWorkbenchTop(layoutRef);
+  // What the inspector shows: the whole unit, or one bay picked in the tree or the 3D view.
+  const [selectedBay, setSelectedBay] = useState<number | null>(null);
+  const [tab, setTab] = useState<WorkbenchTab>('model');
+  const [closedSteps, setClosedSteps] = useState<string[]>([]);
   const [form, setForm] = useState<FormState>(readStoredForm);
   const [copyStatus, setCopyStatus] = useState('');
   const [view, setView] = useState<PreviewMode>(readStoredView);
@@ -652,28 +659,104 @@ export default function ShelfBuilder() {
   const wall = form.mounting === 'wall';
   const cleat = wall && form.frenchCleat;
 
-  return (
-    <PageFrame maxWidth={1200} className="shelf-page builder-workbench">
-      <Button variant="ghost" onClick={() => navigate(-1)} className="workflow-back">
-        <ArrowLeft size={16} aria-hidden="true" />
-        Back
-      </Button>
+  const toggleStep = (id: string) => setClosedSteps(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  const gotoStep = (id: string) => {
+    setSelectedBay(null);
+    setClosedSteps(prev => prev.filter(x => x !== id));
+    window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
+  // A click on a shelf in the 3D view selects its bay; anything else goes back to the unit.
+  const pickPart = (name: string) => {
+    const match = /^Bay (\d+)/.exec(name);
+    setSelectedBay(match ? Number(match[1]) - 1 : null);
+  };
 
-      <PageHeader
-        title="Shelf Builder"
-        description="Design a plywood shelving unit by bay, then take the exact cut list, shelf positions, and sheet layout to the saw."
-        actions={(
-          <>
-            <TutorialButton tour="shelves" />
-            <Button variant={showLibrary ? 'secondary' : 'ghost'} onClick={() => setShowLibrary(open => !open)} aria-expanded={showLibrary} aria-controls="shelf-library">
-              <Library size={16} aria-hidden="true" /> Library
-            </Button>
-            <Button variant="ghost" onClick={() => setForm(convertForm(DEFAULT_FORM, units))}>
-              <RotateCcw size={16} aria-hidden="true" /> Reset design
-            </Button>
-          </>
-        )}
-      />
+  const renderBayCard = (i: number) => {
+    const count = form.shelvesPerBay[i] ?? 0;
+                const bay = plan?.bays[i];
+                const sag = sagResults.filter(r => r.bay === i);
+                const worst = sag.reduce<SagResult | null>((w, r) => (!w || r.sag / r.limit > w.sag / w.limit ? r : w), null);
+                const pair = bay ? bay.width > PAIR_DOOR_WIDTH : false;
+                return (
+                  <div className="shelf-bay-card" key={i}>
+                    <div className="shelf-bay-card-head">
+                      <strong id={`bay-${i}-label`}>Bay {i + 1}</strong>
+                      {bay && bay.openingHeight > 0 && (
+                        <small>{fmt(bay.openingHeight)} {bay.adjustableYs.length ? 'between fixed shelves' : 'openings'}</small>
+                      )}
+                    </div>
+                    <div className="shelf-bay-card-controls">
+                      {form.bayWidthMode === 'custom' && (
+                        <LengthField
+                          unit={units}
+                          label="Width (clear)"
+                          value={form.bayWidths[i] ?? ''}
+                          error={fieldErrors[`bayWidths.${i}`]}
+                          onChange={value => setAtBay('bayWidths', i, value)}
+                        />
+                      )}
+                      <div className="form-field">
+                        <span className="form-field-label" id={`bay-${i}-openings`}>Openings</span>
+                        {/* Openings = fixed shelves + 1: the bottom and each shelf are a level to put things on. */}
+                        <Stepper
+                          labelledBy={`bay-${i}-openings`}
+                          value={count + 1}
+                          min={1}
+                          max={MAX_SHELVES + 1}
+                          onChange={value => setShelves(i, value - 1)}
+                          noun="opening"
+                        />
+                      </div>
+                      <div className="form-field">
+                        <span className="form-field-label" id={`bay-${i}-adjustable`}>Adjustable shelves</span>
+                        <Stepper
+                          labelledBy={`bay-${i}-adjustable`}
+                          value={form.adjustablePerBay[i] ?? 0}
+                          min={0}
+                          max={MAX_SHELVES}
+                          onChange={value => setAtBay('adjustablePerBay', i, Math.max(0, Math.min(MAX_SHELVES, value)))}
+                          noun="adjustable shelf"
+                        />
+                      </div>
+                      <label className="shelf-toggle shelf-bay-door">
+                        <input type="checkbox" checked={form.doorsPerBay[i] ?? false} onChange={e => setAtBay('doorsPerBay', i, e.target.checked)} />
+                        <span><span className="shelf-toggle-label">{pair ? 'Pair of doors' : 'Door'}</span></span>
+                      </label>
+                    </div>
+                    {worst && (
+                      <p className={`shelf-sag ${worst.ok ? 'is-ok' : 'is-bad'}`}>
+                        {worst.ok
+                          ? `Sag ${formatSag(worst.sag, units)} under ${SHELF_LOADS[form.shelfLoad].label.split(' —')[0].toLowerCase()} — fine`
+                          : `${worst.kind === 'adjustable' ? 'Adjustable shelves' : 'Shelves'} sag ${formatSag(worst.sag, units)} — over the ${formatSag(worst.limit, units)} limit`}
+                      </p>
+                    )}
+                  </div>
+                );
+  };
+
+  return (
+    <PageFrame maxWidth={2000} className="shelf-page wb-page">
+      <header className="wb-topbar">
+        <Button variant="ghost" onClick={() => navigate(-1)} className="wb-back">
+          <ArrowLeft size={16} aria-hidden="true" />
+          Back
+        </Button>
+        <h1 className="wb-title">Shelf Builder</h1>
+        <div className="wb-tabs" role="tablist" aria-label="Workspace">
+          {WORKBENCH_TABS.map(t => (
+            <button key={t.value} type="button" role="tab" aria-selected={tab === t.value} className="wb-tab" onClick={() => setTab(t.value)}>{t.label}</button>
+          ))}
+        </div>
+        <span className="wb-topbar-actions">
+          <TutorialButton tour="shelves" />
+          <Button variant={showLibrary ? 'secondary' : 'ghost'} onClick={() => setShowLibrary(open => !open)} aria-expanded={showLibrary} aria-controls="shelf-library">
+            <Library size={16} aria-hidden="true" /> Library
+          </Button>
+          <Button variant="ghost" onClick={() => { setSelectedBay(null); setForm(convertForm(DEFAULT_FORM, units)); }}>
+            <RotateCcw size={16} aria-hidden="true" /> Reset design
+          </Button>
+        </span>
+      </header>
 
       {showLibrary && (
         <div id="shelf-library">
@@ -694,9 +777,7 @@ export default function ShelfBuilder() {
         </div>
       )}
 
-      <div className="shelf-layout" ref={layoutRef}>
-        <section className="shelf-config" aria-labelledby="shelf-config-title" ref={configRef}>
-          <BuilderStepNav steps={steps} containerRef={configRef} />
+      <div className="wb-docbar">
           <div className="builder-config-top">
       {loadNotice && (
         <p className={`shelf-source-banner ${loadNotice.tone === 'error' ? 'is-error' : ''}`} role={loadNotice.tone === 'error' ? 'alert' : 'status'}>
@@ -786,10 +867,106 @@ export default function ShelfBuilder() {
       )}
 
           </div>
-          <h2 id="shelf-config-title" className="sr-only">Design</h2>
+      </div>
 
-          <div className="builder-step" id="shelf-step-size">
-            <h3 className="builder-step-title">Size &amp; bays</h3>
+      {tab === 'model' && (
+        <div className="wb-grid">
+          <nav className="wb-tree" aria-label="Design tree">
+            <button type="button" className={`wb-tree-item is-root${selectedBay === null ? ' is-active' : ''}`} onClick={() => setSelectedBay(null)}>
+              <ChevronDown size={14} aria-hidden="true" /> Shelf unit
+            </button>
+            {steps.map(step => (
+              <button key={step.id} type="button" className="wb-tree-item is-child" onClick={() => gotoStep(step.id)}>
+                {step.label}
+                {step.badge && <span className="wb-tree-badge">{step.badge}</span>}
+              </button>
+            ))}
+            <div className="wb-tree-label">Bays</div>
+            {form.shelvesPerBay.slice(0, form.bays).map((count, i) => (
+              <button key={i} type="button" className={`wb-tree-item is-child${selectedBay === i ? ' is-active' : ''}`} onClick={() => setSelectedBay(i)}>
+                Bay {i + 1}
+                <span className="wb-tree-meta">{count + 1} open{(form.adjustablePerBay[i] ?? 0) > 0 ? ` + ${form.adjustablePerBay[i]} adj` : ''}{form.doorsPerBay[i] ? ' · door' : ''}</span>
+              </button>
+            ))}
+            {plan && valid && (
+              <>
+                <div className="wb-tree-label">Parts · {plan.parts.reduce((sum, part) => sum + part.qty, 0)}</div>
+                {plan.parts.map(part => (
+                  <div key={part.name} className="wb-tree-part">
+                    <span>{part.name}</span><span className="wb-tree-meta">×{part.qty}</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </nav>
+
+        <section className="shelf-preview" aria-labelledby="shelf-preview-title">
+          <header className="shelf-preview-head">
+            <h2 id="shelf-preview-title">Viewport</h2>
+            <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
+          </header>
+          {plan ? (
+            <>
+              <dl className="shelf-summary">
+                <Stat label="Overall width" value={fmt(plan.overallWidth)} />
+                <Stat label="Overall height" value={fmt(plan.overallHeight)} />
+                <Stat label="Side depth" value={fmt(plan.sideDepth)} accent={plan.sideDepth !== config?.shelfDepth} />
+                <Stat label="Parts" value={String(plan.parts.reduce((s, p) => s + p.qty, 0))} />
+              </dl>
+              {(plan.errors.length > 0 || plan.warnings.length + sagWarnings.length > 0) && (
+                <details className="builder-issues" open={plan.errors.length > 0}>
+                  <summary>
+                    {plan.errors.length > 0
+                      ? <><AlertCircle size={16} aria-hidden="true" /> {plan.errors.length} thing{plan.errors.length === 1 ? '' : 's'} to fix</>
+                      : <AlertTriangle size={16} aria-hidden="true" />}
+                    {plan.errors.length > 0 && plan.warnings.length + sagWarnings.length > 0 ? ' · ' : ' '}
+                    {plan.warnings.length + sagWarnings.length > 0 ? `${plan.warnings.length + sagWarnings.length} note${plan.warnings.length + sagWarnings.length === 1 ? '' : 's'}` : ''}
+                  </summary>
+                  {plan.errors.length > 0 && <ul className="drawer-error-list" role="alert">{plan.errors.map(e => <li key={e}>{e}</li>)}</ul>}
+                  {plan.warnings.length + sagWarnings.length > 0 && <ul className="builder-notes" role="status">{[...plan.warnings, ...sagWarnings].map(w => <li key={w}>{w}</li>)}</ul>}
+                </details>
+              )}
+              {view === '3d' && valid ? (
+                <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
+                  <ShelfViewer3D
+                    solids={solids}
+                    formatLength={fmt}
+                    width={plan.overallWidth}
+                    height={plan.overallHeight}
+                    depth={plan.sideDepth}
+                    wallMounted={config!.mounting === 'wall'}
+                    onPick={pickPart}
+                    highlight={selectedBay === null ? undefined : (name: string) => name.startsWith(`Bay ${selectedBay + 1} `)}
+                    highlightKey={String(selectedBay)}
+                    label={`3D view of a ${fmt(plan.overallWidth)} wide, ${fmt(plan.overallHeight)} tall shelving unit with ${plan.bays.length} bays`}
+                  />
+                </Suspense>
+              ) : (
+                <div className="builder-drawings">
+                  <FrontElevation plan={plan} thickness={config!.thickness} fmt={fmt} />
+                  <SideSection plan={plan} config={config!} fmt={fmt} />
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="shelf-placeholder">Fix the highlighted measurements to see the drawing.</p>
+          )}
+        </section>
+
+        <section className="shelf-config wb-inspector" aria-labelledby="shelf-config-title">
+          <h2 id="shelf-config-title" className="sr-only">Properties</h2>
+          {selectedBay !== null && selectedBay < form.bays ? (
+            <div className="wb-bay-panel">
+              <div className="wb-crumbs">
+                <button type="button" onClick={() => setSelectedBay(null)}>Shelf unit</button>
+                <span aria-hidden="true">/</span>
+                <strong>Bay {selectedBay + 1}</strong>
+              </div>
+              {renderBayCard(selectedBay)}
+            </div>
+          ) : (
+            <>
+          <InspectorSection id="shelf-step-size" title="Size &amp; bays" open={!closedSteps.includes('shelf-step-size')} onToggle={() => toggleStep('shelf-step-size')}>
           <fieldset className="shelf-group" data-tour="fs-units">
             <legend>Units</legend>
             <SegmentedControl label="Units" value={units} options={UNIT_OPTIONS} onChange={next => setForm(prev => convertForm(prev, next))} />
@@ -849,69 +1026,9 @@ export default function ShelfBuilder() {
               </div>
             </div>
 
-            <div className="shelf-bay-cards">
-              {form.shelvesPerBay.map((count, i) => {
-                const bay = plan?.bays[i];
-                const sag = sagResults.filter(r => r.bay === i);
-                const worst = sag.reduce<SagResult | null>((w, r) => (!w || r.sag / r.limit > w.sag / w.limit ? r : w), null);
-                const pair = bay ? bay.width > PAIR_DOOR_WIDTH : false;
-                return (
-                  <div className="shelf-bay-card" key={i}>
-                    <div className="shelf-bay-card-head">
-                      <strong id={`bay-${i}-label`}>Bay {i + 1}</strong>
-                      {bay && bay.openingHeight > 0 && (
-                        <small>{fmt(bay.openingHeight)} {bay.adjustableYs.length ? 'between fixed shelves' : 'openings'}</small>
-                      )}
-                    </div>
-                    <div className="shelf-bay-card-controls">
-                      {form.bayWidthMode === 'custom' && (
-                        <LengthField
-                          unit={units}
-                          label="Width (clear)"
-                          value={form.bayWidths[i] ?? ''}
-                          error={fieldErrors[`bayWidths.${i}`]}
-                          onChange={value => setAtBay('bayWidths', i, value)}
-                        />
-                      )}
-                      <div className="form-field">
-                        <span className="form-field-label" id={`bay-${i}-openings`}>Openings</span>
-                        {/* Openings = fixed shelves + 1: the bottom and each shelf are a level to put things on. */}
-                        <Stepper
-                          labelledBy={`bay-${i}-openings`}
-                          value={count + 1}
-                          min={1}
-                          max={MAX_SHELVES + 1}
-                          onChange={value => setShelves(i, value - 1)}
-                          noun="opening"
-                        />
-                      </div>
-                      <div className="form-field">
-                        <span className="form-field-label" id={`bay-${i}-adjustable`}>Adjustable shelves</span>
-                        <Stepper
-                          labelledBy={`bay-${i}-adjustable`}
-                          value={form.adjustablePerBay[i] ?? 0}
-                          min={0}
-                          max={MAX_SHELVES}
-                          onChange={value => setAtBay('adjustablePerBay', i, Math.max(0, Math.min(MAX_SHELVES, value)))}
-                          noun="adjustable shelf"
-                        />
-                      </div>
-                      <label className="shelf-toggle shelf-bay-door">
-                        <input type="checkbox" checked={form.doorsPerBay[i] ?? false} onChange={e => setAtBay('doorsPerBay', i, e.target.checked)} />
-                        <span><span className="shelf-toggle-label">{pair ? 'Pair of doors' : 'Door'}</span></span>
-                      </label>
-                    </div>
-                    {worst && (
-                      <p className={`shelf-sag ${worst.ok ? 'is-ok' : 'is-bad'}`}>
-                        {worst.ok
-                          ? `Sag ${formatSag(worst.sag, units)} under ${SHELF_LOADS[form.shelfLoad].label.split(' —')[0].toLowerCase()} — fine`
-                          : `${worst.kind === 'adjustable' ? 'Adjustable shelves' : 'Shelves'} sag ${formatSag(worst.sag, units)} — over the ${formatSag(worst.limit, units)} limit`}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <p className="wb-hint">
+              {form.bays} bays. Pick a bay in the tree or click it in the 3D view to set its openings, adjustable shelves and door.
+            </p>
 
             {form.adjustablePerBay.slice(0, form.bays).some(a => a > 0) && (
               <div className="shelf-height-mode">
@@ -930,10 +1047,9 @@ export default function ShelfBuilder() {
               </select>
             </label>
           </fieldset>
-          </div>
+          </InspectorSection>
 
-          <div className="builder-step" id="shelf-step-case">
-            <h3 className="builder-step-title">Case &amp; joinery</h3>
+          <InspectorSection id="shelf-step-case" title="Case &amp; joinery" open={!closedSteps.includes('shelf-step-case')} onToggle={() => toggleStep('shelf-step-case')}>
           <fieldset className="shelf-group" data-tour="fs-case">
             <legend>Case</legend>
             <Toggle label="Top panel" checked={form.topPanel} onChange={topPanel => update({ topPanel })} />
@@ -987,10 +1103,9 @@ export default function ShelfBuilder() {
               />
             )}
           </fieldset>
-          </div>
+          </InspectorSection>
 
-          <div className="builder-step" id="shelf-step-fronts">
-            <h3 className="builder-step-title">Face frame, doors &amp; edges</h3>
+          <InspectorSection id="shelf-step-fronts" title="Face frame, doors &amp; edges" open={!closedSteps.includes('shelf-step-fronts')} onToggle={() => toggleStep('shelf-step-fronts')}>
           <fieldset className="shelf-group" data-tour="fs-face-frame-doors-edges">
             <legend>Face frame, doors &amp; edges</legend>
             <Toggle
@@ -1061,10 +1176,9 @@ export default function ShelfBuilder() {
               </span>
             </div>
           </fieldset>
-          </div>
+          </InspectorSection>
 
-          <div className="builder-step" id="shelf-step-mounting">
-            <h3 className="builder-step-title">Mounting</h3>
+          <InspectorSection id="shelf-step-mounting" title="Mounting" open={!closedSteps.includes('shelf-step-mounting')} onToggle={() => toggleStep('shelf-step-mounting')}>
           <fieldset className="shelf-group" data-tour="fs-mounting">
             <legend>Mounting</legend>
             <SegmentedControl label="Mounting" value={form.mounting} options={MOUNTING_OPTIONS} onChange={mounting => update({ mounting })} />
@@ -1099,10 +1213,9 @@ export default function ShelfBuilder() {
               </>
             )}
           </fieldset>
-          </div>
+          </InspectorSection>
 
-          <div className="builder-step" id="shelf-step-materials">
-            <h3 className="builder-step-title">Materials</h3>
+          <InspectorSection id="shelf-step-materials" title="Materials" open={!closedSteps.includes('shelf-step-materials')} onToggle={() => toggleStep('shelf-step-materials')}>
           <fieldset className="shelf-group" data-tour="fs-material">
             <legend>Material</legend>
             <LengthField
@@ -1139,70 +1252,27 @@ export default function ShelfBuilder() {
               </>
             )}
           </fieldset>
-          </div>
-
-
-
-
-
-
-
-        </section>
-
-        <section className="shelf-preview" aria-labelledby="shelf-preview-title">
-          <header className="shelf-preview-head">
-            <h2 id="shelf-preview-title">Preview</h2>
-            <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
-          </header>
-          {plan ? (
-            <>
-              <dl className="shelf-summary">
-                <Stat label="Overall width" value={fmt(plan.overallWidth)} />
-                <Stat label="Overall height" value={fmt(plan.overallHeight)} />
-                <Stat label="Side depth" value={fmt(plan.sideDepth)} accent={plan.sideDepth !== config?.shelfDepth} />
-                <Stat label="Parts" value={String(plan.parts.reduce((s, p) => s + p.qty, 0))} />
-              </dl>
-              {(plan.errors.length > 0 || plan.warnings.length + sagWarnings.length > 0) && (
-                <details className="builder-issues" open={plan.errors.length > 0}>
-                  <summary>
-                    {plan.errors.length > 0
-                      ? <><AlertCircle size={16} aria-hidden="true" /> {plan.errors.length} thing{plan.errors.length === 1 ? '' : 's'} to fix</>
-                      : <AlertTriangle size={16} aria-hidden="true" />}
-                    {plan.errors.length > 0 && plan.warnings.length + sagWarnings.length > 0 ? ' · ' : ' '}
-                    {plan.warnings.length + sagWarnings.length > 0 ? `${plan.warnings.length + sagWarnings.length} note${plan.warnings.length + sagWarnings.length === 1 ? '' : 's'}` : ''}
-                  </summary>
-                  {plan.errors.length > 0 && <ul className="drawer-error-list" role="alert">{plan.errors.map(e => <li key={e}>{e}</li>)}</ul>}
-                  {plan.warnings.length + sagWarnings.length > 0 && <ul className="builder-notes" role="status">{[...plan.warnings, ...sagWarnings].map(w => <li key={w}>{w}</li>)}</ul>}
-                </details>
-              )}
-              {view === '3d' && valid ? (
-                <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
-                  <ShelfViewer3D
-                    solids={solids}
-                    formatLength={fmt}
-                    width={plan.overallWidth}
-                    height={plan.overallHeight}
-                    depth={plan.sideDepth}
-                    wallMounted={config!.mounting === 'wall'}
-                    label={`3D view of a ${fmt(plan.overallWidth)} wide, ${fmt(plan.overallHeight)} tall shelving unit with ${plan.bays.length} bays`}
-                  />
-                </Suspense>
-              ) : (
-                <div className="builder-drawings">
-                  <FrontElevation plan={plan} thickness={config!.thickness} fmt={fmt} />
-                  <SideSection plan={plan} config={config!} fmt={fmt} />
-                </div>
-              )}
+          </InspectorSection>
             </>
-          ) : (
-            <p className="shelf-placeholder">Fix the highlighted measurements to see the drawing.</p>
           )}
         </section>
-      </div>
 
+          <footer className="wb-status">
+            <span>Units: {units === 'mm' ? 'mm' : 'in'}</span>
+            {plan && valid ? <span>{plan.parts.reduce((sum, part) => sum + part.qty, 0)} parts · {plywoodSummary(plan, config!, fmt)}</span> : <span>Measurements need attention</span>}
+            <span className="wb-status-end">{plan && plan.errors.length > 0 ? `${plan.errors.length} to fix` : 'No errors'}</span>
+          </footer>
+        </div>
+      )}
 
-      {plan && valid && (
-        <>
+      {tab !== 'model' && !(plan && valid) && (
+        <p className="shelf-placeholder">Fix the highlighted measurements on the Model tab first.</p>
+      )}
+
+      {tab !== 'model' && plan && valid && (
+        <div className="wb-sheet">
+          {tab === 'cutlist' && (
+            <>
           <section className="shelf-section" aria-labelledby="shelf-cutlist-title">
             <header className="shelf-section-head">
               <div>
@@ -1285,6 +1355,44 @@ export default function ShelfBuilder() {
             <ShelfExport plan={plan} config={config!} units={units} />
           </section>
 
+          <section className="shelf-section" aria-labelledby="shelf-marks-title">
+            <header className="shelf-section-head">
+              <div>
+                <h2 id="shelf-marks-title">{plan.shelfDadoDepth > 0 ? 'Dado layout' : 'Shelf positions'}</h2>
+                <p>
+                  Distances to the bottom edge of each {plan.shelfDadoDepth > 0
+                    ? (Math.abs(plan.shelfThickness - config!.thickness) > 1e-6
+                      ? `dado (${fmt(plan.shelfThickness)} wide for shelves, ${fmt(config!.thickness)} for the top and bottom)`
+                      : `${fmt(config!.thickness)}-wide dado`)
+                    : 'shelf'}.
+                  Mark matching parts together to keep shelves level.
+                </p>
+              </div>
+            </header>
+            <ul className="shelf-marks">
+              {plan.marks.map(m => (
+                <li key={`${m.part}-${m.reference}`}>
+                  <strong>{m.part}</strong>
+                  <span className="is-muted">{m.reference}</span>
+                  <span className="shelf-mark-values">{m.positions.map(v => fmt(v)).join(' · ')}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="shelf-section shelf-optimizer" aria-labelledby="shelf-optimizer-title">
+            <header className="shelf-section-head">
+              <div>
+                <h2 id="shelf-optimizer-title">Sheet layout</h2>
+                <p>Add your sheets and generate a plan. Regenerate after changing the design.</p>
+              </div>
+            </header>
+            <CutPlanOptimizer cutList={cutList} units={units} defaultThickness={config!.thickness} />
+          </section>
+            </>
+          )}
+          {tab === 'estimate' && (
+            <>
           {shelfEstimate && (
             <>
               <section className="shelf-section" aria-labelledby="shelf-hardware-title">
@@ -1315,31 +1423,10 @@ export default function ShelfBuilder() {
             </>
           )}
 
-          <section className="shelf-section" aria-labelledby="shelf-marks-title">
-            <header className="shelf-section-head">
-              <div>
-                <h2 id="shelf-marks-title">{plan.shelfDadoDepth > 0 ? 'Dado layout' : 'Shelf positions'}</h2>
-                <p>
-                  Distances to the bottom edge of each {plan.shelfDadoDepth > 0
-                    ? (Math.abs(plan.shelfThickness - config!.thickness) > 1e-6
-                      ? `dado (${fmt(plan.shelfThickness)} wide for shelves, ${fmt(config!.thickness)} for the top and bottom)`
-                      : `${fmt(config!.thickness)}-wide dado`)
-                    : 'shelf'}.
-                  Mark matching parts together to keep shelves level.
-                </p>
-              </div>
-            </header>
-            <ul className="shelf-marks">
-              {plan.marks.map(m => (
-                <li key={`${m.part}-${m.reference}`}>
-                  <strong>{m.part}</strong>
-                  <span className="is-muted">{m.reference}</span>
-                  <span className="shelf-mark-values">{m.positions.map(v => fmt(v)).join(' · ')}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-
+            </>
+          )}
+          {tab === 'guide' && (
+            <>
           <section className="shelf-section" aria-labelledby="shelf-guide-title">
             <header className="shelf-section-head">
               <div>
@@ -1364,18 +1451,26 @@ export default function ShelfBuilder() {
             )}
           </section>
 
-          <section className="shelf-section shelf-optimizer" aria-labelledby="shelf-optimizer-title">
-            <header className="shelf-section-head">
-              <div>
-                <h2 id="shelf-optimizer-title">Sheet layout</h2>
-                <p>Add your sheets and generate a plan. Regenerate after changing the design.</p>
-              </div>
-            </header>
-            <CutPlanOptimizer cutList={cutList} units={units} defaultThickness={config!.thickness} />
-          </section>
-        </>
+            </>
+          )}
+        </div>
       )}
     </PageFrame>
+  );
+}
+
+/** A collapsible group of settings in the inspector. */
+function InspectorSection({ id, title, open, onToggle, children }: {
+  id: string; title: string; open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className={`wb-section${open ? ' is-open' : ''}`} id={id}>
+      <button type="button" className="wb-section-head" aria-expanded={open} onClick={onToggle}>
+        {open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+        {title}
+      </button>
+      {open && <div className="wb-section-body">{children}</div>}
+    </div>
   );
 }
 
