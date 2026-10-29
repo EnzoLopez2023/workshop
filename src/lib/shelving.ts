@@ -21,6 +21,18 @@ export type PinSystem = 'imperial' | 'metric';
 /** Expected shelf load, for the sag check. */
 export type ShelfLoad = 'light' | 'books' | 'heavy';
 
+/** A scoop ('curve') or rectangular ('square') cut into the front edge of each shelf, to reach in and grab what's on it. */
+export type CutoutShape = 'curve' | 'square';
+
+export interface ShelfCutoutConfig {
+  enabled: boolean;
+  shape: CutoutShape;
+  /** How far the cut reaches back from the front edge. */
+  depth: number;
+  /** Uncut front edge left at each end of the shelf. */
+  margin: number;
+}
+
 export interface FaceFrameConfig {
   enabled: boolean;
   stileWidth: number;
@@ -69,6 +81,8 @@ export interface ShelfConfig {
   edgeBanding?: boolean;
   /** Banding thickness; banded parts are cut this much smaller so the finished size is right. */
   bandingThickness?: number;
+  /** Front-edge cut-out on the fixed and adjustable shelves (not the top or bottom). */
+  shelfCutout?: ShelfCutoutConfig;
 }
 
 export interface BandingRun {
@@ -178,6 +192,8 @@ export interface ShelfPlan {
   frontDepth: number;
   /** Edge banding, when turned on. `caseFronts` is false when a face frame covers them. */
   banding: { thickness: number; caseFronts: boolean; runs: BandingRun[]; totalLength: number } | null;
+  /** The shelves' front-edge cut-out, when turned on. */
+  cutout: { shape: CutoutShape; depth: number; margin: number } | null;
 }
 
 export const SHEET_LENGTH = 96;
@@ -315,6 +331,21 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   });
   const dividerXs = Array.from({ length: n - 1 }, (_, i) => xs[i] + widths[i]);
 
+  // ── Shelf cut-out ───────────────────────────────────────────────────────────
+  const co = config.shelfCutout;
+  const hasShelves = counts.some(c => c > 0) || adjustableCounts.some(c => c > 0);
+  let cutout: ShelfPlan['cutout'] = null;
+  if (co?.enabled && hasShelves) {
+    const narrowest = Math.min(...widths);
+    if (!(co.depth > 0)) errors.push('The shelf cut-out needs a depth.');
+    else if (co.depth >= D / 2) errors.push(`A ${fmt(co.depth)} cut-out leaves too little of a ${fmt(D)} deep shelf; use a shallower one.`);
+    else if (co.margin < 0 || narrowest - 2 * co.margin < 1) errors.push(`The cut-out leaves no room in the ${fmt(narrowest)} bay; use a bigger side margin.`);
+    else cutout = { shape: co.shape, depth: co.depth, margin: co.margin };
+  }
+  const cutoutNote = cutout
+    ? ` Front-edge ${cutout.shape === 'curve' ? 'scoop' : 'notch'}: ${fmt(cutout.depth)} deep, leaving ${fmt(cutout.margin)} at each end.`
+    : '';
+
   // ── Parts ───────────────────────────────────────────────────────────────────
   const parts: ShelfPart[] = [];
   const housed = dado ? ' Housed in dados.' : '';
@@ -361,7 +392,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
       length: g.key + 2 * sd,
       width: D,
       thickness: st,
-      note: shelfDado ? 'Housed in dados.' : 'Butt-jointed: glued and screwed through the sides and dividers.',
+      note: (shelfDado ? 'Housed in dados.' : 'Butt-jointed: glued and screwed through the sides and dividers.') + cutoutNote,
     });
   }
   const adjustableGroups = groupBySize(bays.filter(b => adjustableCounts[b.index] > 0).map(b => ({ bay: b.index, key: b.width, value: adjustableCounts[b.index] })));
@@ -372,7 +403,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
       length: g.key - ADJUSTABLE_CLEARANCE,
       width: D - ADJUSTABLE_BACK_CLEARANCE,
       thickness: st,
-      note: `Sits on shelf pins; ${fmt(ADJUSTABLE_CLEARANCE)} narrower than the bay so it lifts out.`,
+      note: `Sits on shelf pins; ${fmt(ADJUSTABLE_CLEARANCE)} narrower than the bay so it lifts out.${cutoutNote}`,
     });
   }
 
@@ -594,6 +625,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     doors,
     frontDepth,
     banding,
+    cutout,
   };
 }
 
@@ -671,6 +703,44 @@ export type Solid = SolidMotion & (
   /** An outline in the front (x, y) plane extruded from depth z0 to z1 — used for notched drawer fronts. */
   | { name: string; kind: SolidKind; shape: 'plate'; z0: number; z1: number; outline: [number, number][]; holes?: [number, number][][] });
 
+/**
+ * Outline of a shelf in plan: u runs across its length, v back from the front edge.
+ * `inset` is the uncut front edge left at each end.
+ */
+export function cutoutShelfOutline(
+  length: number, depth: number, inset: number, cut: { shape: CutoutShape; depth: number },
+): [number, number][] {
+  const a = inset;
+  const b = length - inset;
+  const mid = (a + b) / 2;
+  const half = (b - a) / 2;
+  const front: [number, number][] = [];
+  if (cut.shape === 'square') {
+    front.push([a, cut.depth], [b, cut.depth]);
+  } else {
+    const steps = 24;
+    for (let i = 0; i <= steps; i++) {
+      const w = -1 + (2 * i) / steps;
+      // Flat-bottomed scoop: a squared-off ellipse reads closer to a hand-cut curve than a pure one.
+      front.push([mid + w * half, cut.depth * Math.pow(1 - Math.pow(Math.abs(w), 2.5), 1 / 2.5)]);
+    }
+  }
+  return [[0, 0], [a, 0], ...front, [b, 0], [length, 0], [length, depth], [0, depth]];
+}
+
+/**
+ * A shelf with its front edge cut away. The outline is drawn in plan as a plate, then
+ * laid flat: turning it a quarter about x makes the outline's second axis run back
+ * from the front, and the offset lifts it onto the shelf's height.
+ */
+function cutoutShelf(
+  name: string, kind: SolidKind, x0: number, x1: number, y: number, thickness: number, depth: number,
+  cut: { shape: CutoutShape; depth: number; margin: number },
+): Solid {
+  const outline = cutoutShelfOutline(x1 - x0, depth, cut.margin, cut).map(([u, v]) => [x0 + u, v] as [number, number]);
+  return { name, kind, shape: 'plate', z0: 0, z1: thickness, outline, pose: { rotate: [-Math.PI / 2, 0, 0], offset: [0, y + thickness, 0] } };
+}
+
 export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
   const t = config.thickness;
   const D = config.shelfDepth;
@@ -691,9 +761,14 @@ export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
   if (hasTop) solids.push(box('Top', 'case', [t, H - t, 0], [W - t, H, D]));
   if (hasBottom) solids.push(box('Bottom', 'case', [t, plan.kick, 0], [W - t, plan.kick + t, D]));
   if (plan.kick > 0) solids.push(box('Toe kick', 'case', [t, 0, 0], [W - t, plan.kick, t]));
+  /** A shelf, with the front-edge cut-out when there is one. */
+  const shelf = (name: string, kind: SolidKind, x0: number, x1: number, y: number, depth: number): Solid => {
+    if (!plan.cutout) return box(name, kind, [x0, y, 0], [x1, y + plan.shelfThickness, depth]);
+    return cutoutShelf(name, kind, x0, x1, y, plan.shelfThickness, depth, plan.cutout);
+  };
   for (const bay of plan.bays) {
     bay.shelfYs.forEach((y, i) => {
-      solids.push(box(`Bay ${bay.index + 1} shelf ${i + 1}`, 'shelf', [bay.x, y, 0], [bay.x + bay.width, y + plan.shelfThickness, D]));
+      solids.push(shelf(`Bay ${bay.index + 1} shelf ${i + 1}`, 'shelf', bay.x, bay.x + bay.width, y, D));
     });
   }
   // Adjustable shelves rest on four shelf pins. They're drawn larger than life —
@@ -705,7 +780,7 @@ export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
     bay.adjustableYs.forEach((y, i) => {
       const x0 = bay.x + ADJUSTABLE_CLEARANCE / 2;
       const name = `Bay ${bay.index + 1} adjustable shelf ${i + 1}`;
-      solids.push(box(name, 'adjustable', [x0, y, 0], [x0 + bay.width - ADJUSTABLE_CLEARANCE, y + plan.shelfThickness, D - ADJUSTABLE_BACK_CLEARANCE]));
+      solids.push(shelf(name, 'adjustable', x0, x0 + bay.width - ADJUSTABLE_CLEARANCE, y, D - ADJUSTABLE_BACK_CLEARANCE));
       for (const [side, xa, xb] of [['left', bay.x, bay.x + pinReach], ['right', bay.x + bay.width - pinReach, bay.x + bay.width]] as const) {
         pinColumns.forEach((z, k) => {
           solids.push(box(`${name} pin ${side} ${k === 0 ? 'front' : 'back'}`, 'pin', [xa, y - pin, z - pin / 2], [xb, y, z + pin / 2]));
@@ -948,8 +1023,17 @@ export function readSavedShelfDesign(raw: unknown): SavedShelfDesign | null {
       bandingThickness: num('bandingThickness', 0, 0.15) ?? 0.02,
       shelfThickness: num('shelfThickness', 0.05, 3) ?? undefined,
       backThickness: num('backThickness', 0.05, 3) ?? undefined,
+      shelfCutout: readShelfCutout(c.shelfCutout),
     },
   };
+}
+
+function readShelfCutout(raw: unknown): ShelfCutoutConfig | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const f = raw as Record<string, unknown>;
+  const ok = (v: unknown, min: number, max: number) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
+  if (f.enabled !== true || !ok(f.depth, 0.1, 50) || !ok(f.margin, 0, 50)) return undefined;
+  return { enabled: true, shape: f.shape === 'square' ? 'square' : 'curve', depth: f.depth as number, margin: f.margin as number };
 }
 
 function readFaceFrame(raw: unknown): FaceFrameConfig | undefined {
@@ -1003,6 +1087,10 @@ export interface ShelfDesignFields {
   edgeBanding: boolean;
   /** Kept with its unit (e.g. "0.5 mm") so it reads the same in either unit mode. */
   bandingThickness: string;
+  shelfCutout: boolean;
+  cutoutShape: CutoutShape;
+  cutoutDepth: string;
+  cutoutMargin: string;
 }
 
 /** Turns a saved design back into Shelf Builder form fields, in the unit it was designed in. */
@@ -1078,12 +1166,14 @@ export function openingHeightFromOverall(overall: number, shelvesPerBay: number[
 
 /** Defaults for the optional design fields (adjustable shelves, frame, doors, …). */
 export function extraFields(config: Partial<ShelfConfig> & Pick<ShelfConfig, 'bays' | 'bayWidth'>, units: LengthUnit): Pick<ShelfDesignFields,
-  'bayWidthMode' | 'bayWidths' | 'adjustablePerBay' | 'pinSystem' | 'backJoint' | 'faceFrame' | 'stileWidth' | 'railWidth' | 'frameThickness' | 'doorsPerBay' | 'shelfLoad' | 'edgeBanding' | 'bandingThickness'> {
+  'bayWidthMode' | 'bayWidths' | 'adjustablePerBay' | 'pinSystem' | 'backJoint' | 'faceFrame' | 'stileWidth' | 'railWidth' | 'frameThickness' | 'doorsPerBay' | 'shelfLoad' | 'edgeBanding' | 'bandingThickness'
+  | 'shelfCutout' | 'cutoutShape' | 'cutoutDepth' | 'cutoutMargin'> {
   const field = (inches: number) => lengthToField(inches, units);
   const n = Math.max(1, Math.floor(config.bays));
   const widths = bayWidthsOf({ bays: n, bayWidth: config.bayWidth, bayWidths: config.bayWidths });
   const custom = widths.some(w => Math.abs(w - config.bayWidth) > 1e-6);
   const ff = config.faceFrame;
+  const co = config.shelfCutout;
   const metric = units === 'mm';
   return {
     bayWidthMode: custom ? 'custom' : 'same',
@@ -1099,5 +1189,9 @@ export function extraFields(config: Partial<ShelfConfig> & Pick<ShelfConfig, 'ba
     shelfLoad: config.shelfLoad ?? 'books',
     edgeBanding: config.edgeBanding ?? false,
     bandingThickness: `${Math.round((config.bandingThickness ?? 0.02) * MM_PER_INCH * 10) / 10} mm`,
+    shelfCutout: co?.enabled ?? false,
+    cutoutShape: co?.shape ?? 'curve',
+    cutoutDepth: co ? field(co.depth) : metric ? '25' : '1',
+    cutoutMargin: co ? field(co.margin) : metric ? '38' : '1 1/2',
   };
 }

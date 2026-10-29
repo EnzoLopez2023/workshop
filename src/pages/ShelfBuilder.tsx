@@ -87,6 +87,10 @@ const DEFAULT_FORM: FormState = {
   shelfLoad: 'books',
   edgeBanding: false,
   bandingThickness: '0.5 mm',
+  shelfCutout: false,
+  cutoutShape: 'curve',
+  cutoutDepth: '1"',
+  cutoutMargin: '1 1/2"',
 };
 
 // Each carries its unit, so it means the same in inch or millimeter mode.
@@ -99,6 +103,11 @@ const BANDING_PRESETS = [
 const BAY_WIDTH_OPTIONS = [
   { value: 'same', label: 'All the same' },
   { value: 'custom', label: 'Each bay' },
+] as const;
+
+const CUTOUT_SHAPE_OPTIONS = [
+  { value: 'curve', label: 'Scoop' },
+  { value: 'square', label: 'Square notch' },
 ] as const;
 
 const BACK_JOINT_OPTIONS = [
@@ -135,7 +144,7 @@ const UNIT_OPTIONS = [
   { value: 'mm', label: 'Millimeters' },
 ] as const;
 
-const LENGTH_FIELDS = ['thickness', 'shelfThickness', 'backThickness', 'bayWidth', 'shelfDepth', 'openingHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight', 'stileWidth', 'railWidth', 'frameThickness'] as const;
+const LENGTH_FIELDS = ['thickness', 'shelfThickness', 'backThickness', 'bayWidth', 'shelfDepth', 'openingHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight', 'stileWidth', 'railWidth', 'frameThickness', 'cutoutDepth', 'cutoutMargin'] as const;
 
 /** The settings in design order: how big, the case, what's on the front, how it stands, then materials. */
 const SHELF_STEPS: BuilderStep[] = [
@@ -151,7 +160,7 @@ function stepOfField(key: string): string {
   if (/^(thickness|shelfThickness|backThickness)$/.test(key)) return 'shelf-step-materials';
   if (key === 'dadoDepth') return 'shelf-step-case';
   if (/^(toeKick|cleatHeight)$/.test(key)) return 'shelf-step-mounting';
-  if (/^(stileWidth|railWidth|frameThickness)$/.test(key)) return 'shelf-step-fronts';
+  if (/^(stileWidth|railWidth|frameThickness|cutoutDepth|cutoutMargin)$/.test(key)) return 'shelf-step-fronts';
   return 'shelf-step-size';
 }
 
@@ -303,6 +312,7 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
       shelfLoad: form.shelfLoad,
       edgeBanding: form.edgeBanding,
       bandingThickness: parseLength(form.bandingThickness, form.units) ?? 0.02,
+      ...(form.shelfCutout ? { shelfCutout: { enabled: true, shape: form.cutoutShape, depth: num('cutoutDepth'), margin: num('cutoutMargin') } } : {}),
     },
     fieldErrors,
   };
@@ -995,6 +1005,26 @@ export default function ShelfBuilder() {
                 <LengthField unit={units} label="Rail width" value={form.railWidth} error={fieldErrors.railWidth} onChange={railWidth => update({ railWidth })} />
                 <LengthField unit={units} label="Frame thickness" value={form.frameThickness} error={fieldErrors.frameThickness} onChange={frameThickness => update({ frameThickness })} />
               </div>
+            )}
+            <Toggle
+              label="Shelf cut-out"
+              checked={form.shelfCutout}
+              hint="A scoop in the front edge of every shelf (not the top or bottom) so you can reach in and lift out what's stacked there, like papers or trays."
+              onChange={shelfCutout => update({ shelfCutout })}
+            />
+            {form.shelfCutout && (
+              <>
+                <SegmentedControl
+                  label="Cut-out shape"
+                  value={form.cutoutShape}
+                  options={CUTOUT_SHAPE_OPTIONS}
+                  onChange={cutoutShape => update({ cutoutShape })}
+                />
+                <div className="shelf-field-grid">
+                  <LengthField unit={units} label="Cut-out depth" value={form.cutoutDepth} error={fieldErrors.cutoutDepth} hint="Reach back from the front edge." onChange={cutoutDepth => update({ cutoutDepth })} />
+                  <LengthField unit={units} label="Side margin" value={form.cutoutMargin} error={fieldErrors.cutoutMargin} hint="Uncut edge at each end." onChange={cutoutMargin => update({ cutoutMargin })} />
+                </div>
+              </>
             )}
             <Toggle
               label="Edge banding"

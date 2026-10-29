@@ -13,7 +13,7 @@
 // DRILL_0.375in) for CAM programs to map to toolpaths.
 
 import type { SheetLayout } from './cutPlan.ts';
-import { MM_PER_INCH, PIN_MARGIN, type LengthUnit, type ShelfConfig, type ShelfPlan } from './shelving.ts';
+import { cutoutShelfOutline, MM_PER_INCH, PIN_MARGIN, type LengthUnit, type ShelfConfig, type ShelfPlan } from './shelving.ts';
 import { hingesPerDoor } from './shelfEstimate.ts';
 
 export type Feature =
@@ -157,6 +157,18 @@ export function partFaces(plan: ShelfPlan, config: ShelfConfig): PartFace[] {
       faces.push({
         ...base, id: slug(part.name), piece: part.name, face: 'inside face', features, rightHanded: true,
         orientation: `${describe('bottom', true, 'inside face', 'hinge edge')} Hinges are on the left as seen from the front; mirror the file for doors hinged on the right.`,
+      });
+      continue;
+    }
+    if (plan.cutout && /^(Adjustable s|S)helf/.test(part.name)) {
+      // Shelf dado tongues sit in the sides, so the uncut front edge is measured from the bay wall.
+      const tongue = part.name.startsWith('Adjustable') ? 0 : plan.shelfDadoDepth;
+      const front = plan.banding ? plan.banding.thickness : 0;
+      const cutDepth = Math.max(0.01, plan.cutout.depth - front);
+      faces.push({
+        ...base, id: slug(part.name), piece: part.name, face: '', features: [], rightHanded: true,
+        outline: cutoutShelfOutline(part.length, part.width, tongue + plan.cutout.margin, { shape: plan.cutout.shape, depth: cutDepth }),
+        orientation: 'Nothing to machine — just cut the outline. The front edge, with the cut-out, is at the bottom of the drawing.',
       });
       continue;
     }
