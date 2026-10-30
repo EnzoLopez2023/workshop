@@ -9,8 +9,12 @@ import { Ruler, RotateCcw } from 'lucide-react';
 import type { Solid, SolidKind } from '../lib/shelving';
 import { DOOR_OPACITY, SOLID_COLORS as COLORS, solidGeometry } from '../lib/shelfRender';
 
+/** How the parts are drawn: solid, see-through (to show what's inside and behind), or as wire frames. */
+export type ViewMode = 'shaded' | 'xray' | 'wireframe';
+
 interface Props {
   solids: Solid[];
+  mode?: ViewMode;
   width: number;
   height: number;
   depth: number;
@@ -71,7 +75,7 @@ interface DimLabel { axis: 'width' | 'height' | 'depth'; x: number; y: number; v
 const SLIDE_EASE = 0.22;
 const ZERO = new THREE.Vector3();
 
-export default function ShelfViewer3D({ solids, width, height, depth, wallMounted, label, colors, formatLength, origin, highlight, highlightKey, onPick }: Props) {
+export default function ShelfViewer3D({ solids, mode = 'shaded', width, height, depth, wallMounted, label, colors, formatLength, origin, highlight, highlightKey, onPick }: Props) {
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
   const highlightRef = useRef(highlight);
@@ -410,6 +414,27 @@ export default function ShelfViewer3D({ solids, width, height, depth, wallMounte
     stage.render();
     // highlightKey stands in for the highlight function.
   }, [highlightKey]);
+
+  // View mode: the shared materials turn see-through or wire; nothing is rebuilt.
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const xray = mode === 'xray';
+    const set = (m: THREE.MeshStandardMaterial, seeThrough: number | null) => {
+      // Wireframe hides the faces and leaves each part's edge lines.
+      const opacity = mode === 'wireframe' ? 0 : xray ? Math.min(seeThrough ?? 1, 0.28) : seeThrough ?? 1;
+      m.transparent = opacity < 1;
+      m.opacity = opacity;
+      m.depthWrite = opacity >= 1;
+      m.needsUpdate = true;
+    };
+    for (const [kind, material] of Object.entries(stage.materials) as [SolidKind, THREE.MeshStandardMaterial][]) {
+      set(material, kind === 'door' ? DOOR_OPACITY : null);
+    }
+    set(stage.solidDoor, null);
+    stage.edgeMaterial.opacity = mode === 'wireframe' ? 0.95 : xray ? 0.7 : 0.55;
+    stage.render();
+  }, [mode, solids]);
 
   // Finish colours only recolour the shared materials; nothing is rebuilt.
   const colorKey = JSON.stringify(colors ?? {});

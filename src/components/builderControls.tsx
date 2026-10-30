@@ -1,7 +1,7 @@
 // Form controls and drawing helpers shared by the Shelf Builder and Drawer Builder.
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Lock, Minus, Plus } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ChevronDown, ChevronRight, Lock, Minus, Plus } from 'lucide-react';
 import { autoUpdate, flip, FloatingPortal, offset, shift, useDismiss, useFloating, useFocus, useHover, useInteractions, useRole } from '@floating-ui/react';
 import { IconButton } from './ui';
 import { lengthToField, parseLength, type LengthUnit } from '../lib/shelving';
@@ -172,6 +172,49 @@ export function ThicknessSelect({ units, presets, label, value, error, placehold
       </label>
       {custom && <LengthField unit={units} label="Custom size" value={value} error={error} onChange={onChange} />}
     </>
+  );
+}
+
+/**
+ * Everything wrong with the design in one list: each unreadable measurement jumps to its
+ * field when clicked (the field's own message is its label), with the plan's errors and notes below.
+ */
+export function IssuesPanel({ errors, warnings, fieldErrors, onJump }: {
+  errors: string[]; warnings: string[]; fieldErrors: Record<string, string | undefined>; onJump?: () => void;
+}) {
+  const fields = [...new Set(Object.values(fieldErrors).filter((m): m is string => !!m))];
+  const jump = (message: string) => {
+    onJump?.();
+    // A section that's folded away has no field to find until it opens.
+    window.setTimeout(() => {
+      const el = [...document.querySelectorAll<HTMLElement>('.shelf-field-error')].find(x => x.textContent === message);
+      const target = el?.closest('label') ?? el;
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.classList.add('is-flash');
+      window.setTimeout(() => target.classList.remove('is-flash'), 1600);
+      target.querySelector<HTMLElement>('input, select')?.focus({ preventScroll: true });
+    }, 60);
+  };
+  const problems = fields.length + errors.length;
+  if (problems + warnings.length === 0) return null;
+  return (
+    <details className="builder-issues" open={problems > 0}>
+      <summary>
+        {problems > 0 ? <><AlertCircle size={16} aria-hidden="true" /> {problems} thing{problems === 1 ? '' : 's'} to fix</> : <AlertTriangle size={16} aria-hidden="true" />}
+        {problems > 0 && warnings.length > 0 ? ' · ' : ' '}
+        {warnings.length > 0 ? `${warnings.length} note${warnings.length === 1 ? '' : 's'}` : ''}
+      </summary>
+      {problems > 0 && (
+        <ul className="drawer-error-list issues-list" role="alert">
+          {fields.map(m => (
+            <li key={m}><button type="button" className="issue-jump" onClick={() => jump(m)} title="Go to this setting">{m}</button></li>
+          ))}
+          {errors.map(e => <li key={e}>{e}</li>)}
+        </ul>
+      )}
+      {warnings.length > 0 && <ul className="builder-notes" role="status">{warnings.map(w => <li key={w}>{w}</li>)}</ul>}
+    </details>
   );
 }
 

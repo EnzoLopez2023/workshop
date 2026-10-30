@@ -344,7 +344,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     dado ? `Router with a straight bit or a dado stack set to ${dadoWidths} — test it on scrap of the same plywood` : null,
     rabbet && !dado ? `Router with a rabbeting bit, or a table saw, for the ${f(plan.backRabbet)} back rabbets` : null,
     plan.pinHoles.length ? `Shelf-pin jig and a ${metricPins ? '5 mm' : '1/4″'} bit with a stop collar` : null,
-    plan.frame ? 'Pocket-hole jig for the face frame' : null,
+    plan.frame || plan.pocket ? `Pocket-hole jig${plan.pocket ? ` set for ${f(plan.pocket.case ? config.thickness : plan.shelfThickness)} stock, with ${f(plan.pocket.screw)} coarse pocket screws` : ' for the face frame'}` : null,
     plan.doors.length && !plan.frame ? '35 mm Forstner bit (or a hinge-boring jig) for the hinge cups' : null,
     plan.banding ? (plan.banding.thickness <= 0.025 ? 'Household iron and an edge-banding trimmer' : 'Contact cement (or an edge bander) and a flush-trim router bit') : null,
     'Drill/driver, countersink bit, clamps, square, tape measure, pencil',
@@ -399,8 +399,9 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       'Rip sheets to width first, then crosscut to length.',
       'Cut identical parts (sides, shelves, dividers) with one fence setting so they match exactly.',
       'Label each piece in pencil with its name and which face goes inside.',
-      dado && dadoedParts ? `${dadoedParts.charAt(0).toUpperCase()}${dadoedParts.slice(1)} lengths already include ${f(dadoDepth)} at each end for the dados — don’t subtract it again.${shelfDado && caseDado ? '' : shelfDado ? ' The top and bottom are butt-jointed, at finished size.' : ' The shelves are butt-jointed, at finished size.'}` : 'All lengths are finished sizes for butt joints.',
-    ],
+      dado && dadoedParts ? `${dadoedParts.charAt(0).toUpperCase()}${dadoedParts.slice(1)} lengths already include ${f(dadoDepth)} at each end for the dados — don’t subtract it again.${shelfDado && caseDado ? '' : shelfDado ? ' The top and bottom are butt-jointed, at finished size.' : ' The shelves are butt-jointed, at finished size.'}` : plan.pocket ? 'All lengths are finished sizes for pocket-screw joints.' : 'All lengths are finished sizes for butt joints.',
+      plan.pocket ? `Drill the pocket holes now, while the parts are flat: ${plan.pocket.perEnd} in each end of ${[plan.pocket.case ? 'the top, bottom and dividers' : '', plan.pocket.shelves ? 'every fixed shelf' : ''].filter(Boolean).join(' and ')}, on the face the cut list names. Mark them with a pencil X so they point the right way.` : null,
+    ].filter((x): x is string => x !== null),
     parts: plan.parts.map(p => ({ name: p.name, qty: p.qty, size: `${f(p.length)} × ${f(p.width)}` })),
     tips: ['Put the best-looking face of each panel on the side that will show.'],
     cautions: ['Plywood is often thinner than its nominal size. Measure a sheet and use that thickness in the design.'],
@@ -513,7 +514,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     title: 'Assemble the outer case',
     summary: `Join the two sides${config.topPanel || config.bottomPanel ? ' to the top and bottom' : ''}.`,
     instructions: [
-      caseDado ? 'Glue the top and bottom dados, set the panels in, and clamp across the sides.' : `Glue the joints and drive three ${screw} screws through each side into the top and bottom (pre-drill and countersink).`,
+      caseDado ? 'Glue the top and bottom dados, set the panels in, and clamp across the sides.' : plan.pocket?.case ? `Glue the joints, clamp the top and bottom flush to the sides, and drive ${f(plan.pocket.screw)} pocket screws.` : `Glue the joints and drive three ${screw} screws through each side into the top and bottom (pre-drill and countersink).`,
       plan.kick > 0 ? `Fit the toe kick under the bottom, between the sides, ${f(plan.kick)} tall.` : null,
       config.topPanel && config.bottomPanel
         ? `Check the clear height between the bottom and the top is ${f(bayHeight)} at both sides — that is the bay height every divider has to fit.`
@@ -535,6 +536,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       instructions: [
         caseDado && (config.topPanel || config.bottomPanel)
           ? 'Glue and slide each divider into its top and bottom dados.'
+          : plan.pocket?.case ? 'Set each divider on its marks, clamp it square, and drive pocket screws into the top and bottom.'
           : `Set each divider and screw through the top and bottom into its edge with ${screw} screws.`,
         sameWidth
           ? `Cut a spacer block exactly ${f(widths[0])} long and use it to set every bay to the same width.`
@@ -567,6 +569,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       instructions: [
         ...bayLines,
         shelves.length === 0 ? null : shelfDado ? 'Glue the dados and slide each shelf in from the front, flush with the front edge.'
+          : plan.pocket?.shelves ? 'Mark each shelf line on both faces, clamp a spacer block under the shelf, and drive pocket screws from underneath into the side or divider.'
           : `Mark each shelf line on both faces, then glue and screw through the side or divider with ${screw} screws.`,
         shelves.length && !shelfDado && n > 1 ? 'Where shelves meet a divider at the same height on both sides, offset the screws or use pocket screws from underneath.' : null,
         adjustable.length ? `Set each adjustable shelf on four ${metricPins ? '5 mm' : '1/4″'} shelf pins — they lift out, so put them in last.` : null,

@@ -10499,3 +10499,56 @@ tbody td {
 .wb-inspector .form-field {
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
 }
+
+/* ── Workbench: selection, view styles and the issues list ─────────────────── */
+.wb-view-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+button.wb-tree-part.is-pickable {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.wb-tree-part.is-pickable:hover {
+  background: var(--color-surface-hover, rgba(0, 0, 0, 0.05));
+  color: var(--color-ink);
+}
+
+button.wb-tree-part.is-pickable.is-active {
+  background: color-mix(in srgb, var(--color-annotation) 16%, transparent);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.shelf-table tbody tr.is-clickable {
+  cursor: pointer;
+}
+
+.shelf-table tbody tr.is-clickable:hover th,
+.shelf-table tbody tr.is-clickable:hover td {
+  background: color-mix(in srgb, var(--color-annotation) 10%, transparent);
+}
+
+.issues-list .issue-jump {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.issues-list .issue-jump:hover {
+  text-decoration-style: solid;
+}

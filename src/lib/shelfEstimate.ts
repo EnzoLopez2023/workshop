@@ -123,9 +123,14 @@ export function hardwareList(plan: ShelfPlan, config: ShelfConfig, units: Length
 
   // Case screws: 3 per butt joint end (2 when the joint is dadoed and glued).
   const perEnd = dado ? 2 : 3;
-  let caseScrews = panels * 2 * perEnd; // top/bottom into each side
-  caseScrews += (n - 1) * panels * perEnd; // through top/bottom into each divider
-  if (!shelfDado) caseScrews += fixedShelves * 2 * 3; // shelves have no dado to carry them
+  const pocketCase = plan.pocket?.case ?? false;
+  const pocketShelves = plan.pocket?.shelves ?? false;
+  let caseScrews = 0;
+  if (!pocketCase) {
+    caseScrews += panels * 2 * perEnd; // top/bottom into each side
+    caseScrews += (n - 1) * panels * perEnd; // through top/bottom into each divider
+  }
+  if (!shelfDado && !pocketShelves) caseScrews += fixedShelves * 2 * 3; // shelves have no dado to carry them
   if (plan.kick > 0) caseScrews += 4;
   const cabinetCleat = plan.cleatGap > 0;
   if (cabinetCleat) caseScrews += Math.ceil(plan.innerSpan / 6) * 2; // cabinet cleat + bottom spacer through the back
@@ -150,9 +155,24 @@ export function hardwareList(plan: ShelfPlan, config: ShelfConfig, units: Length
     items.push({ key: 'brads', name: `Brad nails, ${f(1.25)}`, qty: boxes(brads, 1000), unit: 'box of 1000', uses: brads, note: 'For the back, with glue.', priceKey: 'brads' });
   }
 
-  if (plan.frame) {
-    const joints = 4 + 2 * (n - 1); // rails into stiles, mullions into rails
-    items.push({ key: 'pocket-screws', name: `Pocket screws, ${f(1.25)} coarse`, qty: boxes(joints * 2, 100), unit: 'box of 100', uses: joints * 2, note: 'Two per face-frame joint.', priceKey: 'pocketScrews' });
+  const frameScrews = plan.frame ? 2 * (4 + 2 * (n - 1)) : 0; // two per joint: rails into stiles, mullions into rails
+  const pocketScrews = (plan.pocket?.count ?? 0) + frameScrews;
+  if (pocketScrews > 0) {
+    // Case and shelf pockets are sized to the plywood; face-frame ones to its 3/4" solid wood.
+    const screw = plan.pocket ? plan.pocket.screw : 1.25;
+    items.push({
+      key: 'pocket-screws',
+      name: `Pocket screws, ${f(screw)} coarse`,
+      qty: boxes(pocketScrews, 100),
+      unit: 'box of 100',
+      uses: pocketScrews,
+      note: [
+        plan.pocket ? `${plan.pocket.count} for the ${[plan.pocket.case ? 'case joints' : '', plan.pocket.shelves ? 'fixed shelves' : ''].filter(Boolean).join(' and ')} (${plan.pocket.perEnd} per end).` : '',
+        frameScrews ? `${frameScrews} for the face frame (two per joint).` : '',
+        'Set the jig and the drill collar for the stock thickness; use coarse thread in plywood.',
+      ].filter(Boolean).join(' '),
+      priceKey: 'pocketScrews',
+    });
   }
 
   if (config.mounting === 'wall') {

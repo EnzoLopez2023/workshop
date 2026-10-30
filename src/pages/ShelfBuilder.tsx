@@ -1,10 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, Library, Loader2, Save, FolderPlus, Printer, RotateCcw,
+  AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, Library, Loader2, Save, FolderPlus, Printer, RotateCcw,
 } from 'lucide-react';
 import { Button, PageFrame, SegmentedControl } from '../components/ui';
-import { DimH, DimV, InspectorSection, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
+import { DimH, DimV, InspectorSection, IssuesPanel, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
+import { partOfSolidName, solidIsPart } from '../lib/partSelection';
+import type { ViewMode } from '../components/ShelfViewer3D';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import ShelfAddToProject from '../components/ShelfAddToProject';
 import ShelfBuildGuide from '../components/ShelfBuildGuide';
@@ -198,15 +200,30 @@ function convertForm(form: FormState, units: LengthUnit): FormState {
 const SHELF_JOINERY_OPTIONS = [
   { value: 'same', label: 'Same as case' },
   { value: 'dado', label: 'Dadoed' },
+  { value: 'pocket', label: 'Pocket' },
   { value: 'butt', label: 'Screwed' },
 ] as const;
 
 const JOINERY_OPTIONS = [
   { value: 'dado', label: 'Dadoed' },
+  { value: 'pocket', label: 'Pocket' },
   { value: 'butt', label: 'Butt joint' },
 ] as const;
 
+/** Joinery in one choice: how the case, shelves and back go together. */
+const JOINERY_PRESETS = [
+  { value: 'quick', label: 'Quick', hint: 'Pocket screws throughout and an inset back: no dados to cut, a pocket jig is all you need.', fields: { joinery: 'pocket', shelfJoinery: '', backJoint: 'inset' } },
+  { value: 'classic', label: 'Classic', hint: 'Dados for the case and shelves, back inset: strong and self-aligning.', fields: { joinery: 'dado', shelfJoinery: '', backJoint: 'inset' } },
+  { value: 'furniture', label: 'Furniture', hint: 'Dados plus a rabbeted back: the strongest, and the back’s edges are hidden.', fields: { joinery: 'dado', shelfJoinery: '', backJoint: 'rabbet' } },
+] as const;
+
 type PreviewMode = '3d' | 'drawing';
+
+const SHADE_OPTIONS = [
+  { value: 'shaded', label: 'Shaded', hint: 'Solid plywood.' },
+  { value: 'xray', label: 'X-ray', hint: 'See-through, so pocket holes, pins and what’s behind the doors show.' },
+  { value: 'wireframe', label: 'Wire', hint: 'Edges only.' },
+] as const;
 
 const VIEW_OPTIONS = [
   { value: '3d', label: '3D' },
@@ -367,6 +384,9 @@ export default function ShelfBuilder() {
   const [selectedBay, setSelectedBay] = useState<number | null>(null);
   const [tab, setTab] = useState<WorkbenchTab>('model');
   const [closedSteps, setClosedSteps] = useState<string[]>([]);
+  const [shade, setShade] = useState<ViewMode>('shaded');
+  /** A cut-list part picked in the tree, the cut list or the 3D view. */
+  const [selectedPart, setSelectedPart] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(readStoredForm);
   const [copyStatus, setCopyStatus] = useState('');
   const [view, setView] = useState<PreviewMode>(readStoredView);
@@ -670,10 +690,15 @@ export default function ShelfBuilder() {
     setClosedSteps(prev => prev.filter(x => x !== id));
     window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   };
-  // A click on a shelf in the 3D view selects its bay; anything else goes back to the unit.
+  // A click on a part in the 3D view selects it (and its bay, for a shelf); anything else clears the selection.
   const pickPart = (name: string) => {
     const match = /^Bay (\d+)/.exec(name);
     setSelectedBay(match ? Number(match[1]) - 1 : null);
+    setSelectedPart(plan ? partOfSolidName(plan.parts, name)?.name ?? null : null);
+  };
+  const selectPart = (name: string) => {
+    setSelectedBay(null);
+    setSelectedPart(prev => (prev === name ? null : name));
   };
 
   const renderBayCard = (i: number) => {
@@ -878,7 +903,7 @@ export default function ShelfBuilder() {
       {tab === 'model' && (
         <div className="wb-grid" ref={gridRef}>
           <nav className="wb-tree" aria-label="Design tree">
-            <button type="button" className={`wb-tree-item is-root${selectedBay === null ? ' is-active' : ''}`} onClick={() => setSelectedBay(null)}>
+            <button type="button" className={`wb-tree-item is-root${selectedBay === null && !selectedPart ? ' is-active' : ''}`} onClick={() => { setSelectedBay(null); setSelectedPart(null); }}>
               <ChevronDown size={14} aria-hidden="true" /> Shelf unit
             </button>
             {steps.map(step => (
@@ -889,7 +914,7 @@ export default function ShelfBuilder() {
             ))}
             <div className="wb-tree-label">Bays</div>
             {form.shelvesPerBay.slice(0, form.bays).map((count, i) => (
-              <button key={i} type="button" className={`wb-tree-item is-child${selectedBay === i ? ' is-active' : ''}`} onClick={() => setSelectedBay(i)}>
+              <button key={i} type="button" className={`wb-tree-item is-child${selectedBay === i ? ' is-active' : ''}`} onClick={() => { setSelectedBay(i); setSelectedPart(null); }}>
                 Bay {i + 1}
                 <span className="wb-tree-meta">{count + 1} open{(form.adjustablePerBay[i] ?? 0) > 0 ? ` + ${form.adjustablePerBay[i]} adj` : ''}{form.doorsPerBay[i] ? ' · door' : ''}</span>
               </button>
@@ -898,9 +923,9 @@ export default function ShelfBuilder() {
               <>
                 <div className="wb-tree-label">Parts · {plan.parts.reduce((sum, part) => sum + part.qty, 0)}</div>
                 {plan.parts.map(part => (
-                  <div key={part.name} className="wb-tree-part">
+                  <button key={part.name} type="button" className={`wb-tree-part is-pickable${selectedPart === part.name && selectedBay === null ? ' is-active' : ''}`} onClick={() => selectPart(part.name)} aria-pressed={selectedPart === part.name}>
                     <span>{part.name}</span><span className="wb-tree-meta">×{part.qty}</span>
-                  </div>
+                  </button>
                 ))}
               </>
             )}
@@ -909,7 +934,10 @@ export default function ShelfBuilder() {
         <section className="shelf-preview" aria-labelledby="shelf-preview-title">
           <header className="shelf-preview-head">
             <h2 id="shelf-preview-title">Viewport</h2>
-            <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
+            <span className="wb-view-controls">
+              {view === '3d' && <SegmentedControl label="Display style" value={shade} options={SHADE_OPTIONS} onChange={setShade} />}
+              <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
+            </span>
           </header>
           {plan ? (
             <>
@@ -919,19 +947,7 @@ export default function ShelfBuilder() {
                 <Stat label="Side depth" value={fmt(plan.sideDepth)} accent={plan.sideDepth !== config?.shelfDepth} />
                 <Stat label="Parts" value={String(plan.parts.reduce((s, p) => s + p.qty, 0))} />
               </dl>
-              {(plan.errors.length > 0 || plan.warnings.length + sagWarnings.length > 0) && (
-                <details className="builder-issues" open={plan.errors.length > 0}>
-                  <summary>
-                    {plan.errors.length > 0
-                      ? <><AlertCircle size={16} aria-hidden="true" /> {plan.errors.length} thing{plan.errors.length === 1 ? '' : 's'} to fix</>
-                      : <AlertTriangle size={16} aria-hidden="true" />}
-                    {plan.errors.length > 0 && plan.warnings.length + sagWarnings.length > 0 ? ' · ' : ' '}
-                    {plan.warnings.length + sagWarnings.length > 0 ? `${plan.warnings.length + sagWarnings.length} note${plan.warnings.length + sagWarnings.length === 1 ? '' : 's'}` : ''}
-                  </summary>
-                  {plan.errors.length > 0 && <ul className="drawer-error-list" role="alert">{plan.errors.map(e => <li key={e}>{e}</li>)}</ul>}
-                  {plan.warnings.length + sagWarnings.length > 0 && <ul className="builder-notes" role="status">{[...plan.warnings, ...sagWarnings].map(w => <li key={w}>{w}</li>)}</ul>}
-                </details>
-              )}
+              <IssuesPanel errors={plan.errors} warnings={[...plan.warnings, ...sagWarnings]} fieldErrors={fieldErrors} />
               {view === '3d' && valid ? (
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
                   <ShelfViewer3D
@@ -942,8 +958,10 @@ export default function ShelfBuilder() {
                     depth={plan.sideDepth}
                     wallMounted={config!.mounting === 'wall'}
                     onPick={pickPart}
-                    highlight={selectedBay === null ? undefined : (name: string) => name.startsWith(`Bay ${selectedBay + 1} `)}
-                    highlightKey={String(selectedBay)}
+                    mode={shade}
+                    highlight={selectedBay !== null ? (name: string) => name.startsWith(`Bay ${selectedBay + 1} `)
+                      : selectedPart ? (name: string) => solidIsPart(selectedPart, name) : undefined}
+                    highlightKey={`${selectedBay}|${selectedPart}`}
                     label={`3D view of a ${fmt(plan.overallWidth)} wide, ${fmt(plan.overallHeight)} tall shelving unit with ${plan.bays.length} bays`}
                   />
                 </Suspense>
@@ -955,7 +973,10 @@ export default function ShelfBuilder() {
               )}
             </>
           ) : (
-            <p className="shelf-placeholder">Fix the highlighted measurements to see the drawing.</p>
+            <>
+              <IssuesPanel errors={[]} warnings={[]} fieldErrors={fieldErrors} onJump={() => { setSelectedBay(null); setClosedSteps([]); }} />
+              <p className="shelf-placeholder">Fix the highlighted measurements to see the drawing.</p>
+            </>
           )}
         </section>
 
@@ -1084,9 +1105,23 @@ export default function ShelfBuilder() {
           <fieldset className="shelf-group" data-tour="fs-joinery">
             <legend>Joinery</legend>
             <div className="shelf-height-mode">
+              <span className="form-field-label">Preset</span>
+              <SegmentedControl
+                label="Joinery preset"
+                value={JOINERY_PRESETS.find(p => p.fields.joinery === form.joinery && (form.shelfJoinery || '') === p.fields.shelfJoinery && (form.backJoint === p.fields.backJoint || !(form.backPanel || cleat)))?.value ?? 'custom'}
+                options={[...JOINERY_PRESETS.map(p => ({ value: p.value as string, label: p.label, hint: p.hint })), { value: 'custom', label: 'Custom' }]}
+                onChange={v => { const preset = JOINERY_PRESETS.find(p => p.value === v); if (preset) update({ ...preset.fields }); }}
+              />
+              <small>{JOINERY_PRESETS.find(p => p.fields.joinery === form.joinery && (form.shelfJoinery || '') === p.fields.shelfJoinery && (form.backJoint === p.fields.backJoint || !(form.backPanel || cleat)))?.hint ?? 'Mixed joinery — set each below.'}</small>
+            </div>
+            <div className="shelf-height-mode">
               <span className="form-field-label">Case</span>
               <SegmentedControl label="Case joinery" value={form.joinery} options={JOINERY_OPTIONS} onChange={joinery => update({ joinery })} />
-              <small>The top and bottom into the sides, and the dividers into the top and bottom.</small>
+              <small>
+                {form.joinery === 'pocket'
+                  ? `The top and bottom into the sides, and the dividers into the top and bottom, with pocket screws${plan?.pocket ? ` (${plan.pocket.caseHoles} holes)` : ''}.`
+                  : 'The top and bottom into the sides, and the dividers into the top and bottom.'}
+              </small>
             </div>
             <div className="shelf-height-mode">
               <span className="form-field-label">Fixed shelves</span>
@@ -1095,7 +1130,9 @@ export default function ShelfBuilder() {
               <small>
                 {(form.shelfJoinery || form.joinery) === 'dado'
                   ? 'Each shelf sits in a dado in the sides and dividers — stronger, and it sets the shelf height for you.'
-                  : 'Each shelf is glued and screwed through the sides and dividers — quicker, no dados to cut.'}
+                  : (form.shelfJoinery || form.joinery) === 'pocket'
+                    ? `Pocket holes under each shelf end, screwed into the sides and dividers — no visible screws${plan?.pocket ? ` (${plan.pocket.shelfHoles} holes)` : ''}.`
+                    : 'Each shelf is glued and screwed through the sides and dividers — quicker, no dados to cut.'}
               </small>
             </div>
             {(form.joinery === 'dado' || form.shelfJoinery === 'dado') && (
@@ -1317,7 +1354,7 @@ export default function ShelfBuilder() {
                 </thead>
                 <tbody>
                   {plan.parts.map(p => (
-                    <tr key={p.name}>
+                    <tr key={p.name} className="is-clickable" onClick={() => { setSelectedBay(null); setSelectedPart(p.name); setTab('model'); }} title="Show this part in the 3D view">
                       <th scope="row">{p.name}</th>
                       <td>{p.qty}</td>
                       <td title={otherUnit(p.length)}>{fmt(p.length)}</td>

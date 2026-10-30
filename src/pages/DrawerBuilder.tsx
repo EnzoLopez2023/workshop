@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, FolderPlus, LayoutGrid, Library, Loader2, Printer, RotateCcw, Save, Trash2,
+  AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, FolderPlus, LayoutGrid, Library, Loader2, Printer, RotateCcw, Save, Trash2,
 } from 'lucide-react';
 import { Button, PageFrame, SegmentedControl } from '../components/ui';
-import { DimH, DimV, InspectorSection, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
+import { DimH, DimV, InspectorSection, IssuesPanel, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
+import { solidLooselyIsPart } from '../lib/partSelection';
+import type { ViewMode } from '../components/ShelfViewer3D';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import DrawerExport from '../components/DrawerExport';
 import CuttingOrder from '../components/CuttingOrder';
@@ -300,6 +302,12 @@ const BLIND_SIDE_OPTIONS = [
 const TOP_LAYER_OPTIONS = [
   { value: '2', label: 'Double thickness' },
   { value: '1', label: 'Single' },
+] as const;
+
+const SHADE_OPTIONS = [
+  { value: 'shaded', label: 'Shaded', hint: 'Solid plywood.' },
+  { value: 'xray', label: 'X-ray', hint: 'See-through, so what’s inside and behind shows.' },
+  { value: 'wireframe', label: 'Wire', hint: 'Edges only.' },
 ] as const;
 
 const VIEW_OPTIONS = [
@@ -671,6 +679,9 @@ export default function DrawerBuilder() {
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [tab, setTab] = useState<WorkbenchTab>('model');
   const [closedSteps, setClosedSteps] = useState<string[]>([]);
+  const [shade, setShade] = useState<ViewMode>('shaded');
+  /** A cut-list part picked in the tree, the cut list or the 3D view. */
+  const [selectedPart, setSelectedPart] = useState<string | null>(null);
   const toggleStep = (id: string) => setClosedSteps(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
   const gotoStep = (id: string) => {
     setClosedSteps(prev => prev.filter(x => x !== id));
@@ -1340,9 +1351,10 @@ export default function DrawerBuilder() {
                 ))}
                 <div className="wb-tree-label">Parts · {plan.parts.reduce((sum, part) => sum + part.qty, 0)}</div>
                 {plan.parts.map(part => (
-                  <div key={part.name} className="wb-tree-part">
+                  <button key={part.name} type="button" className={`wb-tree-part is-pickable${selectedPart === part.name ? ' is-active' : ''}`} aria-pressed={selectedPart === part.name}
+                    onClick={() => { setPickedPart(null); setSelectedPart(prev => (prev === part.name ? null : part.name)); }}>
                     <span>{part.name}</span><span className="wb-tree-meta">×{part.qty}</span>
-                  </div>
+                  </button>
                 ))}
               </>
             )}
@@ -1376,29 +1388,23 @@ export default function DrawerBuilder() {
                 />
               </dl>
             )}
-            <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
+            <span className="wb-view-controls">
+              {view === '3d' && <SegmentedControl label="Display style" value={shade} options={SHADE_OPTIONS} onChange={setShade} />}
+              <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
+            </span>
           </header>
           {plan && config ? (
             <>
-              {(plan.errors.length > 0 || plan.warnings.length > 0) && (
-                <details className="builder-issues" open={plan.errors.length > 0}>
-                  <summary>
-                    {plan.errors.length > 0
-                      ? <><AlertCircle size={16} aria-hidden="true" /> {plan.errors.length} thing{plan.errors.length === 1 ? '' : 's'} to fix</>
-                      : <AlertTriangle size={16} aria-hidden="true" />}
-                    {plan.errors.length > 0 && plan.warnings.length > 0 ? ' · ' : ' '}
-                    {plan.warnings.length > 0 ? `${plan.warnings.length} note${plan.warnings.length === 1 ? '' : 's'}` : ''}
-                  </summary>
-                  {plan.errors.length > 0 && <ul className="drawer-error-list" role="alert">{plan.errors.map(e => <li key={e}>{e}</li>)}</ul>}
-                  {plan.warnings.length > 0 && <ul className="builder-notes" role="status">{plan.warnings.map(w => <li key={w}>{w}</li>)}</ul>}
-                </details>
-              )}
+              <IssuesPanel errors={plan.errors} warnings={plan.warnings} fieldErrors={fieldErrors} />
               {view === '3d' && valid ? (
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
                   <ShelfViewer3D
-                    highlight={activePart ? partMatcher(activePart, plan, config) : undefined}
-                    highlightKey={activePart ?? ''}
+                    mode={shade}
+                    highlight={activePart ? partMatcher(activePart, plan, config)
+                      : selectedPart ? (name: string) => solidLooselyIsPart(selectedPart, name) : undefined}
+                    highlightKey={`${activePart ?? ''}|${selectedPart ?? ''}`}
                     onPick={name => {
+                      setSelectedPart(plan.parts.find(p => solidLooselyIsPart(p.name, name))?.name ?? null);
                       const key = partOfSolid(name, plan, config);
                       setPickedPart(key);
                       const el = configRef.current?.querySelector<HTMLElement>(`[data-part="${key}"]`);
@@ -1429,7 +1435,10 @@ export default function DrawerBuilder() {
               )}
             </>
           ) : (
-            <p className="shelf-placeholder">Fix the highlighted measurements to see the drawing.</p>
+            <>
+              <IssuesPanel errors={[]} warnings={[]} fieldErrors={fieldErrors} onJump={() => setClosedSteps([])} />
+              <p className="shelf-placeholder">Fix the highlighted measurements to see the drawing.</p>
+            </>
           )}
         </section>
 
@@ -2242,7 +2251,7 @@ export default function DrawerBuilder() {
                 </thead>
                 <tbody>
                   {plan.parts.map(p => (
-                    <tr key={p.name}>
+                    <tr key={p.name} className="is-clickable" onClick={() => { setPickedPart(null); setSelectedPart(p.name); setTab('model'); }} title="Show this part in the 3D view">
                       <th scope="row">{p.name}</th>
                       <td>{p.qty}</td>
                       <td title={otherUnit(p.length)}>{fmt(p.length)}</td>

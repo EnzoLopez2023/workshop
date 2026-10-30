@@ -11,7 +11,8 @@
 
 import { parseInches } from './cutPlan.ts';
 
-export type Joinery = 'butt' | 'dado';
+/** How parts meet: a screwed butt joint, a dado (housed), or a pocket-hole butt joint. */
+export type Joinery = 'butt' | 'dado' | 'pocket';
 export type LengthUnit = 'in' | 'mm';
 export type Mounting = 'floor' | 'wall';
 /** How the back attaches: inset between the sides, or let into a rabbet (a groove when there's a cleat). */
@@ -214,6 +215,8 @@ export interface ShelfPlan {
   banding: { thickness: number; caseFronts: boolean; runs: BandingRun[]; totalLength: number } | null;
   /** The shelves' front-edge cut-out, when turned on. */
   cutout: { shape: CutoutShape; depth: number; margin: number } | null;
+  /** Pocket-hole joinery, when the case or the fixed shelves use it. */
+  pocket: PocketPlan | null;
 }
 
 export const SHEET_LENGTH = 96;
@@ -280,6 +283,33 @@ export function shelfPositions(bottom: number, top: number, count: number, thick
   return { ys, opening };
 }
 
+/** Pocket holes along each end of a member this deep: two up to 12", then one more per 6". */
+export function pocketsPerEnd(depth: number): number {
+  return depth <= 12 + EPS ? 2 : Math.ceil(depth / 6);
+}
+
+/** Pocket-screw length for a thickness of stock (Kreg's chart: coarse thread for plywood). */
+export function pocketScrewLength(thickness: number): number {
+  if (thickness <= 0.55) return 1;
+  if (thickness <= 0.8) return 1.25;
+  if (thickness <= 1.05) return 1.5;
+  return 2.5;
+}
+
+/** Where the pocket holes go and how many, so the cut list, 3D view and hardware list agree. */
+export interface PocketPlan {
+  /** Case joints (top, bottom, dividers) and fixed shelves are pocket-screwed. */
+  case: boolean;
+  shelves: boolean;
+  /** Holes along each end of a member (set by its depth). */
+  perEnd: number;
+  /** Holes in the case joints, the fixed shelves, and altogether. */
+  caseHoles: number;
+  shelfHoles: number;
+  count: number;
+  screw: number;
+}
+
 export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   const t = config.thickness;
   const st = shelfThicknessOf(config);
@@ -299,6 +329,8 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   const shelfDado = (config.shelfJoinery ?? config.joinery) === 'dado';
   const sd = shelfDado ? config.dadoDepth : 0;
   const anyDado = dado || shelfDado;
+  const pocketCase = config.joinery === 'pocket';
+  const pocketShelves = (config.shelfJoinery ?? config.joinery) === 'pocket';
   const kick = config.mounting === 'floor' && config.bottomPanel ? Math.max(0, config.toeKick) : 0;
   const rabbet = hasBack && config.backJoint === 'rabbet' ? t / 2 : 0;
 
@@ -351,6 +383,18 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   });
   const dividerXs = Array.from({ length: n - 1 }, (_, i) => xs[i] + widths[i]);
 
+  // ── Pocket holes ────────────────────────────────────────────────────────────
+  const perEnd = pocketsPerEnd(D);
+  const panelCount = (config.topPanel ? 1 : 0) + (config.bottomPanel ? 1 : 0);
+  const fixedCount = counts.reduce((sum, c) => sum + c, 0);
+  // Top and bottom: both ends into the sides. Dividers: both ends into the top and bottom.
+  const caseHoles = pocketCase ? perEnd * 2 * panelCount + (n - 1) * panelCount * perEnd : 0;
+  const shelfHoles = pocketShelves ? fixedCount * 2 * perEnd : 0;
+  const pocket: PocketPlan | null = caseHoles + shelfHoles > 0
+    ? { case: pocketCase && caseHoles > 0, shelves: pocketShelves && shelfHoles > 0, perEnd, caseHoles, shelfHoles, count: caseHoles + shelfHoles, screw: pocketScrewLength(Math.min(pocketCase ? t : st, pocketShelves ? st : t)) }
+    : null;
+  const pocketNote = (face: string) => ` Pocket-screwed: ${perEnd} pocket hole${perEnd === 1 ? '' : 's'} in each end, drilled in the ${face}.`;
+
   // ── Shelf cut-out ───────────────────────────────────────────────────────────
   const co = config.shelfCutout;
   const hasShelves = counts.some(c => c > 0) || adjustableCounts.some(c => c > 0);
@@ -368,7 +412,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
 
   // ── Parts ───────────────────────────────────────────────────────────────────
   const parts: ShelfPart[] = [];
-  const housed = dado ? ' Housed in dados.' : '';
+  const housed = dado ? ' Housed in dados.' : pocketCase ? pocketNote('underside') : '';
   const rabbetNote = rabbet > 0
     ? `Cut a ${fmt(rabbet)} × ${fmt(bt)} ${cleat ? 'groove' : 'rabbet'} for the back, ${fmt(D)} from the front edge.`
     : '';
@@ -395,7 +439,8 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
       length: dividerTop - dividerBottom,
       width: D,
       thickness: t,
-      note: dado && (config.topPanel || config.bottomPanel) ? 'Ends housed in top/bottom dados.' : undefined,
+      note: dado && (config.topPanel || config.bottomPanel) ? 'Ends housed in top/bottom dados.'
+        : pocketCase && (config.topPanel || config.bottomPanel) ? pocketNote('back face (hidden by the back panel)').trim() : undefined,
     });
   }
 
@@ -412,7 +457,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
       length: g.key + 2 * sd,
       width: D,
       thickness: st,
-      note: (shelfDado ? 'Housed in dados.' : 'Butt-jointed: glued and screwed through the sides and dividers.') + cutoutNote,
+      note: (shelfDado ? 'Housed in dados.' : pocketShelves ? pocketNote('underside').trim() : 'Butt-jointed: glued and screwed through the sides and dividers.') + cutoutNote,
     });
   }
   const adjustableGroups = groupBySize(bays.filter(b => adjustableCounts[b.index] > 0).map(b => ({ bay: b.index, key: b.width, value: adjustableCounts[b.index] })));
@@ -646,6 +691,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     frontDepth,
     banding,
     cutout,
+    pocket,
   };
 }
 
@@ -792,6 +838,32 @@ export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
     bay.shelfYs.forEach((y, i) => {
       solids.push(shelf(`Bay ${bay.index + 1} shelf ${i + 1}`, 'shelf', bay.x, bay.x + bay.width, y, D));
     });
+  }
+  // Pocket holes: dark marks on the hidden face of each joint, so they show in the x-ray view.
+  if (plan.pocket) {
+    const { perEnd } = plan.pocket;
+    const zs = Array.from({ length: perEnd }, (_, i) => (D * (i + 0.5)) / perEnd);
+    const hole = 0.45;
+    const mark = (name: string, x: number, y: number, z: number) =>
+      solids.push(box(name, 'pinhole', [x - hole / 2, y - 0.04, z - hole / 2], [x + hole / 2, y + hole * 0.6, z + hole / 2]));
+    if (plan.pocket.shelves) {
+      for (const bay of plan.bays) {
+        bay.shelfYs.forEach((y, i) => {
+          for (const [side, x] of [['left', bay.x + 0.6], ['right', bay.x + bay.width - 0.6]] as const) {
+            zs.forEach((z, k) => mark(`Pocket holes · bay ${bay.index + 1} shelf ${i + 1} ${side} ${k + 1}`, x, y, z));
+          }
+        });
+      }
+    }
+    if (plan.pocket.case) {
+      const panels: [string, number][] = [];
+      if (hasTop) panels.push(['top', plan.interiorTop]);
+      if (hasBottom) panels.push(['bottom', plan.kick]);
+      for (const [name, y] of panels) {
+        const xs = [t + 0.6, W - t - 0.6];
+        zs.forEach((z, k) => xs.forEach((x, e) => mark(`Pocket holes · ${name} ${e === 0 ? 'left' : 'right'} ${k + 1}`, x, y, z)));
+      }
+    }
   }
   // Adjustable shelves rest on four shelf pins. They're drawn larger than life —
   // a real 1/4" pin is a speck at full-unit scale — so the shelves read as loose.
@@ -1018,8 +1090,8 @@ export function readSavedShelfDesign(raw: unknown): SavedShelfDesign | null {
       topPanel: c.topPanel !== false,
       bottomPanel: c.bottomPanel !== false,
       backPanel: c.backPanel !== false,
-      joinery: c.joinery === 'butt' ? 'butt' : 'dado',
-      ...(c.shelfJoinery === 'butt' || c.shelfJoinery === 'dado' ? { shelfJoinery: c.shelfJoinery } : {}),
+      joinery: c.joinery === 'butt' || c.joinery === 'pocket' ? c.joinery : 'dado',
+      ...(c.shelfJoinery === 'butt' || c.shelfJoinery === 'dado' || c.shelfJoinery === 'pocket' ? { shelfJoinery: c.shelfJoinery } : {}),
       dadoDepth: num('dadoDepth', 0, 3) ?? 0,
       mounting: c.mounting === 'wall' ? 'wall' : 'floor',
       toeKick: num('toeKick', 0, 24) ?? 0,
