@@ -161,7 +161,21 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
     : 0;
   // Fixed shelves behind doors that are screwed, not dadoed: three through each side into each end.
   const screwedShelves = plan.drawers.filter(d => d.door?.shelfJoint === 'butt').reduce((a, d) => a + d.door!.shelfYs.length, 0);
-  const caseScrews = (2 * 2 * 4 + plan.partitionXs.length * 2 * 4 + (plan.base ? 8 : 0) + backScrews + screwedShelves * 6) * unitCount + (desk ? 8 * unitCount + laminate : 0);
+  // Pocket screws take the place of the plain screws at the top, bottom and partition joints.
+  const jointScrews = plan.pocket ? 0 : 2 * 2 * 4 + plan.partitionXs.length * 2 * 4;
+  const caseScrews = (jointScrews + (plan.base ? 8 : 0) + backScrews + screwedShelves * 6) * unitCount + (desk ? 8 * unitCount + laminate : 0);
+  if (plan.pocket) {
+    const pocketScrews = plan.pocket.count * unitCount;
+    items.push({
+      key: 'pocket-screws',
+      name: `Pocket screws, ${f(plan.pocket.screw)} coarse`,
+      qty: boxes(pocketScrews, 100),
+      unit: 'box of 100',
+      uses: pocketScrews,
+      note: `${plan.pocket.perEnd} per joint end. Set the jig and drill collar for the plywood thickness; coarse thread in plywood.`,
+      priceKey: 'caseScrews',
+    });
+  }
   items.push({
     key: 'case-screws',
     name: `Wood screws, ${f(config.thickness < 0.6 ? 1.25 : 1.625)}`,

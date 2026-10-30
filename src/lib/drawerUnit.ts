@@ -22,6 +22,8 @@ import {
   type ShelfPart,
   type Solid,
   type SolidKind,
+  pocketsPerEnd,
+  pocketScrewLength,
 } from './shelving.ts';
 import { hingePositions } from './shelfExport.ts';
 import { INSERT_NAMES, INSERT_PLAY, layoutInsert, pieceOutline, type DrawerInsert, type InsertLayout } from './drawerInserts.ts';
@@ -223,6 +225,10 @@ export interface DrawerConfig {
   exposedSides?: ExposedSides;
   /** A specific slide length; leave unset to use the longest that fits. */
   slideLength?: number;
+  /** Join the top, bottom and partitions to the sides with pocket screws instead of plain screws. */
+  pocketCase?: boolean;
+  /** Extra depth left on the sides past the back, to scribe to an uneven wall. */
+  scribe?: number;
   /** Band the case's front edges and the drawer fronts' straight edges. */
   edgeBanding?: boolean;
   bandingThickness?: number;
@@ -675,6 +681,10 @@ export interface DrawerPlan {
   /** Per drawer: contents weight and bottom sag at the chosen load. */
   loads: DrawerLoadCheck[];
   banding: { thickness: number; totalLength: number } | null;
+  /** Pocket-screw joints in the case, when turned on. */
+  pocket: { perEnd: number; count: number; screw: number } | null;
+  /** Extra side depth for scribing to the wall (0 when off). */
+  scribe: number;
 }
 
 // ── Finger pull ────────────────────────────────────────────────────────────────
@@ -1171,31 +1181,39 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     };
   }
 
+  // Pocket-screw joints: the top and bottom into each side, each partition into the top and bottom.
+  const scribe = Math.max(0, config.scribe ?? 0);
+  const pocketPerEnd = pocketsPerEnd(interiorDepth);
+  const pocketCount = config.pocketCase ? (4 + 2 * partitionXs.length) * pocketPerEnd : 0;
+  const pocket = pocketCount > 0 ? { perEnd: pocketPerEnd, count: pocketCount, screw: pocketScrewLength(T) } : null;
+  const pocketNote = pocket ? `Pocket-screwed: ${pocket.perEnd} pocket holes in each end, drilled on the face that won't show` : '';
+
   // Parts.
   const parts: ShelfPart[] = [];
   const caseBanding = banding;
   const sideHeight = caseHeight;
   const panelLength = interiorWidth;
   const sideLength = sideHeight + B - sideBottom;
-  parts.push({ name: 'Side', qty: 2, length: sideLength, width: caseDepth - caseBanding, thickness: T,
+  parts.push({ name: 'Side', qty: 2, length: sideLength, width: caseDepth - caseBanding + scribe, thickness: T,
     note: [backJoint === 'screwed'
       ? `The back fits between the sides${cleatGap > 0 ? `, ${f(cleatGap)} in from the back edge (room for the cleat)` : ', flush with their back edges'}; no rabbet`
       : cleatGap > 0
         ? `${f(backT)} × ${f(T / 2)} groove for the back, ${f(cleatGap)} in from the back edge (room for the cleat)`
         : `${f(backT)} × ${f(T / 2)} rabbet on the back inside edge for the back`,
+    ...(scribe > 0 ? [`${f(scribe)} extra past the back edge to scribe to the wall; trim to fit on site`] : []),
     ...(baseKind === 'kick' ? [`${f(basePlan!.setback)} × ${f(B)} toe-kick notch at the front of the bottom end`] : [])].join('; '), material: 'plywood' });
   if (baseKind === 'kick') {
     // u = up from the bottom end, v = back from the front edge.
     const sv = basePlan!.setback - caseBanding;
-    const Wd = caseDepth - caseBanding;
+    const Wd = caseDepth - caseBanding + scribe;
     partOutlines.Side = [[0, sv], [0, Wd], [sideLength, Wd], [sideLength, 0], [B, 0], [B, sv]];
   }
-  parts.push({ name: 'Top', qty: 1, length: panelLength, width: interiorDepth - caseBanding, thickness: T, material: 'plywood' });
+  parts.push({ name: 'Top', qty: 1, length: panelLength, width: interiorDepth - caseBanding, thickness: T, note: pocketNote || undefined, material: 'plywood' });
   parts.push({ name: 'Bottom', qty: 1, length: panelLength, width: interiorDepth - caseBanding, thickness: T,
-    note: supports > 0 && config.base === 'feet' ? `${supports} T-nuts for the leveling feet`
+    note: [pocketNote, supports > 0 && config.base === 'feet' ? `${supports} T-nuts for the leveling feet`
       : supports > 0 && config.base === 'casters' ? `${supports} casters screw on`
         : baseKind === 'kick' ? `Between the sides, ${f(B)} up; the kick board and nailer go under it`
-          : baseKind ? 'Sits on the plinth; screw down through it into the plinth' : undefined,
+          : baseKind ? 'Sits on the plinth; screw down through it into the plinth' : ''].filter(Boolean).join('; ') || undefined,
     material: 'plywood' });
   parts.push(backJoint === 'screwed'
     ? { name: 'Back', qty: 1, length: sideHeight, width: interiorWidth, thickness: backT, note: 'Fits between the sides behind the top and bottom; glued and screwed', material: 'plywood' }
@@ -1208,7 +1226,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   partitionXs.forEach((x, pi) => {
     parts.push({
       name: partitionXs.length === 1 ? 'Partition' : `Partition ${pi + 1}`, qty: 1, length: caseHeight - 2 * T, width: interiorDepth - caseBanding, thickness: T,
-      note: `Between the top and bottom, ${f(x - T)} in from the left side; slides screw to both faces`, material: 'plywood',
+      note: `Between the top and bottom, ${f(x - T)} in from the left side; slides screw to both faces${pocket ? `. ${pocketNote}` : ''}`, material: 'plywood',
     });
   });
   if (basePlan) {
@@ -1767,6 +1785,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     outlet,
     loads,
     banding: banding > 0 ? { thickness: banding, totalLength: bandingTotal } : null,
+    pocket,
+    scribe,
   };
 }
 
@@ -1818,8 +1838,8 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
   const bp = plan.base;
   // An integrated toe kick: the sides run to the floor with a notch at the front.
   const side = (name: string, x0: number, x1: number): Solid => (bp?.kind === 'kick'
-    ? { name, kind: 'case', shape: 'prism', x0, x1, profile: [[bp.setback, 0], [cd, 0], [cd, H], [0, H], [0, B], [bp.setback, B]] }
-    : box(name, 'case', [x0, B, 0], [x1, H, cd]));
+    ? { name, kind: 'case', shape: 'prism', x0, x1, profile: [[bp.setback, 0], [cd + plan.scribe, 0], [cd + plan.scribe, H], [0, H], [0, B], [bp.setback, B]] }
+    : box(name, 'case', [x0, B, 0], [x1, H, cd + plan.scribe]));
   const solids: Solid[] = [
     side('Left side', 0, T),
     side('Right side', W - T, W),
@@ -2697,6 +2717,8 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       exposedSides: readExposed(c.exposedSides),
       slideLength: slideLength ?? undefined,
       edgeBanding: c.edgeBanding === true,
+      pocketCase: c.pocketCase === true,
+      scribe: num(c.scribe, 0, 3) ?? 0,
       bandingThickness: num(c.bandingThickness, 0, 0.15) ?? 0.02,
       units,
       inserts: Array.isArray(c.inserts)
@@ -2910,6 +2932,8 @@ export interface DrawerDesignFields {
   /** 'auto' or a length in inches. */
   slideLength: string;
   edgeBanding: boolean;
+  pocketCase: boolean;
+  scribe: string;
   bandingThickness: string;
   /** Per drawer, top to bottom. */
   insertKinds: InsertKind[];
@@ -3045,6 +3069,8 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     exposedRight: c.exposedSides?.right ?? true,
     slideLength: c.slideLength ? String(c.slideLength) : 'auto',
     edgeBanding: c.edgeBanding === true,
+    pocketCase: c.pocketCase === true,
+    scribe: c.scribe ? L(c.scribe) : '0',
     bandingThickness: c.bandingThickness ? `${Math.round(c.bandingThickness * 25.4 * 10) / 10} mm` : '0.5 mm',
     insertKinds: Array.from({ length: c.drawers }, (_, i) => (c.doors?.[i] ? 'door' : c.openSlots?.[i] ? 'cubby' : c.inserts?.[i]?.kind ?? 'none')),
     doorHinges: Array.from({ length: c.drawers }, (_, i) => c.doors?.[i]?.hinge ?? 'auto'),

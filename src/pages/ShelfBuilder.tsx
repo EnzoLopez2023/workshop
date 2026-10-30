@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, ArrowLeft, Redo2, Undo2, GitCompare, Layers, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, Library, Loader2, Save, FolderPlus, Printer, RotateCcw,
+  AlertCircle, ArrowLeft, Redo2, Undo2, GitCompare, Layers, Focus, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, Library, Loader2, Save, FolderPlus, Printer, RotateCcw,
 } from 'lucide-react';
 import { Button, PageFrame, SegmentedControl } from '../components/ui';
 import { DimH, DimV, InspectorSection, IssuesPanel, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
@@ -594,6 +594,11 @@ export default function ShelfBuilder() {
     }
   };
 
+  // The selected bay or part, as a test on a solid's name; "Isolate" hides everything else.
+  const highlightFn: ((name: string) => boolean) | undefined = selectedBay !== null ? (name: string) => name.startsWith(`Bay ${selectedBay + 1} `)
+    : selectedPart ? (name: string) => solidIsPart(selectedPart, name) : undefined;
+  const [isolate, setIsolate] = useState(false);
+
   // A design pinned for comparison: what it measured, and the form to go back to.
   const [pinned, setPinned] = useState<{ form: FormState; stats: PlanStats } | null>(null);
   const [showCompare, setShowCompare] = useState(false);
@@ -1004,6 +1009,11 @@ export default function ShelfBuilder() {
             <h2 id="shelf-preview-title">Viewport</h2>
             <span className="wb-view-controls">
               {view === '3d' && <SegmentedControl label="Display style" value={shade} options={SHADE_OPTIONS} onChange={setShade} />}
+              {view === '3d' && highlightFn && (
+                <Button variant={isolate ? 'secondary' : 'ghost'} onClick={() => setIsolate(v => !v)} aria-pressed={isolate} title="Hide everything except the selection">
+                  <Focus size={16} aria-hidden="true" /> Isolate
+                </Button>
+              )}
               {view === '3d' && (
                 <Button variant={showJoinery ? 'secondary' : 'ghost'} onClick={() => setShowJoinery(v => !v)} aria-pressed={showJoinery} title="Show the dados, back rabbets and shelf-pin holes cut into the sides">
                   <Layers size={16} aria-hidden="true" /> Joinery
@@ -1024,7 +1034,7 @@ export default function ShelfBuilder() {
               {view === '3d' && valid ? (
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
                   <ShelfViewer3D
-                    solids={solids}
+                    solids={isolate && highlightFn ? solids.filter(x => highlightFn(x.name)) : solids}
                     formatLength={fmt}
                     width={plan.overallWidth}
                     height={plan.overallHeight}
@@ -1034,8 +1044,7 @@ export default function ShelfBuilder() {
                     mode={shade}
                     onEditDimension={editDimension}
                     parseLength={text => parseLength(text, units)}
-                    highlight={selectedBay !== null ? (name: string) => name.startsWith(`Bay ${selectedBay + 1} `)
-                      : selectedPart ? (name: string) => solidIsPart(selectedPart, name) : undefined}
+                    highlight={highlightFn}
                     highlightKey={`${selectedBay}|${selectedPart}`}
                     label={`3D view of a ${fmt(plan.overallWidth)} wide, ${fmt(plan.overallHeight)} tall shelving unit with ${plan.bays.length} bays`}
                   />

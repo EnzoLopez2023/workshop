@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, ArrowLeft, Redo2, Undo2, GitCompare, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, FolderPlus, LayoutGrid, Library, Loader2, Printer, RotateCcw, Save, Trash2,
+  AlertCircle, ArrowLeft, Redo2, Undo2, GitCompare, Focus, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, FolderPlus, LayoutGrid, Library, Loader2, Printer, RotateCcw, Save, Trash2,
 } from 'lucide-react';
 import { Button, PageFrame, SegmentedControl } from '../components/ui';
 import { DimH, DimV, InspectorSection, IssuesPanel, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
@@ -143,6 +143,8 @@ const DEFAULT_FORM: FormState = {
   exposedRight: true,
   slideLength: 'auto',
   edgeBanding: false,
+  pocketCase: false,
+  scribe: '0',
   bandingThickness: '0.5 mm',
   insertKinds: ['none', 'none', 'none', 'none', 'none'],
   gridColumns: [2, 2, 2, 2, 2],
@@ -197,7 +199,7 @@ const LENGTH_FIELDS = [
   'boxThickness', 'bottomThickness', 'backThickness', 'footHeight', 'casterHeight',
   'insertThickness', 'doorShelfThickness', 'cubbyShelfThickness', 'markerDiameter', 'markerLength', 'markerSpacing', 'deskWidth', 'deskHeight', 'deskDepth',
   'mountHeight', 'cleatHeight', 'toolBoardThickness', 'toolPocketDepth', 'toolClearance',
-  'kickHeight', 'kickSetback', 'baseboardHeight', 'baseboardThickness',
+  'scribe', 'kickHeight', 'kickSetback', 'baseboardHeight', 'baseboardThickness',
   'hardwareSpacing', 'doorHardwareSpacing', 'profileRail', 'profileDepth', 'blindWidth', 'outletHeight',
 ] as const;
 type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}` | `columnFronts.${number}.${number}` | `columnWidths.${number}`
@@ -522,6 +524,8 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     exposedSides: { left: form.exposedLeft, right: form.exposedRight },
     slideLength: form.slideLength === 'auto' ? undefined : Number(form.slideLength),
     edgeBanding: form.edgeBanding,
+    pocketCase: form.pocketCase,
+    scribe: num('scribe', { allowZero: true }),
     bandingThickness: parseLength(form.bandingThickness, form.units) ?? 0.02,
     openSlots: form.insertKinds.slice(0, form.drawers).includes('cubby') ? form.insertKinds.slice(0, form.drawers).map(k => k === 'cubby') : undefined,
     doors: form.insertKinds.slice(0, form.drawers).includes('door')
@@ -686,6 +690,16 @@ export default function DrawerBuilder() {
   const [shade, setShade] = useState<ViewMode>('shaded');
   /** A cut-list part picked in the tree, the cut list or the 3D view. */
   const [selectedPart, setSelectedPart] = useState<string | null>(null);
+  // Picking a drawer in the tree lights it up in 3D and jumps to its settings, like clicking it in the view.
+  const selectDrawer = (index: number) => {
+    setSelectedPart(null);
+    setPickedPart(prev => (prev === `pos:${index}` ? null : `pos:${index}`));
+    setClosedSteps(prev => prev.filter(x => x !== 'drawer-step-size'));
+    window.setTimeout(() => {
+      const el = configRef.current?.querySelector<HTMLElement>(`[data-part="pos:${index}"]`);
+      if (el) scrollToSetting(el);
+    }, 0);
+  };
   const toggleStep = (id: string) => setClosedSteps(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
   const gotoStep = (id: string) => {
     setClosedSteps(prev => prev.filter(x => x !== id));
@@ -710,6 +724,11 @@ export default function DrawerBuilder() {
   const [pinned, setPinned] = useState<{ form: FormState; stats: PlanStats } | null>(null);
   const [showCompare, setShowCompare] = useState(false);
   const stats: PlanStats | null = plan && valid ? planStats(plan, sheetSummary) : null;
+  // The selected drawer or part, as a test on a solid's name; "Isolate" hides everything else.
+  const highlightFn: ((name: string) => boolean) | undefined = plan && config
+    ? (activePart ? partMatcher(activePart, plan, config) : selectedPart ? (name: string) => solidLooselyIsPart(selectedPart, name) : undefined)
+    : undefined;
+  const [isolate, setIsolate] = useState(false);
 
   // Click a dimension in the 3D view to change it. Only for a single cabinet: a run, desk, corner or
   // bookcase is built from many measurements, so its overall size isn't one setting.
@@ -1390,9 +1409,10 @@ export default function DrawerBuilder() {
               <>
                 <div className="wb-tree-label">Drawers · {plan.drawers.length}</div>
                 {plan.drawers.map(d => (
-                  <div key={d.index} className="wb-tree-part">
-                    <span>Drawer {d.index + 1}</span><span className="wb-tree-meta">{d.open ? 'open' : fmt(d.front.height)}</span>
-                  </div>
+                  <button key={d.index} type="button" className={`wb-tree-part is-pickable${pickedPart === `pos:${d.index}` ? ' is-active' : ''}`} aria-pressed={pickedPart === `pos:${d.index}`}
+                    onClick={() => selectDrawer(d.index)}>
+                    <span>{d.label}</span><span className="wb-tree-meta">{d.open ? 'open' : fmt(d.front.height)}</span>
+                  </button>
                 ))}
                 <div className="wb-tree-label">Parts · {plan.parts.reduce((sum, part) => sum + part.qty, 0)}</div>
                 {plan.parts.map(part => (
@@ -1436,6 +1456,11 @@ export default function DrawerBuilder() {
             )}
             <span className="wb-view-controls">
               {view === '3d' && <SegmentedControl label="Display style" value={shade} options={SHADE_OPTIONS} onChange={setShade} />}
+              {view === '3d' && highlightFn && (
+                <Button variant={isolate ? 'secondary' : 'ghost'} onClick={() => setIsolate(v => !v)} aria-pressed={isolate} title="Hide everything except the selection">
+                  <Focus size={16} aria-hidden="true" /> Isolate
+                </Button>
+              )}
               <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
             </span>
           </header>
@@ -1448,8 +1473,7 @@ export default function DrawerBuilder() {
                     mode={shade}
                     onEditDimension={single ? editDimension : undefined}
                     parseLength={text => parseLength(text, units)}
-                    highlight={activePart ? partMatcher(activePart, plan, config)
-                      : selectedPart ? (name: string) => solidLooselyIsPart(selectedPart, name) : undefined}
+                    highlight={highlightFn}
                     highlightKey={`${activePart ?? ''}|${selectedPart ?? ''}`}
                     onPick={name => {
                       setSelectedPart(plan.parts.find(p => solidLooselyIsPart(p.name, name))?.name ?? null);
@@ -1458,7 +1482,7 @@ export default function DrawerBuilder() {
                       const el = configRef.current?.querySelector<HTMLElement>(`[data-part="${key}"]`);
                       if (el) scrollToSetting(el);
                     }}
-                    solids={solids}
+                    solids={isolate && highlightFn ? solids.filter(x => highlightFn(x.name)) : solids}
                     formatLength={fmt}
                     width={extent.width}
                     height={plan.desk ? plan.desk.height : plan.totalHeight + plan.lift}
@@ -2236,6 +2260,25 @@ export default function DrawerBuilder() {
                 ? 'As thick as the case: it fits between the sides behind the top and bottom, glued and screwed — no rabbet to cut. Stiffest, and it takes wall screws anywhere.'
                 : `Thinner than the case, it’s let into a rabbet in each side. 1/4″ is light and cheap; 1/2″ is stiffer. Blank (or the case thickness) screws it in between the sides instead.`}
               onChange={backThickness => update({ backThickness })}
+            />
+          </fieldset>
+
+          <fieldset className="shelf-group" data-tour="fs-joinery">
+            <legend>Joinery &amp; fit</legend>
+            <Toggle
+              label="Pocket-screw the case"
+              checked={form.pocketCase}
+              hint="Joins the top, bottom and partitions to the sides with pocket screws: no visible screw heads on the outside, and no clamps needed while the glue sets."
+              onChange={pocketCase => update({ pocketCase })}
+            />
+            {plan?.pocket && <p className="shelf-group-note">{plan.pocket.count} pocket holes, {plan.pocket.perEnd} per joint end, with {fmt(plan.pocket.screw)} coarse screws.</p>}
+            <LengthField
+              unit={units}
+              label="Scribe allowance"
+              value={form.scribe}
+              error={fieldErrors.scribe}
+              hint="Extra depth left on the sides past the back, to scribe and trim against a wall that isn't straight. 0 for none; 3/4 is typical."
+              onChange={scribe => update({ scribe })}
             />
           </fieldset>
           </InspectorSection>

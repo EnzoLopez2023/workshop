@@ -306,12 +306,12 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   steps.push({
     id: 'case',
     title: 'Assemble the case',
-    summary: 'Glue and screw the top and bottom between the sides, front edges flush.',
+    summary: plan.pocket ? 'Glue and pocket-screw the top and bottom between the sides, front edges flush.' : 'Glue and screw the top and bottom between the sides, front edges flush.',
     instructions: [
       plan.base?.kind === 'kick'
         ? `Lay a side inside face up; stand the top on it at the top end and the bottom ${f(plan.baseHeight)} up from the bottom end (just above the notch), both flush at the front and set back ${plan.backJoint === 'rabbet' ? 'from the rabbet' : `${f(config.backThickness)} from the back edge for the back`}.`
         : `Lay a side inside face up; stand the top and bottom on it, flush at the front and set back ${plan.backJoint === 'rabbet' ? 'from the rabbet' : `${f(config.backThickness)} from the back edge for the back`}.`,
-      'Glue, then drive four screws through the side into each panel. Repeat with the other side.',
+      plan.pocket ? `Drill the pocket holes in the ends of the top and bottom first (${plan.pocket.perEnd} per end, on the underside of the top and the bottom face of the bottom). Glue, clamp the panel flush to the side, and drive ${f(plan.pocket.screw)} pocket screws. Repeat with the other side.` : 'Glue, then drive four screws through the side into each panel. Repeat with the other side.',
       ...(plan.blind ? [
         `This is a blind corner cabinet: the top, bottom and toe kick run ${f(plan.blind.width)} past the opening on the ${plan.blind.side}, and the end side closes that end — there’s no side between the opening and the blind space.`,
         ...(plan.blind.slideBottom !== null ? [`Hang the slide panel where the ${plan.blind.side} side of the opening would be: screw down through the top into its top edge, square to the front, and fix its back edge to a cleat on the back once the back is on. It stops ${f(plan.blind.slideBottom - plan.sideBottom)} above the side’s bottom edge, so the door opening below runs straight into the corner.`] : []),
@@ -323,7 +323,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         `Glue the ${dadoCubbies.every(d => d.door) ? 'fixed shel' : dadoCubbies.every(d => !d.door) ? 'cubby shel' : 'floor shel'}${dadoCubbies.length === 1 ? 'f' : 'ves'} into ${dadoCubbies.length === 1 ? 'its' : 'their'} dados as the sides go on, front edges flush.`,
       ] : []),
       ...(plan.partitionXs.length ? [
-        `Stand the partition${plan.partitionXs.length > 1 ? 's' : ''} between the top and bottom at ${plan.partitionXs.map(x => f(x - T)).join(' and ')} from the inside of the left side, front edges flush; glue and screw through the top and bottom into each.`,
+        `Stand the partition${plan.partitionXs.length > 1 ? 's' : ''} between the top and bottom at ${plan.partitionXs.map(x => f(x - T)).join(' and ')} from the inside of the left side, front edges flush; ${plan.pocket ? 'glue, clamp and drive pocket screws from the partition’s ends into the top and bottom.' : 'glue and screw through the top and bottom into each.'}`,
       ] : []),
       ...(plan.base?.kind === 'kick' ? [
         `Under the bottom, glue and screw the toe kick between the sides ${f(plan.base.setback)} back from the front edge (its face lines up with the back of the notches), and the kick nailer at the back.`,
