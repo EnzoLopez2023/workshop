@@ -45,6 +45,9 @@ export function alexNotch(width: number, depth: number, steps = 48): [number, nu
   return pts;
 }
 
+/** Doors: laid over the case or frame (overlay), or set inside the opening with a small reveal (inset). */
+export type DoorStyle = 'overlay' | 'inset';
+
 export interface ShelfCutoutConfig {
   enabled: boolean;
   shape: CutoutShape;
@@ -104,6 +107,9 @@ export interface ShelfConfig {
   bandingThickness?: number;
   /** Front-edge cut-out on the fixed and adjustable shelves (not the top or bottom). */
   shelfCutout?: ShelfCutoutConfig;
+  doorStyle?: DoorStyle;
+  /** Extra depth left on the sides, past the back, to scribe to an uneven wall. */
+  scribe?: number;
 }
 
 export interface BandingRun {
@@ -211,6 +217,9 @@ export interface ShelfPlan {
   doors: DoorLayout[];
   /** How far the face frame and doors stand in front of the case. */
   frontDepth: number;
+  doorStyle: DoorStyle;
+  /** Extra side depth for scribing to the wall (0 when off). */
+  scribe: number;
   /** Edge banding, when turned on. `caseFronts` is false when a face frame covers them. */
   banding: { thickness: number; caseFronts: boolean; runs: BandingRun[]; totalLength: number } | null;
   /** The shelves' front-edge cut-out, when turned on. */
@@ -283,6 +292,17 @@ export function shelfPositions(bottom: number, top: number, count: number, thick
   return { ys, opening };
 }
 
+/** Concealed hinges per door: two up to 40", three to 60", four above. */
+export function hingesPerDoor(height: number): number {
+  return height <= 40 ? 2 : height <= 60 ? 3 : 4;
+}
+
+/** Hinge-cup centres from the top of a door: 3" in from each end, the rest evenly between. */
+export function hingeCentres(height: number): number[] {
+  const count = hingesPerDoor(height);
+  return Array.from({ length: count }, (_, i) => 3 + (height - 6) * i / (count - 1));
+}
+
 /** Pocket holes along each end of a member this deep: two up to 12", then one more per 6". */
 export function pocketsPerEnd(depth: number): number {
   return depth <= 12 + EPS ? 2 : Math.ceil(depth / 6);
@@ -342,7 +362,8 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   const backThickness = hasBack ? bt : 0;
   const backScrewed = hasBack && bt >= t - EPS;
   const cleatGap = cleat ? t : 0;
-  const sideDepth = D + backThickness + cleatGap;
+  const scribe = Math.max(0, config.scribe ?? 0);
+  const sideDepth = D + backThickness + cleatGap + scribe;
   const widthSum = widths.reduce((sum, w) => sum + w, 0);
   const overallWidth = widthSum + (n + 1) * t;
   const innerSpan = widthSum + (n - 1) * t;
@@ -427,6 +448,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
       hasBack && !rabbet ? `Back sits ${fmt(D)} from the front edge.` : '',
       rabbetNote,
       cleat ? `Extends ${fmt(cleatGap)} past the back for the cleat.` : '',
+      scribe > 0 ? `Includes ${fmt(scribe)} past the back to scribe to the wall: trim to fit on site.` : '',
     ].filter(Boolean).join(' ') || undefined,
   });
 
@@ -532,11 +554,17 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
 
   // ── Doors ───────────────────────────────────────────────────────────────────
   const doors: DoorLayout[] = [];
+  const doorStyle: DoorStyle = config.doorStyle === 'inset' ? 'inset' : 'overlay';
   const doorBays = (config.doorsPerBay ?? []).slice(0, n);
   bays.forEach((bay, i) => {
     if (!doorBays[i]) return;
     let x0: number; let x1: number; let y0: number; let y1: number;
-    if (frame) {
+    if (doorStyle === 'inset') {
+      // Inside the opening (the frame's, or the bare case's), a 1/16" reveal all round.
+      const o = frame ? frame.openings[i] : { x0: bay.x, x1: bay.x + bay.width, y0: interiorBottom, y1: interiorTop };
+      x0 = o.x0 + DOOR_GAP / 2; x1 = o.x1 - DOOR_GAP / 2;
+      y0 = o.y0 + DOOR_GAP / 2; y1 = o.y1 - DOOR_GAP / 2;
+    } else if (frame) {
       const o = frame.openings[i];
       x0 = o.x0 - FRAME_DOOR_OVERLAY; x1 = o.x1 + FRAME_DOOR_OVERLAY;
       y0 = o.y0 - FRAME_DOOR_OVERLAY; y1 = o.y1 + FRAME_DOOR_OVERLAY;
@@ -565,7 +593,11 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
       length: first.height,
       width: first.width,
       thickness: t,
-      note: frame ? `${fmt(FRAME_DOOR_OVERLAY)} overlay on the face frame.` : 'Full overlay on the case.',
+      note: [
+        doorStyle === 'inset' ? `Inset in the opening with a ${fmt(DOOR_GAP / 2)} reveal all round.` : frame ? `${fmt(FRAME_DOOR_OVERLAY)} overlay on the face frame.` : 'Full overlay on the case.',
+        // Euro hinge cups: 35 mm bore 13 mm deep, 22.5 mm in from the hinge edge.
+        `Hinge cups: 35 mm bore, 13 mm deep, centred 22.5 mm from the hinge edge, ${hingeCentres(first.height).map(fmt).join(', ')} down from the top.`,
+      ].join(' '),
     });
   }
 
@@ -658,7 +690,7 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     if (config.bottomPanel) marks.push({ part: 'Bottom', reference: 'divider left edge, from the left end, top face', positions: fromEnd });
   }
 
-  const frontDepth = (frame ? frame.thickness : 0) + (doors.length > 0 ? t : 0);
+  const frontDepth = (frame ? frame.thickness : 0) + (doors.length > 0 && doorStyle === 'overlay' ? t : 0);
 
   return {
     overallWidth,
@@ -689,6 +721,8 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     frame,
     doors,
     frontDepth,
+    doorStyle,
+    scribe,
     banding,
     cutout,
     pocket,
@@ -900,7 +934,8 @@ export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
   }
   const doorFront = -(plan.frame ? plan.frame.thickness : 0);
   plan.doors.forEach((dr, i) => {
-    solids.push(box(`Door ${i + 1}`, 'door', [dr.x, dr.y, doorFront - t], [dr.x + dr.width, dr.y + dr.height, doorFront]));
+    const z0 = plan.doorStyle === 'inset' ? doorFront : doorFront - t;
+    solids.push(box(`Door ${i + 1}`, 'door', [dr.x, dr.y, z0], [dr.x + dr.width, dr.y + dr.height, z0 + t]));
   });
   if (plan.cleatGap > 0) {
     const z0 = D + plan.backThickness;
@@ -1118,6 +1153,8 @@ export function readSavedShelfDesign(raw: unknown): SavedShelfDesign | null {
       shelfThickness: num('shelfThickness', 0.05, 3) ?? undefined,
       backThickness: num('backThickness', 0.05, 3) ?? undefined,
       shelfCutout: readShelfCutout(c.shelfCutout),
+      doorStyle: c.doorStyle === 'inset' ? 'inset' : 'overlay',
+      scribe: num('scribe', 0, 3) ?? 0,
     },
   };
 }
@@ -1185,6 +1222,8 @@ export interface ShelfDesignFields {
   cutoutShape: CutoutShape;
   cutoutDepth: string;
   cutoutMargin: string;
+  doorStyle: DoorStyle;
+  scribe: string;
 }
 
 /** Turns a saved design back into Shelf Builder form fields, in the unit it was designed in. */
@@ -1261,7 +1300,7 @@ export function openingHeightFromOverall(overall: number, shelvesPerBay: number[
 /** Defaults for the optional design fields (adjustable shelves, frame, doors, …). */
 export function extraFields(config: Partial<ShelfConfig> & Pick<ShelfConfig, 'bays' | 'bayWidth'>, units: LengthUnit): Pick<ShelfDesignFields,
   'bayWidthMode' | 'bayWidths' | 'adjustablePerBay' | 'pinSystem' | 'backJoint' | 'faceFrame' | 'stileWidth' | 'railWidth' | 'frameThickness' | 'doorsPerBay' | 'shelfLoad' | 'edgeBanding' | 'bandingThickness'
-  | 'shelfCutout' | 'cutoutShape' | 'cutoutDepth' | 'cutoutMargin'> {
+  | 'shelfCutout' | 'cutoutShape' | 'cutoutDepth' | 'cutoutMargin' | 'doorStyle' | 'scribe'> {
   const field = (inches: number) => lengthToField(inches, units);
   const n = Math.max(1, Math.floor(config.bays));
   const widths = bayWidthsOf({ bays: n, bayWidth: config.bayWidth, bayWidths: config.bayWidths });
@@ -1287,5 +1326,7 @@ export function extraFields(config: Partial<ShelfConfig> & Pick<ShelfConfig, 'ba
     cutoutShape: co?.shape ?? 'curve',
     cutoutDepth: co ? field(co.depth) : metric ? '25' : '1',
     cutoutMargin: co ? field(co.margin) : metric ? '38' : '1 1/2',
+    doorStyle: config.doorStyle === 'inset' ? 'inset' : 'overlay',
+    scribe: config.scribe ? field(config.scribe) : '0',
   };
 }

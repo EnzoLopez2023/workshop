@@ -7,6 +7,7 @@ import { Button, PageFrame, SegmentedControl } from '../components/ui';
 import { DimH, DimV, InspectorSection, IssuesPanel, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
 import { partOfSolidName, solidIsPart } from '../lib/partSelection';
 import type { ViewMode } from '../components/ShelfViewer3D';
+import CutListTable from '../components/CutListTable';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import ShelfAddToProject from '../components/ShelfAddToProject';
 import ShelfBuildGuide from '../components/ShelfBuildGuide';
@@ -101,6 +102,8 @@ const DEFAULT_FORM: FormState = {
   cutoutShape: 'curve',
   cutoutDepth: '1"',
   cutoutMargin: '1 1/2"',
+  doorStyle: 'overlay',
+  scribe: '0',
 };
 
 // Each carries its unit, so it means the same in inch or millimeter mode.
@@ -155,7 +158,7 @@ const UNIT_OPTIONS = [
   { value: 'mm', label: 'Millimeters' },
 ] as const;
 
-const LENGTH_FIELDS = ['thickness', 'shelfThickness', 'backThickness', 'bayWidth', 'shelfDepth', 'openingHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight', 'stileWidth', 'railWidth', 'frameThickness', 'cutoutDepth', 'cutoutMargin'] as const;
+const LENGTH_FIELDS = ['thickness', 'shelfThickness', 'backThickness', 'bayWidth', 'shelfDepth', 'openingHeight', 'height', 'dadoDepth', 'toeKick', 'cleatHeight', 'stileWidth', 'railWidth', 'frameThickness', 'cutoutDepth', 'cutoutMargin', 'scribe'] as const;
 
 /** The settings in design order: how big, the case, what's on the front, how it stands, then materials. */
 const SHELF_STEPS: BuilderStep[] = [
@@ -196,6 +199,11 @@ function convertForm(form: FormState, units: LengthUnit): FormState {
   });
   return next;
 }
+
+const DOOR_STYLE_OPTIONS = [
+  { value: 'overlay', label: 'Overlay', hint: 'The door lies over the case or frame edge.' },
+  { value: 'inset', label: 'Inset', hint: 'The door sits inside the opening, flush with the front.' },
+] as const;
 
 const SHELF_JOINERY_OPTIONS = [
   { value: 'same', label: 'Same as case' },
@@ -306,6 +314,7 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
     })
     : num('height');
   const cleatHeight = form.mounting === 'wall' && form.frenchCleat ? num('cleatHeight') : 3;
+  const scribe = num('scribe', { allowZero: true });
   const bayWidths = form.bayWidthMode === 'custom'
     ? form.bayWidths.slice(0, form.bays).map((_, i) => num(`bayWidths.${i}`))
     : undefined;
@@ -337,6 +346,8 @@ function toConfig(form: FormState): { config: ShelfConfig | null; fieldErrors: P
       doorsPerBay: form.doorsPerBay.slice(0, form.bays),
       shelfLoad: form.shelfLoad,
       edgeBanding: form.edgeBanding,
+      doorStyle: form.doorStyle,
+      ...(scribe > 0 ? { scribe } : {}),
       bandingThickness: parseLength(form.bandingThickness, form.units) ?? 0.02,
       ...(form.shelfCutout ? { shelfCutout: { enabled: true, shape: form.cutoutShape, depth: num('cutoutDepth'), margin: num('cutoutMargin') } } : {}),
     },
@@ -1202,8 +1213,11 @@ export default function ShelfBuilder() {
             )}
             <div className="shelf-height-mode">
               <span className="form-field-label">Doors</span>
+              <SegmentedControl label="Door style" value={form.doorStyle} options={DOOR_STYLE_OPTIONS} onChange={doorStyle => update({ doorStyle })} />
               <small>
-                Turn doors on for each bay above. {form.faceFrame ? `They overlay the frame by ${fmt(1 / 2)}` : 'They cover the case (full overlay)'};
+                Turn doors on for each bay above. {form.doorStyle === 'inset'
+                  ? `They sit inside the ${form.faceFrame ? 'frame' : 'case'} openings with a ${fmt(1 / 16)} reveal — needs inset hinges.`
+                  : form.faceFrame ? `They overlay the frame by ${fmt(1 / 2)}` : 'They cover the case (full overlay)'};
                 bays wider than {fmt(PAIR_DOOR_WIDTH)} get a pair.
               </small>
               <span className="shelf-source-actions">
@@ -1218,6 +1232,14 @@ export default function ShelfBuilder() {
           <fieldset className="shelf-group" data-tour="fs-mounting">
             <legend>Mounting</legend>
             <SegmentedControl label="Mounting" value={form.mounting} options={MOUNTING_OPTIONS} onChange={mounting => update({ mounting })} />
+            <LengthField
+              unit={units}
+              label="Scribe allowance"
+              value={form.scribe}
+              error={fieldErrors.scribe}
+              hint="Extra depth left on the sides past the back, to scribe and trim against a wall that isn't straight. 0 for none; 3/4 is typical."
+              onChange={scribe => update({ scribe })}
+            />
             {!wall && (
               <LengthField
                 unit={units}
@@ -1340,32 +1362,7 @@ export default function ShelfBuilder() {
                 <span className="sr-only" role="status">{copyStatus}</span>
               </div>
             </header>
-            <div className="shelf-table-scroll" tabIndex={0} aria-label="Cut list table">
-              <table className="shelf-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Part</th>
-                    <th scope="col">Qty</th>
-                    <th scope="col">Length</th>
-                    <th scope="col">Width</th>
-                    <th scope="col">Thick</th>
-                    <th scope="col">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {plan.parts.map(p => (
-                    <tr key={p.name} className="is-clickable" onClick={() => { setSelectedBay(null); setSelectedPart(p.name); setTab('model'); }} title="Show this part in the 3D view">
-                      <th scope="row">{p.name}</th>
-                      <td>{p.qty}</td>
-                      <td title={otherUnit(p.length)}>{fmt(p.length)}</td>
-                      <td title={otherUnit(p.width)}>{fmt(p.width)}</td>
-                      <td title={otherUnit(p.thickness)}>{fmt(p.thickness)}</td>
-                      <td className="is-muted">{p.note}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <CutListTable parts={plan.parts} fmt={fmt} otherUnit={otherUnit} onPick={name => { setSelectedBay(null); setSelectedPart(name); setTab('model'); }} />
             {addingToProject && (
               <div id="shelf-add-project">
                 <ShelfAddToProject

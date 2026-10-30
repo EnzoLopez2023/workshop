@@ -519,10 +519,14 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       config.topPanel && config.bottomPanel
         ? `Check the clear height between the bottom and the top is ${f(bayHeight)} at both sides — that is the bay height every divider has to fit.`
         : null,
-      'Measure both diagonals; nudge the case until they match, then let the glue set.',
+      `Measure both diagonals; nudge the case until they match (about ${f(Math.hypot(plan.overallWidth, plan.overallHeight))} corner to corner, within ${f(1 / 16)}), then let the glue set.`,
     ].filter((x): x is string => x !== null),
     parts: caseParts,
-    tips: ['Assemble on a flat floor or bench, inside face up.'],
+    tips: [
+      'Assemble on a flat floor or bench, inside face up.',
+      'Clamp every 8–10″ along each joint, with a scrap under each clamp jaw so it doesn’t dent the plywood. Dry-fit and clamp first to find any joint that doesn’t close.',
+      plan.overallWidth > 48 ? 'A case this wide wants a helper to lift the second side into place — leave the glue open time to work.' : 'Keep a damp rag handy and wipe squeeze-out before it sets.',
+    ],
     cautions: [],
     scene: { view: 'front', visible: [], highlight: [...sides, ...panels] },
   });
@@ -544,7 +548,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
         `Each bay should end up ${baySize}; measure every one before the glue sets.`,
       ],
       parts: guidePart('Divider'),
-      tips: ['Check each divider is square to the bottom before the glue grabs.'],
+      tips: ['Check each divider is square to the bottom before the glue grabs.', 'Clamp a spacer block between each pair of dividers so the bays can’t pull in while the joints cure.'],
       cautions: [],
       scene: { view: 'front', visible: [...sides, ...panels], highlight: dividers },
     });
@@ -672,8 +676,8 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       id: 'doors',
       title: `Hang the door${plan.doors.length === 1 ? '' : 's'}`,
       summary: plan.frame
-        ? `${plan.doors.length} door${plan.doors.length === 1 ? '' : 's'}, overlapping the face frame by ${f(1 / 2)} all round.`
-        : `${plan.doors.length} full-overlay door${plan.doors.length === 1 ? '' : 's'} covering the case edges, ${f(1 / 8)} apart.`,
+        ? (plan.doorStyle === 'inset' ? `${plan.doors.length} door${plan.doors.length === 1 ? '' : 's'} set inside the frame openings with a ${f(1 / 16)} reveal all round.` : `${plan.doors.length} door${plan.doors.length === 1 ? '' : 's'}, overlapping the face frame by ${f(1 / 2)} all round.`)
+        : (plan.doorStyle === 'inset' ? `${plan.doors.length} door${plan.doors.length === 1 ? '' : 's'} set inside the openings with a ${f(1 / 16)} reveal all round.` : `${plan.doors.length} full-overlay door${plan.doors.length === 1 ? '' : 's'} covering the case edges, ${f(1 / 8)} apart.`),
       instructions: [
         plan.frame
           ? `Use ${hinges?.name.toLowerCase() ?? '1/2″ overlay face-frame hinges'}; screw them to the doors first, then to the frame stiles.`

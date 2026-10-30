@@ -7,6 +7,7 @@ import { Button, PageFrame, SegmentedControl } from '../components/ui';
 import { DimH, DimV, InspectorSection, IssuesPanel, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
 import { solidLooselyIsPart } from '../lib/partSelection';
 import type { ViewMode } from '../components/ShelfViewer3D';
+import CutListTable from '../components/CutListTable';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import DrawerExport from '../components/DrawerExport';
 import CuttingOrder from '../components/CuttingOrder';
@@ -2237,32 +2238,7 @@ export default function DrawerBuilder() {
                 <span className="sr-only" role="status">{copyStatus}</span>
               </div>
             </header>
-            <div className="shelf-table-scroll" tabIndex={0} aria-label="Cut list table">
-              <table className="shelf-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Part</th>
-                    <th scope="col">Qty</th>
-                    <th scope="col">Length</th>
-                    <th scope="col">Width</th>
-                    <th scope="col">Thick</th>
-                    <th scope="col">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {plan.parts.map(p => (
-                    <tr key={p.name} className="is-clickable" onClick={() => { setPickedPart(null); setSelectedPart(p.name); setTab('model'); }} title="Show this part in the 3D view">
-                      <th scope="row">{p.name}</th>
-                      <td>{p.qty}</td>
-                      <td title={otherUnit(p.length)}>{fmt(p.length)}</td>
-                      <td title={otherUnit(p.width)}>{fmt(p.width)}</td>
-                      <td title={otherUnit(p.thickness)}>{fmt(p.thickness)}</td>
-                      <td className="is-muted">{p.note}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <CutListTable parts={plan.parts} fmt={fmt} otherUnit={otherUnit} onPick={name => { setPickedPart(null); setSelectedPart(name); setTab('model'); }} />
             {addingToProject && (
               <div id="drawer-add-project">
                 <DrawerAddToProject

@@ -1,7 +1,7 @@
 // Sag check, hardware list, and cost estimate for a Shelf Builder design.
 // All lengths are inches; formatting happens at the edges.
 
-import { formatLength, type LengthUnit, type ShelfConfig, type ShelfLoad, type ShelfPlan } from './shelving.ts';
+import { hingesPerDoor, formatLength, type LengthUnit, type ShelfConfig, type ShelfLoad, type ShelfPlan } from './shelving.ts';
 
 // ── Sag ───────────────────────────────────────────────────────────────────────
 
@@ -103,9 +103,7 @@ function screwLength(thickness: number): number {
   return thickness < 0.6 ? 1.25 : 1.625;
 }
 
-export function hingesPerDoor(height: number): number {
-  return height <= 40 ? 2 : height <= 60 ? 3 : 4;
-}
+export { hingesPerDoor };
 
 export function hardwareList(plan: ShelfPlan, config: ShelfConfig, units: LengthUnit): HardwareItem[] {
   const f = (inches: number) => formatLength(inches, units);
@@ -192,7 +190,7 @@ export function hardwareList(plan: ShelfPlan, config: ShelfConfig, units: Length
     const hinges = plan.doors.reduce((sum, d) => sum + hingesPerDoor(d.height), 0);
     items.push({
       key: 'hinges',
-      name: plan.frame ? 'Concealed face-frame hinges, 1/2″ overlay' : 'Concealed (Euro) hinges, 35 mm cup, full overlay',
+      name: plan.doorStyle === 'inset' ? (plan.frame ? 'Concealed inset face-frame hinges' : 'Concealed (Euro) inset hinges, 35 mm cup') : plan.frame ? 'Concealed face-frame hinges, 1/2″ overlay' : 'Concealed (Euro) hinges, 35 mm cup, full overlay',
       qty: hinges,
       unit: 'ea',
       note: `${plan.doors.length} door${plan.doors.length === 1 ? '' : 's'}; 2–4 each depending on height.`,
