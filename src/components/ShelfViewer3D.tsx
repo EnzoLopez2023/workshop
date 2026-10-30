@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Ruler, RotateCcw } from 'lucide-react';
+import { Ruler, RotateCcw, Crosshair } from 'lucide-react';
 import type { Solid, SolidKind } from '../lib/shelving';
 import { DOOR_OPACITY, SOLID_COLORS as COLORS, solidGeometry } from '../lib/shelfRender';
 
@@ -34,6 +34,12 @@ interface Props {
   highlightKey?: string;
   /** A click on a part, by its name (a drawer still slides out, a door swings open). */
   onPick?: (name: string) => void;
+  /**
+   * With this, the overall dimension labels are editable: click one, type a new length, press Enter.
+   * `parseLength` reads what's typed (inches), returning null when it can't.
+   */
+  onEditDimension?: (axis: 'width' | 'height' | 'depth', inches: number) => void;
+  parseLength?: (text: string) => number | null;
 }
 
 
@@ -67,7 +73,14 @@ interface Stage {
   showDims: boolean;
   /** Where the labels go on screen, updated every frame. */
   placeLabels: (labels: DimLabel[] | null) => void;
+  /** The measure tool: up to two picked points (scene coordinates), the line between them, and its label. */
+  measurePts: THREE.Vector3[];
+  measureNames?: string[];
+  measureLine: THREE.Line;
+  placeMeasure: (label: MeasureLabel | null) => void;
 }
+
+interface MeasureLabel { x: number; y: number; value: number; parts: [string, string] }
 
 interface DimLabel { axis: 'width' | 'height' | 'depth'; x: number; y: number; value: number }
 
@@ -75,7 +88,7 @@ interface DimLabel { axis: 'width' | 'height' | 'depth'; x: number; y: number; v
 const SLIDE_EASE = 0.22;
 const ZERO = new THREE.Vector3();
 
-export default function ShelfViewer3D({ solids, mode = 'shaded', width, height, depth, wallMounted, label, colors, formatLength, origin, highlight, highlightKey, onPick }: Props) {
+export default function ShelfViewer3D({ solids, mode = 'shaded', width, height, depth, wallMounted, label, colors, formatLength, origin, highlight, highlightKey, onPick, onEditDimension, parseLength }: Props) {
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
   const highlightRef = useRef(highlight);
@@ -94,6 +107,12 @@ export default function ShelfViewer3D({ solids, mode = 'shaded', width, height, 
   const [explodable, setExplodable] = useState(false);
   const [showDims, setShowDims] = useState(true);
   const [dimLabels, setDimLabels] = useState<DimLabel[] | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+  const [measure, setMeasure] = useState<MeasureLabel | null>(null);
+  const [editing, setEditing] = useState<DimLabel['axis'] | null>(null);
+  const [draft, setDraft] = useState('');
+  const measuringRef = useRef(false);
+  measuringRef.current = measuring;
 
   // ── One-time stage ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -147,6 +166,15 @@ export default function ShelfViewer3D({ solids, mode = 'shaded', width, height, 
     dims.renderOrder = 10;
     dims.frustumCulled = false;
     scene.add(dims);
+    // The measure tool's line, drawn over everything like the dimensions.
+    const measureLine = new THREE.Line(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xd9531e, depthTest: false, transparent: true, opacity: 0.95 }),
+    );
+    measureLine.renderOrder = 11;
+    measureLine.frustumCulled = false;
+    measureLine.visible = false;
+    scene.add(measureLine);
 
     const materials = Object.fromEntries(
       Object.entries(COLORS).map(([kind, color]) => [
@@ -190,7 +218,7 @@ export default function ShelfViewer3D({ solids, mode = 'shaded', width, height, 
         const d = mesh.position.distanceTo(target);
         if (d > 0.01) { mesh.position.lerp(target, SLIDE_EASE); sliding = true; } else if (d > 0) mesh.position.copy(target);
       }
-      if (stage) updateDims(stage);
+      if (stage) { updateDims(stage); updateMeasure(stage); }
       renderer.render(scene, camera);
       if (moving || sliding) frame = requestAnimationFrame(loop);
     };
@@ -214,6 +242,24 @@ export default function ShelfViewer3D({ solids, mode = 'shaded', width, height, 
       const rect = renderer.domElement.getBoundingClientRect();
       const pointer = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       raycaster.setFromCamera(pointer, camera);
+      if (measuringRef.current) {
+        const hit = raycaster.intersectObjects(stage.parts.children, true).find(h => h.object instanceof THREE.Mesh);
+        if (!hit) return;
+        // Snap to the part's nearest corner when the click lands close to one.
+        const box = new THREE.Box3().setFromObject(hit.object);
+        let point = hit.point.clone();
+        let best = 1.5;
+        for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+          const corner = new THREE.Vector3(x, y, z);
+          const d = corner.distanceTo(hit.point);
+          if (d < best) { best = d; point = corner; }
+        }
+        if (stage.measurePts.length >= 2) { stage.measurePts = []; stage.measureNames = []; }
+        stage.measurePts.push(point);
+        stage.measureNames = [...(stage.measureNames ?? []), hit.object.name];
+        stage.render();
+        return;
+      }
       for (const hit of raycaster.intersectObjects(stage.parts.children, true)) {
         if (!(hit.object instanceof THREE.Mesh)) continue;
         // The nearest solid part: report it, and open or shut it if it's a drawer or door.
@@ -265,6 +311,9 @@ export default function ShelfViewer3D({ solids, mode = 'shaded', width, height, 
       dims,
       showDims: true,
       placeLabels: labels => setDimLabels(prev => (sameLabels(prev, labels) ? prev : labels)),
+      measurePts: [],
+      measureLine,
+      placeMeasure: label => setMeasure(prev => (prev === label || (prev && label && Math.abs(prev.x - label.x) < 0.5 && Math.abs(prev.y - label.y) < 0.5 && prev.value === label.value) ? prev : label)),
     };
     const observer = new ResizeObserver(resize);
     observer.observe(host);
@@ -475,6 +524,14 @@ export default function ShelfViewer3D({ solids, mode = 'shaded', width, height, 
     else stage.render();
   };
 
+  // Leaving the measure tool clears its points.
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || measuring) return;
+    stage.measurePts = [];
+    stage.render();
+  }, [measuring]);
+
   // Dimensions on or off.
   useEffect(() => {
     const stage = stageRef.current;
@@ -516,18 +573,59 @@ export default function ShelfViewer3D({ solids, mode = 'shaded', width, height, 
               {movable > 0 && <small>or click a {moverKinds.drawers && moverKinds.doors ? 'drawer or door' : moverKinds.doors ? 'door' : 'drawer'}</small>}
             </div>
           )}
-          {formatLength && showDims && dimLabels?.map(l => (
-            <span key={l.axis} className={`shelf-viewer-dim is-${l.axis}`} style={{ left: l.x, top: l.y }}>
-              <small>{l.axis === 'width' ? 'W' : l.axis === 'height' ? 'H' : 'D'}</small> {formatLength(l.value)}
+          {formatLength && showDims && dimLabels?.map(l => {
+            const letter = l.axis === 'width' ? 'W' : l.axis === 'height' ? 'H' : 'D';
+            const editable = !!onEditDimension && !!parseLength && !measuring;
+            if (editing === l.axis) {
+              const commit = () => {
+                const value = parseLength?.(draft) ?? null;
+                if (value !== null && value > 0) onEditDimension?.(l.axis, value);
+                setEditing(null);
+              };
+              return (
+                <span key={l.axis} className={`shelf-viewer-dim is-${l.axis} is-editing`} style={{ left: l.x, top: l.y }}>
+                  <small>{letter}</small>
+                  <input
+                    autoFocus
+                    value={draft}
+                    aria-label={`New overall ${l.axis}`}
+                    onChange={e => setDraft(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(null); }}
+                    onBlur={commit}
+                  />
+                </span>
+              );
+            }
+            return editable ? (
+              <button key={l.axis} type="button" className={`shelf-viewer-dim is-${l.axis} is-editable`} style={{ left: l.x, top: l.y }}
+                title={`Click to set the overall ${l.axis}`} onClick={() => { setDraft(formatLength(l.value)); setEditing(l.axis); }}>
+                <small>{letter}</small> {formatLength(l.value)}
+              </button>
+            ) : (
+              <span key={l.axis} className={`shelf-viewer-dim is-${l.axis}`} style={{ left: l.x, top: l.y }}>
+                <small>{letter}</small> {formatLength(l.value)}
+              </span>
+            );
+          })}
+          {formatLength && measuring && measure && (
+            <span className="shelf-viewer-dim is-measure" style={{ left: measure.x, top: measure.y }}>
+              <small>Δ</small> {formatLength(measure.value)}
             </span>
-          ))}
+          )}
+          {formatLength && (
+            <button type="button" className="shelf-viewer-measure-toggle" onClick={() => setMeasuring(v => !v)} aria-pressed={measuring}
+              aria-label={measuring ? 'Stop measuring' : 'Measure between two points'} title={measuring ? 'Stop measuring' : 'Measure: click two points on the model (they snap to corners)'}>
+              <Crosshair size={16} aria-hidden="true" />
+            </button>
+          )}
+          {measuring && <span className="shelf-viewer-hover" aria-hidden="true">{measure ? 'Click again to start a new measurement' : 'Click two points on the model'}</span>}
           {formatLength && (
             <button type="button" className="shelf-viewer-dims-toggle" onClick={() => setShowDims(v => !v)} aria-pressed={showDims}
               aria-label={showDims ? 'Hide dimensions' : 'Show dimensions'} title={showDims ? 'Hide dimensions' : 'Show dimensions'}>
               <Ruler size={16} aria-hidden="true" />
             </button>
           )}
-          {hover && <span className="shelf-viewer-hover" aria-hidden="true">{hover}</span>}
+          {hover && !measuring && <span className="shelf-viewer-hover" aria-hidden="true">{hover}</span>}
         </>
       )}
     </div>
@@ -615,3 +713,26 @@ function updateDims(stage: Stage) {
   stage.placeLabels(labels);
 }
 
+
+/** The measure tool: draws the line between the two picked points and places its label at the midpoint. */
+function updateMeasure(stage: Stage) {
+  const { measurePts: pts, measureLine, camera, renderer } = stage;
+  if (pts.length === 0) {
+    measureLine.visible = false;
+    stage.placeMeasure(null);
+    return;
+  }
+  const geometry = measureLine.geometry as THREE.BufferGeometry;
+  geometry.setFromPoints(pts.length === 2 ? pts : [pts[0], pts[0]]);
+  measureLine.visible = true;
+  if (pts.length < 2) {
+    stage.placeMeasure(null);
+    return;
+  }
+  const mid = pts[0].clone().add(pts[1]).multiplyScalar(0.5).project(camera);
+  const rect = renderer.domElement.getBoundingClientRect();
+  stage.placeMeasure(mid.z > 1 ? null : {
+    x: (mid.x + 1) / 2 * rect.width, y: (1 - mid.y) / 2 * rect.height,
+    value: pts[0].distanceTo(pts[1]), parts: [stage.measureNames?.[0] ?? '', stage.measureNames?.[1] ?? ''],
+  });
+}

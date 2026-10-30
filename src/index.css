@@ -10568,3 +10568,153 @@ button.wb-tree-part.is-pickable.is-active {
   gap: 6px;
   cursor: pointer;
 }
+
+.shelf-viewer-measure-toggle {
+  position: absolute;
+  top: 114px;
+  right: 10px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-compact);
+  background: var(--color-glass-strong);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.shelf-viewer-measure-toggle[aria-pressed='true'] {
+  border-color: #d9531e;
+  color: #d9531e;
+}
+
+.shelf-viewer-dim.is-measure {
+  border-color: #d9531e;
+  color: #b8400f;
+}
+
+button.shelf-viewer-dim.is-editable {
+  pointer-events: auto;
+  cursor: text;
+  font-family: inherit;
+}
+
+button.shelf-viewer-dim.is-editable:hover {
+  border-color: var(--color-annotation);
+  background: var(--color-surface);
+}
+
+.shelf-viewer-dim.is-editing {
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.shelf-viewer-dim.is-editing input {
+  width: 74px;
+  min-height: 0;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  outline: 0;
+}
+
+.wb-intro {
+  position: absolute;
+  top: 56px;
+  left: 16px;
+  z-index: 3;
+  display: grid;
+  gap: 8px;
+  max-width: 330px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-divider-strong);
+  border-radius: 8px;
+  background: var(--color-glass-strong, var(--color-surface));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.wb-intro ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 16px;
+  color: var(--color-muted);
+}
+
+.wb-intro b {
+  color: var(--color-ink);
+}
+
+.wb-intro .btn {
+  justify-self: start;
+}
+
+.wb-intro-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.wb-grid .shelf-preview {
+  position: relative;
+}
+
+.wb-compare {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-divider);
+  border-radius: 8px;
+  background: var(--color-surface);
+  font-size: 0.85rem;
+}
+
+.wb-compare header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+
+.wb-compare-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.wb-compare .shelf-table tr.is-changed td:last-child {
+  color: var(--color-annotation-strong);
+  font-weight: 700;
+}
+
+.wb-history {
+  display: inline-flex;
+}
+
+.wb-history .btn[disabled] {
+  opacity: 0.35;
+}
+
+.wb-compare .shelf-table {
+  max-width: 640px;
+}
+
+.wb-compare .shelf-table th,
+.wb-compare .shelf-table td {
+  padding: 3px 10px;
+}

@@ -1,18 +1,20 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, FolderPlus, LayoutGrid, Library, Loader2, Printer, RotateCcw, Save, Trash2,
+  AlertCircle, ArrowLeft, Redo2, Undo2, GitCompare, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, FolderPlus, LayoutGrid, Library, Loader2, Printer, RotateCcw, Save, Trash2,
 } from 'lucide-react';
 import { Button, PageFrame, SegmentedControl } from '../components/ui';
 import { DimH, DimV, InspectorSection, IssuesPanel, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
 import { solidLooselyIsPart } from '../lib/partSelection';
 import type { ViewMode } from '../components/ShelfViewer3D';
 import CutListTable from '../components/CutListTable';
+import { useHistoryState, useUndoShortcuts } from '../components/useHistoryState';
+import { ComparePanel, WorkbenchIntro, compareRows, planStats, type PlanStats } from '../components/WorkbenchExtras';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import DrawerExport from '../components/DrawerExport';
 import CuttingOrder from '../components/CuttingOrder';
 import { drawerPacketHtml } from '../lib/buildPacket';
-import { guidePrintHtml } from '../lib/buildGuide';
+import { guidePrintHtml, planSheetsByThickness } from '../lib/buildGuide';
 import { drawerGuideSteps } from '../lib/drawerGuide';
 import { drawerJigs } from '../lib/drawerExport';
 import { quantityLabel } from '../lib/shelfEstimate';
@@ -614,7 +616,8 @@ function roundedFronts(heights: number[], units: LengthUnit): string[] {
 
 export default function DrawerBuilder() {
   const navigate = useNavigate();
-  const [form, setForm] = useState<FormState>(readStoredForm);
+  const [form, setForm, history] = useHistoryState<FormState>(readStoredForm);
+  useUndoShortcuts(history.undo, history.redo);
   const [view, setView] = useState<PreviewMode>(readStoredView);
   const [copyStatus, setCopyStatus] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
@@ -698,6 +701,30 @@ export default function DrawerBuilder() {
   }, [solids, plan]);
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
   const estimate = useDrawerEstimate(plan && valid ? plan : null, valid ? config : null, units);
+
+  // Sheets the design needs, by plywood thickness, so the cost of a change shows as you make it.
+  const sheetSummary = useMemo(() => {
+    if (!(plan && valid)) return '';
+    return planSheetsByThickness(sheetParts(plan.parts), units).map(g => `${g.sheets.layouts.length} × ${formatLength(g.thickness, units)}`).join(', ');
+  }, [plan, valid, units]);
+  const [pinned, setPinned] = useState<{ form: FormState; stats: PlanStats } | null>(null);
+  const [showCompare, setShowCompare] = useState(false);
+  const stats: PlanStats | null = plan && valid ? planStats(plan, sheetSummary) : null;
+
+  // Click a dimension in the 3D view to change it. Only for a single cabinet: a run, desk, corner or
+  // bookcase is built from many measurements, so its overall size isn't one setting.
+  const single = !!plan && !plan.run && !plan.desk && !plan.blind && !plan.bookcase;
+  const editDimension = (axis: 'width' | 'height' | 'depth', inches: number) => {
+    if (!plan) return;
+    const field = (key: 'width' | 'height' | 'depth', shown: number) => {
+      const current = parseLength(form[key], units);
+      if (current === null) return;
+      update({ [key]: lengthToField(Math.max(current + (inches - shown), 0.25), units), ...(key === 'height' ? { heightMode: 'overall' as const } : {}) } as Partial<FormState>);
+    };
+    if (axis === 'width') field('width', extent.width);
+    else if (axis === 'depth') field('depth', extent.depth);
+    else field('height', plan.totalHeight + plan.lift);
+  };
 
   // Build packet: cut list, cutting order, hardware, jigs and prints ahead of the illustrated guide, in one printable page.
   const [packetBusy, setPacketBusy] = useState(false);
@@ -1224,7 +1251,14 @@ export default function DrawerBuilder() {
         )}
       </div>
         <span className="wb-topbar-actions">
+          <span className="wb-history">
+            <Button variant="ghost" onClick={history.undo} disabled={!history.canUndo} aria-label="Undo" title="Undo (⌘Z)"><Undo2 size={16} aria-hidden="true" /></Button>
+            <Button variant="ghost" onClick={history.redo} disabled={!history.canRedo} aria-label="Redo" title="Redo (⇧⌘Z)"><Redo2 size={16} aria-hidden="true" /></Button>
+          </span>
           <TutorialButton tour="drawers" />
+          <Button variant={showCompare ? 'secondary' : 'ghost'} onClick={() => setShowCompare(open => !open)} aria-expanded={showCompare}>
+            <GitCompare size={16} aria-hidden="true" /> Compare
+          </Button>
           <Button variant={templatesOpen ? 'secondary' : 'ghost'} onClick={() => setTemplatesOpen(open => !open)} aria-expanded={templatesOpen} aria-controls="drawer-templates">
             <Library size={16} aria-hidden="true" /> Templates
           </Button>
@@ -1330,6 +1364,16 @@ export default function DrawerBuilder() {
         </div>
       )}
 
+      {showCompare && (
+        <ComparePanel
+          pinned={pinned !== null}
+          rows={pinned && stats ? compareRows(pinned.stats, stats, fmt) : null}
+          onPin={() => { if (stats) setPinned({ form, stats }); }}
+          onClear={() => setPinned(null)}
+          onRestore={() => { if (pinned) setForm(pinned.form); }}
+        />
+      )}
+
       {tab === 'model' && (
         <div className="wb-grid" ref={layoutRef}>
           <nav className="wb-tree" aria-label="Design tree">
@@ -1362,6 +1406,7 @@ export default function DrawerBuilder() {
           </nav>
 
         <section className="shelf-preview" aria-labelledby="drawer-preview-title">
+          <WorkbenchIntro storageKey="workshop-builtins-intro" name="Built-in Studio" />
           <header className="shelf-preview-head">
             <h2 id="drawer-preview-title" className="sr-only">Preview</h2>
             {plan && config && (
@@ -1401,6 +1446,8 @@ export default function DrawerBuilder() {
                 <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
                   <ShelfViewer3D
                     mode={shade}
+                    onEditDimension={single ? editDimension : undefined}
+                    parseLength={text => parseLength(text, units)}
                     highlight={activePart ? partMatcher(activePart, plan, config)
                       : selectedPart ? (name: string) => solidLooselyIsPart(selectedPart, name) : undefined}
                     highlightKey={`${activePart ?? ''}|${selectedPart ?? ''}`}
@@ -2196,7 +2243,7 @@ export default function DrawerBuilder() {
 
           <footer className="wb-status">
             <span>Units: {units === 'mm' ? 'mm' : 'in'}</span>
-            {plan && valid ? <span>{plan.parts.reduce((sum, part) => sum + part.qty, 0)} parts · {plan.drawers.length} drawers</span> : <span>Measurements need attention</span>}
+            {plan && valid ? <span>{plan.parts.reduce((sum, part) => sum + part.qty, 0)} parts · {plan.drawers.length} drawers{sheetSummary ? ` · sheets: ${sheetSummary}` : ''}</span> : <span>Measurements need attention</span>}
             <span className="wb-status-end">{plan && plan.errors.length > 0 ? `${plan.errors.length} to fix` : 'No errors'}</span>
           </footer>
         </div>

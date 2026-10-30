@@ -1,13 +1,16 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, Library, Loader2, Save, FolderPlus, Printer, RotateCcw,
+  AlertCircle, ArrowLeft, Redo2, Undo2, GitCompare, Layers, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, Library, Loader2, Save, FolderPlus, Printer, RotateCcw,
 } from 'lucide-react';
 import { Button, PageFrame, SegmentedControl } from '../components/ui';
 import { DimH, DimV, InspectorSection, IssuesPanel, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
 import { partOfSolidName, solidIsPart } from '../lib/partSelection';
 import type { ViewMode } from '../components/ShelfViewer3D';
 import CutListTable from '../components/CutListTable';
+import { useHistoryState, useUndoShortcuts } from '../components/useHistoryState';
+import { ComparePanel, WorkbenchIntro, compareRows, planStats, type PlanStats } from '../components/WorkbenchExtras';
+import { dadoGrooves, pinHoleSolids, planShelfSheetGroups } from '../lib/buildGuide';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import ShelfAddToProject from '../components/ShelfAddToProject';
 import ShelfBuildGuide from '../components/ShelfBuildGuide';
@@ -398,7 +401,8 @@ export default function ShelfBuilder() {
   const [shade, setShade] = useState<ViewMode>('shaded');
   /** A cut-list part picked in the tree, the cut list or the 3D view. */
   const [selectedPart, setSelectedPart] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>(readStoredForm);
+  const [form, setForm, history] = useHistoryState<FormState>(readStoredForm);
+  useUndoShortcuts(history.undo, history.redo);
   const [copyStatus, setCopyStatus] = useState('');
   const [view, setView] = useState<PreviewMode>(readStoredView);
   const [addingToProject, setAddingToProject] = useState(false);
@@ -558,7 +562,42 @@ export default function ShelfBuilder() {
   const plan = useMemo(() => (config ? buildShelfPlan(config) : null), [config]);
   const valid = plan !== null && plan.errors.length === 0;
   const cutList = useMemo(() => (plan && valid ? toCutList(plan) : []), [plan, valid]);
-  const solids = useMemo(() => (plan && config && valid ? shelfSolids(plan, config) : []), [plan, config, valid]);
+  const [showJoinery, setShowJoinery] = useState(false);
+  const solids = useMemo(() => {
+    if (!(plan && config && valid)) return [];
+    const base = shelfSolids(plan, config);
+    return showJoinery ? [...base, ...dadoGrooves(plan, config), ...pinHoleSolids(plan, config)] : base;
+  }, [plan, config, valid, showJoinery]);
+
+  // Sheets the design needs, by plywood thickness, so the cost of a change shows as you make it.
+  const sheetSummary = useMemo(() => {
+    if (!(plan && config && valid)) return '';
+    return planShelfSheetGroups(plan, config, units)
+      .map(g => `${g.sheets.layouts.length} × ${formatLength(g.thickness, units)}`).join(', ');
+  }, [plan, config, valid, units]);
+
+  // Click a dimension in the 3D view to change it: the overall width spreads over the bays,
+  // the overall height becomes the height setting, the depth sets the shelf depth.
+  const editDimension = (axis: 'width' | 'height' | 'depth', inches: number) => {
+    if (!plan || !config) return;
+    const field = (v: number) => lengthToField(Math.max(v, 0.25), units);
+    if (axis === 'height') update({ heightMode: 'overall', height: field(inches) });
+    else if (axis === 'depth') update({ shelfDepth: field(inches - (plan.sideDepth - config.shelfDepth)) });
+    else {
+      const clear = inches - (form.bays + 1) * config.thickness;
+      if (form.bayWidthMode === 'custom') {
+        const total = plan.bays.reduce((sum, b) => sum + b.width, 0);
+        update({ bayWidths: plan.bays.map(b => field((b.width / total) * clear)) });
+      } else {
+        update({ bayWidth: field(clear / form.bays) });
+      }
+    }
+  };
+
+  // A design pinned for comparison: what it measured, and the form to go back to.
+  const [pinned, setPinned] = useState<{ form: FormState; stats: PlanStats } | null>(null);
+  const [showCompare, setShowCompare] = useState(false);
+  const stats: PlanStats | null = plan && valid ? planStats(plan, sheetSummary) : null;
   const shelfEstimate = useShelfEstimate(plan && valid ? plan : null, valid ? config : null, units);
   const sagResults = useMemo(() => (plan && config && valid ? sagCheck(plan, config, form.shelfLoad) : []), [plan, config, valid, form.shelfLoad]);
 
@@ -834,7 +873,14 @@ export default function ShelfBuilder() {
         )}
       </div>
         <span className="wb-topbar-actions">
+          <span className="wb-history">
+            <Button variant="ghost" onClick={history.undo} disabled={!history.canUndo} aria-label="Undo" title="Undo (⌘Z)"><Undo2 size={16} aria-hidden="true" /></Button>
+            <Button variant="ghost" onClick={history.redo} disabled={!history.canRedo} aria-label="Redo" title="Redo (⇧⌘Z)"><Redo2 size={16} aria-hidden="true" /></Button>
+          </span>
           <TutorialButton tour="shelves" />
+          <Button variant={showCompare ? 'secondary' : 'ghost'} onClick={() => setShowCompare(open => !open)} aria-expanded={showCompare}>
+            <GitCompare size={16} aria-hidden="true" /> Compare
+          </Button>
           <Button variant={showLibrary ? 'secondary' : 'ghost'} onClick={() => setShowLibrary(open => !open)} aria-expanded={showLibrary} aria-controls="shelf-library">
             <Library size={16} aria-hidden="true" /> Library
           </Button>
@@ -911,6 +957,16 @@ export default function ShelfBuilder() {
       </div>
       )}
 
+      {showCompare && (
+        <ComparePanel
+          pinned={pinned !== null}
+          rows={pinned && stats ? compareRows(pinned.stats, stats, fmt) : null}
+          onPin={() => { if (stats) setPinned({ form, stats }); }}
+          onClear={() => setPinned(null)}
+          onRestore={() => { if (pinned) setForm(pinned.form); }}
+        />
+      )}
+
       {tab === 'model' && (
         <div className="wb-grid" ref={gridRef}>
           <nav className="wb-tree" aria-label="Design tree">
@@ -943,10 +999,16 @@ export default function ShelfBuilder() {
           </nav>
 
         <section className="shelf-preview" aria-labelledby="shelf-preview-title">
+          <WorkbenchIntro storageKey="workshop-shelf-intro" name="Shelf Builder" />
           <header className="shelf-preview-head">
             <h2 id="shelf-preview-title">Viewport</h2>
             <span className="wb-view-controls">
               {view === '3d' && <SegmentedControl label="Display style" value={shade} options={SHADE_OPTIONS} onChange={setShade} />}
+              {view === '3d' && (
+                <Button variant={showJoinery ? 'secondary' : 'ghost'} onClick={() => setShowJoinery(v => !v)} aria-pressed={showJoinery} title="Show the dados, back rabbets and shelf-pin holes cut into the sides">
+                  <Layers size={16} aria-hidden="true" /> Joinery
+                </Button>
+              )}
               <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
             </span>
           </header>
@@ -970,6 +1032,8 @@ export default function ShelfBuilder() {
                     wallMounted={config!.mounting === 'wall'}
                     onPick={pickPart}
                     mode={shade}
+                    onEditDimension={editDimension}
+                    parseLength={text => parseLength(text, units)}
                     highlight={selectedBay !== null ? (name: string) => name.startsWith(`Bay ${selectedBay + 1} `)
                       : selectedPart ? (name: string) => solidIsPart(selectedPart, name) : undefined}
                     highlightKey={`${selectedBay}|${selectedPart}`}
@@ -1317,7 +1381,7 @@ export default function ShelfBuilder() {
 
           <footer className="wb-status">
             <span>Units: {units === 'mm' ? 'mm' : 'in'}</span>
-            {plan && valid ? <span>{plan.parts.reduce((sum, part) => sum + part.qty, 0)} parts · {plywoodSummary(plan, config!, fmt)}</span> : <span>Measurements need attention</span>}
+            {plan && valid ? <span>{plan.parts.reduce((sum, part) => sum + part.qty, 0)} parts · {plywoodSummary(plan, config!, fmt)}{sheetSummary ? ` · sheets: ${sheetSummary}` : ''}</span> : <span>Measurements need attention</span>}
             <span className="wb-status-end">{plan && plan.errors.length > 0 ? `${plan.errors.length} to fix` : 'No errors'}</span>
           </footer>
         </div>
