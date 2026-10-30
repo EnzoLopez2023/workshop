@@ -1,10 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, Clipboard, FolderOpen, Library, Loader2, Save, FolderPlus, Printer, RotateCcw,
+  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, Library, Loader2, Save, FolderPlus, Printer, RotateCcw,
 } from 'lucide-react';
 import { Button, PageFrame, SegmentedControl } from '../components/ui';
-import { DimH, DimV, LengthField, Stat, Stepper, Toggle } from '../components/builderControls';
+import { DimH, DimV, InspectorSection, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import ShelfAddToProject from '../components/ShelfAddToProject';
 import ShelfBuildGuide from '../components/ShelfBuildGuide';
@@ -1459,20 +1459,6 @@ export default function ShelfBuilder() {
 }
 
 /** A collapsible group of settings in the inspector. */
-function InspectorSection({ id, title, open, onToggle, children }: {
-  id: string; title: string; open: boolean; onToggle: () => void; children: React.ReactNode;
-}) {
-  return (
-    <div className={`wb-section${open ? ' is-open' : ''}`} id={id}>
-      <button type="button" className="wb-section-head" aria-expanded={open} onClick={onToggle}>
-        {open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
-        {title}
-      </button>
-      {open && <div className="wb-section-body">{children}</div>}
-    </div>
-  );
-}
-
 /** "3/4″ plywood", or "3/4″ case, 1″ shelves, 1/4″ back" when they differ. */
 function plywoodSummary(plan: ShelfPlan, config: ShelfConfig, fmt: (inches: number) => string): string {
   const t = config.thickness;
@@ -1484,48 +1470,16 @@ function plywoodSummary(plan: ShelfPlan, config: ShelfConfig, fmt: (inches: numb
   return extra.length ? `${fmt(t)} case, ${extra.join(', ')}` : `${fmt(t)} plywood`;
 }
 
-/**
- * A plywood thickness as a drop-down of the usual sizes; "Custom…" shows a box for any other size.
- * `sameAsCase` adds a choice that clears it.
- */
-function ThicknessField({ units, label, value, error, placeholder, hint, onChange, sameAsCase = false, back = false }: {
+function ThicknessField({ units, back = false, sameAsCase = false, ...rest }: {
   units: LengthUnit; label: string; value: string; error?: string; placeholder?: string; hint?: string;
   onChange: (value: string) => void; sameAsCase?: boolean; back?: boolean;
 }) {
-  const [forceCustom, setForceCustom] = useState(false);
-  const current = value.trim() ? parseLength(value, units) : null;
   // Backs are often thinner, shelves sometimes thicker, than the case.
   const presets = back
     ? [units === 'mm' ? '6 mm' : '1/4"', ...THICKNESS_PRESETS[units]]
     : sameAsCase ? [...THICKNESS_PRESETS[units], units === 'mm' ? '25 mm' : '1"'] : THICKNESS_PRESETS[units];
-  const match = presets.find(preset => current !== null && Math.abs(parseLength(preset, units)! - current) < 0.002);
-  const same = sameAsCase && !value.trim();
-  const custom = forceCustom || Boolean(error) || (!same && !match);
-  const selected = custom ? CUSTOM_CHOICE : same ? '' : match!;
-  return (
-    <>
-      <label className="form-field" title={hint}>
-        <span className="form-field-label">{label}</span>
-        <select
-          value={selected}
-          onChange={e => {
-            const choice = e.target.value;
-            if (choice === CUSTOM_CHOICE) { setForceCustom(true); return; }
-            setForceCustom(false);
-            onChange(choice === '' ? '' : lengthToField(parseLength(choice, units)!, units));
-          }}
-        >
-          {sameAsCase && <option value="">{placeholder ?? 'Same as case'}</option>}
-          {presets.map(preset => <option key={preset} value={preset}>{preset}</option>)}
-          <option value={CUSTOM_CHOICE}>Custom…</option>
-        </select>
-      </label>
-      {custom && <LengthField unit={units} label="Custom size" value={value} error={error} onChange={onChange} />}
-    </>
-  );
+  return <ThicknessSelect units={units} presets={presets} sameAsCase={sameAsCase} {...rest} />;
 }
-
-const CUSTOM_CHOICE = '__custom';
 
 // ── Drawings ──────────────────────────────────────────────────────────────────
 

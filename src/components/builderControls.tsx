@@ -1,10 +1,10 @@
 // Form controls and drawing helpers shared by the Shelf Builder and Drawer Builder.
 
 import { useState } from 'react';
-import { Lock, Minus, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Lock, Minus, Plus } from 'lucide-react';
 import { autoUpdate, flip, FloatingPortal, offset, shift, useDismiss, useFloating, useFocus, useHover, useInteractions, useRole } from '@floating-ui/react';
 import { IconButton } from './ui';
-import type { LengthUnit } from '../lib/shelving';
+import { lengthToField, parseLength, type LengthUnit } from '../lib/shelving';
 
 // ── Controls ──────────────────────────────────────────────────────────────────
 
@@ -117,6 +117,60 @@ export function Toggle({
           </div>
         </FloatingPortal>
       )}
+    </>
+  );
+}
+
+/** A collapsible group of properties in the workbench inspector. */
+export function InspectorSection({ id, title, open, onToggle, children }: {
+  id: string; title: string; open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className={`wb-section${open ? ' is-open' : ''}`} id={id}>
+      <button type="button" className="wb-section-head" aria-expanded={open} onClick={onToggle}>
+        {open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+        {title}
+      </button>
+      {open && <div className="wb-section-body">{children}</div>}
+    </div>
+  );
+}
+
+const CUSTOM_CHOICE = '__custom';
+
+/**
+ * A plywood thickness as a drop-down of the usual sizes; "Custom…" shows a box for any other size.
+ * `sameAsCase` adds a choice that clears it.
+ */
+export function ThicknessSelect({ units, presets, label, value, error, placeholder, hint, onChange, sameAsCase = false }: {
+  units: LengthUnit; presets: string[]; label: string; value: string; error?: string; placeholder?: string; hint?: string;
+  onChange: (value: string) => void; sameAsCase?: boolean;
+}) {
+  const [forceCustom, setForceCustom] = useState(false);
+  const current = value.trim() ? parseLength(value, units) : null;
+  const match = presets.find(preset => current !== null && Math.abs(parseLength(preset, units)! - current) < 0.002);
+  const same = sameAsCase && !value.trim();
+  const custom = forceCustom || Boolean(error) || (!same && !match);
+  const selected = custom ? CUSTOM_CHOICE : same ? '' : match!;
+  return (
+    <>
+      <label className="form-field" title={hint}>
+        <span className="form-field-label">{label}</span>
+        <select
+          value={selected}
+          onChange={e => {
+            const choice = e.target.value;
+            if (choice === CUSTOM_CHOICE) { setForceCustom(true); return; }
+            setForceCustom(false);
+            onChange(choice === '' ? '' : lengthToField(parseLength(choice, units)!, units));
+          }}
+        >
+          {sameAsCase && <option value="">{placeholder ?? 'Same as case'}</option>}
+          {presets.map(preset => <option key={preset} value={preset}>{preset}</option>)}
+          <option value={CUSTOM_CHOICE}>Custom…</option>
+        </select>
+      </label>
+      {custom && <LengthField unit={units} label="Custom size" value={value} error={error} onChange={onChange} />}
     </>
   );
 }

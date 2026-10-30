@@ -1,10 +1,10 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, Clipboard, FolderOpen, FolderPlus, LayoutGrid, Loader2, Printer, RotateCcw, Save, Trash2,
+  AlertCircle, AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, Clipboard, FolderOpen, FolderPlus, LayoutGrid, Library, Loader2, Printer, RotateCcw, Save, Trash2,
 } from 'lucide-react';
-import { Button, PageFrame, PageHeader, SegmentedControl } from '../components/ui';
-import { DimH, DimV, LengthField, Stat, Stepper, Toggle } from '../components/builderControls';
+import { Button, PageFrame, SegmentedControl } from '../components/ui';
+import { DimH, DimV, InspectorSection, LengthField, Stat, Stepper, ThicknessSelect, Toggle } from '../components/builderControls';
 import CutPlanOptimizer from '../components/CutPlanOptimizer';
 import DrawerExport from '../components/DrawerExport';
 import CuttingOrder from '../components/CuttingOrder';
@@ -78,7 +78,7 @@ import { SideView, TopView } from '../components/DrawerViews';
 import { cabinetBox } from '../lib/builtinRoom';
 import { scrollToSetting } from '../components/scrollToSetting';
 import { useWorkbenchTop } from '../components/useWorkbenchTop';
-import BuilderStepNav, { type BuilderStep } from '../components/BuilderStepNav';
+import { type BuilderStep } from '../components/BuilderStepNav';
 import DrawerBookcaseFields from '../components/DrawerBookcaseFields';
 import { MARKER_PRESETS } from '../lib/drawerInserts';
 import { PRINTER_BEDS } from '../lib/gridfinity';
@@ -232,6 +232,14 @@ const PULL_OPTIONS = [
 ] as const;
 
 /** The settings, in the order you'd design a cabinet: how big, how it looks, what it stands on, extras, then the details. */
+type WorkbenchTab = 'model' | 'cutlist' | 'estimate' | 'guide';
+const WORKBENCH_TABS: { value: WorkbenchTab; label: string }[] = [
+  { value: 'model', label: 'Model' },
+  { value: 'cutlist', label: 'Cut list' },
+  { value: 'estimate', label: 'Estimate' },
+  { value: 'guide', label: 'Build guide' },
+];
+
 const DRAWER_STEPS: BuilderStep[] = [
   { id: 'drawer-step-size', label: 'Size' },
   { id: 'drawer-step-look', label: 'Fronts' },
@@ -314,6 +322,12 @@ const DOOR_SHELF_OPTIONS = [
 const THICKNESS_PRESETS: Record<LengthUnit, string[]> = {
   in: ['3/4"', '23/32"', '1/2"', '18 mm'],
   mm: ['18 mm', '15 mm', '12 mm', '3/4"'],
+};
+
+/** Drawer bottoms and back panels are thinner than the case. */
+const THIN_PRESETS: Record<LengthUnit, string[]> = {
+  in: ['1/4"', '3/8"', '1/2"'],
+  mm: ['6 mm', '9 mm', '12 mm'],
 };
 
 const BANDING_PRESETS = [
@@ -654,12 +668,14 @@ export default function DrawerBuilder() {
   }, [pickedPart]);
 
   // The template shelf folds away once you're working on a design; the choice is remembered.
-  const [templatesOpen, setTemplatesOpen] = useState(() => {
-    try { return localStorage.getItem('workshop-builtins-templates') !== 'closed'; } catch { return true; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem('workshop-builtins-templates', templatesOpen ? 'open' : 'closed'); } catch { /* convenience only */ }
-  }, [templatesOpen]);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [tab, setTab] = useState<WorkbenchTab>('model');
+  const [closedSteps, setClosedSteps] = useState<string[]>([]);
+  const toggleStep = (id: string) => setClosedSteps(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  const gotoStep = (id: string) => {
+    setClosedSteps(prev => prev.filter(x => x !== id));
+    window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
   const solids = useMemo(() => (plan && config && valid ? (plan.run ? runSolids(plan, config) : plan.desk ? deskSolids(plan, config) : drawerSolids(plan, config)) : []), [plan, config, valid]);
   // The model's real footprint, so the 3D view centres and frames it (a blind side running
   // left, a corner run's return reaching forward). Context like an existing desk is left out.
@@ -1111,29 +1127,6 @@ export default function DrawerBuilder() {
     }
   };
 
-  const thicknessChips = (field: 'thickness' | 'boxThickness' | 'backThickness', presets: string[], sameAsCase = false) => (
-    <div className="shelf-chips" role="group" aria-label={field === 'backThickness' ? 'Common back thicknesses' : 'Common plywood thicknesses'}>
-      {sameAsCase && (
-        <button type="button" className="shelf-chip" aria-pressed={!form[field].trim()} onClick={() => update({ [field]: '' })}>Same as case</button>
-      )}
-      {presets.map(preset => {
-        const inches = parseLength(preset, units)!;
-        const current = form[field].trim() ? parseLength(form[field], units) : null;
-        return (
-          <button
-            key={preset}
-            type="button"
-            className="shelf-chip"
-            aria-pressed={current !== null && Math.abs(current - inches) < 0.002}
-            onClick={() => update({ [field]: lengthToField(inches, units) })}
-          >
-            {preset}
-          </button>
-        );
-      })}
-    </div>
-  );
-
   // Options that rule each other out: the one that can't be turned on is greyed out with the
   // reason in a tooltip, rather than turned on and then reported as an error.
   const notFloor = form.mount === 'wall' ? 'hangs on the wall' : form.mount === 'under-desk' ? 'stands under an existing desk' : null;
@@ -1157,93 +1150,18 @@ export default function DrawerBuilder() {
   };
 
   return (
-    <PageFrame maxWidth={1200} className="shelf-page builder-workbench">
-      <Button variant="ghost" onClick={() => navigate(-1)} className="workflow-back">
-        <ArrowLeft size={16} aria-hidden="true" />
-        Back
-      </Button>
-
-      <PageHeader
-        title="Built-in Studio"
-        description="Design drawer units, cabinets, desks and whole walls of built-ins — ALEX-style or Shaker, on toe kicks or legs, with bookcases above — then take the cut list, CNC files and build guide to the shop."
-        actions={(
-          <>
-          <TutorialButton tour="drawers" />
-          <Link className="btn btn-ghost" to="/built-ins/projects">
-            <LayoutGrid size={16} aria-hidden="true" /> Projects &amp; rooms
-          </Link>
-          <Button variant="ghost" onClick={() => { setForm(convertForm(DEFAULT_FORM, units)); setSource(null); }}>
-            <RotateCcw size={16} aria-hidden="true" /> Reset design
-          </Button>
-          </>
-        )}
-      />
-
-      <div className="shelf-layout" ref={layoutRef}>
-        <section className="shelf-config" aria-labelledby="drawer-config-title" ref={configRef}
-          onPointerOver={e => setHoverPart((e.target as HTMLElement).closest<HTMLElement>('[data-part]')?.dataset.part ?? null)}
-          onPointerLeave={() => setHoverPart(null)}
-          onFocus={e => setFocusPart((e.target as HTMLElement).closest<HTMLElement>('[data-part]')?.dataset.part ?? null)}
-          onBlur={() => setFocusPart(null)}>
-          <BuilderStepNav steps={steps} containerRef={configRef} />
-          <div className="builder-config-top">
-      <details className="drawer-templates" open={templatesOpen} onToggle={e => setTemplatesOpen((e.currentTarget as HTMLDetailsElement).open)}>
-        <summary>
-          <span id="drawer-templates-title">Templates{library.length > 0 ? ' & saved designs' : ''}</span>
-          <small>{DRAWER_TEMPLATES.length + library.length}</small>
-        </summary>
-        <h2>Start from</h2>
-        <ul>
-          {DRAWER_TEMPLATES.map((t, i) => {
-            const thumb = templatePlans[i];
-            return (
-              <li key={t.id}>
-                <button type="button" className="drawer-template" onClick={() => applyTemplate(t)} title={t.description}>
-                  {thumb && <img src={drawerThumbnailDataUrl(thumb.plan, thumb.pull, 72)} alt="" />}
-                  <span>
-                    <strong>{t.name}</strong>
-                    <small>{thumb ? `${fmt(thumb.plan.overallWidth)} × ${fmt(thumb.plan.overallHeight)}` : ''}</small>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-        {library.length > 0 && (
-          <>
-            <h2>Saved designs</h2>
-            <ul>
-              {library.map(entry => {
-                const saved = readSavedDrawerDesign(entry.design);
-                const p = saved ? buildDrawerPlan(saved.config) : null;
-                return (
-                  <li key={entry.id}>
-                    <button
-                      type="button"
-                      className="drawer-template"
-                      disabled={!saved}
-                      onClick={() => saved && applyDesign(drawerDesignToFields(saved), { kind: 'library', id: entry.id, title: entry.name })}
-                    >
-                      {p && saved && p.errors.length === 0 && <img src={drawerThumbnailDataUrl(p, saved.config.pull, 72, saved.config.finish?.front)} alt="" />}
-                      <span>
-                        <strong>{entry.name}</strong>
-                        <small>{p ? `${formatLength(p.overallWidth, saved!.units)} × ${formatLength(p.overallHeight, saved!.units)}` : 'Can’t be read'}</small>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        )}
-      </details>
-
-      {loadNotice && (
-        <p className={`shelf-source-banner ${loadNotice.tone === 'error' ? 'is-error' : ''}`} role={loadNotice.tone === 'error' ? 'alert' : 'status'}>
-          {loadNotice.tone === 'error' && <AlertCircle size={16} aria-hidden="true" />}
-          <span>{loadNotice.text}</span>
-        </p>
-      )}
+    <PageFrame maxWidth={2000} className="shelf-page wb-page">
+      <header className="wb-topbar">
+        <Button variant="ghost" onClick={() => navigate(-1)} className="wb-back">
+          <ArrowLeft size={16} aria-hidden="true" />
+          Back
+        </Button>
+        <h1 className="wb-title">Built-in Studio</h1>
+        <div className="wb-tabs" role="tablist" aria-label="Workspace">
+          {WORKBENCH_TABS.map(t => (
+            <button key={t.value} type="button" role="tab" aria-selected={tab === t.value} className="wb-tab" onClick={() => setTab(t.value)}>{t.label}</button>
+          ))}
+        </div>
       <div className="shelf-design-bar" role="region" aria-label="Saved design">
         <div className="shelf-design-bar-name">
           <Save size={16} aria-hidden="true" />
@@ -1292,14 +1210,78 @@ export default function DrawerBuilder() {
             ))}
           </span>
         )}
-        {saveMessage && (
-          <p className={saveMessage.ok ? 'shelf-add-project-ok' : 'shelf-add-project-error'} role="status">
-            {saveMessage.ok ? <Check size={16} aria-hidden="true" /> : <AlertCircle size={16} aria-hidden="true" />}
-            <span>{saveMessage.text}</span>
-          </p>
-        )}
       </div>
+        <span className="wb-topbar-actions">
+          <TutorialButton tour="drawers" />
+          <Button variant={templatesOpen ? 'secondary' : 'ghost'} onClick={() => setTemplatesOpen(open => !open)} aria-expanded={templatesOpen} aria-controls="drawer-templates">
+            <Library size={16} aria-hidden="true" /> Templates
+          </Button>
+          <Link className="btn btn-ghost" to="/built-ins/projects">
+            <LayoutGrid size={16} aria-hidden="true" /> Projects &amp; rooms
+          </Link>
+          <Button variant="ghost" onClick={() => { setForm(convertForm(DEFAULT_FORM, units)); setSource(null); }}>
+            <RotateCcw size={16} aria-hidden="true" /> Reset design
+          </Button>
+        </span>
+      </header>
 
+      {templatesOpen && (
+        <div id="drawer-templates" className="drawer-templates is-panel">
+          <h2>Start from</h2>
+        <ul>
+          {DRAWER_TEMPLATES.map((t, i) => {
+            const thumb = templatePlans[i];
+            return (
+              <li key={t.id}>
+                <button type="button" className="drawer-template" onClick={() => applyTemplate(t)} title={t.description}>
+                  {thumb && <img src={drawerThumbnailDataUrl(thumb.plan, thumb.pull, 72)} alt="" />}
+                  <span>
+                    <strong>{t.name}</strong>
+                    <small>{thumb ? `${fmt(thumb.plan.overallWidth)} × ${fmt(thumb.plan.overallHeight)}` : ''}</small>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {library.length > 0 && (
+          <>
+            <h2>Saved designs</h2>
+            <ul>
+              {library.map(entry => {
+                const saved = readSavedDrawerDesign(entry.design);
+                const p = saved ? buildDrawerPlan(saved.config) : null;
+                return (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      className="drawer-template"
+                      disabled={!saved}
+                      onClick={() => saved && applyDesign(drawerDesignToFields(saved), { kind: 'library', id: entry.id, title: entry.name })}
+                    >
+                      {p && saved && p.errors.length === 0 && <img src={drawerThumbnailDataUrl(p, saved.config.pull, 72, saved.config.finish?.front)} alt="" />}
+                      <span>
+                        <strong>{entry.name}</strong>
+                        <small>{p ? `${formatLength(p.overallWidth, saved!.units)} × ${formatLength(p.overallHeight, saved!.units)}` : 'Can’t be read'}</small>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+        </div>
+      )}
+
+      {(loadNotice || saveMessage || (source && source.kind !== 'library')) && (
+        <div className="wb-docbar">
+      {loadNotice && (
+        <p className={`shelf-source-banner ${loadNotice.tone === 'error' ? 'is-error' : ''}`} role={loadNotice.tone === 'error' ? 'alert' : 'status'}>
+          {loadNotice.tone === 'error' && <AlertCircle size={16} aria-hidden="true" />}
+          <span>{loadNotice.text}</span>
+        </p>
+      )}
       {source && source.kind !== 'library' && (
         <div className="shelf-source-banner" role="status">
           <FolderOpen size={16} aria-hidden="true" />
@@ -1327,11 +1309,138 @@ export default function DrawerBuilder() {
         </div>
       )}
 
-          </div>
-          <h2 id="drawer-config-title" className="sr-only">Design</h2>
+        {saveMessage && (
+          <p className={saveMessage.ok ? 'shelf-add-project-ok' : 'shelf-add-project-error'} role="status">
+            {saveMessage.ok ? <Check size={16} aria-hidden="true" /> : <AlertCircle size={16} aria-hidden="true" />}
+            <span>{saveMessage.text}</span>
+          </p>
+        )}
+        </div>
+      )}
 
-          <div className="builder-step" id="drawer-step-size">
-            <h3 className="builder-step-title">Size &amp; layout</h3>
+      {tab === 'model' && (
+        <div className="wb-grid" ref={layoutRef}>
+          <nav className="wb-tree" aria-label="Design tree">
+            <button type="button" className="wb-tree-item is-root is-active" onClick={() => configRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}>
+              <ChevronDown size={14} aria-hidden="true" /> Built-in unit
+            </button>
+            {steps.map(step => (
+              <button key={step.id} type="button" className="wb-tree-item is-child" onClick={() => gotoStep(step.id)}>
+                {step.label}
+                {step.badge && <span className="wb-tree-badge">{step.badge}</span>}
+              </button>
+            ))}
+            {plan && valid && (
+              <>
+                <div className="wb-tree-label">Drawers · {plan.drawers.length}</div>
+                {plan.drawers.map(d => (
+                  <div key={d.index} className="wb-tree-part">
+                    <span>Drawer {d.index + 1}</span><span className="wb-tree-meta">{d.open ? 'open' : fmt(d.front.height)}</span>
+                  </div>
+                ))}
+                <div className="wb-tree-label">Parts · {plan.parts.reduce((sum, part) => sum + part.qty, 0)}</div>
+                {plan.parts.map(part => (
+                  <div key={part.name} className="wb-tree-part">
+                    <span>{part.name}</span><span className="wb-tree-meta">×{part.qty}</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </nav>
+
+        <section className="shelf-preview" aria-labelledby="drawer-preview-title">
+          <header className="shelf-preview-head">
+            <h2 id="drawer-preview-title" className="sr-only">Preview</h2>
+            {plan && config && (
+              <dl className="shelf-summary">
+                {plan.desk ? (
+                  <>
+                    <Stat label="Desk" value={`${fmt(plan.desk.width)} × ${fmt(plan.desk.height)}`} />
+                    <Stat label="Units" value={`${plan.unitCount} × ${fmt(plan.overallWidth)}`} />
+                    <Stat label="Room to sit" value={fmt(Math.max(plan.desk.knee, 0))} />
+                  </>
+                ) : (
+                  <>
+                    <Stat label={plan.run ? 'Wall run' : 'Overall width'} value={fmt(plan.run ? plan.run.width : plan.blind ? plan.blind.totalWidth : plan.overallWidth)} />
+                    <Stat label={plan.bookcase ? 'Height with bookcase' : 'Overall height'} value={fmt(plan.bookcase || plan.run ? plan.totalHeight : plan.overallHeight)} />
+                    <Stat label="Overall depth" value={fmt(plan.overallDepth)} />
+                  </>
+                )}
+                <Stat
+                  label="Slides"
+                  value={plan.slideLength > 0
+                    ? [...new Set(plan.drawers.filter(d => !d.open).map(d => d.box.depth))].sort((a, b) => b - a)
+                      .map(l => `${plan.drawers.filter(d => !d.open && d.box.depth === l).length * plan.unitCount} × ${fmt(l)}`).join(' + ') || '—'
+                    : '—'}
+                  accent
+                />
+              </dl>
+            )}
+            <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
+          </header>
+          {plan && config ? (
+            <>
+              {(plan.errors.length > 0 || plan.warnings.length > 0) && (
+                <details className="builder-issues" open={plan.errors.length > 0}>
+                  <summary>
+                    {plan.errors.length > 0
+                      ? <><AlertCircle size={16} aria-hidden="true" /> {plan.errors.length} thing{plan.errors.length === 1 ? '' : 's'} to fix</>
+                      : <AlertTriangle size={16} aria-hidden="true" />}
+                    {plan.errors.length > 0 && plan.warnings.length > 0 ? ' · ' : ' '}
+                    {plan.warnings.length > 0 ? `${plan.warnings.length} note${plan.warnings.length === 1 ? '' : 's'}` : ''}
+                  </summary>
+                  {plan.errors.length > 0 && <ul className="drawer-error-list" role="alert">{plan.errors.map(e => <li key={e}>{e}</li>)}</ul>}
+                  {plan.warnings.length > 0 && <ul className="builder-notes" role="status">{plan.warnings.map(w => <li key={w}>{w}</li>)}</ul>}
+                </details>
+              )}
+              {view === '3d' && valid ? (
+                <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
+                  <ShelfViewer3D
+                    highlight={activePart ? partMatcher(activePart, plan, config) : undefined}
+                    highlightKey={activePart ?? ''}
+                    onPick={name => {
+                      const key = partOfSolid(name, plan, config);
+                      setPickedPart(key);
+                      const el = configRef.current?.querySelector<HTMLElement>(`[data-part="${key}"]`);
+                      if (el) scrollToSetting(el);
+                    }}
+                    solids={solids}
+                    formatLength={fmt}
+                    width={extent.width}
+                    height={plan.desk ? plan.desk.height : plan.totalHeight + plan.lift}
+                    depth={extent.depth}
+                    origin={extent.origin}
+                    wallMounted={plan.mount === 'wall'}
+                    colors={finishColors(config.finish)}
+                    label={plan.desk
+                      ? `3D view of a ${fmt(plan.desk.width)} desk on ${plan.unitCount} drawer unit${plan.unitCount === 1 ? '' : 's'}`
+                      : `3D view of a ${fmt(plan.overallWidth)} wide, ${fmt(plan.totalHeight)} tall drawer unit with ${plan.drawers.length} drawers${plan.bookcase ? ' and a bookcase on top' : ''}`}
+                  />
+                </Suspense>
+              ) : (
+                <div className="builder-drawings">
+                  <DrawerElevation plan={plan} config={config} fmt={fmt} />
+                  <div className="builder-views">
+                    <SideView plan={plan} config={config} fmt={fmt} />
+                    <TopView plan={plan} config={config} fmt={fmt} />
+                  </div>
+                  <DrawerSection plan={plan} config={config} fmt={fmt} />
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="shelf-placeholder">Fix the highlighted measurements to see the drawing.</p>
+          )}
+        </section>
+
+        <section className="shelf-config wb-inspector" aria-labelledby="drawer-config-title" ref={configRef}
+          onPointerOver={e => setHoverPart((e.target as HTMLElement).closest<HTMLElement>('[data-part]')?.dataset.part ?? null)}
+          onPointerLeave={() => setHoverPart(null)}
+          onFocus={e => setFocusPart((e.target as HTMLElement).closest<HTMLElement>('[data-part]')?.dataset.part ?? null)}
+          onBlur={() => setFocusPart(null)}>
+          <h2 id="drawer-config-title" className="sr-only">Properties</h2>
+
+          <InspectorSection id="drawer-step-size" title="Size &amp; layout" open={!closedSteps.includes('drawer-step-size')} onToggle={() => toggleStep('drawer-step-size')}>
           <fieldset className="shelf-group" data-tour="fs-units">
             <legend>Units</legend>
             <SegmentedControl label="Units" value={units} options={UNIT_OPTIONS} onChange={next => setForm(prev => convertForm(prev, next))} />
@@ -1592,10 +1701,9 @@ export default function DrawerBuilder() {
               )}
             </label>
           </fieldset>
-          </div>
+          </InspectorSection>
 
-          <div className="builder-step" id="drawer-step-look">
-            <h3 className="builder-step-title">Fronts &amp; finish</h3>
+          <InspectorSection id="drawer-step-look" title="Fronts &amp; finish" open={!closedSteps.includes('drawer-step-look')} onToggle={() => toggleStep('drawer-step-look')}>
           <fieldset className="shelf-group" data-tour="fs-finger-pull">
             <legend>Fronts &amp; pulls</legend>
             <div className="shelf-height-mode">
@@ -1723,10 +1831,9 @@ export default function DrawerBuilder() {
               </div>
             )}
           </fieldset>
-          </div>
+          </InspectorSection>
 
-          <div className="builder-step" id="drawer-step-base">
-            <h3 className="builder-step-title">Base</h3>
+          <InspectorSection id="drawer-step-base" title="Base" open={!closedSteps.includes('drawer-step-base')} onToggle={() => toggleStep('drawer-step-base')}>
           <fieldset className="shelf-group" data-tour="fs-base-mounting" data-part="base">
             <legend>Base &amp; mounting</legend>
             <SegmentedControl
@@ -1797,10 +1904,9 @@ export default function DrawerBuilder() {
               <p className="shelf-group-note">{plan.supports} {form.base === 'feet' ? 'feet' : 'casters'}{plan.supports === 6 ? ' — a middle pair, since the unit is wide' : ''}.</p>
             )}
           </fieldset>
-          </div>
+          </InspectorSection>
 
-          <div className="builder-step" id="drawer-step-builtins">
-            <h3 className="builder-step-title">Built-ins</h3>
+          <InspectorSection id="drawer-step-builtins" title="Built-ins" open={!closedSteps.includes('drawer-step-builtins')} onToggle={() => toggleStep('drawer-step-builtins')}>
           <DrawerRunFields
             value={form.run}
             units={units}
@@ -1824,7 +1930,6 @@ export default function DrawerBuilder() {
             fmt={fmt}
             onChange={patch => update({ bookcase: { ...form.bookcase, ...patch } })}
           />
-
 
           <fieldset className="shelf-group" data-tour="fs-desk" data-part="desk">
             <legend>Desk</legend>
@@ -1908,10 +2013,9 @@ export default function DrawerBuilder() {
               </>
             )}
           </fieldset>
-          </div>
+          </InspectorSection>
 
-          <div className="builder-step" id="drawer-step-inside">
-            <h3 className="builder-step-title">Inside</h3>
+          <InspectorSection id="drawer-step-inside" title="Inside" open={!closedSteps.includes('drawer-step-inside')} onToggle={() => toggleStep('drawer-step-inside')}>
           <fieldset className="shelf-group" data-tour="fs-inside-the-drawers">
             <legend>Inside the drawers</legend>
             <p className="shelf-group-note">For each drawer: an egg-crate divider grid, a tray of notched ribs that holds markers lying front to back, or a printed Gridfinity baseplate for modular bins.</p>
@@ -2047,27 +2151,26 @@ export default function DrawerBuilder() {
               </div>
             )}
           </fieldset>
-          </div>
+          </InspectorSection>
 
-          <div className="builder-step" id="drawer-step-materials">
-            <h3 className="builder-step-title">Materials</h3>
+          <InspectorSection id="drawer-step-materials" title="Materials" open={!closedSteps.includes('drawer-step-materials')} onToggle={() => toggleStep('drawer-step-materials')}>
           <fieldset className="shelf-group" data-tour="fs-material">
             <legend>Material</legend>
-            <LengthField
-              unit={units}
+            <ThicknessSelect
+              units={units}
+              presets={THICKNESS_PRESETS[units]}
               label="Case and front plywood"
               value={form.thickness}
               error={fieldErrors.thickness}
               hint="Sides, top, bottom and the drawer fronts."
               onChange={thickness => update({ thickness })}
             />
-            {thicknessChips('thickness', THICKNESS_PRESETS[units])}
-            <div className="shelf-field-grid">
-              <LengthField unit={units} label="Drawer box plywood" value={form.boxThickness} error={fieldErrors.boxThickness} onChange={boxThickness => update({ boxThickness })} />
-              <LengthField unit={units} label="Drawer bottoms" value={form.bottomThickness} error={fieldErrors.bottomThickness} onChange={bottomThickness => update({ bottomThickness })} />
-            </div>
-            <LengthField
-              unit={units}
+            <ThicknessSelect units={units} presets={THICKNESS_PRESETS[units]} label="Drawer box plywood" value={form.boxThickness} error={fieldErrors.boxThickness} onChange={boxThickness => update({ boxThickness })} />
+            <ThicknessSelect units={units} presets={THIN_PRESETS[units]} label="Drawer bottoms" value={form.bottomThickness} error={fieldErrors.bottomThickness} onChange={bottomThickness => update({ bottomThickness })} />
+            <ThicknessSelect
+              units={units}
+              presets={THIN_PRESETS[units]}
+              sameAsCase
               label="Back panel plywood"
               value={form.backThickness}
               error={fieldErrors.backThickness}
@@ -2077,113 +2180,26 @@ export default function DrawerBuilder() {
                 : `Thinner than the case, it’s let into a rabbet in each side. 1/4″ is light and cheap; 1/2″ is stiffer. Blank (or the case thickness) screws it in between the sides instead.`}
               onChange={backThickness => update({ backThickness })}
             />
-            {thicknessChips('backThickness', units === 'mm' ? ['6 mm', '9 mm', '12 mm'] : ['1/4"', '3/8"', '1/2"'], true)}
           </fieldset>
-          </div>
-
-
-
-
-
-
-
-
-
-
-
-
-
+          </InspectorSection>
         </section>
 
-        <section className="shelf-preview" aria-labelledby="drawer-preview-title">
-          <header className="shelf-preview-head">
-            <h2 id="drawer-preview-title" className="sr-only">Preview</h2>
-            {plan && config && (
-              <dl className="shelf-summary">
-                {plan.desk ? (
-                  <>
-                    <Stat label="Desk" value={`${fmt(plan.desk.width)} × ${fmt(plan.desk.height)}`} />
-                    <Stat label="Units" value={`${plan.unitCount} × ${fmt(plan.overallWidth)}`} />
-                    <Stat label="Room to sit" value={fmt(Math.max(plan.desk.knee, 0))} />
-                  </>
-                ) : (
-                  <>
-                    <Stat label={plan.run ? 'Wall run' : 'Overall width'} value={fmt(plan.run ? plan.run.width : plan.blind ? plan.blind.totalWidth : plan.overallWidth)} />
-                    <Stat label={plan.bookcase ? 'Height with bookcase' : 'Overall height'} value={fmt(plan.bookcase || plan.run ? plan.totalHeight : plan.overallHeight)} />
-                    <Stat label="Overall depth" value={fmt(plan.overallDepth)} />
-                  </>
-                )}
-                <Stat
-                  label="Slides"
-                  value={plan.slideLength > 0
-                    ? [...new Set(plan.drawers.filter(d => !d.open).map(d => d.box.depth))].sort((a, b) => b - a)
-                      .map(l => `${plan.drawers.filter(d => !d.open && d.box.depth === l).length * plan.unitCount} × ${fmt(l)}`).join(' + ') || '—'
-                    : '—'}
-                  accent
-                />
-              </dl>
-            )}
-            <SegmentedControl label="Preview mode" value={view} options={VIEW_OPTIONS} onChange={setView} />
-          </header>
-          {plan && config ? (
+          <footer className="wb-status">
+            <span>Units: {units === 'mm' ? 'mm' : 'in'}</span>
+            {plan && valid ? <span>{plan.parts.reduce((sum, part) => sum + part.qty, 0)} parts · {plan.drawers.length} drawers</span> : <span>Measurements need attention</span>}
+            <span className="wb-status-end">{plan && plan.errors.length > 0 ? `${plan.errors.length} to fix` : 'No errors'}</span>
+          </footer>
+        </div>
+      )}
+
+      {tab !== 'model' && !(plan && config && valid) && (
+        <p className="shelf-placeholder">Fix the highlighted measurements on the Model tab first.</p>
+      )}
+
+      {tab !== 'model' && plan && config && valid && (
+        <div className="wb-sheet">
+          {tab === 'cutlist' && (
             <>
-              {(plan.errors.length > 0 || plan.warnings.length > 0) && (
-                <details className="builder-issues" open={plan.errors.length > 0}>
-                  <summary>
-                    {plan.errors.length > 0
-                      ? <><AlertCircle size={16} aria-hidden="true" /> {plan.errors.length} thing{plan.errors.length === 1 ? '' : 's'} to fix</>
-                      : <AlertTriangle size={16} aria-hidden="true" />}
-                    {plan.errors.length > 0 && plan.warnings.length > 0 ? ' · ' : ' '}
-                    {plan.warnings.length > 0 ? `${plan.warnings.length} note${plan.warnings.length === 1 ? '' : 's'}` : ''}
-                  </summary>
-                  {plan.errors.length > 0 && <ul className="drawer-error-list" role="alert">{plan.errors.map(e => <li key={e}>{e}</li>)}</ul>}
-                  {plan.warnings.length > 0 && <ul className="builder-notes" role="status">{plan.warnings.map(w => <li key={w}>{w}</li>)}</ul>}
-                </details>
-              )}
-              {view === '3d' && valid ? (
-                <Suspense fallback={<div className="shelf-viewer"><p className="shelf-viewer-status">Loading 3D view…</p></div>}>
-                  <ShelfViewer3D
-                    highlight={activePart ? partMatcher(activePart, plan, config) : undefined}
-                    highlightKey={activePart ?? ''}
-                    onPick={name => {
-                      const key = partOfSolid(name, plan, config);
-                      setPickedPart(key);
-                      const el = configRef.current?.querySelector<HTMLElement>(`[data-part="${key}"]`);
-                      if (el) scrollToSetting(el);
-                    }}
-                    solids={solids}
-                    formatLength={fmt}
-                    width={extent.width}
-                    height={plan.desk ? plan.desk.height : plan.totalHeight + plan.lift}
-                    depth={extent.depth}
-                    origin={extent.origin}
-                    wallMounted={plan.mount === 'wall'}
-                    colors={finishColors(config.finish)}
-                    label={plan.desk
-                      ? `3D view of a ${fmt(plan.desk.width)} desk on ${plan.unitCount} drawer unit${plan.unitCount === 1 ? '' : 's'}`
-                      : `3D view of a ${fmt(plan.overallWidth)} wide, ${fmt(plan.totalHeight)} tall drawer unit with ${plan.drawers.length} drawers${plan.bookcase ? ' and a bookcase on top' : ''}`}
-                  />
-                </Suspense>
-              ) : (
-                <div className="builder-drawings">
-                  <DrawerElevation plan={plan} config={config} fmt={fmt} />
-                  <div className="builder-views">
-                    <SideView plan={plan} config={config} fmt={fmt} />
-                    <TopView plan={plan} config={config} fmt={fmt} />
-                  </div>
-                  <DrawerSection plan={plan} config={config} fmt={fmt} />
-                </div>
-              )}
-            </>
-          ) : (
-            <p className="shelf-placeholder">Fix the highlighted measurements to see the drawing.</p>
-          )}
-        </section>
-      </div>
-
-
-      {plan && config && valid && (
-        <>
           <section className="shelf-section" aria-labelledby="drawer-cutlist-title">
             <header className="shelf-section-head">
               <div>
@@ -2252,7 +2268,6 @@ export default function DrawerBuilder() {
               </div>
             )}
           </section>
-
           <section className="shelf-section" aria-labelledby="drawer-order-title">
             <header className="shelf-section-head">
               <div>
@@ -2262,7 +2277,6 @@ export default function DrawerBuilder() {
             </header>
             <CuttingOrder parts={sheetParts(plan.parts)} units={units} />
           </section>
-
           <section className="shelf-section" aria-labelledby="drawer-export-title">
             <header className="shelf-section-head">
               <div>
@@ -2272,8 +2286,43 @@ export default function DrawerBuilder() {
             </header>
             <DrawerExport plan={plan} config={config} units={units} />
           </section>
-
-          {estimate && (
+          <section className="shelf-section" aria-labelledby="drawer-marks-title">
+            <header className="shelf-section-head">
+              <div>
+                <h2 id="drawer-marks-title">Slide positions</h2>
+                <p>
+                  Bottom edge of each slide, measured up from the bottom edge of the case sides. Mark both sides from one story stick,
+                  with each slide flush to the front edge.
+                </p>
+              </div>
+            </header>
+            <ul className="shelf-marks">
+              {plan.drawers.filter(d => !d.open).map(d => (
+                <li key={d.index}>
+                  <strong>Drawer {d.index + 1}</strong>
+                  <span className="is-muted">front {fmt(d.front.height)} · box {fmt(d.box.height)}</span>
+                  <span className="shelf-mark-values">{fmt(d.slideMark)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <section className="shelf-section shelf-optimizer" aria-labelledby="drawer-optimizer-title">
+            <header className="shelf-section-head">
+              <div>
+                <h2 id="drawer-optimizer-title">Sheet layout</h2>
+                <p>There’s a sheet row for each plywood thickness — fill in the sizes and generate a plan. Regenerate after changing the design.</p>
+              </div>
+            </header>
+            <CutPlanOptimizer
+              cutList={cutList}
+              units={units}
+              defaultThickness={config.thickness}
+              extraThicknesses={[...new Set([config.boxThickness, config.bottomThickness, config.backThickness])].filter(t => Math.abs(t - config.thickness) > 1e-4)}
+            />
+          </section>
+            </>
+          )}
+          {tab === 'estimate' && estimate && (
             <>
               <section className="shelf-section" aria-labelledby="drawer-hardware-title">
                 <header className="shelf-section-head">
@@ -2303,28 +2352,8 @@ export default function DrawerBuilder() {
               </section>
             </>
           )}
-
-          <section className="shelf-section" aria-labelledby="drawer-marks-title">
-            <header className="shelf-section-head">
-              <div>
-                <h2 id="drawer-marks-title">Slide positions</h2>
-                <p>
-                  Bottom edge of each slide, measured up from the bottom edge of the case sides. Mark both sides from one story stick,
-                  with each slide flush to the front edge.
-                </p>
-              </div>
-            </header>
-            <ul className="shelf-marks">
-              {plan.drawers.filter(d => !d.open).map(d => (
-                <li key={d.index}>
-                  <strong>Drawer {d.index + 1}</strong>
-                  <span className="is-muted">front {fmt(d.front.height)} · box {fmt(d.box.height)}</span>
-                  <span className="shelf-mark-values">{fmt(d.slideMark)}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-
+          {tab === 'guide' && (
+            <>
           <section className="shelf-section" aria-labelledby="drawer-guide-title">
             <header className="shelf-section-head">
               <div>
@@ -2352,22 +2381,9 @@ export default function DrawerBuilder() {
               </div>
             )}
           </section>
-
-          <section className="shelf-section shelf-optimizer" aria-labelledby="drawer-optimizer-title">
-            <header className="shelf-section-head">
-              <div>
-                <h2 id="drawer-optimizer-title">Sheet layout</h2>
-                <p>There’s a sheet row for each plywood thickness — fill in the sizes and generate a plan. Regenerate after changing the design.</p>
-              </div>
-            </header>
-            <CutPlanOptimizer
-              cutList={cutList}
-              units={units}
-              defaultThickness={config.thickness}
-              extraThicknesses={[...new Set([config.boxThickness, config.bottomThickness, config.backThickness])].filter(t => Math.abs(t - config.thickness) > 1e-4)}
-            />
-          </section>
-        </>
+            </>
+          )}
+        </div>
       )}
     </PageFrame>
   );
