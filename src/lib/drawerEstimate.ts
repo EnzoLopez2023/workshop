@@ -6,7 +6,7 @@ import { hardwareList, quantityLabel, type HardwareItem, type PriceKey } from '.
 import { formatLength, type LengthUnit } from './shelving.ts';
 
 export type DrawerPriceKey =
-  | 'sheetCase' | 'sheetBox' | 'sheetThin' | 'sheetThick' | 'slidePair' | 'feetPack' | 'caster'
+  | 'sheetCase' | 'sheetBox' | 'sheetThin' | 'sheetThick' | 'slidePair' | 'blumPair' | 'feetPack' | 'caster'
   | 'glue' | 'caseScrews' | 'frontScrews' | 'brads' | 'antiTip' | 'edgeBanding' | 'finish'
   | 'shims' | 'baseboardFt'
   | 'deskLeg'
@@ -44,12 +44,14 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
     const pairs = runs.filter(r => r === length).length * unitCount;
     items.push({
       key: lengths.length === 1 ? 'slides' : `slides-${length}`,
-      name: `LONTAN soft-close drawer slides, ${f(length)}`,
+      name: plan.slide.undermount ? `Blum TANDEM plus BLUMOTION 563H slides, ${f(length)}, with locking devices` : `LONTAN soft-close drawer slides, ${f(length)}`,
       qty: pairs,
       unit: 'pair',
-      note: `Full extension, side mount, ${SLIDE_CAPACITY_LB} lb a pair. Mounting screws come with them.`,
-      priceKey: 'slidePair',
-      url: amazonSearch(`LONTAN soft close drawer slides ${length} inch`),
+      note: plan.slide.undermount
+        ? `Full extension, under-mount, ${plan.slide.capacityLb} lb a pair. Order the left/right locking devices (563H comes with them for most lengths) and the drawer-back hook-in brackets; confirm the nominal length and box dimensions with Blum’s sheet.`
+        : `Full extension, side mount, ${SLIDE_CAPACITY_LB} lb a pair. Mounting screws come with them.`,
+      priceKey: plan.slide.undermount ? 'blumPair' : 'slidePair',
+      url: amazonSearch(plan.slide.undermount ? `Blum Tandem plus Blumotion 563H ${length} inch` : `LONTAN soft close drawer slides ${length} inch`),
     });
   }
 
@@ -307,6 +309,7 @@ export function defaultDrawerPrices(): DrawerPrices {
     sheetThin: 40,
     sheetThick: 95,
     slidePair: 12,
+    blumPair: 42,
     feetPack: 12,
     caster: 5,
     glue: 8,
@@ -338,6 +341,7 @@ export const DRAWER_PRICE_LABELS: Record<DrawerPriceKey, string> = {
   sheetThin: 'Back and bottom plywood, per sheet',
   sheetThick: 'Thick shelf plywood, per sheet',
   slidePair: 'Drawer slides, per pair',
+  blumPair: 'Blum TANDEM plus slides, per pair',
   feetPack: 'Leveling feet, per pack of 12',
   caster: 'Caster, each',
   glue: 'Wood glue, per bottle',

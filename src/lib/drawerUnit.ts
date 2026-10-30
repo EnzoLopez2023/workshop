@@ -225,6 +225,8 @@ export interface DrawerConfig {
   exposedSides?: ExposedSides;
   /** A specific slide length; leave unset to use the longest that fits. */
   slideLength?: number;
+  /** Side-mount LONTAN (default) or Blum TANDEM plus BLUMOTION under-mount. */
+  slideType?: SlideType;
   /** Join the top, bottom and partitions to the sides with pocket screws instead of plain screws. */
   pocketCase?: boolean;
   /** Extra depth left on the sides past the back, to scribe to an uneven wall. */
@@ -555,6 +557,44 @@ export interface DeskLayoutPlan {
   grommets: { x: number; z: number }[];
 }
 
+/**
+ * The two kinds of drawer slide: LONTAN side-mount (the default), or Blum TANDEM plus BLUMOTION 563H
+ * under-mount. The Blum numbers are Blum's published ones as best known — 21 mm of clearance each
+ * side, nominal lengths 9–21", 100 lb — so check them against Blum's own installation sheet for
+ * the slide you buy before cutting.
+ */
+export type SlideType = 'side' | 'blum-tandem';
+
+export interface SlideSpec {
+  type: SlideType;
+  brand: string;
+  /** Slide lengths sold, in inches. */
+  lengths: number[];
+  /** Gap between each side of the drawer box and the case (or partition) it runs against. */
+  clearance: number;
+  /** Room left behind a closed drawer box for the slide's back end. */
+  backClearance: number;
+  capacityLb: number;
+  minBoxHeight: number;
+  /** Space under each drawer box, inside its front's share of the case. */
+  below: number;
+  /** Under-mount: the slides sit below the box sides rather than beside them. */
+  undermount: boolean;
+}
+
+/** Height of an under-mount slide's visible rail below the drawer box. */
+const UNDERMOUNT_RAIL = 1 / 2;
+
+export function slideSpec(type?: SlideType): SlideSpec {
+  if (type === 'blum-tandem') {
+    return {
+      type, brand: 'Blum TANDEM plus BLUMOTION', lengths: [9, 12, 15, 18, 21], clearance: 21 / 25.4, backClearance: 3 / 4,
+      capacityLb: 100, minBoxHeight: 2.75, below: 5 / 8, undermount: true,
+    };
+  }
+  return { type: 'side', brand: 'LONTAN', lengths: SLIDE_LENGTHS, clearance: SLIDE_CLEARANCE, backClearance: SLIDE_BACK_CLEARANCE, capacityLb: SLIDE_CAPACITY_LB, minBoxHeight: MIN_BOX_HEIGHT, below: BOX_CLEARANCE, undermount: false };
+}
+
 /** LONTAN side-mount slides: 1/2" thick, about 45 mm tall, 10–24" long, 100 lb a pair. */
 export const SLIDE_LENGTHS = [10, 12, 14, 16, 18, 20, 22, 24];
 export const SLIDE_CLEARANCE = 1 / 2;
@@ -683,6 +723,7 @@ export interface DrawerPlan {
   banding: { thickness: number; totalLength: number } | null;
   /** Pocket-screw joints in the case, when turned on. */
   pocket: { perEnd: number; count: number; screw: number } | null;
+  slide: SlideSpec;
   /** Extra side depth for scribing to the wall (0 when off). */
   scribe: number;
 }
@@ -878,8 +919,8 @@ export function frontHeightsOf(c: DrawerConfig): number[] {
 }
 
 /** The longest LONTAN slide that fits the inside depth, or null if even 10" doesn't. */
-export function autoSlideLength(interiorDepth: number): number | null {
-  const fits = SLIDE_LENGTHS.filter(l => l <= interiorDepth - SLIDE_BACK_CLEARANCE + EPS);
+export function autoSlideLength(interiorDepth: number, spec: SlideSpec = slideSpec('side')): number | null {
+  const fits = spec.lengths.filter(l => l <= interiorDepth - spec.backClearance + EPS);
   return fits.length ? fits[fits.length - 1] : null;
 }
 
@@ -888,6 +929,7 @@ export function autoSlideLength(interiorDepth: number): number | null {
 export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const units = config.units ?? 'in';
   const f = (inches: number) => formatLength(inches, units);
+  const spec = slideSpec(config.slideType);
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -950,7 +992,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   // Fronts meet on each partition's centre line; the outer ones reach the case sides.
   const bounds = [0, ...partitionXs.map(x => x + T / 2), W];
   const label = (ci: number, i: number) => (k > 1 ? `Column ${ci + 1} drawer ${i + 1}` : `Drawer ${i + 1}`);
-  const boxWidths = openings.map(w => w - 2 * SLIDE_CLEARANCE);
+  const boxWidths = openings.map(w => w - 2 * spec.clearance);
   const boxWidth = Math.min(...boxWidths);
 
   // Material.
@@ -959,6 +1001,9 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   if (!(bt > 0)) errors.push('Enter a drawer-bottom thickness, e.g. 1/4".');
   else if (b > 0 && BOTTOM_GROOVE_DEPTH >= b - 0.125) {
     errors.push(`The ${f(BOTTOM_GROOVE_DEPTH)} bottom groove would leave less than ${f(1 / 8)} of the ${f(b)} box sides. Use box plywood at least ${f(BOTTOM_GROOVE_DEPTH + 1 / 4)} thick.`);
+  }
+  if (spec.undermount && b > 0 && (b < 1 / 2 - EPS || b > 5 / 8 + EPS)) {
+    warnings.push(`${spec.brand} slides take drawer sides ${f(1 / 2)} to ${f(5 / 8)} thick; ${f(b)} is outside that — check Blum’s sheet before cutting.`);
   }
   if (!(backT > 0)) errors.push('The back needs a thickness.');
   else if (backT > T + EPS) warnings.push(`The ${f(backT)} back is thicker than the ${f(T)} case — it fits between the sides, but it’s heavier than it needs to be.`);
@@ -970,12 +1015,12 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
 
   // Width.
   if (k === 1 && boxWidth < MIN_BOX_WIDTH) {
-    const minWidth = MIN_BOX_WIDTH + 2 * SLIDE_CLEARANCE + 2 * T;
-    errors.push(`At ${f(W)} wide the drawer boxes would be only ${f(Math.max(boxWidth, 0))} wide after the two sides (${f(T)} each) and ${f(SLIDE_CLEARANCE)} per side for the slides. Make the unit at least ${f(minWidth)} wide.`);
+    const minWidth = MIN_BOX_WIDTH + 2 * spec.clearance + 2 * T;
+    errors.push(`At ${f(W)} wide the drawer boxes would be only ${f(Math.max(boxWidth, 0))} wide after the two sides (${f(T)} each) and ${f(spec.clearance)} per side for the slides. Make the unit at least ${f(minWidth)} wide.`);
   } else if (k > 1) {
     boxWidths.forEach((w, ci) => {
       if (w < MIN_BOX_WIDTH) {
-        errors.push(`Column ${ci + 1}’s opening is ${f(Math.max(openings[ci], 0))}, so its drawers would be only ${f(Math.max(w, 0))} wide after ${f(SLIDE_CLEARANCE)} per side for the slides — at least ${f(MIN_BOX_WIDTH + 2 * SLIDE_CLEARANCE)} is needed. Make the unit wider, use fewer columns, or narrow the other columns.`);
+        errors.push(`Column ${ci + 1}’s opening is ${f(Math.max(openings[ci], 0))}, so its drawers would be only ${f(Math.max(w, 0))} wide after ${f(spec.clearance)} per side for the slides — at least ${f(MIN_BOX_WIDTH + 2 * spec.clearance)} is needed. Make the unit wider, use fewer columns, or narrow the other columns.`);
       }
     });
   }
@@ -985,18 +1030,18 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   }
 
   // Depth and slides.
-  const auto = autoSlideLength(interiorDepth - frontInset);
+  const auto = autoSlideLength(interiorDepth - frontInset, spec);
   let slideLength = config.slideLength ?? auto ?? 0;
   // Doors and open cubbies run no slides, so a shallow all-door cabinet (an upper) is fine.
   const hasDrawer = Array.from({ length: n }, (_, i) => i).some(i => !config.doors?.[i] && config.openSlots?.[i] !== true);
   if (auto === null) {
-    if (hasDrawer) errors.push(`The inside depth is ${f(Math.max(interiorDepth, 0))} (overall ${f(D)} less the ${f(T)} fronts and the ${f(backT)} back). The shortest slide is ${f(SLIDE_LENGTHS[0])} and needs ${f(SLIDE_LENGTHS[0] + SLIDE_BACK_CLEARANCE)} — make the unit at least ${f(SLIDE_LENGTHS[0] + SLIDE_BACK_CLEARANCE + T + backT)} deep.`);
+    if (hasDrawer) errors.push(`The inside depth is ${f(Math.max(interiorDepth, 0))} (overall ${f(D)} less the ${f(T)} fronts and the ${f(backT)} back). The shortest slide is ${f(spec.lengths[0])} and needs ${f(spec.lengths[0] + spec.backClearance)} — make the unit at least ${f(spec.lengths[0] + spec.backClearance + T + backT)} deep.`);
     slideLength = 0;
   } else if (config.slideLength !== undefined) {
-    if (!SLIDE_LENGTHS.includes(config.slideLength)) {
-      errors.push(`${f(config.slideLength)} isn’t a slide length LONTAN sells; pick one of ${SLIDE_LENGTHS.map(l => f(l)).join(', ')}.`);
+    if (!spec.lengths.includes(config.slideLength)) {
+      errors.push(`${f(config.slideLength)} isn’t a slide length ${spec.brand} sells; pick one of ${spec.lengths.map(l => f(l)).join(', ')}.`);
     } else if (config.slideLength > auto + EPS) {
-      errors.push(`${f(config.slideLength)} slides need ${f(config.slideLength + SLIDE_BACK_CLEARANCE)} inside, but there’s only ${f(interiorDepth)}. The longest that fits is ${f(auto)}.`);
+      errors.push(`${f(config.slideLength)} slides need ${f(config.slideLength + spec.backClearance)} inside, but there’s only ${f(interiorDepth)}. The longest that fits is ${f(auto)}.`);
     }
   }
 
@@ -1031,7 +1076,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   const slideFor = (i: number) => {
     const own = config.slideLengths?.[i];
     if (own == null) return slideLength;
-    if (!SLIDE_LENGTHS.includes(own)) errors.push(`${labelOf(i)}: ${f(own)} isn’t a slide length LONTAN sells.`);
+    if (!spec.lengths.includes(own)) errors.push(`${labelOf(i)}: ${f(own)} isn’t a slide length ${spec.brand} sells.`);
     else if (auto !== null && own > auto + EPS) errors.push(`${labelOf(i)}: ${f(own)} slides don’t fit — the longest is ${f(auto)}.`);
     return own;
   };
@@ -1051,11 +1096,12 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     top = y - gap;
     const zoneBottom = Math.max(y - gap / 2, interiorBottom);
     const zoneTop = Math.min(y + h + gap / 2, interiorTop);
-    const boxHeight = floor16(zoneTop - zoneBottom - 2 * BOX_CLEARANCE);
-    const boxY = zoneBottom + BOX_CLEARANCE;
+    const boxHeight = floor16(zoneTop - zoneBottom - spec.below - BOX_CLEARANCE);
+    const boxY = zoneBottom + spec.below;
     // Slide centred on the box side (no higher than 2" up), set on a clean 1/16" so it's easy to mark on every box.
     const slideOffset = Math.max(Math.round((Math.min(boxHeight / 2, 2) - SLIDE_HEIGHT / 2) * 16) / 16, 1 / 8);
-    const slideY = boxY + slideOffset;
+    // Under-mount slides sit below the box sides, so the mark is the rail's bottom edge, under the box.
+    const slideY = spec.undermount ? boxY - UNDERMOUNT_RAIL : boxY + slideOffset;
     const boxTop = boxY + boxHeight;
     const fingerFloor = y + h - (reach > 0 ? reach + FINGER_ROOM : 0);
     const boxNotchDepth = reach > 0 && boxTop > fingerFloor ? boxTop - fingerFloor : 0;
@@ -1064,7 +1110,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       column: ci,
       label: name,
       front: { x: (inset ? columns[ci].x : bounds[ci]) + gap / 2, y, width: frontWidths[ci], height: h },
-      box: { x: columns[ci].x + SLIDE_CLEARANCE, y: boxY, width: boxWidths[ci], height: boxHeight, depth: slideFor(i) },
+      box: { x: columns[ci].x + spec.clearance, y: boxY, width: boxWidths[ci], height: boxHeight, depth: slideFor(i) },
       slideY,
       slideMark: slideY - sideBottom,
       boxNotchDepth: open ? 0 : boxNotchDepth,
@@ -1086,9 +1132,9 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       if (zoneTop - zoneBottom - (zoneBottom > interiorBottom + EPS ? (doorSlot ? T : config.cubbyShelfThickness ?? T) : 0) < 1) errors.push(`${name} is only ${f(Math.max(zoneTop - zoneBottom, 0))} tall — too small to be useful.`);
       return;
     }
-    if (h > 0 && boxHeight < MIN_BOX_HEIGHT) {
-      const need = h + (MIN_BOX_HEIGHT - boxHeight);
-      errors.push(`${name}’s front is ${f(h)} tall, which leaves a ${f(Math.max(boxHeight, 0))} box — the slides need at least ${f(MIN_BOX_HEIGHT)}. Make that front about ${f(Math.ceil(need * 16) / 16)} tall, or use fewer drawers.`);
+    if (h > 0 && boxHeight < spec.minBoxHeight) {
+      const need = h + (spec.minBoxHeight - boxHeight);
+      errors.push(`${name}’s front is ${f(h)} tall, which leaves a ${f(Math.max(boxHeight, 0))} box — the slides need at least ${f(spec.minBoxHeight)}. Make that front about ${f(Math.ceil(need * 16) / 16)} tall, or use fewer drawers.`);
     }
     if (pull) {
       if (reach >= h - 1) {
@@ -1454,13 +1500,13 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     const pounds = load.psf * (w * dd) / 144;
     const sag = bt > 0 && w > 0 && dd > 0 ? bottomSag(w + 2 * BOTTOM_GROOVE_DEPTH, dd + 2 * BOTTOM_GROOVE_DEPTH, bt, load.psf) : 0;
     const sagLimit = Math.min(w, dd) * BOTTOM_SAG_LIMIT;
-    return { pounds, sag, sagLimit, overSlides: pounds > SLIDE_CAPACITY_LB, sags: sag > sagLimit };
+    return { pounds, sag, sagLimit, overSlides: pounds > spec.capacityLb, sags: sag > sagLimit };
   });
   const loadWord = load.label.split(' —')[0].toLowerCase();
   const heavy = drawers.filter((_, i) => loads[i].overSlides).map(d => d.index);
   if (heavy.length && errors.length === 0) {
     const most = Math.max(...loads.map(l => l.pounds));
-    warnings.push(`Full of ${loadWord} things, ${range(heavy)} could hold about ${Math.round(most)} lb — more than the ${SLIDE_CAPACITY_LB} lb the slides are rated for. Use heavier-duty slides, or keep them lighter.`);
+    warnings.push(`Full of ${loadWord} things, ${range(heavy)} could hold about ${Math.round(most)} lb — more than the ${spec.capacityLb} lb the slides are rated for. Use heavier-duty slides, or keep them lighter.`);
   }
   const sagging = drawers.filter((_, i) => loads[i].sags).map(d => d.index);
   if (sagging.length && errors.length === 0) {
@@ -1787,6 +1833,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     banding: banding > 0 ? { thickness: banding, totalLength: bandingTotal } : null,
     pocket,
     scribe,
+    slide: spec,
   };
 }
 
@@ -1910,8 +1957,14 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     // Everything so far for this drawer slides out together; the slides stay put.
     for (const s of solids.slice(first)) { s.group = name; s.travel = d.box.depth * DRAWER_OPEN_FRACTION; }
     // Slides fill the gap between the box and the side or partition on each side.
-    solids.push(box(`${name} left slide`, 'slide', [bx.x - SLIDE_CLEARANCE, d.slideY, zf], [bx.x, d.slideY + SLIDE_HEIGHT, zf + bx.depth]));
-    solids.push(box(`${name} right slide`, 'slide', [bx.x + bx.width, d.slideY, zf], [bx.x + bx.width + SLIDE_CLEARANCE, d.slideY + SLIDE_HEIGHT, zf + bx.depth]));
+    if (plan.slide.undermount) {
+      // Under-mount: a runner under each box side, from the case wall in to just under the side's inside face.
+      const rail = (x0: number, x1: number) => box(`${name} ${x0 < bx.x ? 'left' : 'right'} slide`, 'slide', [x0, d.slideY, zf], [x1, bx.y, zf + bx.depth]);
+      solids.push(rail(bx.x - plan.slide.clearance, bx.x + config.boxThickness), rail(bx.x + bx.width - config.boxThickness, bx.x + bx.width + plan.slide.clearance));
+    } else {
+      solids.push(box(`${name} left slide`, 'slide', [bx.x - SLIDE_CLEARANCE, d.slideY, zf], [bx.x, d.slideY + SLIDE_HEIGHT, zf + bx.depth]));
+      solids.push(box(`${name} right slide`, 'slide', [bx.x + bx.width, d.slideY, zf], [bx.x + bx.width + SLIDE_CLEARANCE, d.slideY + SLIDE_HEIGHT, zf + bx.depth]));
+    }
   }
   if (bp?.kind === 'kick') {
     solids.push(box('Toe kick', 'case', [T, 0, bp.setback], [W - T, B, bp.setback + T]));
@@ -2716,6 +2769,7 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       baseboardThickness: num(c.baseboardThickness, 0, 4) ?? undefined,
       exposedSides: readExposed(c.exposedSides),
       slideLength: slideLength ?? undefined,
+      slideType: c.slideType === 'blum-tandem' ? 'blum-tandem' : 'side',
       edgeBanding: c.edgeBanding === true,
       pocketCase: c.pocketCase === true,
       scribe: num(c.scribe, 0, 3) ?? 0,
@@ -2931,6 +2985,7 @@ export interface DrawerDesignFields {
   exposedRight: boolean;
   /** 'auto' or a length in inches. */
   slideLength: string;
+  slideType: SlideType;
   edgeBanding: boolean;
   pocketCase: boolean;
   scribe: string;
@@ -3068,6 +3123,7 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     exposedLeft: c.exposedSides?.left ?? true,
     exposedRight: c.exposedSides?.right ?? true,
     slideLength: c.slideLength ? String(c.slideLength) : 'auto',
+    slideType: c.slideType === 'blum-tandem' ? 'blum-tandem' : 'side',
     edgeBanding: c.edgeBanding === true,
     pocketCase: c.pocketCase === true,
     scribe: c.scribe ? L(c.scribe) : '0',

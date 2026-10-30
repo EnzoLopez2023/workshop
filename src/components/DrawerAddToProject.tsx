@@ -36,5 +36,5 @@ export default function DrawerAddToProject({ plan, config, units, heightMode, in
 
 function formatSlides(plan: DrawerPlan, units: LengthUnit): string {
   const inches = units === 'mm' ? `${Math.round(plan.slideLength * 25.4)} mm` : `${plan.slideLength}″`;
-  return `${inches} LONTAN slides`;
+  return `${inches} ${plan.slide.undermount ? 'Blum under-mount' : 'LONTAN'} slides`;
 }

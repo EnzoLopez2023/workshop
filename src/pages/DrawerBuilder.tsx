@@ -45,8 +45,8 @@ import {
   handHole,
   pullReach,
   stadiumOutline,
-  SLIDE_CAPACITY_LB,
-  SLIDE_LENGTHS,
+  slideSpec,
+  type SlideType,
   drawerDesignToFields,
   readSavedDrawerDesign,
   toSavedDrawerDesign,
@@ -57,7 +57,6 @@ import {
   DRAWER_LOADS,
   EXTRA_FIELD_DEFAULTS,
   FINISH_COLORS,
-  MIN_BOX_HEIGHT,
   BOX_CLEARANCE,
   BASE_LABELS,
   UNDER_DESK_CLEARANCE,
@@ -142,6 +141,7 @@ const DEFAULT_FORM: FormState = {
   exposedLeft: true,
   exposedRight: true,
   slideLength: 'auto',
+  slideType: 'side',
   edgeBanding: false,
   pocketCase: false,
   scribe: '0',
@@ -314,6 +314,11 @@ const SHADE_OPTIONS = [
   { value: 'xray', label: 'X-ray', hint: 'See-through, so what’s inside and behind shows.' },
   { value: 'wireframe', label: 'Wire', hint: 'Edges only.' },
 ] as const;
+
+const SLIDE_TYPE_OPTIONS = [
+  { value: 'side', label: 'Side-mount', hint: 'LONTAN soft-close, full extension.' },
+  { value: 'blum-tandem', label: 'Blum under-mount', hint: 'Blum TANDEM plus BLUMOTION 563H, hidden under the drawer box.' },
+] as const satisfies readonly { value: SlideType; label: string; hint: string }[];
 
 const VIEW_OPTIONS = [
   { value: '3d', label: '3D' },
@@ -523,6 +528,7 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     } : {}),
     exposedSides: { left: form.exposedLeft, right: form.exposedRight },
     slideLength: form.slideLength === 'auto' ? undefined : Number(form.slideLength),
+    slideType: form.slideType,
     edgeBanding: form.edgeBanding,
     pocketCase: form.pocketCase,
     scribe: num('scribe', { allowZero: true }),
@@ -656,6 +662,7 @@ export default function DrawerBuilder() {
   }, [view]);
 
   const { config, fieldErrors } = useMemo(() => toConfig(form), [form]);
+  const spec = slideSpec(form.slideType);
   const plan = useMemo(() => (config ? buildDrawerPlan(config) : null), [config]);
   const valid = plan !== null && plan.errors.length === 0;
   // Desktop workbench: the settings and preview fill the window below the page header.
@@ -1132,7 +1139,7 @@ export default function DrawerBuilder() {
     const caseHeight = plan.desk ? plan.desk.height - plan.desk.topThickness - plan.baseHeight : plan.caseHeight;
     const counts = form.columns > 1 ? form.columnDrawers : [form.drawers];
     if (counts.some(n => n < 2)) return;
-    const forBox = MIN_BOX_HEIGHT + 2 * BOX_CLEARANCE + config.thickness - config.gap;
+    const forBox = spec.minBoxHeight + spec.below + BOX_CLEARANCE + config.thickness - config.gap;
     const forPull = pullReach(config.pull, Math.min(...plan.drawers.map(d => d.front.width))) + 1.25;
     // Start from the box and pull minimums, then grow in 1/8" steps until no top drawer
     // has problems of its own (a hand hole, say, needs room for its box-front notch).
@@ -1776,7 +1783,7 @@ export default function DrawerBuilder() {
               </select>
               {plan && plan.loads.length > 0 && (
                 <small>
-                  Full, a drawer holds about {loadRange(plan.loads.map(l => l.pounds))} lb — slides are rated {SLIDE_CAPACITY_LB} lb a pair.
+                  Full, a drawer holds about {loadRange(plan.loads.map(l => l.pounds))} lb — slides are rated {spec.capacityLb} lb a pair.
                   {' '}Bottoms sag {plan.loads.every(l => !l.sags) ? `at most ${Math.max(...plan.loads.map(l => l.sag)).toFixed(3)}″ — fine` : 'too much in some drawers (see below)'}.
                 </small>
               )}
@@ -2204,13 +2211,27 @@ export default function DrawerBuilder() {
 
           <fieldset className="shelf-group" data-tour="fs-slides">
             <legend>Slides</legend>
+            <div className="shelf-height-mode">
+              <span className="form-field-label">Type</span>
+              <SegmentedControl
+                label="Drawer slide type"
+                value={form.slideType}
+                options={SLIDE_TYPE_OPTIONS}
+                onChange={slideType => update({ slideType, slideLength: 'auto', drawerSlides: form.drawerSlides.map(() => '') })}
+              />
+              <small>
+                {form.slideType === 'blum-tandem'
+                  ? `Blum TANDEM plus BLUMOTION: soft-close, full extension, hidden under the box. The box is ${fmt(21 / 25.4 * 2)} narrower than the opening (21 mm each side). Verify against Blum’s installation sheet for the slide you buy.`
+                  : 'LONTAN: soft-close, full extension, screwed to the side of the box.'}
+              </small>
+            </div>
             <label className="form-field">
-              <span className="form-field-label">LONTAN slide length</span>
+              <span className="form-field-label">{spec.brand} slide length</span>
               <select value={form.slideLength} onChange={e => update({ slideLength: e.target.value })}>
                 <option value="auto">Longest that fits{plan && plan.slideLength > 0 && form.slideLength === 'auto' ? ` (${fmt(plan.slideLength)})` : ''}</option>
-                {SLIDE_LENGTHS.map(l => <option key={l} value={String(l)}>{fmt(l)}</option>)}
+                {spec.lengths.map(l => <option key={l} value={String(l)}>{fmt(l)}</option>)}
               </select>
-              <small>Soft-close, full extension, side mount: {fmt(1 / 2)} each side, {SLIDE_CAPACITY_LB} lb a pair. The drawer box is as deep as the slide.</small>
+              <small>Soft-close, full extension, {spec.undermount ? 'under-mount' : 'side mount'}: {fmt(spec.clearance)} each side, {spec.capacityLb} lb a pair. The drawer box is as deep as the slide.</small>
             </label>
             <Toggle
               label="Different lengths per drawer"
@@ -2225,7 +2246,7 @@ export default function DrawerBuilder() {
                     <span className="form-field-label" id={`slide-${i}`}>{drawerLabel(i)}</span>
                     <select aria-labelledby={`slide-${i}`} value={value} onChange={e => setDrawerSlide(i, e.target.value)}>
                       <option value="">Same as the rest ({fmt(plan.slideLength)})</option>
-                      {SLIDE_LENGTHS.filter(l => l < plan.slideLength).map(l => <option key={l} value={String(l)}>{fmt(l)}</option>)}
+                      {spec.lengths.filter(l => l < plan.slideLength).map(l => <option key={l} value={String(l)}>{fmt(l)}</option>)}
                     </select>
                   </div>
                 ))}

@@ -26,7 +26,6 @@ import {
   PIN_HOLE,
   PIN_INSET,
   PIN_SPACING,
-  SLIDE_CLEARANCE,
   supportPositions, doorShelfDadoDepth,
   type DrawerConfig,
   type DrawerPlan,
@@ -98,7 +97,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     summary: `A ${f(plan.overallWidth)} wide, ${f(plan.overallHeight)} tall, ${f(plan.overallDepth)} deep unit with ${n} drawer${n === 1 ? '' : 's'}, ${baseText}.`,
     instructions: [
       `The case is ${f(T)} plywood: full-height sides with the top and bottom fitted between them, and a ${f(config.backThickness)} back ${plan.backJoint === 'screwed' ? 'fitted between the sides behind them, glued and screwed' : 'let into rabbets in the sides'}.`,
-      `Each drawer is a ${f(b)} plywood box riding on a pair of ${f(plan.slideLength)} LONTAN soft-close slides, with a ${f(T)} ${plan.frontInset > 0 ? 'inset front (flush with the case, like the ALEX)' : 'full-overlay front'} screwed on from inside.`,
+      `Each drawer is a ${f(b)} plywood box riding on a pair of ${f(plan.slideLength)} ${plan.slide.undermount ? 'Blum TANDEM plus BLUMOTION under-mount' : 'LONTAN soft-close'} slides, with a ${f(T)} ${plan.frontInset > 0 ? 'inset front (flush with the case, like the ALEX)' : 'full-overlay front'} screwed on from inside.`,
       !pull ? 'The fronts have no finger pull — add knobs or pulls of your choice.'
         : pull.shape === 'handhole'
           ? `Instead of handles, each front has a ${f(pull.width)} × ${f(pull.depth)} hand hole just below its top edge, and the box front behind it is notched so your fingers can hook the front.`
@@ -424,7 +423,14 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     id: 'slides',
     title: 'Mount the slides in the case',
     summary: `${slideCounts(plan, f)}, ${plan.frontInset > 0 ? `front ends ${f(plan.frontInset)} back from the case front (room for the inset fronts)` : 'front ends flush with the front edge of the case'}.`,
-    instructions: [
+    instructions: plan.slide.undermount ? [
+      'Under-mount slides screw to the inside face of the case side (or partition) with their front end set back from the case front. Use the Blum slide’s own template or a spacer block so every slide is level and square.',
+      `Mark the bottom edge of each slide on both sides of its opening, measured up from the bottom edge of the case side: ${boxed.map(d => `${d.label.toLowerCase()} at ${f(d.slideMark)}`).join(', ')}${plan.partitionXs.length ? ` (on a partition, ${f(panelTop(plan, T))} less — it starts on the bottom panel)` : ''}.`,
+      plan.frontInset > 0
+        ? `Set each slide’s front end ${f(plan.frontInset)} back from the case front, with the cabinet member screwed through its slotted holes first so you can adjust.`
+        : 'Set each slide’s front end flush with the case front, screwed through its slotted holes first so you can adjust.',
+      'Clip the locking devices onto the drawer boxes in the next steps; the slides themselves stay in the case.',
+    ] : [
       'Pull each slide apart: extend it fully and press the release lever to take off the drawer member.',
       `Mark the bottom edge of each slide on both sides of its opening, measured up from the bottom edge of the case side: ${boxed.map(d => `${d.label.toLowerCase()} at ${f(d.slideMark)}`).join(', ')}${plan.partitionXs.length ? ` (on a partition, ${f(panelTop(plan, T))} less — it starts on the bottom panel)` : ''}. The slide story stick from the shop jigs gives the same marks without measuring.`,
       plan.frontInset > 0
@@ -437,7 +443,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       'Clamp the slide front stop across the front edge so every slide butts against it and ends up flush.',
       'The CNC files draw these lines on the sides as guides if you cut the case on a CNC.',
     ],
-    cautions: [`Slides need exactly ${f(SLIDE_CLEARANCE)} each side; a box that’s too wide binds, too narrow and the slides won’t engage.`],
+    cautions: [`Slides need exactly ${f(plan.slide.clearance)} each side; a box that’s too wide binds, too narrow and the slides won’t engage.`],
     scene: { view: 'front', visible: [...caseNames, ...back, ...supports], highlight: slides },
   });
 
@@ -486,7 +492,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         'Glue the right side’s rabbets and press it on over the front, back and bottom.',
         'Brad the two corners, three per corner.',
         'Measure both diagonals across the top; nudge the box until they match, then let it set.',
-        `Check the width across the outside of the sides: ${f(d.box.width)} — its opening less ${f(SLIDE_CLEARANCE * 2)} for the slides.`,
+        `Check the width across the outside of the sides: ${f(d.box.width)} — its opening less ${f(plan.slide.clearance * 2)} for the slides.`,
       ],
       parts: [],
       tips: ['Glue it up around the box squaring frame (shop jigs): it can only close square and at its exact size.'],
@@ -502,7 +508,8 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     instructions: [
       ...(detail ? [] : ['Glue the front and back into the side rabbets, slide the bottom into its groove, then add the second side.', 'Brad each corner through the side (three per corner).']),
       'Check both diagonals across the top; nudge until they match, then let it set.',
-      `Each box must measure ${widths} across — exactly its opening less ${f(SLIDE_CLEARANCE * 2)}.`,
+      `Each box must measure ${widths} across — exactly its opening less ${f(plan.slide.clearance * 2)}.`,
+      ...(plan.slide.undermount ? ['Drill each box for the Blum locking devices (front corners, underneath) and the rear hook-in holes in the back, using Blum’s drilling template or jig — positions depend on the model, so follow its instruction sheet. Check that the bottom clears the rear bracket.'] : []),
       'Label each box with its drawer number inside the back as it comes off the frame.',
     ],
     parts: sized(partsWhere(['Box'])),
