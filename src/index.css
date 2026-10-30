@@ -10419,8 +10419,8 @@ tbody td {
   box-shadow: 0 0 0 1px var(--color-annotation);
 }
 
-.wb-page .shelf-inch-input input {
-  padding-right: 28px;
+.wb-page .shelf-inch-input input:not([type="checkbox"]):not([type="radio"]) {
+  padding-right: 26px;
   text-align: right;
 }
 
