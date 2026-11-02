@@ -336,6 +336,14 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     : shelfDado ? `${f(st)} wide` : `${f(t)} wide`;
   const dadoedParts = [shelfDado ? 'shelf' : null, casePanels ? 'top and bottom' : null].filter(Boolean).join(', ');
   const plural = (count: number) => `${count} full sheet${count === 1 ? '' : 's'}`;
+  // Butt-jointed shelves across several bays can't be screwed once the case is closed: a bay is
+  // too narrow for a drill. The grid is stacked on its side instead, each panel laid on the
+  // shelves below it and screwed down through its outside face.
+  const stackGrid = n > 1 && shelves.length > 0 && !dado && !plan.pocket;
+  const pilotNote = st < 0.6
+    ? `The shelves are ${f(st)} plywood: drill a pilot centred on the shelf edge for every screw, or the edge will split.`
+    : null;
+  const squeezeOutTip = 'Let squeeze-out turn rubbery (about 20 minutes), then pare it off with a chisel or scraper. Wiping wet glue smears it into the grain, where finish won’t take.';
   const steps: GuideStep[] = [];
 
   // 1 ── Overview, materials and tools
@@ -382,6 +390,8 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     parts: [],
     tips: ['Have the yard rip the sheets into strips if you don’t have room to handle full sheets.'],
     cautions: [
+      // Before the layout, not after it: the part sizes depend on the thickness.
+      ...(i === 0 ? ['Plywood is often thinner than its nominal size. Measure a sheet before you mark anything, and use that thickness in the design.'] : []),
       ...(sheets.unplaced.length > 0 ? [`These parts are bigger than a full sheet and need a different plan: ${sheets.unplaced.join(', ')}.`] : []),
       'This assumes full, flat sheets. For your own offcuts or sheet sizes, use the Sheet layout tool.',
     ],
@@ -404,7 +414,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     ].filter((x): x is string => x !== null),
     parts: plan.parts.map(p => ({ name: p.name, qty: p.qty, size: `${f(p.length)} × ${f(p.width)}` })),
     tips: ['Put the best-looking face of each panel on the side that will show.'],
-    cautions: ['Plywood is often thinner than its nominal size. Measure a sheet and use that thickness in the design.'],
+    cautions: [],
     scene: { view: 'exploded', visible: everything, highlight: [] },
   });
 
@@ -509,7 +519,53 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
 
   // 4 ── Case
   const caseParts = ['Side', 'Top', 'Bottom', 'Toe kick'].flatMap(guidePart);
-  steps.push({
+  const shelfParts = plan.parts.filter(p => p.name.startsWith('Shelf')).map(p => ({ name: p.name, qty: p.qty, size: `${f(p.length)} × ${f(p.width)}` }));
+  if (stackGrid) {
+    const spacer = openings.uniform ? `${f(openings.min)} spacer blocks` : 'spacer blocks cut to that bay’s opening height';
+    const bottomLine = plan.interiorBottom > 0;
+    steps.push({
+      id: 'grid',
+      title: 'Stack the sides, dividers and shelves',
+      summary: 'Built on its side, one bay at a time, so every screw goes in from outside.',
+      instructions: [
+        `Lay the left side on a flat bench, inside face up.${bottomLine ? ` Mark a line ${f(plan.interiorBottom)} from its bottom end — where the bottom panel’s top face will sit.` : ''}`,
+        `Bay 1: glue one end of each shelf and stand the shelves on the side, front edges flush with its front edge, spaced with ${spacer}${bottomLine ? ' starting from the line' : ' starting from the bottom end'}.`,
+        `Glue the shelves’ upper ends and lay Divider 1 on them, front edge flush${bottomLine ? ` and its bottom end ${f(plan.interiorBottom)} in from the side’s bottom end` : ''}. Drive two ${screw} screws down through it into each shelf (pre-drill and countersink).`,
+        `Repeat for each bay: its shelves stand on the divider you just fastened, and the next divider — or, for bay ${n}, the right side, inside face down — goes on top and is screwed down into them.`,
+        'When the glue has grabbed, turn the stack over and drive the same screws through the left side into bay 1’s shelves.',
+      ],
+      parts: [...['Side', 'Divider'].flatMap(guidePart), ...shelfParts],
+      tips: [
+        `Every screw goes in from outside: a ${widthText} bay has no room for a drill, which is why the grid is stacked instead of built inside the case.`,
+        `The shelves are cut to the bay width, so stacking them sets every bay. Check each one with a ${widthText} spacer as you go.`,
+      ],
+      cautions: [
+        ...(pilotNote ? [pilotNote] : []),
+        back.length > 0
+          ? `Shelves in bays 2–${n} are screwed at one end and glued at the other; the back, glued and bradded into every shelf, ties the other end.`
+          : `Shelves in bays 2–${n} are screwed at one end and glued at the other. Leave the glue overnight before you move the stack.`,
+      ],
+      scene: { view: 'front', visible: [], highlight: [...sides, ...dividers, ...shelves] },
+    });
+  }
+  if (stackGrid) {
+    const ends = [config.topPanel ? 'top' : null, config.bottomPanel ? 'bottom' : null].filter(Boolean).join(' and ');
+    steps.push({
+      id: 'case',
+      title: 'Close the case',
+      summary: ends ? `The ${ends} between the sides, screwed from outside.` : 'Square the grid up.',
+      instructions: [
+        ends ? `Lay the grid on its back. Glue and slide the ${ends} in between the sides, tight against the divider ends, front edges flush.` : null,
+        ends ? `Drive three ${screw} screws through each side into the ${ends}, and two through the ${ends} into each divider’s end (pre-drill and countersink).` : null,
+        plan.kick > 0 ? `Fit the toe kick under the bottom, between the sides, ${f(plan.kick)} tall. It hides the screws under the bottom.` : null,
+        `Measure both diagonals; nudge the case until they match (about ${f(Math.hypot(plan.overallWidth, plan.overallHeight))} corner to corner, within ${f(1 / 16)}), then let the glue set.`,
+      ].filter((x): x is string => x !== null),
+      parts: caseParts.filter(p => p.name !== 'Side'),
+      tips: [`Each bay should end up ${baySize}; measure every one before the glue sets.`, squeezeOutTip],
+      cautions: [],
+      scene: { view: 'front', visible: [...sides, ...dividers, ...shelves], highlight: panels },
+    });
+  } else steps.push({
     id: 'case',
     title: 'Assemble the outer case',
     summary: `Join the two sides${config.topPanel || config.bottomPanel ? ' to the top and bottom' : ''}.`,
@@ -525,14 +581,14 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     tips: [
       'Assemble on a flat floor or bench, inside face up.',
       'Clamp every 8–10″ along each joint, with a scrap under each clamp jaw so it doesn’t dent the plywood. Dry-fit and clamp first to find any joint that doesn’t close.',
-      plan.overallWidth > 48 ? 'A case this wide wants a helper to lift the second side into place — leave the glue open time to work.' : 'Keep a damp rag handy and wipe squeeze-out before it sets.',
+      plan.overallWidth > 48 ? 'A case this wide wants a helper to lift the second side into place — leave the glue open time to work.' : squeezeOutTip,
     ],
     cautions: [],
     scene: { view: 'front', visible: [], highlight: [...sides, ...panels] },
   });
 
   // 5 ── Dividers
-  if (n > 1) {
+  if (n > 1 && !stackGrid) {
     steps.push({
       id: 'dividers',
       title: `Install the ${n - 1} divider${n - 1 === 1 ? '' : 's'}`,
@@ -562,30 +618,35 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
   });
   const sagIssues = sagCheck(plan, config).filter(r => !r.ok);
   const loadName = SHELF_LOADS[config.shelfLoad ?? 'books'].label.split(' —')[0].toLowerCase();
-  if (shelves.length > 0 || adjustable.length > 0) {
+  // A stacked grid has its fixed shelves already; only adjustable ones are left to add.
+  const fixedShelves = stackGrid ? [] : shelves;
+  if (fixedShelves.length > 0 || adjustable.length > 0) {
     steps.push({
       id: 'shelves',
       title: 'Install the shelves',
       summary: [
-        shelves.length ? `${shelves.length} fixed shel${shelves.length === 1 ? 'f' : 'ves'}` : null,
+        fixedShelves.length ? `${fixedShelves.length} fixed shel${fixedShelves.length === 1 ? 'f' : 'ves'}` : null,
         adjustable.length ? `${adjustable.length} adjustable` : null,
       ].filter(Boolean).join(' and ') + ` across ${n} bay${n === 1 ? '' : 's'}.`,
       instructions: [
         ...bayLines,
-        shelves.length === 0 ? null : shelfDado ? 'Glue the dados and slide each shelf in from the front, flush with the front edge.'
+        fixedShelves.length === 0 ? null : shelfDado ? 'Glue the dados and slide each shelf in from the front, flush with the front edge.'
           : plan.pocket?.shelves ? 'Mark each shelf line on both faces, clamp a spacer block under the shelf, and drive pocket screws from underneath into the side or divider.'
           : `Mark each shelf line on both faces, then glue and screw through the side or divider with ${screw} screws.`,
-        shelves.length && !shelfDado && n > 1 ? 'Where shelves meet a divider at the same height on both sides, offset the screws or use pocket screws from underneath.' : null,
+        fixedShelves.length && !shelfDado && n > 1 ? 'Where shelves meet a divider at the same height on both sides, offset the screws or use pocket screws from underneath.' : null,
         adjustable.length ? `Set each adjustable shelf on four ${metricPins ? '5 mm' : '1/4″'} shelf pins — they lift out, so put them in last.` : null,
       ].filter((x): x is string => x !== null),
-      parts: plan.parts.filter(p => p.name.startsWith('Shelf') || p.name.startsWith('Adjustable shelf'))
+      parts: plan.parts.filter(p => (!stackGrid && p.name.startsWith('Shelf')) || p.name.startsWith('Adjustable shelf'))
         .map(p => ({ name: p.name, qty: p.qty, size: `${f(p.length)} × ${f(p.width)}` })),
-      tips: [openings.uniform
+      tips: fixedShelves.length === 0 ? [] : [openings.uniform
         ? `Cut a spacer block exactly ${f(openings.min)} tall — the opening height — and stack each shelf on it from the bottom up.`
         : 'Cut a spacer block to each bay’s opening height and stack that bay’s shelves on it from the bottom up.'],
-      cautions: sagIssues.map(r => `Bay ${r.bay + 1}: ${r.kind === 'adjustable' ? 'adjustable shelves' : 'shelves'} will sag about ${formatSag(r.sag, units)} under ${loadName}. `
+      cautions: [
+        ...(fixedShelves.length && !shelfDado && !plan.pocket?.shelves && pilotNote ? [pilotNote] : []),
+        ...sagIssues.map(r => `Bay ${r.bay + 1}: ${r.kind === 'adjustable' ? 'adjustable shelves' : 'shelves'} will sag about ${formatSag(r.sag, units)} under ${loadName}. `
         + `${r.thicknessNeeded ? `Use ${f(r.thicknessNeeded)} plywood or ` : ''}glue a 1 1/2″ solid-wood strip under the front edge.`),
-      scene: { view: 'front', visible: [...sides, ...panels, ...dividers], highlight: [...shelves, ...adjustable] },
+      ],
+      scene: { view: 'front', visible: [...sides, ...panels, ...dividers, ...(stackGrid ? shelves : [])], highlight: [...fixedShelves, ...adjustable] },
     });
   }
 
@@ -602,7 +663,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
         backParts.length > 1 ? `The back is ${backParts.length} pieces; their seams land on the middle of a divider so each edge has something to fasten to.` : rabbet ? 'One piece spans the sides, its edges hidden in the rabbets.' : 'One piece fits between the sides.',
         plan.backScrewed
           ? `Glue, then ${rabbet ? `screw through the back into the ${cleat ? 'grooves' : 'rabbets'} every 8″` : 'screw through each side into the back’s edges every 8″'}, and through the back into each shelf, divider, top and bottom every 10″ — pre-drill and countersink. A back this thick is too heavy for brads, and it’s what makes the unit rigid and square.`
-          : 'Glue and fasten into every shelf, divider, top and bottom — this is what makes the unit rigid and square.',
+          : `Glue, then drive ${f(1.25)} brads through the back into every shelf, divider, top and bottom, about every 8″ — this is what makes the unit rigid and square.`,
       ],
       parts: backParts.map(p => ({ name: p.name, qty: p.qty, size: `${f(p.length)} × ${f(p.width)}` })),
       tips: ['Square the case again before the first fastener; the back will lock it that way.'],
@@ -697,12 +758,14 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
   steps.push({
     id: 'finish',
     title: 'Finish',
-    summary: 'Sand, cover the edges, and protect it.',
+    summary: plan.banding?.caseFronts ? 'Sand, touch up the edges, and protect it.' : 'Sand, cover the edges, and protect it.',
     instructions: [
       'Fill screw holes, then sand to 180–220 grit.',
       plan.frame
         ? 'Sand the face-frame joints flush and ease the outside corners.'
-        : 'Cover exposed plywood edges with iron-on edge banding or solid-wood strips if you want a clean look.',
+        : plan.banding?.caseFronts
+          ? 'Ease the banded edges with 220 grit, and re-iron any spot of banding that lifted during the glue-up.'
+          : 'Cover exposed plywood edges with iron-on edge banding or solid-wood strips if you want a clean look.',
       'Apply your finish; let it cure before loading the shelves.',
     ],
     parts: [],

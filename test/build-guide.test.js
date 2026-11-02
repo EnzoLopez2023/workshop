@@ -171,3 +171,37 @@ test('the shelves step warns when shelves will sag', () => {
   const g = buildGuideSteps(buildShelfPlan(config), config, 'in');
   assert.ok(g.steps.find(s => s.id === 'shelves').cautions.some(c => /will sag about/.test(c)));
 });
+
+// The dry-box cabinet: four 5" bays of butt-jointed 1/2" shelves in a 3/4" case, banded fronts.
+const cubbies = {
+  ...base, bayWidth: 5, shelfDepth: 10, height: 46, bays: 4, shelvesPerBay: [3, 3, 3, 3],
+  joinery: 'butt', shelfThickness: 0.5, backThickness: 0.5, edgeBanding: true,
+};
+
+test('butt-jointed shelves in narrow bays are stacked on the side, never screwed inside a closed case', () => {
+  const { steps } = guide(cubbies);
+  const ids = steps.map(s => s.id);
+  assert.deepEqual(ids.slice(ids.indexOf('banding')), ['banding', 'grid', 'case', 'back', 'install', 'finish']);
+  const grid = steps.find(s => s.id === 'grid');
+  assert.ok(grid.instructions.some(l => /down through it into each shelf/.test(l)));
+  assert.ok(grid.scene.highlight.includes('Divider 1') && grid.scene.highlight.includes('Bay 4 shelf 3'));
+  // The case closes around the finished grid, with the top and bottom screwed from outside.
+  const close = steps.find(s => s.id === 'case');
+  assert.deepEqual(close.scene.highlight.sort(), ['Bottom', 'Toe kick', 'Top']);
+  // Thin shelf stock splits without a pilot.
+  assert.ok(grid.cautions.some(c => /pilot/.test(c)));
+});
+
+test('dadoed or single-bay designs keep the usual order', () => {
+  assert.ok(!guide({ ...cubbies, joinery: 'dado' }).steps.some(s => s.id === 'grid'));
+  assert.ok(!guide({ ...cubbies, bays: 1, shelvesPerBay: [3] }).steps.some(s => s.id === 'grid'));
+});
+
+test('the guide uses the brads it buys, warns about thickness before layout, and does not band twice', () => {
+  const { steps } = guide(cubbies);
+  assert.ok(steps.find(s => s.id === 'back').instructions.some(l => /brads/.test(l)));
+  assert.ok(steps.find(s => s.id === 'sheets').cautions.some(c => /thinner than its nominal/.test(c)));
+  assert.ok(!steps.find(s => s.id === 'cut').cautions.some(c => /thinner than its nominal/.test(c)));
+  assert.ok(!steps.find(s => s.id === 'finish').instructions.some(l => /iron-on edge banding/.test(l)));
+  assert.ok(steps.every(s => !s.tips.some(t => /damp rag/.test(t))));
+});
