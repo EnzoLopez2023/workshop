@@ -52,6 +52,15 @@ export interface PartFace {
    * face comes out mirrored — dados and holes on the wrong side of the panel.
    */
   rightHanded: boolean;
+  /**
+   * BenchPilot pass-through (see passThrough.ts): the outline as open on-line cuts,
+   * already offset for the bit, instead of one closed outside cut.
+   */
+  outlinePaths?: [number, number][][];
+  /** Room around the part in its single-part file, for an outline offset outside it. */
+  margin?: number;
+  /** Written into the single-part file's description. */
+  note?: string;
 }
 
 export const HINGE_CUP_RADIUS = 35 / 2 / MM_PER_INCH;
@@ -224,8 +233,12 @@ function svgShapes(face: PartFace, place: Place, units: LengthUnit): string {
   };
   const path = (pts: [number, number][], closed = true) =>
     `M ${pts.map(([u, v]) => place(u, v)).map(([x, y]) => `${s(x)} ${s(y)}`).join(' L ')}${closed ? ' Z' : ''}`;
-  const outline = `<path d="${face.outline ? path(face.outline) : rect(0, 0, face.length, face.width)}" fill="#000000" stroke="none" `
-    + `shaper:cutType="outside" shaper:cutDepth="${depthLabel(face.thickness, units)}"><title>${escapeXml(face.piece)}</title></path>`;
+  const outline = face.outlinePaths
+    // Shaper's on-line cut: grey stroke, no fill.
+    ? face.outlinePaths.map((pts, i) => `<path d="${path(pts, false)}" fill="none" stroke="#7F7F7F" stroke-width="${units === 'mm' ? 0.25 : 0.01}" `
+      + `shaper:cutType="online" shaper:cutDepth="${depthLabel(face.thickness, units)}"><title>${escapeXml(face.piece)} outline, piece ${i + 1}</title></path>`).join('\n    ')
+    : `<path d="${face.outline ? path(face.outline) : rect(0, 0, face.length, face.width)}" fill="#000000" stroke="none" `
+      + `shaper:cutType="outside" shaper:cutDepth="${depthLabel(face.thickness, units)}"><title>${escapeXml(face.piece)}</title></path>`;
   const features = face.features.map(f => {
     if (f.kind === 'pocket') {
       return `<path d="${rect(f.u, f.v, f.length, f.width)}" fill="#7F7F7F" stroke="none" `
@@ -250,12 +263,12 @@ function svgShapes(face: PartFace, place: Place, units: LengthUnit): string {
   return `${outline}\n    ${features}`;
 }
 
-function svgDocument(width: number, height: number, units: LengthUnit, title: string, body: string): string {
+function svgDocument(width: number, height: number, units: LengthUnit, title: string, body: string, note?: string): string {
   const u = unitSuffix(units);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:shaper="http://www.shapertools.com/namespaces/shaper"
      width="${num(width, units)}${u}" height="${num(height, units)}${u}" viewBox="0 0 ${num(width, units)} ${num(height, units)}">
-  <title>${escapeXml(title)}</title>
+  <title>${escapeXml(title)}</title>${note ? `\n  <desc>${escapeXml(note)}</desc>` : ''}
   <g>
     ${body}
   </g>
@@ -266,7 +279,9 @@ function svgDocument(width: number, height: number, units: LengthUnit, title: st
 /** One part face as an SVG at real size, for the Shaper Origin or any CNC. */
 export function partSvg(face: PartFace, units: LengthUnit): string {
   const title = face.face ? `${face.piece} — ${face.face}` : face.piece;
-  return svgDocument(face.length, face.width, units, title, svgShapes(face, (u, v) => localPoint(face, u, v), units));
+  const m = face.margin ?? 0;
+  const place: Place = (u, v) => { const [x, y] = localPoint(face, u, v); return [x + m, y + m]; };
+  return svgDocument(face.length + 2 * m, face.width + 2 * m, units, title, svgShapes(face, place, units), face.note);
 }
 
 /**
@@ -307,7 +322,11 @@ function dxfEntities(face: PartFace, topDown: Place, docHeight: number, units: L
   };
   const rect = (u: number, v: number, lu: number, lv: number): [number, number][] =>
     [place(u, v), place(u + lu, v), place(u + lu, v + lv), place(u, v + lv)];
-  polyline(`OUTSIDE_${depthLabel(face.thickness, units)}`, face.outline ? face.outline.map(([u, v]) => place(u, v)) : rect(0, 0, face.length, face.width));
+  if (face.outlinePaths) {
+    for (const pts of face.outlinePaths) polyline(`ONLINE_${depthLabel(face.thickness, units)}`, pts.map(([u, v]) => place(u, v)), false);
+  } else {
+    polyline(`OUTSIDE_${depthLabel(face.thickness, units)}`, face.outline ? face.outline.map(([u, v]) => place(u, v)) : rect(0, 0, face.length, face.width));
+  }
   for (const f of face.features) {
     if (f.kind === 'guide') {
       polyline('GUIDE', f.points.map(([u, v]) => place(u, v)), f.closed ?? false);
@@ -335,7 +354,9 @@ function dxfDocument(units: LengthUnit, entities: string[]): string {
 }
 
 export function partDxf(face: PartFace, units: LengthUnit): string {
-  return dxfDocument(units, dxfEntities(face, (u, v) => localPoint(face, u, v), face.width, units));
+  const m = face.margin ?? 0;
+  const place: Place = (u, v) => { const [x, y] = localPoint(face, u, v); return [x + m, y + m]; };
+  return dxfDocument(units, dxfEntities(face, place, face.width + 2 * m, units));
 }
 
 export function sheetDxf(layout: SheetLayout, faces: PartFace[], units: LengthUnit): string {
