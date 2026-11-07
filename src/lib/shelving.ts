@@ -15,8 +15,12 @@ import { parseInches } from './cutPlan.ts';
 export type Joinery = 'butt' | 'dado' | 'pocket';
 export type LengthUnit = 'in' | 'mm';
 export type Mounting = 'floor' | 'wall';
-/** How the back attaches: inset between the sides, or let into a rabbet (a groove when there's a cleat). */
-export type BackJoint = 'inset' | 'rabbet';
+/**
+ * How the back attaches: inset between the sides, let into a rabbet in the sides (a groove when
+ * there's a cleat), or housed: captured in a groove all round, in the sides, top and bottom, with
+ * the top and bottom running the full depth of the case like the sides.
+ */
+export type BackJoint = 'inset' | 'rabbet' | 'housed';
 /** Shelf-pin hole spacing: 1" (imperial) or the 32 mm system. */
 export type PinSystem = 'imperial' | 'metric';
 /** Expected shelf load, for the sag check. */
@@ -205,8 +209,15 @@ export interface ShelfPlan {
   marks: PanelMarks[];
   warnings: string[];
   errors: string[];
-  /** Rabbet/groove width cut into each side for the back (0 when the back is inset). */
+  /** Rabbet/groove width cut into each side for the back (0 when the back is inset); for a housed back, also into the top and bottom. */
   backRabbet: number;
+  /** The back sits in a groove in the sides, top and bottom (`backJoint: 'housed'`). */
+  backHoused: boolean;
+  /** Front to back of the top and bottom: the shelf depth, or the case depth (less any scribe) when the back is housed. */
+  panelDepth: number;
+  /** Where the back panel starts and stops, from the floor (or the bottom of a wall unit). */
+  backBottom: number;
+  backTop: number;
   /** A back as thick as the case is glued and screwed (brads won't hold it); a thinner one is bradded. */
   backScrewed: boolean;
   pinHoles: PinHoleRun[];
@@ -352,18 +363,23 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   const pocketCase = config.joinery === 'pocket';
   const pocketShelves = (config.shelfJoinery ?? config.joinery) === 'pocket';
   const kick = config.mounting === 'floor' && config.bottomPanel ? Math.max(0, config.toeKick) : 0;
-  const rabbet = hasBack && config.backJoint === 'rabbet' ? t / 2 : 0;
+  const housedBack = hasBack && config.backJoint === 'housed';
+  // A housed back's groove matches the case dados, so it disappears inside the top and bottom housings.
+  const rabbet = !hasBack ? 0 : config.backJoint === 'rabbet' ? t / 2 : housedBack ? (d > 0 ? d : t / 3) : 0;
 
   if (anyDado && config.dadoDepth >= t) errors.push('Dado depth must be less than the plywood thickness.');
   else if (anyDado && config.dadoDepth > t / 2 + EPS) warnings.push(`A ${fmt(config.dadoDepth)} dado is more than half of ${fmt(t)} plywood; 1/3 of the thickness is typical.`);
   widths.forEach((w, i) => { if (!(w > 0)) errors.push(`Bay ${i + 1} needs a width.`); });
   if (rabbet > 0 && bt > t + EPS) warnings.push(`A ${fmt(bt)} back is thicker than the ${fmt(t)} sides it's rabbeted into; inset it instead, or use thinner stock.`);
+  if (housedBack && !config.topPanel && !config.bottomPanel) warnings.push('With no top or bottom panel, a housed back is only held in the sides.');
 
   const backThickness = hasBack ? bt : 0;
   const backScrewed = hasBack && bt >= t - EPS;
   const cleatGap = cleat ? t : 0;
   const scribe = Math.max(0, config.scribe ?? 0);
   const sideDepth = D + backThickness + cleatGap + scribe;
+  // A housed back's top and bottom run as deep as the sides, short of the scribe allowance.
+  const panelDepth = housedBack ? D + backThickness + cleatGap : D;
   const widthSum = widths.reduce((sum, w) => sum + w, 0);
   const overallWidth = widthSum + (n + 1) * t;
   const innerSpan = widthSum + (n - 1) * t;
@@ -434,9 +450,16 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   // ── Parts ───────────────────────────────────────────────────────────────────
   const parts: ShelfPart[] = [];
   const housed = dado ? ' Housed in dados.' : pocketCase ? pocketNote('underside') : '';
+  const sideGroove = cleat || scribe > 0;
+  const panelGroove = cleat;
   const rabbetNote = rabbet > 0
-    ? `Cut a ${fmt(rabbet)} × ${fmt(bt)} ${cleat ? 'groove' : 'rabbet'} for the back, ${fmt(D)} from the front edge.`
+    ? `Cut a ${fmt(rabbet)} × ${fmt(bt)} ${sideGroove ? 'groove' : 'rabbet'} for the back, ${fmt(D)} from the front edge.`
     : '';
+  const panelBackNote = housedBack
+    ? `Full depth, like the sides. ${fmt(rabbet)} × ${fmt(bt)} ${panelGroove ? 'groove' : 'rabbet'} for the back, ${fmt(D)} from the front edge, on the inside face.`
+    : '';
+  const backBottom = housedBack && config.bottomPanel ? interiorBottom - rabbet : kick;
+  const backTop = housedBack && config.topPanel ? interiorTop + rabbet : H;
 
   parts.push({
     name: 'Side',
@@ -467,8 +490,9 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   }
 
   const panelLength = innerSpan + 2 * d;
-  if (config.topPanel) parts.push({ name: 'Top', qty: 1, length: panelLength, width: D, thickness: t, note: housed.trim() || undefined });
-  if (config.bottomPanel) parts.push({ name: 'Bottom', qty: 1, length: panelLength, width: D, thickness: t, note: housed.trim() || undefined });
+  const panelNote = [housed.trim(), panelBackNote].filter(Boolean).join(' ') || undefined;
+  if (config.topPanel) parts.push({ name: 'Top', qty: 1, length: panelLength, width: panelDepth, thickness: t, note: panelNote });
+  if (config.bottomPanel) parts.push({ name: 'Bottom', qty: 1, length: panelLength, width: panelDepth, thickness: t, note: panelNote });
 
   // Fixed shelves, one part per distinct bay width.
   const fixedGroups = groupBySize(bays.filter(b => counts[b.index] > 0).map(b => ({ bay: b.index, key: b.width, value: counts[b.index] })));
@@ -495,8 +519,8 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
   }
 
   if (hasBack) {
-    const backHeight = H - kick;
-    for (const piece of splitBack(backHeight, dividerXs, t, overallWidth, rabbet)) {
+    const backHeight = backTop - backBottom;
+    for (const piece of splitBack(backHeight, dividerXs, t, overallWidth, rabbet, housedBack)) {
       parts.push({
         name: piece.name,
         qty: 1,
@@ -713,6 +737,10 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
     warnings,
     errors,
     backRabbet: rabbet,
+    backHoused: housedBack,
+    panelDepth,
+    backBottom,
+    backTop,
     backScrewed,
     pinHoles,
     pinSpacing,
@@ -734,10 +762,11 @@ export function buildShelfPlan(config: ShelfConfig): ShelfPlan {
  * runs of whole bays, with seams centered on dividers. A rabbeted back
  * reaches `rabbet` into each side.
  */
-function splitBack(height: number, dividerXs: number[], t: number, overallWidth: number, rabbet: number) {
+function splitBack(height: number, dividerXs: number[], t: number, overallWidth: number, rabbet: number, housed = false) {
   const left = t - rabbet;
   const right = overallWidth - t + rabbet;
-  const where = rabbet > 0 ? 'Let into the rabbets in the sides, behind the shelves.' : 'Inset between the sides, behind the shelves.';
+  const where = housed ? 'Housed in the grooves in the sides, top and bottom; goes in at glue-up.'
+    : rabbet > 0 ? 'Let into the rabbets in the sides, behind the shelves.' : 'Inset between the sides, behind the shelves.';
   if (fitsSheet(height, right - left) || dividerXs.length === 0) {
     return [{ name: 'Back', width: right - left, note: where }];
   }
@@ -860,8 +889,8 @@ export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
   plan.dividerXs.forEach((x, i) => {
     solids.push(box(`Divider ${i + 1}`, 'case', [x, hasBottom ? plan.interiorBottom : 0, 0], [x + t, plan.interiorTop, D]));
   });
-  if (hasTop) solids.push(box('Top', 'case', [t, H - t, 0], [W - t, H, D]));
-  if (hasBottom) solids.push(box('Bottom', 'case', [t, plan.kick, 0], [W - t, plan.kick + t, D]));
+  if (hasTop) solids.push(box('Top', 'case', [t, H - t, 0], [W - t, H, plan.panelDepth]));
+  if (hasBottom) solids.push(box('Bottom', 'case', [t, plan.kick, 0], [W - t, plan.kick + t, plan.panelDepth]));
   if (plan.kick > 0) solids.push(box('Toe kick', 'case', [t, 0, 0], [W - t, plan.kick, t]));
   /** A shelf, with the front-edge cut-out when there is one. */
   const shelf = (name: string, kind: SolidKind, x0: number, x1: number, y: number, depth: number): Solid => {
@@ -918,7 +947,7 @@ export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
   }
   if (plan.backThickness > 0) {
     const r = plan.backRabbet;
-    solids.push(box('Back', 'back', [t - r, plan.kick, D], [W - t + r, H, D + plan.backThickness]));
+    solids.push(box('Back', 'back', [t - r, plan.backBottom, D], [W - t + r, plan.backTop, D + plan.backThickness]));
   }
   // Face frame and doors stand in front of the case (negative depth).
   if (plan.frame) {
@@ -949,7 +978,9 @@ export function shelfSolids(plan: ShelfPlan, config: ShelfConfig): Solid[] {
     // Wall cleat: nests under it, bevel up against the wall.
     solids.push({ name: 'Wall cleat', kind: 'wall-cleat', shape: 'prism', x0: t, x1: W - t,
       profile: [[z0, top - h], [z1, top - h + bevel], [z1, top - 2 * h + bevel], [z0, top - 2 * h]] });
-    solids.push(box('Bottom spacer', 'cleat', [t, 0, z0], [W - t, h, z1]));
+    // A full-depth bottom runs under the spacer, so it sits on the bottom panel.
+    const spacerY = plan.panelDepth > D && hasBottom ? plan.interiorBottom : 0;
+    solids.push(box('Bottom spacer', 'cleat', [t, spacerY, z0], [W - t, spacerY + h, z1]));
   }
   return solids;
 }
@@ -1144,7 +1175,7 @@ export function readSavedShelfDesign(raw: unknown): SavedShelfDesign | null {
         return typeof a === 'number' && Number.isFinite(a) ? Math.min(20, Math.max(0, Math.floor(a))) : 0;
       }),
       pinSystem: c.pinSystem === 'metric' ? 'metric' : 'imperial',
-      backJoint: c.backJoint === 'rabbet' ? 'rabbet' : 'inset',
+      backJoint: c.backJoint === 'rabbet' || c.backJoint === 'housed' ? c.backJoint : 'inset',
       faceFrame: readFaceFrame(c.faceFrame),
       doorsPerBay: Array.from({ length: Math.floor(bays) }, (_, i) => Array.isArray(c.doorsPerBay) && (c.doorsPerBay as unknown[])[i] === true),
       shelfLoad: c.shelfLoad === 'light' || c.shelfLoad === 'heavy' ? c.shelfLoad : 'books',

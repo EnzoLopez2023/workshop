@@ -130,6 +130,7 @@ const CUTOUT_SHAPE_OPTIONS = [
 const BACK_JOINT_OPTIONS = [
   { value: 'inset', label: 'Inset' },
   { value: 'rabbet', label: 'Rabbeted' },
+  { value: 'housed', label: 'Full dado' },
 ] as const;
 
 const PIN_OPTIONS = [
@@ -1177,7 +1178,9 @@ export default function ShelfBuilder() {
                 <span className="form-field-label">Back fits</span>
                 <SegmentedControl label="How the back fits" value={form.backJoint} options={BACK_JOINT_OPTIONS} onChange={backJoint => update({ backJoint })} />
                 <small>
-                  {form.backJoint === 'rabbet'
+                  {form.backJoint === 'housed'
+                    ? `In a groove all round — the sides, top and bottom${plan ? `, ${fmt(plan.backRabbet)} deep` : ''}. The top and bottom run the full depth like the sides; the back goes in at glue-up.`
+                    : form.backJoint === 'rabbet'
                     ? `In a ${cleat ? 'groove' : 'rabbet'} cut into each side${config ? `, ${fmt(config.thickness / 2)} deep` : ''} — stronger and hides the back's edges.`
                     : 'Between the sides, fastened to the back edges of the shelves.'}
                   {plan?.backScrewed ? ' As thick as the case, it’s glued and screwed rather than bradded.' : ''}

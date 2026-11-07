@@ -134,6 +134,11 @@ export function dadoGrooves(plan: ShelfPlan, config: ShelfConfig): Solid[] {
     // Full-length rabbet (or groove, with a cleat) along the back of each side's inside face.
     groove('Back rabbet left', 'Left side', 1, t - r, t + lift, 0, H, D, D + plan.backThickness);
     groove('Back rabbet right', 'Right side', -1, W - t - lift, W - t + r, 0, H, D, D + plan.backThickness);
+    if (plan.backHoused) {
+      // And across the inside face of the full-depth top and bottom.
+      if (config.topPanel) groove('Back groove top', 'Top', -1, t - r, W - t + r, plan.interiorTop - lift, plan.interiorTop + r, D, D + plan.backThickness);
+      if (config.bottomPanel) groove('Back groove bottom', 'Bottom', 1, t - r, W - t + r, plan.interiorBottom - r, plan.interiorBottom + lift, D, D + plan.backThickness);
+    }
   }
   return grooves;
 }
@@ -427,8 +432,9 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       .filter(m => m.part.startsWith('Top') || m.part.startsWith('Bottom'))
       .map(m => `${m.part} (${m.reference}): ${m.positions.map(f).join(', ')}`);
     const rabbetName = cleat ? 'groove' : 'rabbet';
-    const rabbetLine = `Cut a ${f(plan.backRabbet)}-wide, ${f(plan.backThickness)}-deep ${rabbetName} along the back inside edge of each side, `
-      + `${f(config.shelfDepth)} from the front edge${cleat ? ' (it stops short of the back edge so the sides can hide the cleat)' : ''}.`;
+    const rabbetLine = `Cut a ${f(plan.backRabbet)}-wide, ${f(plan.backThickness)}-deep ${rabbetName} along the back inside edge of each side${plan.backHoused ? ', and across the inside face of the top and bottom' : ''}, `
+      + `${f(config.shelfDepth)} from the front edge${cleat ? ' (it stops short of the back edge so the case can hide the cleat)' : ''}.`
+      + (plan.backHoused ? ' Same router setting for all four, so the grooves meet at the corners and the back is captured all round.' : '');
     steps.push({
       id: 'dados',
       title: dado && rabbet ? `Cut the dados and back ${rabbetName}s` : dado ? 'Lay out and cut the dados' : `Cut the back ${rabbetName}s`,
@@ -657,7 +663,9 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
       title: 'Fit the back',
       summary: cleat ? `Inset ${f(plan.cleatGap)} from the back edge of the sides to leave room for the cleat.` : 'Flush with the back edge of the sides.',
       instructions: [
-        rabbet
+        plan.backHoused
+          ? `The back is housed on all four edges, so it goes in during the case glue-up: slide it into the grooves in the sides, then close the case with the top and bottom. Dry-fit first, and leave the back unglued in its grooves so it can move.`
+          : rabbet
           ? `Drop the back into the ${cleat ? 'grooves' : 'rabbets'} in the sides, tight against the back of every shelf and divider.`
           : `Set the back ${f(config.shelfDepth)} from the front edge, tight against the back of every shelf and divider.`,
         backParts.length > 1 ? `The back is ${backParts.length} pieces; their seams land on the middle of a divider so each edge has something to fasten to.` : rabbet ? 'One piece spans the sides, its edges hidden in the rabbets.' : 'One piece fits between the sides.',

@@ -97,7 +97,7 @@ export function partFaces(plan: ShelfPlan, config: ShelfConfig): PartFace[] {
   // Shelf dados are as wide as the shelf stock; top, bottom and divider dados the case stock.
   const st = plan.shelfThickness;
   const sd = plan.shelfDadoDepth;
-  const dado = (label: string, at: number, width = t, depth = d): Feature => ({ kind: 'pocket', label, u: at, v: 0, length: width, width: D - front, depth });
+  const dado = (label: string, at: number, width = t, depth = d, across = D): Feature => ({ kind: 'pocket', label, u: at, v: 0, length: width, width: across - front, depth });
   const pins = (panel: string, face: 'left' | 'right', origin: number): Feature[] =>
     plan.pinHoles.filter(r => r.panel === panel && r.face === face).flatMap(run =>
       run.ys.flatMap(y => [run.frontInset, run.backInset].map(v => ({
@@ -115,11 +115,13 @@ export function partFaces(plan: ShelfPlan, config: ShelfConfig): PartFace[] {
           bay.shelfYs.forEach((y, i) => features.push(dado(`Shelf dado ${i + 1}`, y, st, sd)));
         }
         if (d > 0) {
-          if (config.bottomPanel) features.push(dado('Bottom dado', plan.kick));
-          if (config.topPanel) features.push(dado('Top dado', H - t));
+          // Full-depth top and bottom (housed back): their dados run to the back of the panel.
+          const panelDado = (label: string, at: number) => dado(label, at, t, d, plan.panelDepth);
+          if (config.bottomPanel) features.push(panelDado('Bottom dado', plan.kick));
+          if (config.topPanel) features.push(panelDado('Top dado', H - t));
         }
         if (plan.backRabbet > 0) {
-          features.push({ kind: 'pocket', label: plan.cleatGap > 0 ? 'Back groove' : 'Back rabbet', u: 0, v: D - front, length: H, width: plan.backThickness, depth: plan.backRabbet });
+          features.push({ kind: 'pocket', label: plan.cleatGap > 0 || plan.scribe > 0 ? 'Back groove' : 'Back rabbet', u: 0, v: D - front, length: H, width: plan.backThickness, depth: plan.backRabbet });
         }
         features.push(...pins(piece, insideFace, 0));
         faces.push({
@@ -148,6 +150,10 @@ export function partFaces(plan: ShelfPlan, config: ShelfConfig): PartFace[] {
     }
     if (part.name === 'Top' || part.name === 'Bottom') {
       const features: Feature[] = d > 0 ? plan.dividerXs.map((x, j) => dado(`Divider ${j + 1} dado`, x - (t - d))) : [];
+      if (plan.backHoused) {
+        // The housed back's groove runs the panel's full length; its ends meet the grooves in the sides.
+        features.push({ kind: 'pocket', label: plan.cleatGap > 0 ? 'Back groove' : 'Back rabbet', u: 0, v: D - front, length: part.length, width: plan.backThickness, depth: plan.backRabbet });
+      }
       const rightHanded = part.name === 'Bottom'; // the top's underside points −Y and comes out left-handed
       const faceName = part.name === 'Top' ? 'underside' : 'top face';
       faces.push({

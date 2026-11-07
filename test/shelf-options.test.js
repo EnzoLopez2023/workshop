@@ -191,3 +191,26 @@ test('each adjustable shelf rests on four pins, inside its bay and touching it f
   }
   assert.ok(!shelfSolids(buildShelfPlan(base), base).some(s => s.kind === 'pin'), 'no adjustable shelves, no pins');
 });
+
+test('housed back: full-depth top and bottom, back grooved into all four', () => {
+  const plan = buildShelfPlan({ ...base, bays: 2, backJoint: 'housed', thickness: 0.5, backThickness: 0.25, mounting: 'wall', toeKick: 0, frenchCleat: true });
+  const t = 0.5;
+  assert.ok(plan.backHoused);
+  close(plan.backRabbet, 0.25, 'groove matches the case dado');
+  close(part(plan, 'Top').width, plan.sideDepth, 'top as deep as the sides');
+  close(part(plan, 'Bottom').width, plan.sideDepth, 'bottom as deep as the sides');
+  assert.match(part(plan, 'Top').note, /groove for the back/);
+  // The back reaches the groove depth into the sides, top and bottom.
+  const back = part(plan, 'Back');
+  close(back.width, plan.innerSpan + 2 * 0.25);
+  close(back.length, plan.interiorTop - plan.interiorBottom + 2 * 0.25);
+  close(plan.backBottom, t - 0.25);
+  const solids = shelfSolids(plan, { ...base, thickness: t });
+  const top = solids.find(s => s.name === 'Top');
+  close(top.max[2], plan.sideDepth);
+  // Scribe stays on the sides only.
+  const scribed = buildShelfPlan({ ...base, backJoint: 'housed', scribe: 0.5 });
+  close(part(scribed, 'Top').width, scribed.sideDepth - 0.5);
+  // Rabbeted and inset backs are unchanged.
+  close(part(buildShelfPlan({ ...base, backJoint: 'rabbet' }), 'Top').width, base.shelfDepth);
+});
