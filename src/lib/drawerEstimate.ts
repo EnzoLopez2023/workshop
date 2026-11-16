@@ -164,8 +164,14 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
   // Fixed shelves behind doors that are screwed, not dadoed: three through each side into each end.
   const screwedShelves = plan.drawers.filter(d => d.door?.shelfJoint === 'butt').reduce((a, d) => a + d.door!.shelfYs.length, 0);
   // Pocket screws take the place of the plain screws at the top, bottom and partition joints.
-  const jointScrews = plan.pocket ? 0 : 2 * 2 * 4 + plan.partitionXs.length * 2 * 4;
-  const caseScrews = (jointScrews + (plan.base ? 8 : 0) + backScrews + screwedShelves * 6) * unitCount + (desk ? 8 * unitCount + laminate : 0);
+  // Top stretchers take two screws per end (and per partition) where a full top takes four.
+  const topJoint = plan.topStretchers ? 2 * (2 * 2 + plan.partitionXs.length * 2) : 2 * 4 + plan.partitionXs.length * 4;
+  const jointScrews = plan.pocket ? 0 : 2 * 4 + plan.partitionXs.length * 4 + topJoint;
+  // A plywood countertop is screwed up through the stretchers every 8", and its two layers together every 8".
+  const ct = plan.countertop;
+  const counterScrews = ct?.material === 'plywood'
+    ? 2 * Math.ceil((ct.x1 - ct.x0) / 8) + (ct.layers === 2 ? Math.ceil((ct.x1 - ct.x0) / 8) * Math.ceil((ct.z1 - ct.z0) / 8) : 0) : 0;
+  const caseScrews = (jointScrews + (plan.base ? 8 : 0) + backScrews + screwedShelves * 6) * unitCount + (desk ? 8 * unitCount + laminate : 0) + counterScrews;
   if (plan.pocket) {
     const pocketScrews = plan.pocket.count * unitCount;
     items.push({
@@ -184,9 +190,26 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
     qty: boxes(caseScrews, 100),
     unit: 'box of 100',
     uses: caseScrews,
-    note: desk ? 'Case corners, the desk top through each unit’s top, and the two top layers together.' : 'Top and bottom into the sides. Pre-drill and countersink.',
+    note: desk ? 'Case corners, the desk top through each unit’s top, and the two top layers together.'
+      : ct?.material === 'plywood' ? `${plan.pocket ? 'The countertop up through the top stretchers' : 'Top stretchers and bottom into the sides, and the countertop up through the stretchers'}${ct.layers === 2 ? ', and its two layers together' : ''}. Pre-drill and countersink.`
+        : plan.topStretchers ? 'Top stretchers and bottom into the sides. Pre-drill and countersink.' : 'Top and bottom into the sides. Pre-drill and countersink.',
     priceKey: 'caseScrews',
   });
+  if (plan.boxPocket) {
+    items.push({
+      key: 'box-pocket-screws',
+      name: `Pocket screws, ${f(plan.boxPocket.screw)} ${plan.boxPocket.screw <= 1 ? 'pan-head' : 'coarse'}`,
+      qty: boxes(plan.boxPocket.count, 100),
+      unit: 'box of 100',
+      uses: plan.boxPocket.count,
+      note: `Drawer-box corners: through the box front and back into the sides. Set the jig and drill collar for ${f(config.boxThickness)} stock.`,
+      priceKey: 'caseScrews',
+    });
+  }
+  if (ct?.material === 'butcher') {
+    items.push({ key: 'butcher-block', name: `Butcher-block countertop, ${f(ct.x1 - ct.x0)} × ${f(ct.z1 - ct.z0)}`, qty: 1, unit: 'ea', note: 'Buy it at least this size and cut it down; seal both faces.', priceKey: 'butcherBlock', url: amazonSearch('butcher block countertop') });
+    items.push({ key: 'figure8', name: 'Figure-8 tabletop fasteners', qty: 8, unit: 'ea', note: 'On the top stretchers; they let a solid-wood top move with the seasons.', priceKey: 'figure8' });
+  }
 
   // Each front is screwed on from inside the box: 4 screws, short enough not to poke through.
   const frontScrew = config.boxThickness + config.thickness * 0.6;
@@ -202,10 +225,10 @@ export function drawerHardwareList(plan: DrawerPlan, config: DrawerConfig, units
 
   // A rabbeted back every 6" around the case (a screwed-in back takes screws instead); 3 per box corner.
   const perimeter = 2 * (plan.caseHeight + plan.overallWidth);
-  const brads = (plan.backJoint === 'rabbet' ? Math.ceil(perimeter / 6) * unitCount : 0) + n * 4 * 3;
-  items.push({
+  const brads = (plan.backJoint === 'rabbet' ? Math.ceil(perimeter / 6) * unitCount : 0) + (plan.boxJoint === 'pocket' ? 0 : n * 4 * 3);
+  if (brads > 0) items.push({
     key: 'brads', name: `Brad nails, ${f(1.25)}`, qty: boxes(brads, 1000), unit: 'box of 1000', uses: brads,
-    note: plan.backJoint === 'rabbet' ? 'The case back and the drawer-box corners, with glue.' : 'The drawer-box corners, with glue.', priceKey: 'brads',
+    note: plan.boxJoint === 'pocket' ? 'The case back, with glue.' : plan.backJoint === 'rabbet' ? 'The case back and the drawer-box corners, with glue.' : 'The drawer-box corners, with glue.', priceKey: 'brads',
   });
 
   if (plan.mount === 'wall') {

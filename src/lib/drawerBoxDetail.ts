@@ -10,6 +10,7 @@ import {
   BOTTOM_PLAY,
   boxedDrawers,
   boxNotchSpec,
+  boxPocketsPerEnd,
   notchedOutline,
   type DrawerConfig,
   type DrawerLayout,
@@ -74,10 +75,15 @@ export function detailDrawer(plan: Pick<DrawerPlan, 'drawers'>): { drawer: Drawe
  * The parts of one box at the origin: x across (0..width), y up (0..height),
  * z back from the box front (0..depth). Sides run the full depth with a
  * b × b/2 rabbet across each end; the front and back sit in those rabbets.
+ * Pocket-screwed, there's no rabbet: the front and back fit between the sides,
+ * with pocket holes in their outside faces.
  */
 function boxParts(config: DrawerConfig, d: DrawerLayout, corner?: number): BoxPart[] {
   const b = config.boxThickness;
-  const r = b / 2;
+  const pocket = config.boxJoinery === 'pocket';
+  // Rabbet depth (none when pocket-screwed), and how far the front and back stop short of the outside of each side.
+  const r = pocket ? 0 : b / 2;
+  const inset = pocket ? b : r;
   const bt = config.bottomThickness;
   const gy = BOTTOM_GROOVE_OFFSET;
   const gd = Math.min(BOTTOM_GROOVE_DEPTH, b * 0.75);
@@ -130,8 +136,8 @@ function boxParts(config: DrawerConfig, d: DrawerLayout, corner?: number): BoxPa
     const [gx0, gx1] = span(0, gd);
     const floor: Face = key === 'left' ? '-x' : '+x';
     const cuts = [
-      ...cut('front rabbet', [rx0, 0, 0], [rx1, H, b], [floor, '+z']),
-      ...(corner ? [] : cut('back rabbet', [rx0, 0, D - b], [rx1, H, D], [floor, '-z'])),
+      ...(pocket ? [] : cut('front rabbet', [rx0, 0, 0], [rx1, H, b], [floor, '+z'])),
+      ...(corner || pocket ? [] : cut('back rabbet', [rx0, 0, D - b], [rx1, H, D], [floor, '-z'])),
       ...cut('bottom groove', [gx0, gy, gd > r ? 0 : b], [gx1, gy + gw, gd > r || corner ? D : D - b], [floor, '-y', '+y']),
     ];
     return { key, wood, cuts };
@@ -140,15 +146,27 @@ function boxParts(config: DrawerConfig, d: DrawerLayout, corner?: number): BoxPa
   const endPanel = (key: 'front' | 'back'): BoxPart => {
     // Inside face at z = b (front) or D − b (back).
     const zAt = (s: number) => (key === 'front' ? b - s : D - b + s);
-    const top = (y0: number) => notchedOutline(r, y0, W - b, H - y0, key === 'front' ? notch : null);
+    const endW = corner ? W - inset : W - 2 * inset;
+    const top = (y0: number) => notchedOutline(inset, y0, endW, H - y0, key === 'front' ? notch : null);
     const wood: Solid[] = [];
     for (const [s0, s1] of [[0, gd], [gd, b]] as const) {
       const [z0, z1] = [Math.min(zAt(s0), zAt(s1)), Math.max(zAt(s0), zAt(s1))];
-      const outlines = s0 < gd ? [notchedOutline(r, 0, W - b, gy, null), top(gy + gw)] : [top(0)];
+      const outlines = s0 < gd ? [notchedOutline(inset, 0, endW, gy, null), top(gy + gw)] : [top(0)];
       for (const outline of outlines) wood.push({ name: '', kind: 'drawer-box', shape: 'plate', z0, z1, outline });
     }
     const [z0, z1] = [Math.min(zAt(0), zAt(gd)), Math.max(zAt(0), zAt(gd))];
-    return { key, wood, cuts: cut('bottom groove', [r, gy, z0], [W - r, gy + gw, z1], [key === 'front' ? '-z' : '+z', '-y', '+y']) };
+    // Pocket holes: slots on the outside face at each end, running toward the side they screw into.
+    const holes: Solid[] = [];
+    if (pocket) {
+      const count = boxPocketsPerEnd(d.box.height);
+      const zOut = key === 'front' ? 0 : D;
+      const ys = Array.from({ length: count }, (_, i) => H * (i + 1) / (count + 1)).filter(y => y < gy - 0.3 || y > gy + gw + 0.3 || count === 1);
+      for (const [end, x0] of [['left', inset + 0.2], ...(corner ? [] : [['right', inset + endW - 1.1]])] as [string, number][]) {
+        ys.forEach((y, i) => holes.push(box(`pocket hole ${end} ${i + 1}`, 'groove',
+          [x0, y - 3 / 16, zOut - 0.02], [x0 + 0.9, y + 3 / 16, zOut + 0.02])));
+      }
+    }
+    return { key, wood, cuts: [...cut('bottom groove', [inset, gy, z0], [inset + endW, gy + gw, z1], [key === 'front' ? '-z' : '+z', '-y', '+y']), ...holes] };
   };
 
   const bw = W - 2 * b + 2 * gd - BOTTOM_PLAY;
@@ -249,6 +267,7 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  */
 export function boxJointDetail(config: DrawerConfig, f: (inches: number) => string): GuideDetail {
   const b = config.boxThickness;
+  const pocket = config.boxJoinery === 'pocket';
   const r = b / 2;
   const bt = config.bottomThickness;
   const gy = BOTTOM_GROOVE_OFFSET;
@@ -304,6 +323,24 @@ export function boxJointDetail(config: DrawerConfig, f: (inches: number) => stri
   const ax = (x: number) => marginL + x * s;
   const az = (z: number) => top + (L - z) * s;
   text(marginL - 60, 30, 'Front corner, from above', 'start', 15, 600);
+  if (pocket) {
+    // The side runs through; the box front butts against its inside face, and a pocket screw crosses the joint.
+    poly([[ax(0), az(0)], [ax(b), az(0)], [ax(b), az(L)], [ax(0), az(L)]], wood);
+    poly([[ax(b), az(0)], [ax(L), az(0)], [ax(L), az(b)], [ax(b), az(b)]], wood2);
+    breakLine(ax(0), az(L), ax(b), az(L));
+    breakLine(ax(L), az(0), ax(L), az(b));
+    out.push(`<line x1="${ax(b)}" y1="${az(0)}" x2="${ax(b)}" y2="${az(b)}" stroke="${glue}" stroke-width="4" stroke-linecap="round"/>`);
+    // The screw: in at 15° from the outside face, through the middle of the end, into the side.
+    const slope = Math.tan(15 * Math.PI / 180);
+    const run = Math.min((b / 2) / slope, reach - 0.2);
+    line(ax(b + run), az(b / 2 - run * slope), ax(b - 0.62 * b), az(b / 2 + 0.62 * b * slope), cutRed, 3, ' stroke-linecap="round"');
+    text(ax(b + run) + 4, az(0) + 18, 'pocket screw', 'middle', 11, 600, cutRed);
+    text(ax(b / 2), az(L) + 0.45 * s, 'side', 'middle', 12, 600);
+    text(ax(b + reach / 2 + 0.1), az(b) - 8, 'box front', 'middle', 12, 600);
+    dim(ax(0), az(L) - 18, ax(b), az(L) - 18, f(b), 'above');
+    dim(ax(0) - 22, az(b), ax(0) - 22, az(0), f(b), 'left');
+    text(ax(L), az(0) + 40, 'front of the drawer ↓', 'end', 11, 400, '#58716b');
+  } else {
   // The side, with the rabbet out of its inside face, and the box front sitting in it.
   poly([[ax(0), az(0)], [ax(b - r), az(0)], [ax(b - r), az(b)], [ax(b), az(b)], [ax(b), az(L)], [ax(0), az(L)]], wood);
   poly([[ax(b - r), az(0)], [ax(L), az(0)], [ax(L), az(b)], [ax(b - r), az(b)]], wood2);
@@ -317,6 +354,7 @@ export function boxJointDetail(config: DrawerConfig, f: (inches: number) => stri
   dim(ax(b - r), az(0) + 20, ax(b), az(0) + 20, `${f(r)} deep`, 'below');
   dim(ax(0) - 22, az(b), ax(0) - 22, az(0), `${f(b)} wide`, 'left');
   text(ax(L), az(0) + 40, 'front of the drawer ↓', 'end', 11, 400, '#58716b');
+  }
   const panelAWidth = ax(L) + 40;
 
   // ── Panel B: section through a side at the bottom groove ──
@@ -347,12 +385,16 @@ export function boxJointDetail(config: DrawerConfig, f: (inches: number) => stri
     + `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="${ink}"/></marker></defs>`
     + `<rect width="100%" height="100%" fill="#ffffff"/>`
     + out.join('')
-    + `<text x="16" y="${Math.ceil(height) - 12}" font-size="11" fill="#58716b">Blue: glue faces. Red dashes: the groove. Not to scale between the two views.</text>`
+    + `<text x="16" y="${Math.ceil(height) - 12}" font-size="11" fill="#58716b">Blue: glue faces. ${pocket ? 'Red: the pocket screw; red dashes: the groove' : 'Red dashes: the groove'}. Not to scale between the two views.</text>`
     + '</svg>';
   return {
-    title: `Box joints up close: ${f(b)} × ${f(r)} rabbets, ${f(gw)} groove ${f(gd)} deep, ${f(gy)} up`,
+    title: pocket
+      ? `Box joints up close: pocket-screwed butt joints, ${f(gw)} groove ${f(gd)} deep, ${f(gy)} up`
+      : `Box joints up close: ${f(b)} × ${f(r)} rabbets, ${f(gw)} groove ${f(gd)} deep, ${f(gy)} up`,
     svg,
-    alt: `Two drawings. Left: the front corner of a box from above — the ${f(b)} side has a rabbet ${f(b)} wide and ${f(r)} deep across its end, and the box front sits in it. `
+    alt: (pocket
+      ? `Two drawings. Left: the front corner of a box from above — the ${f(b)} box front butts against the inside face of the ${f(b)} side, and a pocket screw runs from the front’s outside face through its end into the side. `
+      : `Two drawings. Left: the front corner of a box from above — the ${f(b)} side has a rabbet ${f(b)} wide and ${f(r)} deep across its end, and the box front sits in it. `)
       + `Right: a section through a box side — the bottom groove is ${f(gw)} wide and ${f(gd)} deep, starting ${f(gy)} up from the bottom edge, holding the ${f(bt)} bottom.`,
   };
 }

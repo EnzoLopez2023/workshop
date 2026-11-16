@@ -322,17 +322,19 @@ export function drawerPartFaces(plan: DrawerPlan, config: DrawerConfig): PartFac
       }
       faces.push({
         ...base, id: slug(part.name), piece: part.name, face: 'inside face', features, outline, rightHanded: true,
-        orientation: 'Inside face up, top edge at the top of the drawing; the groove takes the bottom.',
+        orientation: `Inside face up, top edge at the top of the drawing; the groove takes the bottom.${plan.boxJoint === 'pocket' ? ' Drill the pocket holes on the other (outside) face, at each end.' : ''}`,
       });
       continue;
     }
 
     if (part.name.startsWith('Box side') || part.name.startsWith('Tray side')) {
-      // Rabbets at each end for the front and back, and the bottom groove — the same
-      // for the left and right sides, since everything is symmetric end to end.
+      // Rabbets at each end for the front and back (none when the box is pocket-screwed), and
+      // the bottom groove — the same for the left and right sides, since everything is symmetric end to end.
       const features: Feature[] = [
-        { kind: 'pocket', label: 'Front rabbet', u: 0, v: 0, length: b, width: part.width, depth: b / 2 },
-        { kind: 'pocket', label: 'Back rabbet', u: part.length - b, v: 0, length: b, width: part.width, depth: b / 2 },
+        ...(plan.boxJoint === 'pocket' ? [] : [
+          { kind: 'pocket' as const, label: 'Front rabbet', u: 0, v: 0, length: b, width: part.width, depth: b / 2 },
+          { kind: 'pocket' as const, label: 'Back rabbet', u: part.length - b, v: 0, length: b, width: part.width, depth: b / 2 },
+        ]),
         groove(part.length, bt),
       ];
       faces.push({
@@ -721,8 +723,10 @@ function buildJigs(plan: DrawerPlan, config: DrawerConfig, f: (inches: number) =
   const settings = [
     { value: BOTTOM_GROOVE_DEPTH, what: 'groove depth' },
     { value: BOTTOM_GROOVE_OFFSET, what: 'groove up from the bottom edge' },
-    { value: b / 2, what: 'box rabbet depth' },
-    { value: b, what: 'box rabbet width' },
+    ...(plan.boxJoint === 'pocket' ? [] : [
+      { value: b / 2, what: 'box rabbet depth' },
+      { value: b, what: 'box rabbet width' },
+    ]),
     ...(plan.backJoint === 'rabbet' ? [
       { value: T / 2, what: 'back rabbet depth' },
       { value: config.backThickness, what: 'back rabbet width' },

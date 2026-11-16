@@ -9,6 +9,7 @@ import {
   baseDescription,
   boxedDrawers,
   DESK_LEG_INSET,
+  boxPocketsPerEnd,
   runSolids,
   styleBookcaseDoors,
   doorView,
@@ -60,6 +61,11 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   const T = config.thickness;
   const b = config.boxThickness;
   const boxed = boxedDrawers(plan);
+  // Drawer boxes pocket-screwed (butt joints) instead of rabbeted; a countertop over top stretchers.
+  const pocketBox = plan.boxJoint === 'pocket';
+  const stretchers = plan.topStretchers;
+  const topNames = stretchers ? ['Top stretcher, front', 'Top stretcher, back'] : ['Top'];
+  const topWord = stretchers ? 'top stretchers' : 'top';
   const cubbies = plan.drawers.filter(d => d.open);
   const n = boxed.length;
   const pull = config.pull.enabled ? config.pull : null;
@@ -71,7 +77,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   // An integrated toe kick's board and nailer go in with the case.
   const kickNames = names(name => name === 'Toe kick' || name === 'Kick nailer');
   const blindNames = plan.blind ? ['End side', ...(plan.blind.slideBottom !== null ? ['Slide panel'] : [])] : [];
-  const caseNames = [...['Left side', 'Right side'].filter(n => !plan.blind || n !== (plan.blind.side === 'right' ? 'Right side' : 'Left side')), 'Top', 'Bottom', ...blindNames, ...partitionNames, ...kickNames];
+  const caseNames = [...['Left side', 'Right side'].filter(n => !plan.blind || n !== (plan.blind.side === 'right' ? 'Right side' : 'Left side')), ...topNames, 'Bottom', ...blindNames, ...partitionNames, ...kickNames];
   const plinthNames = names(name => name.startsWith('Plinth'));
   const baseboardNames = names(name => name.startsWith('Baseboard'));
   const back = ['Back'];
@@ -96,8 +102,8 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     title: 'What you’re building',
     summary: `A ${f(plan.overallWidth)} wide, ${f(plan.overallHeight)} tall, ${f(plan.overallDepth)} deep unit with ${n} drawer${n === 1 ? '' : 's'}, ${baseText}.`,
     instructions: [
-      `The case is ${f(T)} plywood: full-height sides with the top and bottom fitted between them, and a ${f(config.backThickness)} back ${plan.backJoint === 'screwed' ? 'fitted between the sides behind them, glued and screwed' : 'let into rabbets in the sides'}.`,
-      `Each drawer is a ${f(b)} plywood box riding on a pair of ${f(plan.slideLength)} ${plan.slide.undermount ? 'Blum TANDEM plus BLUMOTION under-mount' : 'LONTAN soft-close'} slides, with a ${f(T)} ${plan.frontInset > 0 ? 'inset front (flush with the case, like the ALEX)' : 'full-overlay front'} screwed on from inside.`,
+      `The case is ${f(T)} plywood: full-height sides with the ${stretchers ? `bottom and two ${f(stretchers.width)} top stretchers (in place of a full top, under the countertop)` : 'top and bottom'} fitted between them, and a ${f(config.backThickness)} back ${plan.backJoint === 'screwed' ? 'fitted between the sides behind them, glued and screwed' : 'let into rabbets in the sides'}.`,
+      `Each drawer is a ${f(b)} plywood box${pocketBox ? ' (butt joints, pocket-screwed)' : ''} riding on a pair of ${f(plan.slideLength)} ${plan.slide.undermount ? 'Blum TANDEM plus BLUMOTION under-mount' : 'LONTAN soft-close'} slides, with a ${f(T)} ${plan.frontInset > 0 ? 'inset front (flush with the case, like the ALEX)' : 'full-overlay front'} screwed on from inside.`,
       !pull ? 'The fronts have no finger pull — add knobs or pulls of your choice.'
         : pull.shape === 'handhole'
           ? `Instead of handles, each front has a ${f(pull.width)} × ${f(pull.depth)} hand hole just below its top edge, and the box front behind it is notched so your fingers can hook the front.`
@@ -106,6 +112,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         ? `${plan.columns.length} columns of drawers (openings ${plan.columns.map(c => f(c.width)).join(', ')}) with ${f(T)} partitions between them; ${plan.columns.map(c => `column ${c.index + 1} has ${c.drawers.length}`).join(', ')}.`
         : `Fronts are ${boxed.map(d => f(d.front.height)).join(', ')} tall (top to bottom), with ${f(config.gap)} gaps.`,
       ...(cubbies.length ? [`${cubbies.length === 1 ? 'One position is an open cubby' : `${cubbies.length} positions are open cubbies`} (${cubbies.map(d => d.label.toLowerCase()).join(', ')}), with a fixed shelf for a floor where it isn’t at the bottom.`] : []),
+      ...(plan.countertop ? [`A ${plan.countertop.material === 'butcher' ? 'butcher-block' : 'plywood'} countertop goes on top: ${f(plan.countertop.x1 - plan.countertop.x0)} × ${f(plan.countertop.z1 - plan.countertop.z0)}, its surface ${f(plan.countertop.y1)} off the floor.`] : []),
       ...(plan.desk ? [`${plan.unitCount === 2 ? 'Two units go' : 'The unit goes'} under a ${f(plan.desk.width)} × ${f(plan.desk.depth)} desk top, ${f(plan.desk.height)} off the floor.`] : []),
       ...(run ? [`A ${f(run.width)} wall run: build this cabinet ${run.cabinetCount} time${run.cabinetCount === 1 ? '' : 's'}${run.sections.some(x => x.mirror) ? ' (mirrored ones hinge their doors the other way)' : ''}${bk ? ', each with its bookcase' : ''}, then set them along the wall${run.sections.some(x => x.kind === 'desk') ? ' with desk gaps between' : ''} under one countertop. The steps below build one; repeat them for the rest.`] : []),
     ],
@@ -157,32 +164,57 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   // 4 ── Rabbets and grooves
   steps.push({
     id: 'joinery',
-    title: 'Cut the rabbets and grooves',
-    summary: `${plan.backJoint === 'rabbet' ? 'A rabbet for the case back, rabbets' : 'Rabbets'} for each drawer’s front and back, and a groove for every drawer bottom.`,
+    title: pocketBox ? (plan.backJoint === 'rabbet' ? 'Cut the back rabbet and the bottom grooves' : 'Cut the bottom grooves') : 'Cut the rabbets and grooves',
+    summary: pocketBox
+      ? `${plan.backJoint === 'rabbet' ? 'A rabbet for the case back and a' : 'A'} groove for every drawer bottom. The box corners are butt joints — nothing to cut there.`
+      : `${plan.backJoint === 'rabbet' ? 'A rabbet for the case back, rabbets' : 'Rabbets'} for each drawer’s front and back, and a groove for every drawer bottom.`,
     instructions: [
       ...(plan.backJoint === 'rabbet' ? [`Case sides: a ${f(config.backThickness)} wide, ${f(T / 2)} deep ${plan.cleatGap > 0 ? `groove, ${f(plan.cleatGap)} in from the back edge,` : 'rabbet'} along the back inside edge of each side. Make a left and a right.`] : []),
-      `Box sides: a ${f(b)} wide, ${f(b / 2)} deep rabbet across the inside face at each end, for the box front and back.`,
-      `All four box parts: a ${f(bottomGrooveWidth(config.bottomThickness))} groove (just wider than the ${f(config.bottomThickness)} bottom — test with an offcut), ${f(BOTTOM_GROOVE_DEPTH)} deep, ${f(BOTTOM_GROOVE_OFFSET)} up from the bottom edge, on the inside face. It runs the full length, through the rabbets on the sides.`,
-      'Mark the inside face of every box part before you cut: the rabbets and the groove all go on that face, and the sides come out as mirror-image pairs.',
+      ...(pocketBox ? [] : [`Box sides: a ${f(b)} wide, ${f(b / 2)} deep rabbet across the inside face at each end, for the box front and back.`]),
+      `All four box parts: a ${f(bottomGrooveWidth(config.bottomThickness))} groove (just wider than the ${f(config.bottomThickness)} bottom — test with an offcut), ${f(BOTTOM_GROOVE_DEPTH)} deep, ${f(BOTTOM_GROOVE_OFFSET)} up from the bottom edge, on the inside face. It runs the full length${pocketBox ? '; on the sides it shows at each end, where the drawer front and the case hide it' : ', through the rabbets on the sides'}.`,
+      pocketBox
+        ? 'Mark the inside face of every box part before you cut: the groove goes on that face, and the pocket holes (next step) on the other face of the fronts and backs.'
+        : 'Mark the inside face of every box part before you cut: the rabbets and the groove all go on that face, and the sides come out as mirror-image pairs.',
       'Dry-fit one box before cutting the rest.',
     ],
     parts: sized(partsWhere(['Side', 'Box side', 'Box front', 'Box back'])),
     tips: [
       'Cut the grooves on the table saw with the fence set once for every box part, so the bottoms all line up.',
-      'Set the fence and blade height from the setup gauge (shop jigs): one step for each groove and rabbet size.',
+      `Set the fence and blade height from the setup gauge (shop jigs): one step for each groove${pocketBox && plan.backJoint !== 'rabbet' ? '' : ' and rabbet'} size.`,
     ],
     cautions: [],
     ...(detail
       ? {
         scene: detail.scenes.cut,
-        highlightCaption: 'Rabbets and grooves',
+        highlightCaption: pocketBox ? 'Grooves' : 'Rabbets and grooves',
         highlightSwatch: 'groove' as const,
       }
       : { scene: { view: 'exploded' as const, visible: [...caseNames, ...back], highlight: boxes }, highlightCaption: 'Parts to machine' }),
   });
 
   // 4b ── The box joints up close: set up on scrap and test before cutting the real parts
-  if (detail) {
+  if (detail && pocketBox) {
+    const perEnd = [...new Set(boxed.map(d => boxPocketsPerEnd(d.box.height)))].sort();
+    steps.push({
+      id: 'box-joints',
+      title: 'Drill the box pocket holes',
+      summary: `Every box corner is a butt joint: the box front and back fit between the sides, and pocket screws run from their outside faces into the sides.${plan.boxPocket ? ` ${plan.boxPocket.count} holes in all.` : ''}`,
+      instructions: [
+        `Set the pocket-hole jig and the drill’s stop collar for ${f(b)} stock.`,
+        `Drill ${perEnd.join(' or ')} pocket hole${perEnd.length === 1 && perEnd[0] === 1 ? '' : 's'} in each end of every box front and back (by height: one under ${f(3.5)}, two up to ${f(8)}, three above), on the outside face — the face without the groove. Keep them at least ${f(3 / 4)} from the top and bottom edges and clear of the groove.`,
+        `Groove: ${f(bottomGrooveWidth(config.bottomThickness))} wide, ${f(BOTTOM_GROOVE_DEPTH)} deep, its lower edge ${f(BOTTOM_GROOVE_OFFSET)} up from the bottom edge. Same fence setting for all four parts.`,
+        `Try a corner on scrap of the box plywood first: a ${f(plan.boxPocket?.screw ?? 1)} screw must pull the joint tight without its point breaking through the side’s outside face.`,
+      ],
+      parts: sized(partsWhere(['Box front', 'Box back', 'Tray front'])),
+      tips: ['The holes on the box front end up behind the drawer front, and the ones on the back face the case back — none show once the drawer is in.'],
+      cautions: [`${f(b)} stock is thin for pocket screws: use ${f(plan.boxPocket?.screw ?? 1)} screws, set the clutch low, and stop as soon as the head seats.`],
+      scene: detail.scenes.corner,
+      highlightCaption: 'Pocket holes and groove',
+      highlightSwatch: 'groove',
+      details: [boxJointDetail(config, f)],
+      minutes: Math.max(10, Math.round((plan.boxPocket?.count ?? 0) * 0.5)),
+    });
+  } else if (detail) {
     steps.push({
       id: 'box-joints',
       title: 'Box joints up close',
@@ -305,12 +337,18 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
   steps.push({
     id: 'case',
     title: 'Assemble the case',
-    summary: plan.pocket ? 'Glue and pocket-screw the top and bottom between the sides, front edges flush.' : 'Glue and screw the top and bottom between the sides, front edges flush.',
+    summary: `Glue and ${plan.pocket ? 'pocket-screw' : 'screw'} the ${topWord} and bottom between the sides, front edges flush.`,
     instructions: [
+      ...(stretchers ? [`There’s no full top under the countertop: two ${f(stretchers.width)} stretchers lie flat at the top end, their top faces flush with the top ends of the sides — one flush with the front edges, the other tight against ${plan.backJoint === 'rabbet' ? 'the rabbet' : 'where the back goes'}.`] : []),
       plan.base?.kind === 'kick'
-        ? `Lay a side inside face up; stand the top on it at the top end and the bottom ${f(plan.baseHeight)} up from the bottom end (just above the notch), both flush at the front and set back ${plan.backJoint === 'rabbet' ? 'from the rabbet' : `${f(config.backThickness)} from the back edge for the back`}.`
-        : `Lay a side inside face up; stand the top and bottom on it, flush at the front and set back ${plan.backJoint === 'rabbet' ? 'from the rabbet' : `${f(config.backThickness)} from the back edge for the back`}.`,
-      plan.pocket ? `Drill the pocket holes in the ends of the top and bottom first (${plan.pocket.perEnd} per end, on the underside of the top and the bottom face of the bottom). Glue, clamp the panel flush to the side, and drive ${f(plan.pocket.screw)} pocket screws. Repeat with the other side.` : 'Glue, then drive four screws through the side into each panel. Repeat with the other side.',
+        ? `Lay a side inside face up; stand the ${topWord} on it at the top end and the bottom ${f(plan.baseHeight)} up from the bottom end (just above the notch), both flush at the front and set back ${plan.backJoint === 'rabbet' ? 'from the rabbet' : `${f(config.backThickness)} from the back edge for the back`}.`
+        : `Lay a side inside face up; stand the ${topWord} and bottom on it, flush at the front and set back ${plan.backJoint === 'rabbet' ? 'from the rabbet' : `${f(config.backThickness)} from the back edge for the back`}.`,
+      plan.pocket
+        ? (stretchers
+          ? `Drill the pocket holes first: ${plan.pocket.perEnd} in each end of the bottom (on its bottom face) and ${plan.pocket.stretcherPerEnd ?? 2} in each end of each stretcher (on its top face, under the countertop). Glue, clamp each part flush to the side, and drive ${f(plan.pocket.screw)} pocket screws. Repeat with the other side.`
+          : `Drill the pocket holes in the ends of the top and bottom first (${plan.pocket.perEnd} per end, on the underside of the top and the bottom face of the bottom). Glue, clamp the panel flush to the side, and drive ${f(plan.pocket.screw)} pocket screws. Repeat with the other side.`)
+        : stretchers ? 'Glue, then drive four screws through the side into the bottom and two into each stretcher. Repeat with the other side.'
+          : 'Glue, then drive four screws through the side into each panel. Repeat with the other side.',
       ...(plan.blind ? [
         `This is a blind corner cabinet: the top, bottom and toe kick run ${f(plan.blind.width)} past the opening on the ${plan.blind.side}, and the end side closes that end — there’s no side between the opening and the blind space.`,
         ...(plan.blind.slideBottom !== null ? [`Hang the slide panel where the ${plan.blind.side} side of the opening would be: screw down through the top into its top edge, square to the front, and fix its back edge to a cleat on the back once the back is on. It stops ${f(plan.blind.slideBottom - plan.sideBottom)} above the side’s bottom edge, so the door opening below runs straight into the corner.`] : []),
@@ -322,7 +360,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
         `Glue the ${dadoCubbies.every(d => d.door) ? 'fixed shel' : dadoCubbies.every(d => !d.door) ? 'cubby shel' : 'floor shel'}${dadoCubbies.length === 1 ? 'f' : 'ves'} into ${dadoCubbies.length === 1 ? 'its' : 'their'} dados as the sides go on, front edges flush.`,
       ] : []),
       ...(plan.partitionXs.length ? [
-        `Stand the partition${plan.partitionXs.length > 1 ? 's' : ''} between the top and bottom at ${plan.partitionXs.map(x => f(x - T)).join(' and ')} from the inside of the left side, front edges flush; ${plan.pocket ? 'glue, clamp and drive pocket screws from the partition’s ends into the top and bottom.' : 'glue and screw through the top and bottom into each.'}`,
+        `Stand the partition${plan.partitionXs.length > 1 ? 's' : ''} between the ${topWord} and bottom at ${plan.partitionXs.map(x => f(x - T)).join(' and ')} from the inside of the left side, front edges flush; ${plan.pocket ? `glue, clamp and drive pocket screws from the partition’s ends into the ${topWord} and bottom.` : `glue and screw through the ${topWord} and bottom into each.`}`,
       ] : []),
       ...(plan.base?.kind === 'kick' ? [
         `Under the bottom, glue and screw the toe kick between the sides ${f(plan.base.setback)} back from the front edge (its face lines up with the back of the notches), and the kick nailer at the back.`,
@@ -349,10 +387,10 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     instructions: [
       'Lay the case face down. Check the diagonals once more.',
       ...(plan.backJoint === 'rabbet'
-        ? ['Glue the rabbets and the back edges of the top and bottom, drop the back in, and brad it every 6″.']
+        ? [`Glue the rabbets and the back edges of the ${stretchers ? 'back stretcher' : 'top'} and bottom, drop the back in, and brad it every 6″.`]
         : [
-          `Glue the back edges of the top, bottom${plan.partitionXs.length ? ' and partitions' : ''}, and drop the back in between the sides${plan.cleatGap > 0 ? `, ${f(plan.cleatGap)} in from their back edges` : ', flush with their back edges'}.`,
-          `Screw through the back into the top, bottom${plan.partitionXs.length ? ' and partitions' : ''} every 8″, and through each side into the back’s edges every 8″ — pre-drill and countersink, ${f(T / 2)} from the edge.`,
+          `Glue the back edges of the ${stretchers ? 'back stretcher' : 'top'}, bottom${plan.partitionXs.length ? ' and partitions' : ''}, and drop the back in between the sides${plan.cleatGap > 0 ? `, ${f(plan.cleatGap)} in from their back edges` : ', flush with their back edges'}.`,
+          `Screw through the back into the ${stretchers ? 'back stretcher' : 'top'}, bottom${plan.partitionXs.length ? ' and partitions' : ''} every 8″, and through each side into the back’s edges every 8″ — pre-drill and countersink, ${f(T / 2)} from the edge.`,
         ]),
     ],
     parts: sized(partsWhere(['Back'])),
@@ -458,13 +496,17 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       id: 'box-glue',
       title: 'First box: front and back into a side',
       summary: `Shown up close: the ${f(d.box.width)} × ${f(d.box.height)} × ${f(d.box.depth)} box (${same}). Lay the left side inside face up.`,
-      instructions: [
+      instructions: pocketBox ? [
+        `Glue the ends of the box front and back${notch}.`,
+        'Stand the front and back on the side, flush with its ends, pocket holes facing out (away from the inside of the box), grooves facing in and lined up with the side’s groove, top edges flush.',
+        `Clamp each one down so it can’t creep, then drive ${f(plan.boxPocket?.screw ?? 1)} pocket screws through it into the side (${boxPocketsPerEnd(d.box.height)} per corner).`,
+      ] : [
         `Glue the rabbets and the ends of the box front and back${notch}.`,
         'Stand the front and back in the side’s rabbets, grooves facing in and lined up with the side’s groove, top edges flush.',
         `Brad through the side into each end (three per corner), ${f(b / 2)} in from the end so the nails land in the middle of the front and back.`,
       ],
       parts: [],
-      tips: ['Glue only the rabbets and the end grain — keep it out of the grooves or the bottom won’t slide in.'],
+      tips: [pocketBox ? 'A butt joint slides as the screw bites: clamp across the joint (a right-angle clamp is ideal) before driving, and keep glue out of the grooves.' : 'Glue only the rabbets and the end grain — keep it out of the grooves or the bottom won’t slide in.'],
       cautions: [],
       scene: detail.scenes.glue,
       minutes: 8,
@@ -489,8 +531,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       title: 'First box: close it with the second side',
       summary: `Glue the right side on and square the box. It must measure exactly ${f(d.box.width)} across.`,
       instructions: [
-        'Glue the right side’s rabbets and press it on over the front, back and bottom.',
-        'Brad the two corners, three per corner.',
+        ...(pocketBox
+          ? ['Glue the free ends of the front and back and press the right side on over them and the bottom, flush at both ends.', 'Clamp, then drive the pocket screws through the front and back into the side.']
+          : ['Glue the right side’s rabbets and press it on over the front, back and bottom.', 'Brad the two corners, three per corner.']),
         'Measure both diagonals across the top; nudge the box until they match, then let it set.',
         `Check the width across the outside of the sides: ${f(d.box.width)} — its opening less ${f(plan.slide.clearance * 2)} for the slides.`,
       ],
@@ -506,7 +549,9 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     title: total > 1 ? 'Build the other drawer boxes' : 'Build the drawer box',
     summary: `${total} box${total === 1 ? '' : 'es'} in all, ${widths} wide and ${[...new Set(boxed.map(d => f(d.box.depth)))].join(' or ')} deep, every one built like the first.`,
     instructions: [
-      ...(detail ? [] : ['Glue the front and back into the side rabbets, slide the bottom into its groove, then add the second side.', 'Brad each corner through the side (three per corner).']),
+      ...(detail ? [] : pocketBox
+        ? ['Glue and pocket-screw the front and back to one side, slide the bottom into its groove, then add the second side.']
+        : ['Glue the front and back into the side rabbets, slide the bottom into its groove, then add the second side.', 'Brad each corner through the side (three per corner).']),
       'Check both diagonals across the top; nudge until they match, then let it set.',
       `Each box must measure ${widths} across — exactly its opening less ${f(plan.slide.clearance * 2)}.`,
       ...(plan.slide.undermount ? ['Drill each box for the Blum locking devices (front corners, underneath) and the rear hook-in holes in the back, using Blum’s drilling template or jig — positions depend on the model, so follow its instruction sheet. Check that the bottom clears the rear bracket.'] : []),
@@ -550,7 +595,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       summary: `${count} tray${count === 1 ? '' : 's'}, ${f(t.width)} wide and ${f(t.height)} tall, on ${f(t.depth)} slides — built like the drawer boxes.`,
       instructions: [
         `Screw a spacer panel to each side of the opening behind the door${withTrays.length === 1 ? '' : 's'}: it holds the slides ${f(T)} in from the side, so the trays clear the hinges and the open door.`,
-        `Build each tray like a drawer box: rabbets at the ends of the sides, the bottom in its groove ${f(BOTTOM_GROOVE_OFFSET)} up.`,
+        `Build each tray like a drawer box: ${pocketBox ? 'the front and back pocket-screwed between the sides' : 'rabbets at the ends of the sides'}, the bottom in its groove ${f(BOTTOM_GROOVE_OFFSET)} up.`,
         ...withTrays.flatMap(d => d.door!.trays.map((tr, k) => `${d.label}, tray ${k + 1}: cabinet member’s bottom edge ${f(tr.slideY - d.door!.zoneBottom)} above the floor of the space behind the door.`)),
         'Fit the drawer members to the trays, flush with the tray front, and slide them in.',
       ],
@@ -690,6 +735,34 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
       cautions: ['Bore the cups with a Forstner bit and a depth stop: a cup that breaks through ruins the door face.'],
       scene: { view: 'front', visible: everything.filter(n => !doorLeaves.includes(n)), highlight: doorLeaves },
       minutes: 25 * leaves,
+    });
+  }
+
+  // 13a ── A countertop on a single cabinet, over the top stretchers
+  if (plan.countertop && config.countertop) {
+    const ct = plan.countertop;
+    const butcher = ct.material === 'butcher';
+    const thickness = ct.y1 - ct.y0;
+    steps.push({
+      id: 'countertop',
+      title: 'Fit the countertop',
+      summary: `${f(ct.x1 - ct.x0)} × ${f(ct.z1 - ct.z0)}, overhanging the fronts by ${f(config.countertop.overhangFront)}${ct.x0 < 0 || ct.x1 > plan.overallWidth ? ` and the ends that show by ${f(config.countertop.overhangSides)}` : ''}; its back flush with the cabinet’s. The surface ends up ${f(ct.y1)} off the floor.`,
+      instructions: [
+        ...(butcher
+          ? ['Cut the butcher block to size, ease the edges, and seal both faces so it moves evenly.',
+            'Screw figure-8 fasteners to the top faces of the two stretchers, about every 12″, each in a shallow recess so it sits flush and can swivel.',
+            'Set the top on, flush at the back, and screw up through the fasteners — they let the wood move.']
+          : [
+            ...(ct.layers === 2 ? ['Glue the two layers face to face and screw them together from the underside every 8″, then flush the edges.'] : []),
+            'Band the front edge and any end that shows.',
+            'Set it on the case, flush at the back, and screw up through the front and back stretchers from inside (take the top drawers out), one every 6–8″.',
+          ]),
+      ],
+      parts: sized(partsWhere(['Countertop'])),
+      tips: [butcher ? 'Seal the underside as well as the top, or the top cups.' : 'Pre-drill and countersink up through the stretchers so the screws pull the countertop down tight.'],
+      cautions: [`Screws must be shorter than ${f(T)} plus the ${f(thickness)} countertop, less ${f(1 / 4)}, so they never come through.`],
+      scene: { view: 'front', visible: everything.filter(name => name !== 'Countertop'), highlight: ['Countertop'] },
+      minutes: 40,
     });
   }
 

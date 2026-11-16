@@ -9,7 +9,9 @@
 //
 // Case: full-height sides; top and bottom fitted between them; a thin back let
 // into a rabbet in each side. Drawer boxes: four sides of thinner plywood with
-// the front and back in rabbets in the box sides, and a bottom in a groove.
+// the front and back in rabbets in the box sides (or butted between them and
+// pocket-screwed), and a bottom in a groove. Under a countertop the full top
+// gives way to a front and a back stretcher.
 
 import {
   ALEX_TAPER,
@@ -229,6 +231,16 @@ export interface DrawerConfig {
   slideType?: SlideType;
   /** Join the top, bottom and partitions to the sides with pocket screws instead of plain screws. */
   pocketCase?: boolean;
+  /**
+   * Drawer boxes (and pull-out trays) as butt joints: the box front and back fit between the
+   * sides and are pocket-screwed into them. Left out, they sit in rabbets in the sides.
+   */
+  boxJoinery?: 'pocket';
+  /**
+   * A countertop on a single floor-standing cabinet. Under it the case has a front and a
+   * back stretcher instead of a full top.
+   */
+  countertop?: CabinetCountertop;
   /** Extra depth left on the sides past the back, to scribe to an uneven wall. */
   scribe?: number;
   /** Band the case's front edges and the drawer fronts' straight edges. */
@@ -282,6 +294,19 @@ export interface DrawerConfig {
   blind?: BlindConfig;
   /** An outlet behind the cabinet: a cutout in the back, centred across it, this high (its centre) off the floor. */
   outlet?: { height: number };
+}
+
+/** A countertop's material, thickness and overhangs (the same settings as under a bookcase). */
+export type CabinetCountertop = BookcaseConfig['countertop'];
+
+export const DEFAULT_COUNTERTOP: CabinetCountertop = { material: 'plywood', thickness: 1.5, layers: 1, overhangFront: 1, overhangSides: 1 };
+
+/** Top stretchers under a countertop: this wide, laid flat, one at the front and one at the back. */
+export const TOP_STRETCHER_WIDTH = 4;
+
+/** Pocket holes in each end of a drawer-box front or back this tall. */
+export function boxPocketsPerEnd(height: number): number {
+  return height < 3.5 ? 1 : height <= 8 ? 2 : 3;
 }
 
 /**
@@ -721,8 +746,16 @@ export interface DrawerPlan {
   /** Per drawer: contents weight and bottom sag at the chosen load. */
   loads: DrawerLoadCheck[];
   banding: { thickness: number; totalLength: number } | null;
-  /** Pocket-screw joints in the case, when turned on. */
-  pocket: { perEnd: number; count: number; screw: number } | null;
+  /** Pocket-screw joints in the case, when turned on. `stretcherPerEnd`: holes in each end of a top stretcher. */
+  pocket: { perEnd: number; count: number; screw: number; stretcherPerEnd?: number } | null;
+  /** Drawer-box corners: the front and back in rabbets in the sides, or butted between them and pocket-screwed. */
+  boxJoint: 'rabbet' | 'pocket';
+  /** Pocket holes in the drawer boxes and trays (all units), when they're pocket-screwed. */
+  boxPocket: { count: number; screw: number } | null;
+  /** The countertop on a single cabinet (null without one, or under a bookcase or a wall run, which have their own). */
+  countertop: { x0: number; x1: number; y0: number; y1: number; z0: number; z1: number; material: 'plywood' | 'butcher'; layers: number } | null;
+  /** Under a countertop: a front and a back stretcher this wide take the place of the top panel. */
+  topStretchers: { width: number } | null;
   slide: SlideSpec;
   /** Extra side depth for scribing to the wall (0 when off). */
   scribe: number;
@@ -1230,9 +1263,25 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   // Pocket-screw joints: the top and bottom into each side, each partition into the top and bottom.
   const scribe = Math.max(0, config.scribe ?? 0);
   const pocketPerEnd = pocketsPerEnd(interiorDepth);
-  const pocketCount = config.pocketCase ? (4 + 2 * partitionXs.length) * pocketPerEnd : 0;
-  const pocket = pocketCount > 0 ? { perEnd: pocketPerEnd, count: pocketCount, screw: pocketScrewLength(T) } : null;
+  // A countertop: on a single floor-standing cabinet only (a bookcase, a wall run and a desk bring their own top).
+  const counterCfg = config.countertop ?? null;
+  if (counterCfg) {
+    if (mount !== 'floor') errors.push('A countertop needs a floor-standing cabinet — set the mounting to the floor, or turn the countertop off.');
+    if (config.desk?.enabled) errors.push('Use either the desk top or the countertop, not both.');
+    if (config.bookcase?.enabled) errors.push('The bookcase has its own countertop setting (“On a countertop”) — turn this countertop off.');
+    if (config.run?.enabled) errors.push('A wall run has its own countertop — turn this countertop off.');
+    if (blindCfg) errors.push('A blind corner cabinet goes under the next run’s countertop — turn this countertop off.');
+  }
+  const stretcherWidth = counterCfg ? Math.min(TOP_STRETCHER_WIDTH, Math.floor(interiorDepth / 2 * 16) / 16) : 0;
+  const topStretchers: DrawerPlan['topStretchers'] = counterCfg && stretcherWidth > 0 ? { width: stretcherWidth } : null;
+  const stretcherPerEnd = topStretchers ? pocketsPerEnd(stretcherWidth) : 0;
+  // A full top: its two ends, and each partition's top end. Stretchers: two ends each, and each partition into both.
+  const topHoles = topStretchers ? (4 + 2 * partitionXs.length) * stretcherPerEnd : (2 + partitionXs.length) * pocketPerEnd;
+  const pocketCount = config.pocketCase ? (2 + partitionXs.length) * pocketPerEnd + topHoles : 0;
+  const pocket = pocketCount > 0 ? { perEnd: pocketPerEnd, count: pocketCount, screw: pocketScrewLength(T), ...(topStretchers ? { stretcherPerEnd } : {}) } : null;
   const pocketNote = pocket ? `Pocket-screwed: ${pocket.perEnd} pocket holes in each end, drilled on the face that won't show` : '';
+  const boxJoint: DrawerPlan['boxJoint'] = config.boxJoinery === 'pocket' ? 'pocket' : 'rabbet';
+  let boxHoles = 0;
 
   // Parts.
   const parts: ShelfPart[] = [];
@@ -1254,7 +1303,15 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     const Wd = caseDepth - caseBanding + scribe;
     partOutlines.Side = [[0, sv], [0, Wd], [sideLength, Wd], [sideLength, 0], [B, 0], [B, sv]];
   }
-  parts.push({ name: 'Top', qty: 1, length: panelLength, width: interiorDepth - caseBanding, thickness: T, note: pocketNote || undefined, material: 'plywood' });
+  if (topStretchers) {
+    const fixing = counterCfg!.material === 'butcher' ? 'figure-8 fasteners on them hold the countertop' : 'the countertop screws up through them';
+    parts.push({ name: 'Top stretcher', qty: 2, length: panelLength, width: topStretchers.width, thickness: T,
+      note: [`Flat between the sides in place of a top: one flush with the front edge, one against the back; ${fixing}`,
+        pocket ? `Pocket-screwed: ${stretcherPerEnd} pocket holes in each end, on the top face (the countertop hides them)` : ''].filter(Boolean).join('. '),
+      material: 'plywood' });
+  } else {
+    parts.push({ name: 'Top', qty: 1, length: panelLength, width: interiorDepth - caseBanding, thickness: T, note: pocketNote || undefined, material: 'plywood' });
+  }
   parts.push({ name: 'Bottom', qty: 1, length: panelLength, width: interiorDepth - caseBanding, thickness: T,
     note: [pocketNote, supports > 0 && config.base === 'feet' ? `${supports} T-nuts for the leveling feet`
       : supports > 0 && config.base === 'casters' ? `${supports} casters screw on`
@@ -1272,7 +1329,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   partitionXs.forEach((x, pi) => {
     parts.push({
       name: partitionXs.length === 1 ? 'Partition' : `Partition ${pi + 1}`, qty: 1, length: caseHeight - 2 * T, width: interiorDepth - caseBanding, thickness: T,
-      note: `Between the top and bottom, ${f(x - T)} in from the left side; slides screw to both faces${pocket ? `. ${pocketNote}` : ''}`, material: 'plywood',
+      note: `Between the ${topStretchers ? 'top stretchers' : 'top'} and bottom, ${f(x - T)} in from the left side; slides screw to both faces${pocket ? `. ${pocketNote}${topStretchers ? ` (${stretcherPerEnd} under each stretcher at the top end)` : ''}` : ''}`, material: 'plywood',
     });
   });
   if (basePlan) {
@@ -1326,12 +1383,18 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
         : `${pull.shape === 'arc' ? 'Arc' : pull.shape === 'wide' ? 'Wide' : 'Slot'} finger pull ${f(across)} wide × ${f(pull.depth)} deep, centred on the top edge`;
     parts.push({ name: `Drawer front${which}`, qty, length: frontWidth - 2 * banding, width: g.front - 2 * banding, thickness: T,
       note: pullNote, material: 'plywood' });
+    // Rabbeted, the front and back reach half-way into each side; pocket-screwed, they fit between the sides.
+    const endLength = boxJoint === 'pocket' ? boxWidth - 2 * b : boxWidth - b;
+    const holes = boxPocketsPerEnd(g.box);
+    if (boxJoint === 'pocket') boxHoles += qty * 4 * holes;
+    const endNote = boxJoint === 'pocket' ? `Bottom groove; ${holes} pocket hole${holes === 1 ? '' : 's'} in each end, on the outside face` : 'Bottom groove';
     parts.push({ name: `Box side${which}`, qty: qty * 2, length: g.depth, width: g.box, thickness: b,
-      note: `${f(b)} × ${f(b / 2)} rabbet at each end; bottom groove ${f(BOTTOM_GROOVE_OFFSET)} up`, material: 'plywood' });
-    parts.push({ name: `Box front${which}`, qty, length: boxWidth - b, width: g.box, thickness: b,
-      note: g.notch > 0 ? `Notch ${f(across + BOX_NOTCH_EXTRA)} wide × ${f(g.notch)} deep for fingers` : 'Bottom groove',
+      note: boxJoint === 'pocket' ? `Bottom groove ${f(BOTTOM_GROOVE_OFFSET)} up; the front and back butt against the inside face, pocket-screwed`
+        : `${f(b)} × ${f(b / 2)} rabbet at each end; bottom groove ${f(BOTTOM_GROOVE_OFFSET)} up`, material: 'plywood' });
+    parts.push({ name: `Box front${which}`, qty, length: endLength, width: g.box, thickness: b,
+      note: g.notch > 0 ? `Notch ${f(across + BOX_NOTCH_EXTRA)} wide × ${f(g.notch)} deep for fingers${boxJoint === 'pocket' ? `; ${endNote.charAt(0).toLowerCase()}${endNote.slice(1)}` : ''}` : endNote,
       material: 'plywood' });
-    parts.push({ name: `Box back${which}`, qty, length: boxWidth - b, width: g.box, thickness: b, note: 'Bottom groove', material: 'plywood' });
+    parts.push({ name: `Box back${which}`, qty, length: endLength, width: g.box, thickness: b, note: endNote, material: 'plywood' });
     parts.push({ name: `Box bottom${which}`, qty, length: boxInsideWidth + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY, width: boxInsideDepth + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY,
       thickness: bt, material: 'plywood' });
   }
@@ -1402,9 +1465,13 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
   for (const g of trayGroups) {
     const which = trayGroups.length === 1 ? '' : ` · ${f(g.width)} × ${f(g.height)}`;
     const inside = g.width - 2 * b;
+    const holes = boxPocketsPerEnd(g.height);
+    if (boxJoint === 'pocket') boxHoles += g.count * 4 * holes;
     parts.push({ name: `Tray side${which}`, qty: g.count * 2, length: g.depth, width: g.height, thickness: b,
-      note: `${f(b)} × ${f(b / 2)} rabbet at each end; bottom groove ${f(BOTTOM_GROOVE_OFFSET)} up`, material: 'plywood' });
-    parts.push({ name: `Tray front and back${which}`, qty: g.count * 2, length: g.width - b, width: g.height, thickness: b, note: 'Bottom groove', material: 'plywood' });
+      note: boxJoint === 'pocket' ? `Bottom groove ${f(BOTTOM_GROOVE_OFFSET)} up; the front and back butt against the inside face, pocket-screwed`
+        : `${f(b)} × ${f(b / 2)} rabbet at each end; bottom groove ${f(BOTTOM_GROOVE_OFFSET)} up`, material: 'plywood' });
+    parts.push({ name: `Tray front and back${which}`, qty: g.count * 2, length: boxJoint === 'pocket' ? g.width - 2 * b : g.width - b, width: g.height, thickness: b,
+      note: boxJoint === 'pocket' ? `Bottom groove; ${holes} pocket hole${holes === 1 ? '' : 's'} in each end, on the outside face` : 'Bottom groove', material: 'plywood' });
     parts.push({ name: `Tray bottom${which}`, qty: g.count, length: inside + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY, width: g.depth - 2 * b + 2 * BOTTOM_GROOVE_DEPTH - BOTTOM_PLAY, thickness: bt, material: 'plywood' });
   }
   for (const g of spacerPanels) {
@@ -1628,6 +1695,35 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     }
   }
 
+  // Countertop: from the cabinet's back to just past the fronts, over the ends that show.
+  let countertop: DrawerPlan['countertop'] = null;
+  if (counterCfg && topStretchers && mount === 'floor' && !config.desk?.enabled && !config.bookcase?.enabled && !config.run?.enabled && !blindCfg) {
+    const c = counterCfg;
+    const exposed = config.exposedSides ?? { left: true, right: true };
+    const thickness = c.material === 'plywood' ? T * c.layers : c.thickness;
+    countertop = {
+      x0: exposed.left ? -c.overhangSides : 0, x1: W + (exposed.right ? c.overhangSides : 0),
+      z0: -(inset ? 0 : T) - c.overhangFront, z1: caseDepth,
+      y0: H, y1: H + thickness,
+      material: c.material, layers: c.material === 'plywood' ? c.layers : 1,
+    };
+    const length = countertop.x1 - countertop.x0;
+    const depth = countertop.z1 - countertop.z0;
+    if (c.overhangFront < 0 || c.overhangFront > 4) errors.push(`A ${f(c.overhangFront)} front overhang is outside ${f(0)}–${f(4)}; ${f(1)} is typical.`);
+    if (c.overhangSides < 0 || c.overhangSides > 4) errors.push(`A ${f(c.overhangSides)} end overhang is outside ${f(0)}–${f(4)}.`);
+    if (c.material === 'plywood') {
+      parts.push({ name: 'Countertop', qty: c.layers, length, width: depth, thickness: T,
+        note: [c.layers === 2 ? 'Two layers glued and screwed together' : '', 'Screwed up through the top stretchers', 'band the front and the ends that show'].filter(Boolean).join('; '),
+        material: 'plywood' });
+      if (errors.length === 0 && !fitsSheet(length, depth)) errors.push(`The ${f(length)} × ${f(depth)} countertop is bigger than a 4 × 8 sheet — use butcher block, or make it smaller.`);
+    } else {
+      if (c.thickness < 0.75 || c.thickness > 2) errors.push(`A ${f(c.thickness)} butcher-block top is outside ${f(3 / 4)}–${f(2)}.`);
+      parts.push({ name: 'Countertop (butcher block)', qty: 1, length, width: depth, thickness: c.thickness,
+        note: 'Bought to size or cut from a slab; fastened to the top stretchers with figure-8 clips so it can move', material: 'solid' });
+    }
+    if (config.base === 'casters' && H + thickness > 2.5 * D) warnings.push('A countertop adds weight up high on a unit on casters — lock the casters before leaning on it.');
+  }
+
   if (errors.length === 0) {
     for (const p of sheetParts(parts)) {
       if (!fitsSheet(p.length, p.width)) {
@@ -1792,6 +1888,8 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
       // The desk top's front and ends (each layer's edge shows).
       + (desk ? (desk.width + 2 * desk.depth) * (config.desk?.topLayers ?? 1) : 0)
       + (bookcase?.shelfPlan.banding?.totalLength ?? 0)
+      // A plywood countertop's front and the ends that overhang (each layer's edge shows).
+      + (countertop?.material === 'plywood' ? (countertop.x1 - countertop.x0 + (countertop.x0 < 0 ? 1 : 0) * (countertop.z1 - countertop.z0) + (countertop.x1 > W ? 1 : 0) * (countertop.z1 - countertop.z0)) * countertop.layers : 0)
     : 0;
 
   return {
@@ -1810,7 +1908,7 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     sideBottom,
     base: basePlan,
     bookcase,
-    totalHeight: Math.max(H, desk ? desk.height : 0, bookcase ? bookcase.totalHeight : 0, run ? run.totalHeight : 0,
+    totalHeight: Math.max(H, countertop ? countertop.y1 : 0, desk ? desk.height : 0, bookcase ? bookcase.totalHeight : 0, run ? run.totalHeight : 0,
       mount === 'under-desk' ? (config.mountHeight ?? 28) + 1.5 : 0),
     run,
     interiorWidth,
@@ -1832,6 +1930,10 @@ export function buildDrawerPlan(config: DrawerConfig): DrawerPlan {
     loads,
     banding: banding > 0 ? { thickness: banding, totalLength: bandingTotal } : null,
     pocket,
+    boxJoint,
+    boxPocket: boxHoles > 0 ? { count: boxHoles * unitCount, screw: pocketScrewLength(b) } : null,
+    countertop,
+    topStretchers,
     scribe,
     slide: spec,
   };
@@ -1890,7 +1992,10 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
   const solids: Solid[] = [
     side('Left side', 0, T),
     side('Right side', W - T, W),
-    box('Top', 'case', [T, H - T, 0], [W - T, H, id]),
+    ...(plan.topStretchers
+      ? [box('Top stretcher, front', 'case', [T, H - T, 0], [W - T, H, plan.topStretchers.width]),
+        box('Top stretcher, back', 'case', [T, H - T, id - plan.topStretchers.width], [W - T, H, id])]
+      : [box('Top', 'case', [T, H - T, 0], [W - T, H, id])]),
     box('Bottom', 'case', [T, B, 0], [W - T, B + T, id]),
     box('Back', 'back', [plan.backJoint === 'screwed' ? T : T / 2, B, id], [W - (plan.backJoint === 'screwed' ? T : T / 2), H, id + config.backThickness]),
     ...plan.partitionXs.map((x, i) => box(plan.partitionXs.length === 1 ? 'Partition' : `Partition ${i + 1}`, 'case', [x, B + T, 0], [x + T, H - T, id])),
@@ -1915,11 +2020,13 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     const y0 = bx.y;
     const y1 = bx.y + bx.height;
     const boxNotch = boxNotchSpec(pull, fr.width, d.boxNotchDepth);
+    // Pocket-screwed, the front and back fit between full-depth sides; rabbeted, they're drawn across them.
+    const butt = plan.boxJoint === 'pocket' ? b : 0;
     solids.push({ name: `${name} box front`, kind: 'drawer-box', shape: 'plate', z0: zf, z1: zf + b,
-      outline: notchedOutline(x0, y0, bx.width, bx.height, boxNotch) });
-    solids.push(box(`${name} box back`, 'drawer-box', [x0, y0, zf + bx.depth - b], [x1, y1, zf + bx.depth]));
-    solids.push(box(`${name} box left side`, 'drawer-box', [x0, y0, zf + b], [x0 + b, y1, zf + bx.depth - b]));
-    solids.push(box(`${name} box right side`, 'drawer-box', [x1 - b, y0, zf + b], [x1, y1, zf + bx.depth - b]));
+      outline: notchedOutline(x0 + butt, y0, bx.width - 2 * butt, bx.height, boxNotch) });
+    solids.push(box(`${name} box back`, 'drawer-box', [x0 + butt, y0, zf + bx.depth - b], [x1 - butt, y1, zf + bx.depth]));
+    solids.push(box(`${name} box left side`, 'drawer-box', [x0, y0, zf + (butt ? 0 : b)], [x0 + b, y1, zf + bx.depth - (butt ? 0 : b)]));
+    solids.push(box(`${name} box right side`, 'drawer-box', [x1 - b, y0, zf + (butt ? 0 : b)], [x1, y1, zf + bx.depth - (butt ? 0 : b)]));
     const by = y0 + BOTTOM_GROOVE_OFFSET;
     solids.push(box(`${name} box bottom`, 'drawer-box', [x0 + b, by, zf + b], [x1 - b, by + config.bottomThickness, zf + bx.depth - b]));
     const insert = plan.inserts[d.index];
@@ -1992,7 +2099,8 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     const n = s.name;
     if (n === 'Left side') return [-spread, 0, 0];
     if (n === 'Right side') return [spread, 0, 0];
-    if (n === 'Top') return [0, spread, 0];
+    if (n === 'Top' || n.startsWith('Top stretcher')) return [0, spread, 0];
+    if (n === 'Countertop') return [0, spread * 1.8, 0];
     if (n === 'Bottom') return [0, -spread / 3, 0];
     if (n === 'Back') return [0, 0, spread * 1.5];
     // Panels, strips and pulls travel with their front.
@@ -2051,6 +2159,10 @@ export function drawerSolids(plan: DrawerPlan, config: DrawerConfig): Solid[] {
     solids.push({ name: 'Wall cleat', kind: 'wall-cleat', shape: 'prism', x0: T, x1: W - T,
       profile: [[z0, top - h], [z1, top - h + bevel], [z1, top - 2 * h + bevel], [z0, top - 2 * h]] });
     solids.push(box('Bottom spacer', 'cleat', [T, B + T, z0], [W - T, B + T + 2, z1]));
+  }
+  if (plan.countertop) {
+    const ct = plan.countertop;
+    solids.push({ ...box('Countertop', 'shelf', [ct.x0, ct.y0, ct.z0], [ct.x1, ct.y1, ct.z1]), explode: [0, spread * 1.8, 0] });
   }
   if (plan.bookcase) solids.push(...swingBookcaseDoors(styleBookcaseDoors(bookcaseSolids(plan.bookcase, W, cd, T), plan.bookcase.shelfPlan.doors, doorView(config)), plan.bookcase.shelfPlan.doors));
   if (plan.mount === 'under-desk') {
@@ -2772,6 +2884,8 @@ export function readSavedDrawerDesign(raw: unknown): SavedDrawerDesign | null {
       slideType: c.slideType === 'blum-tandem' ? 'blum-tandem' : 'side',
       edgeBanding: c.edgeBanding === true,
       pocketCase: c.pocketCase === true,
+      ...(c.boxJoinery === 'pocket' ? { boxJoinery: 'pocket' as const } : {}),
+      ...(readCountertop(c.countertop) ? { countertop: readCountertop(c.countertop) } : {}),
       scribe: num(c.scribe, 0, 3) ?? 0,
       bandingThickness: num(c.bandingThickness, 0, 0.15) ?? 0.02,
       units,
@@ -2824,6 +2938,20 @@ function readColumns(raw: unknown, drawers: number, fronts: boolean): DrawerColu
     cols.push({ drawers: n, ...(fronts ? { frontHeights: heights } : {}), ...(width ? { width } : {}) });
   }
   return cols.reduce((a, c) => a + c.drawers, 0) === drawers ? cols : undefined;
+}
+
+function readCountertop(raw: unknown): CabinetCountertop | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  const n = (x: unknown, fallback: number) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= 12 ? x : fallback);
+  const d = DEFAULT_COUNTERTOP;
+  return {
+    material: v.material === 'butcher' ? 'butcher' : 'plywood',
+    thickness: n(v.thickness, d.thickness),
+    layers: v.layers === 2 ? 2 : 1,
+    overhangFront: n(v.overhangFront, d.overhangFront),
+    overhangSides: n(v.overhangSides, d.overhangSides),
+  };
 }
 
 function readHardware(raw: unknown): PullHardware | undefined {
@@ -2988,6 +3116,15 @@ export interface DrawerDesignFields {
   slideType: SlideType;
   edgeBanding: boolean;
   pocketCase: boolean;
+  /** Drawer boxes: rabbeted corners, or butt joints with pocket screws. */
+  boxJoinery: 'rabbet' | 'pocket';
+  /** A countertop on a single cabinet, as typed. */
+  countertop: boolean;
+  counterMaterial: 'plywood' | 'butcher';
+  counterThickness: string;
+  counterLayers: 1 | 2;
+  counterOverhangFront: string;
+  counterOverhangSides: string;
   scribe: string;
   bandingThickness: string;
   /** Per drawer, top to bottom. */
@@ -3126,6 +3263,13 @@ export function drawerDesignToFields(saved: SavedDrawerDesign): DrawerDesignFiel
     slideType: c.slideType === 'blum-tandem' ? 'blum-tandem' : 'side',
     edgeBanding: c.edgeBanding === true,
     pocketCase: c.pocketCase === true,
+    boxJoinery: c.boxJoinery === 'pocket' ? 'pocket' : 'rabbet',
+    countertop: !!c.countertop,
+    counterMaterial: c.countertop?.material ?? DEFAULT_COUNTERTOP.material,
+    counterThickness: L(c.countertop?.thickness ?? DEFAULT_COUNTERTOP.thickness),
+    counterLayers: c.countertop?.layers ?? DEFAULT_COUNTERTOP.layers,
+    counterOverhangFront: L(c.countertop?.overhangFront ?? DEFAULT_COUNTERTOP.overhangFront),
+    counterOverhangSides: L(c.countertop?.overhangSides ?? DEFAULT_COUNTERTOP.overhangSides),
     scribe: c.scribe ? L(c.scribe) : '0',
     bandingThickness: c.bandingThickness ? `${Math.round(c.bandingThickness * 25.4 * 10) / 10} mm` : '0.5 mm',
     insertKinds: Array.from({ length: c.drawers }, (_, i) => (c.doors?.[i] ? 'door' : c.openSlots?.[i] ? 'cubby' : c.inserts?.[i]?.kind ?? 'none')),

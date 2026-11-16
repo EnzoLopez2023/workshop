@@ -144,6 +144,13 @@ const DEFAULT_FORM: FormState = {
   slideType: 'side',
   edgeBanding: false,
   pocketCase: false,
+  boxJoinery: 'rabbet',
+  countertop: false,
+  counterMaterial: 'plywood',
+  counterThickness: '1 1/2',
+  counterLayers: 1,
+  counterOverhangFront: '1',
+  counterOverhangSides: '1',
   scribe: '0',
   bandingThickness: '0.5 mm',
   insertKinds: ['none', 'none', 'none', 'none', 'none'],
@@ -201,6 +208,7 @@ const LENGTH_FIELDS = [
   'mountHeight', 'cleatHeight', 'toolBoardThickness', 'toolPocketDepth', 'toolClearance',
   'scribe', 'kickHeight', 'kickSetback', 'baseboardHeight', 'baseboardThickness',
   'hardwareSpacing', 'doorHardwareSpacing', 'profileRail', 'profileDepth', 'blindWidth', 'outletHeight',
+  'counterThickness', 'counterOverhangFront', 'counterOverhangSides',
 ] as const;
 type FieldKey = typeof LENGTH_FIELDS[number] | `frontHeights.${number}` | `columnFronts.${number}.${number}` | `columnWidths.${number}`
   | `bookcase.${typeof BOOKCASE_LENGTH_KEYS[number]}` | `run.${string}`;
@@ -262,7 +270,7 @@ function stepOfField(key: string): string {
   if (key === 'doorShelfThickness' || key === 'cubbyShelfThickness') return 'drawer-step-size';
   if (/^(pull|hardware|profile|bandingThickness)/.test(key)) return 'drawer-step-look';
   if (/^(footHeight|casterHeight|kick|baseboard|mountHeight|cleatHeight)/.test(key)) return 'drawer-step-base';
-  if (/^(bookcase|run|desk|blind|outlet)/.test(key)) return 'drawer-step-builtins';
+  if (/^(bookcase|run|desk|blind|outlet|counter)/.test(key)) return 'drawer-step-builtins';
   if (/^(insertThickness|marker|tool)/.test(key)) return 'drawer-step-inside';
   return 'drawer-step-size';
 }
@@ -303,6 +311,34 @@ const BLIND_SIDE_OPTIONS = [
   { value: 'left', label: 'Left' },
   { value: 'right', label: 'Right' },
 ] as const;
+
+const BOX_JOINERY_OPTIONS = [
+  { value: 'rabbet', label: 'Rabbets' },
+  { value: 'pocket', label: 'Pocket screws' },
+] as const;
+
+const COUNTER_MATERIAL_OPTIONS = [
+  { value: 'plywood', label: 'Plywood' },
+  { value: 'butcher', label: 'Butcher block' },
+] as const;
+
+const COUNTER_LAYER_OPTIONS = [
+  { value: '1', label: 'Single' },
+  { value: '2', label: 'Double thickness' },
+] as const;
+
+/**
+ * Why a single cabinet's own countertop can't be used with these settings (undefined when it can):
+ * a bookcase, a wall run and a desk bring their own top.
+ */
+function countertopBlocker(form: FormState): string | undefined {
+  return form.run?.enabled ? 'A wall run has its own countertop across every cabinet — set it under the wall run and uppers.'
+    : form.bookcase?.enabled ? 'The bookcase sits on its own countertop — choose “On a countertop” under Bookcase above.'
+      : form.desk ? 'The desk top does this job. Turn the desk top off to put a countertop on the cabinet.'
+        : form.blind ? 'A blind corner cabinet goes under the next run’s countertop. Turn off “Run the case on into a corner” first.'
+          : form.mount === 'wall' ? 'A countertop needs a floor-standing cabinet, and this one hangs on the wall. Set the mounting to the floor.'
+            : form.mount === 'under-desk' ? 'This cabinet stands under an existing desk, so it has no countertop of its own.' : undefined;
+}
 
 const TOP_LAYER_OPTIONS = [
   { value: '2', label: 'Double thickness' },
@@ -531,6 +567,16 @@ function toConfig(form: FormState): { config: DrawerConfig | null; fieldErrors: 
     slideType: form.slideType,
     edgeBanding: form.edgeBanding,
     pocketCase: form.pocketCase,
+    ...(form.boxJoinery === 'pocket' ? { boxJoinery: 'pocket' as const } : {}),
+    ...(form.countertop && !countertopBlocker(form) ? {
+      countertop: {
+        material: form.counterMaterial,
+        thickness: form.counterMaterial === 'butcher' ? num('counterThickness') : 1.5,
+        layers: form.counterLayers,
+        overhangFront: num('counterOverhangFront', { allowZero: true }),
+        overhangSides: num('counterOverhangSides', { allowZero: true }),
+      },
+    } : {}),
     scribe: num('scribe', { allowZero: true }),
     bandingThickness: parseLength(form.bandingThickness, form.units) ?? 0.02,
     openSlots: form.insertKinds.slice(0, form.drawers).includes('cubby') ? form.insertKinds.slice(0, form.drawers).map(k => k === 'cubby') : undefined,
@@ -1195,7 +1241,8 @@ export default function DrawerBuilder() {
   // Options that rule each other out: the one that can't be turned on is greyed out with the
   // reason in a tooltip, rather than turned on and then reported as an error.
   const notFloor = form.mount === 'wall' ? 'hangs on the wall' : form.mount === 'under-desk' ? 'stands under an existing desk' : null;
-  const blockers: { bookcase?: string; run?: string; desk?: string; blind?: string } = {
+  const blockers: { bookcase?: string; run?: string; desk?: string; blind?: string; countertop?: string } = {
+    countertop: countertopBlocker(form),
     bookcase: form.blind ? 'A blind corner cabinet is built on its own. Turn off “Run the case on into a corner” to add a bookcase — or build it in a wall run, where the uppers go over it.'
       : form.desk ? 'A bookcase sits on a single cabinet, not a desk. Turn off the desk top to add one.'
         : notFloor ? `A bookcase needs a floor-standing cabinet, and this one ${notFloor}. Set the mounting to the floor.`
@@ -1447,7 +1494,7 @@ export default function DrawerBuilder() {
                 ) : (
                   <>
                     <Stat label={plan.run ? 'Wall run' : 'Overall width'} value={fmt(plan.run ? plan.run.width : plan.blind ? plan.blind.totalWidth : plan.overallWidth)} />
-                    <Stat label={plan.bookcase ? 'Height with bookcase' : 'Overall height'} value={fmt(plan.bookcase || plan.run ? plan.totalHeight : plan.overallHeight)} />
+                    <Stat label={plan.bookcase ? 'Height with bookcase' : plan.countertop ? 'Height with countertop' : 'Overall height'} value={fmt(plan.bookcase || plan.run || plan.countertop ? plan.totalHeight : plan.overallHeight)} />
                     <Stat label="Overall depth" value={fmt(plan.overallDepth)} />
                   </>
                 )}
@@ -2019,6 +2066,35 @@ export default function DrawerBuilder() {
             onChange={patch => update({ bookcase: { ...form.bookcase, ...patch } })}
           />
 
+          <fieldset className="shelf-group" data-tour="fs-countertop" data-part="countertop" id="drawer-countertop">
+            <legend>Countertop</legend>
+            <Toggle
+              disabledReason={blockers.countertop}
+              label="Put a countertop on the cabinet"
+              checked={form.countertop && !blockers.countertop}
+              hint="A work surface on top. Under it the case gets a front and a back stretcher instead of a full top panel — less plywood, and the countertop fastens up through them."
+              onChange={countertop => update({ countertop })}
+            />
+            {form.countertop && !blockers.countertop && (
+              <>
+                <SegmentedControl label="Countertop" value={form.counterMaterial} options={COUNTER_MATERIAL_OPTIONS} onChange={counterMaterial => update({ counterMaterial })} />
+                <div className="shelf-field-grid">
+                  {form.counterMaterial === 'plywood'
+                    ? <SegmentedControl label="Thickness" value={String(form.counterLayers) as '1' | '2'} options={COUNTER_LAYER_OPTIONS} onChange={v => update({ counterLayers: v === '2' ? 2 : 1 })} />
+                    : <LengthField unit={units} label="Top thickness" value={form.counterThickness} error={fieldErrors.counterThickness} hint="1 1/2″ is common." onChange={counterThickness => update({ counterThickness })} />}
+                  <LengthField unit={units} label="Front overhang" value={form.counterOverhangFront} error={fieldErrors.counterOverhangFront} hint="Past the drawer fronts." onChange={counterOverhangFront => update({ counterOverhangFront })} />
+                  <LengthField unit={units} label="End overhang" value={form.counterOverhangSides} error={fieldErrors.counterOverhangSides} hint="Only over the ends that show (Base → exposed ends)." onChange={counterOverhangSides => update({ counterOverhangSides })} />
+                </div>
+                {plan?.countertop && (
+                  <p className="shelf-group-note">
+                    {fmt(plan.countertop.x1 - plan.countertop.x0)} × {fmt(plan.countertop.z1 - plan.countertop.z0)} × {fmt(plan.countertop.y1 - plan.countertop.y0)}, on the {fmt(plan.overallHeight)} cabinet: the surface is {fmt(plan.countertop.y1)} off the floor.
+                    {plan.topStretchers ? ` Two ${fmt(plan.topStretchers.width)} stretchers replace the top panel.` : ''}
+                  </p>
+                )}
+              </>
+            )}
+          </fieldset>
+
           <fieldset className="shelf-group" data-tour="fs-desk" data-part="desk">
             <legend>Desk</legend>
             <Toggle
@@ -2292,7 +2368,15 @@ export default function DrawerBuilder() {
               hint="Joins the top, bottom and partitions to the sides with pocket screws: no visible screw heads on the outside, and no clamps needed while the glue sets."
               onChange={pocketCase => update({ pocketCase })}
             />
-            {plan?.pocket && <p className="shelf-group-note">{plan.pocket.count} pocket holes, {plan.pocket.perEnd} per joint end, with {fmt(plan.pocket.screw)} coarse screws.</p>}
+            {plan?.pocket && <p className="shelf-group-note">{plan.pocket.count} pocket holes, {plan.pocket.perEnd} per joint end{plan.pocket.stretcherPerEnd ? ` (${plan.pocket.stretcherPerEnd} in each top stretcher end)` : ''}, with {fmt(plan.pocket.screw)} coarse screws.</p>}
+            <div className="form-field">
+              <span className="form-field-label" id="drawer-box-joint">Drawer boxes</span>
+              <SegmentedControl label="Drawer box joinery" value={form.boxJoinery ?? 'rabbet'} options={BOX_JOINERY_OPTIONS} onChange={boxJoinery => update({ boxJoinery })} />
+              <small>{form.boxJoinery === 'pocket'
+                ? 'Butt joints: the box front and back fit between the sides and are pocket-screwed into them — no rabbets to cut. The bottom still rides in a groove.'
+                : 'The box front and back sit in rabbets across the ends of the sides, glued and bradded. The bottom rides in a groove.'}</small>
+            </div>
+            {plan?.boxPocket && <p className="shelf-group-note">{plan.boxPocket.count} pocket holes in the drawer boxes, with {fmt(plan.boxPocket.screw)} screws.</p>}
             <LengthField
               unit={units}
               label="Scribe allowance"
@@ -2377,7 +2461,7 @@ export default function DrawerBuilder() {
             <header className="shelf-section-head">
               <div>
                 <h2 id="drawer-export-title">CNC &amp; Shaper export</h2>
-                <p>Cut files for every part: fronts with the finger-pull notch, box rabbets and bottom grooves, the back rabbet, and slide lines.</p>
+                <p>Cut files for every part: fronts with the finger-pull notch, {plan?.boxJoint === 'pocket' ? 'bottom grooves' : 'box rabbets and bottom grooves'}, the back rabbet, and slide lines.</p>
               </div>
             </header>
             <DrawerExport plan={plan} config={config} units={units} />
@@ -2514,6 +2598,7 @@ function DrawerElevation({ plan, config, fmt }: { plan: DrawerPlan; config: Draw
         {run ? <RunFront plan={plan} config={config} y={y} /> : desk ? <DeskFront plan={plan} config={config} y={y} fmt={fmt} fs={fs} /> : blind ? <BlindFront plan={plan} config={config} y={y} fmt={fmt} fs={fs} /> : (
           <>
             {bk && <BookcaseElevation plan={plan} bk={bk} width={plan.overallWidth} y={y} />}
+            {plan.countertop && <rect className="shelf-ply" x={plan.countertop.x0} y={y(plan.countertop.y1)} width={plan.countertop.x1 - plan.countertop.x0} height={plan.countertop.y1 - plan.countertop.y0} />}
             <CabinetFront plan={plan} config={config} y={y} />
           </>
         )}
@@ -2569,6 +2654,7 @@ function partOfSolid(name: string, plan: DrawerPlan, config: DrawerConfig): stri
     rest = tail;
   }
   if (UPPERS.test(rest)) return 'uppers';
+  if (plan.countertop && /^Countertop/.test(rest)) return 'countertop';
   if (/^(Run countertop|Countertop|Return countertop|Filler|Upper filler|Run grommet)/.test(rest)) return plan.bookcase ? 'uppers' : 'run';
   if (/^(Corner (ledger|filler)|Return (filler|grommet|countertop))/.test(rest)) return 'corner';
   if (/^Desk (top|leg|end|back rail|grommet)/.test(rest)) return 'desk';
@@ -2646,7 +2732,7 @@ function elevationDetail(plan: DrawerPlan, config: DrawerConfig) {
     if (run.corner) sections.push({ from: run.corner.bay.x0, to: run.corner.bay.x1 });
     sections.sort((a, b) => a.from - b.from);
   }
-  const counter = run ? run.countertop.y1 : bk?.countertop ? bk.countertop.y1 : plan.desk ? plan.desk.height : null;
+  const counter = run ? run.countertop.y1 : bk?.countertop ? bk.countertop.y1 : plan.countertop ? plan.countertop.y1 : plan.desk ? plan.desk.height : null;
   if (counter && counter > H - 1e-6) heights.push({ at: counter, label: plan.desk ? 'desk' : 'counter' });
   if (bk && bk.config.openBelow > 0) heights.push({ at: bk.y0 + bk.config.openBelow, label: 'shelves' });
   return { fronts: fronts.filter(x => x.to - x.from > 0.05), shelves: shelves.filter(x => x.to - x.from > 0.05), sections: sections.filter(x => x.to - x.from > 0.05), heights };

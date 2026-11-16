@@ -109,7 +109,7 @@ export function SideView({ plan, config, fmt }: ViewProps) {
   // The countertop and the bookcase (or the run's), with its top trim.
   const bk = plan.bookcase;
   const run = plan.run;
-  const counter = run ? run.countertop : bk?.countertop;
+  const counter = run ? run.countertop : bk?.countertop ?? plan.countertop;
   if (counter) shapes.push(rect(counter.z0, counter.y0, counter.z1, counter.y1));
   if (bk) {
     const y0 = run?.uppers ? run.uppers.y0 : bk.y0;
@@ -219,6 +219,9 @@ export function TopView({ plan, config, fmt }: ViewProps) {
     const bk = plan.bookcase;
     if (bk.countertop) shapes.push(rect(bk.countertop.x0, bk.countertop.z0, bk.countertop.x1, bk.countertop.z1, 'drawer-overhead'));
     shapes.push(rect(0, bk.z0, W, cd, 'drawer-overhead is-upper'));
+  } else if (plan.countertop) {
+    const ct = plan.countertop;
+    shapes.push(rect(ct.x0, ct.z0, ct.x1, ct.z1, 'drawer-overhead'));
   }
   const allZ = shapes.flatMap(s => (s.kind === 'rect' ? [s.y, s.y + s.h] : s.kind === 'circle' ? [s.cy - s.r, s.cy + s.r] : []));
   const span: [number, number] = [Math.min(...allZ), Math.max(...allZ)];
