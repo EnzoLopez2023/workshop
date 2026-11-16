@@ -45,7 +45,7 @@ test('the measurements in the steps are this design’s', () => {
   const f = inches => formatLength(inches, 'in');
   const slides = g.steps.find(s => s.id === 'slides');
   for (const d of plan.drawers) assert.ok(slides.instructions.join(' ').includes(f(d.slideMark)), `drawer ${d.index + 1} slide mark`);
-  assert.match(g.steps.find(s => s.id === 'pulls').instructions[0], /3 1\/4" each side/, 'half the pull width');
+  assert.match(g.steps.find(s => s.id === 'pulls').instructions[0], /3 1\/4" \(83 mm\) each side/, 'half the pull width');
   assert.match(g.steps.find(s => s.id === 'tnuts').instructions[0], /5\/16"/);
   const html = guidePrintHtml(g, new Map(), 'Desk pedestal', 'sub', f);
   assert.match(html, /Cut the finger pulls/);

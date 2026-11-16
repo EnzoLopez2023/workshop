@@ -6837,6 +6837,12 @@ tbody td {
   text-align: left;
 }
 
+.shelf-guide-metric {
+  display: block;
+  color: var(--color-muted);
+  font-size: 0.86em;
+}
+
 .shelf-guide-parts thead th {
   color: var(--color-muted);
   font-size: 0.74rem;

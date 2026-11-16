@@ -53,7 +53,7 @@ test('instructions carry the real measurements in the chosen unit', () => {
   const text = s => [s.summary, ...s.instructions].join(' ');
   const inch = guide({ mounting: 'wall', frenchCleat: true });
   assert.match(text(inch.steps.find(s => s.id === 'dividers')), /17 1\/2"/);
-  assert.match(text(guide().steps.find(s => s.id === 'dados')), /Left side \(from the bottom end, inside face\): 3", /, 'floor unit: bottom housing sits on the 3" toe kick');
+  assert.match(text(guide().steps.find(s => s.id === 'dados')), /Left side \(from the bottom end, inside face\): 3" \(76 mm\), /, 'floor unit: bottom housing sits on the 3" toe kick');
   assert.match(text(inch.steps.find(s => s.id === 'cleat')), /top point .* above where the bottom/);
   const metric = guide({ thickness: 18 / 25.4, bayWidth: 400 / 25.4 }, 'mm');
   assert.match(text(metric.steps.find(s => s.id === 'dividers')), /400 mm/);
@@ -110,9 +110,9 @@ test('the guide states the bay height and asks for it to be checked during assem
   // 74" overall, 3/4" top and bottom, 3" toe kick → 69 1/2" clear bays.
   const g = guide();
   const text = id => { const s = g.steps.find(x => x.id === id); return [s.summary, ...s.instructions].join(' '); };
-  assert.match(text('overview'), /Each bay is 17 1\/2" wide with shelf openings from .* to .* clear\./, 'bays with different counts have a range');
-  assert.match(text('case'), /clear height between the bottom and the top is 69 1\/2"/);
-  assert.match(text('dividers'), /Each bay should end up 17 1\/2" wide × 69 1\/2" clear/);
+  assert.match(text('overview'), /Each bay is 17 1\/2" \(445 mm\) wide with shelf openings from .* to .* clear\./, 'bays with different counts have a range');
+  assert.match(text('case'), /clear height between the bottom and the top is 69 1\/2" \(1765 mm\)/);
+  assert.match(text('dividers'), /Each bay should end up 17 1\/2" \(445 mm\) wide × 69 1\/2" \(1765 mm\) clear/);
   // Without a top panel there's nothing to measure between, so the case check is left out.
   const open = guide({ topPanel: false });
   assert.ok(!open.steps.find(s => s.id === 'case').instructions.some(l => l.includes('clear height between')));
@@ -126,10 +126,10 @@ test('the guide gives the opening height: in the overview, per bay, and as the s
   // The example: one bay, 2 openings of 3" in 1/2" plywood → 7 1/2" overall.
   const config = { ...base, thickness: 0.5, bays: 1, shelvesPerBay: [1], height: 7.5, mounting: 'wall', toeKick: 0 };
   const g = buildGuideSteps(buildShelfPlan(config), config, 'in');
-  assert.match(g.steps[0].summary, /Each bay is 17 1\/2" wide with 2 shelf openings 3" clear\./);
+  assert.match(g.steps[0].summary, /Each bay is 17 1\/2" \(445 mm\) wide with 2 shelf openings 3" \(76 mm\) clear\./);
   const shelves = g.steps.find(s => s.id === 'shelves');
-  assert.ok(shelves.instructions.includes('Bay 1: 2 openings, 3" clear (1 shelf)'));
-  assert.match(shelves.tips[0], /spacer block exactly 3" tall — the opening height/);
+  assert.ok(shelves.instructions.includes('Bay 1: 2 openings, 3" (76 mm) clear (1 shelf)'));
+  assert.match(shelves.tips[0], /spacer block exactly 3" \(76 mm\) tall — the opening height/);
 
   // Uneven bays: a range in the overview and a per-bay spacer tip.
   const mixedConfig = { ...base, bays: 2, shelvesPerBay: [1, 3] };
@@ -151,7 +151,7 @@ test('options add their own guide steps in build order', () => {
     ['overview', 'sheets', 'cut', 'dados', 'pins', 'case', 'dividers', 'shelves', 'back', 'frame', 'install', 'doors', 'finish']);
   const step = id => g.steps.find(s => s.id === id);
   assert.equal(step('dados').title, 'Cut the dados and back rabbets');
-  assert.ok(step('dados').instructions.some(l => /3\/8"-wide, 3\/4"-deep rabbet/.test(l)));
+  assert.ok(step('dados').instructions.some(l => /3\/8"-wide \(9\.5 mm\), 3\/4"-deep \(19 mm\) rabbet/.test(l)));
   assert.ok(step('pins').instructions.some(l => l.startsWith('Left side, right face (bay 1)')));
   assert.ok(step('pins').scene.highlight.length > 0 && step('pins').scene.highlight.every(n => n.startsWith('Pin hole')));
   assert.match(step('shelves').summary, /adjustable/);
@@ -159,7 +159,7 @@ test('options add their own guide steps in build order', () => {
   assert.ok(step('frame').parts.every(p => p.name.startsWith('Face frame')));
   assert.match(step('doors').instructions[0], /face-frame hinges/);
   assert.equal(step('doors').scene.highlight.length, 3, 'one door plus a pair on the 30" bay');
-  assert.match(step('dividers').summary, /Bays are 12", 30", 12" clear/);
+  assert.match(step('dividers').summary, /Bays are 12" \(305 mm\), 30" \(762 mm\), 12" \(305 mm\) clear/);
   assert.match(step('overview').instructions.find(l => l.startsWith('Hardware:')), /shelf pins/);
   // Every scene still only names real solids.
   const known = new Set(g.solids.map(s => s.name));
@@ -204,4 +204,23 @@ test('the guide uses the brads it buys, warns about thickness before layout, and
   assert.ok(!steps.find(s => s.id === 'cut').cautions.some(c => /thinner than its nominal/.test(c)));
   assert.ok(!steps.find(s => s.id === 'finish').instructions.some(l => /iron-on edge banding/.test(l)));
   assert.ok(steps.every(s => !s.tips.some(t => /damp rag/.test(t))));
+});
+
+test('inch measurements in the guide carry millimetres: in parentheses in the wording, on a second line in part tables', async () => {
+  const { withMetricText, metricSize, guideWithMetric } = await import('../src/lib/buildGuide.ts');
+  assert.equal(withMetricText('A 70" wide, 28 1/2" tall unit'), 'A 70" (1778 mm) wide, 28 1/2" (724 mm) tall unit');
+  // A run of sizes and a range each get one set of parentheses; small sizes keep a decimal.
+  assert.equal(withMetricText('sheets of 96" × 48" 1/2" plywood, 1/8" kerf'), 'sheets of 96" × 48" (2438 × 1219 mm) 1/2" (12.7 mm) plywood, 1/8" kerf'.replace('1/8" kerf', '1/8" (3.2 mm) kerf'));
+  assert.equal(withMetricText('one every 6–8″.'), 'one every 6–8″ (152–203 mm).');
+  assert.equal(withMetricText('a 3/8"-wide rabbet'), 'a 3/8"-wide (9.5 mm) rabbet');
+  // Thread sizes, measurements already given in metric, and text already converted are left alone.
+  for (const s of ['MROCO 1/4″-20 levelers', '3 3/4″ (96 mm) pulls', '35 mm cups', withMetricText('0"–1/2"; 96" × 48" and 22"')]) assert.equal(withMetricText(s), s);
+  assert.equal(metricSize('64" × 3 1/8" × 3/4"'), '1626 × 79 × 19 mm');
+  assert.equal(metricSize('1626 mm × 79 mm'), undefined);
+
+  const g = guide();
+  const cut = g.steps.find(s => s.id === 'cut');
+  assert.ok(cut.parts.length > 0 && cut.parts.every(p => / mm$/.test(p.metric)));
+  assert.deepEqual(guideWithMetric(g.steps), g.steps, 'applying it again changes nothing');
+  assert.match(guidePrintHtml(g, new Map(), 't', 's', v => String(v)), /<span class="metric">[\d. ×]+ mm<\/span>/);
 });

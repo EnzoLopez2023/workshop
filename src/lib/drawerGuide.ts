@@ -37,7 +37,7 @@ import { panelTop, TNUT_HOLE } from './drawerExport.ts';
 import { HINGE_CUP_INSET } from './shelfExport.ts';
 import { boxDetail, boxJointDetail, bottomGrooveWidth } from './drawerBoxDetail.ts';
 import { bookcaseName, withValance } from './drawerBookcase.ts';
-import { buildGuideSteps } from './buildGuide.ts';
+import { buildGuideSteps, guideWithMetric } from './buildGuide.ts';
 import type { Solid } from './shelving.ts';
 
 export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: LengthUnit): BuildGuide {
@@ -1182,7 +1182,7 @@ export function drawerGuideSteps(plan: DrawerPlan, config: DrawerConfig, units: 
     else if (minutes[step.id]) step.minutes = minutes[step.id];
   }
 
-  return { steps, solids };
+  return { steps: guideWithMetric(steps), solids };
 }
 
 /** "5 pairs of 20\" slides" or "4 pairs of 20\" and 1 pair of 12\" slides". */

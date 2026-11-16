@@ -167,3 +167,31 @@ test('both options survive a save and reload, and old designs read back without 
   assert.equal(drawerDesignToFields(old).boxJoinery, 'rabbet');
   assert.equal(drawerDesignToFields(old).countertop, false);
 });
+
+test('sheet layouts are rips and crosscuts: no overlaps, and never more sheets than free-form nesting', async () => {
+  const { planSheetsByThickness } = await import('../src/lib/buildGuide.ts');
+  const { optimizeCuts } = await import('../src/lib/cutPlan.ts');
+  const { sheetParts } = await import('../src/lib/drawerUnit.ts');
+  // Two columns of five on a plinth, 1/2" boxes and bottoms: free-form nesting needed four ragged 1/2" sheets.
+  const config = { ...base, drawers: 10, columns: [{ drawers: 5 }, { drawers: 5 }], bottomThickness: 0.5, base: 'plinth', kickHeight: 4, kickSetback: 3,
+    boxJoinery: 'pocket', countertop: { ...DEFAULT_COUNTERTOP } };
+  const plan = buildDrawerPlan(config);
+  assert.deepEqual(plan.errors, []);
+  const parts = sheetParts(plan.parts);
+  for (const g of planSheetsByThickness(parts, 'in')) {
+    const pieces = parts.filter(p => p.thickness === g.thickness).flatMap(p => Array.from({ length: p.qty }, (_, i) => ({ id: `${p.name}-${i}`, partName: p.name, length: p.length, width: p.width, material: 'plywood', thickness: String(g.thickness) })));
+    const nested = optimizeCuts([{ id: 's', length: 96, width: 48, qty: 999, label: '', thickness: String(g.thickness) }], pieces, 0.125);
+    assert.ok(g.sheets.layouts.length <= nested.totalSheets, `${g.thickness}: ${g.sheets.layouts.length} sheets vs ${nested.totalSheets} nested`);
+    assert.equal(g.sheets.layouts.reduce((n, l) => n + l.placed.length, 0), pieces.length, 'every piece is placed');
+    for (const l of g.sheets.layouts) {
+      l.placed.forEach((a, i) => {
+        assert.ok(a.x >= 0 && a.y >= 0 && a.x + a.length <= 96 + 1e-6 && a.y + a.width <= 48 + 1e-6, `${a.partName} is on the sheet`);
+        for (const b of l.placed.slice(i + 1)) {
+          assert.ok(!(a.x < b.x + b.length - 1e-6 && b.x < a.x + a.length - 1e-6 && a.y < b.y + b.width - 1e-6 && b.y < a.y + a.width - 1e-6), `${a.partName} overlaps ${b.partName}`);
+        }
+      });
+    }
+  }
+  const half = planSheetsByThickness(parts, 'in').find(g => g.thickness === 0.5);
+  assert.equal(half.sheets.layouts.length, 3, 'one sheet fewer than free-form nesting');
+});

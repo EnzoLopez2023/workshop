@@ -205,7 +205,7 @@ function GuideStepBody({ step, index, done, onDone }: { step: GuideStep; index: 
           </thead>
           <tbody>
             {step.parts.map(p => (
-              <tr key={p.name}><th scope="row">{p.name}</th><td>{p.qty}</td><td>{p.size}</td></tr>
+              <tr key={p.name}><th scope="row">{p.name}</th><td>{p.qty}</td><td>{p.size}{p.metric && <span className="shelf-guide-metric">{p.metric}</span>}</td></tr>
             ))}
           </tbody>
         </table>

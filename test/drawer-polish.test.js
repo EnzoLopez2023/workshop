@@ -74,7 +74,7 @@ test('per-drawer slides: a shorter box, its own slide line, and its own hardware
   const left = drawerPartFaces(plan, config).find(x => x.piece === 'Left side');
   assert.ok(left.features.some(x => x.kind === 'guide' && x.points[1][1] === 12), 'slide line as long as its slide');
   assert.match(buildDrawerPlan({ ...base, slideLengths: [22, null, null, null, null] }).errors.join(' '), /don’t fit/);
-  assert.match(drawerGuideSteps(plan, config, 'in').steps.find(s => s.id === 'slides').summary, /4 pairs of 20" and 1 pair of 12" slides/);
+  assert.match(drawerGuideSteps(plan, config, 'in').steps.find(s => s.id === 'slides').summary, /4 pairs of 20" \(508 mm\) and 1 pair of 12" \(305 mm\) slides/);
 });
 
 test('finish colours and shopping links', () => {

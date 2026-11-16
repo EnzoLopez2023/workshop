@@ -2,7 +2,7 @@
 // carries its instructions plus a scene description (which parts are shown,
 // which are highlighted, and from where) that the renderer turns into an image.
 
-import { buildColorMap, optimizeCuts, type CutPiece, type SheetLayout } from './cutPlan.ts';
+import { buildColorMap, optimizeCuts, optimizeCutsInStrips, type CutPiece, type SheetLayout } from './cutPlan.ts';
 import { formatSag, hardwareList, quantityLabel, sagCheck, SHELF_LOADS } from './shelfEstimate.ts';
 import {
   decimalString,
@@ -31,6 +31,61 @@ export interface GuidePart {
   name: string;
   qty: number;
   size: string;
+  /** The same size in millimetres, when `size` is in inches. */
+  metric?: string;
+}
+
+// ── Metric alongside inches ───────────────────────────────────────────────────
+
+/** Whole millimetres; one decimal under an inch, where a millimetre is too coarse (3/4″ is 19.1 mm, not 19). */
+function metricNumber(inches: number): string {
+  const mm = inches * MM_PER_INCH;
+  if (mm >= 25) return String(Math.round(mm));
+  const tenth = Math.round(mm * 10) / 10;
+  return Number.isInteger(tenth) ? String(tenth) : tenth.toFixed(1);
+}
+
+/** "33 7/8", "3/4", "22" or "0.63", as inches. */
+function inchValue(token: string): number {
+  const m = /^(?:(\d+) )?(\d+)\/(\d+)$/.exec(token);
+  return m ? Number(m[1] ?? 0) + Number(m[2]) / Number(m[3]) : Number(token);
+}
+
+const INCH_NUMBER = String.raw`(?:\d+ \d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?)`;
+const INCH_MEASURE = String.raw`≈?${INCH_NUMBER}["″]`;
+// A run of sizes ("64" × 3 1/8" × 3/4""), a range ("6–8″", "0"–1/2""), or one measurement — but not a
+// thread size ("1/4″-20") and not one that already has its millimetres after it. A hyphenated
+// measurement keeps its word: `3/8"-wide (9.5 mm)`.
+const INCH_PATTERN = new RegExp(
+  String.raw`(?<![\d/.])(?:(${INCH_MEASURE}(?: × ${INCH_MEASURE})+)|(≈?${INCH_NUMBER}["″]?–${INCH_MEASURE})|(${INCH_MEASURE}(?:-[a-z]+)?))(?!-\d)(?!–)(?! × ${INCH_MEASURE})(?! \([\d.]+(?:[ ×–]+[\d.]+)* mm\))`,
+  'g',
+);
+const inchTokens = (text: string) => (text.match(new RegExp(INCH_NUMBER, 'g')) ?? []).map(inchValue);
+
+/** Guide text with millimetres in parentheses after every inch measurement: `22" (559 mm)`. Safe to apply twice. */
+export function withMetricText(text: string): string {
+  return text.replace(INCH_PATTERN, (match, run?: string, range?: string) => {
+    const values = inchTokens(match).map(metricNumber);
+    return `${match} (${values.join(run ? ' × ' : range ? '–' : '')} mm)`;
+  });
+}
+
+/** A part's inch size ("64" × 3 1/8" × 3/4"") in millimetres ("1626 × 79 × 19.1 mm"); undefined when it isn't in inches. */
+export function metricSize(size: string): string | undefined {
+  if (!/["″]/.test(size)) return undefined;
+  return `${inchTokens(size).map(metricNumber).join(' × ')} mm`;
+}
+
+/** Every step's wording and part sizes with their metric equivalents. */
+export function guideWithMetric(steps: GuideStep[]): GuideStep[] {
+  return steps.map(step => ({
+    ...step,
+    summary: withMetricText(step.summary),
+    instructions: step.instructions.map(withMetricText),
+    tips: step.tips.map(withMetricText),
+    cautions: step.cautions.map(withMetricText),
+    parts: step.parts.map(p => (p.metric || !metricSize(p.size) ? p : { ...p, metric: metricSize(p.size) })),
+  }));
 }
 
 export interface GuideSheets {
@@ -198,11 +253,14 @@ export function planPartSheets(parts: ShelfPart[], thicknessInches: number, unit
     material: 'plywood',
     thickness,
   })));
-  const result = optimizeCuts(
+  // Rips and crosscuts in tidy rows, unless free-form nesting saves a whole sheet.
+  const nested = optimizeCuts(
     [{ id: 'sheet', length: sheetLength, width: sheetWidth, qty: 999, label: '', thickness }],
     pieces,
     kerf,
   );
+  const strips = optimizeCutsInStrips({ id: 'sheet', length: sheetLength, width: sheetWidth }, pieces, kerf);
+  const result = strips.totalSheets <= nested.totalSheets && strips.unplacedPieces.length <= nested.unplacedPieces.length ? strips : nested;
   return {
     layouts: result.layouts,
     colors: buildColorMap(result.layouts),
@@ -782,7 +840,7 @@ export function buildGuideSteps(plan: ShelfPlan, config: ShelfConfig, units: Len
     scene: { view: 'front', visible: everything, highlight: [] },
   });
 
-  return { steps, solids };
+  return { steps: guideWithMetric(steps), solids };
 }
 
 // ── Printable guide ───────────────────────────────────────────────────────────
@@ -832,7 +890,7 @@ export function guidePrintHtml(
       : step.scene && step.scene.highlight.length > 0 && step.id !== 'cut' ? 'Parts added in this step are shown in blue.' : '';
     const parts = step.parts.length === 0 ? '' : `
       <table><thead><tr><th>Part</th><th>Qty</th><th>Size</th></tr></thead><tbody>
-        ${step.parts.map(p => `<tr><td>${escapeHtml(p.name)}</td><td>${p.qty}</td><td>${escapeHtml(p.size)}</td></tr>`).join('')}
+        ${step.parts.map(p => `<tr><td>${escapeHtml(p.name)}</td><td>${p.qty}</td><td>${escapeHtml(p.size)}${p.metric ? `<br><span class="metric">${escapeHtml(p.metric)}</span>` : ''}</td></tr>`).join('')}
       </tbody></table>`;
     const notes = [
       ...step.cautions.map(c => `<p class="note caution">⚠ ${escapeHtml(c)}</p>`),
@@ -875,6 +933,7 @@ export function guidePrintHtml(
   table { width: 100%; margin: 4pt 0 6pt; border-collapse: collapse; font-size: 9pt; }
   th, td { padding: 3pt 5pt; border-bottom: 0.5pt solid #C9DAD5; text-align: left; }
   th { color: #58716B; font-size: 8pt; }
+  .metric { color: #58716B; font-size: 8pt; }
   .step.sheets { grid-template-columns: 1fr; }
   .sheet-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8pt; margin-top: 6pt; }
   .sheet-grid figure { margin: 0; break-inside: avoid; }

@@ -314,6 +314,91 @@ export function optimizeCuts(
   };
 }
 
+/**
+ * Lays pieces out the way a sheet is actually broken down: full-length rips (strips) across
+ * the sheet, each crosscut into columns, with shorter pieces stacked in a column. Same-size
+ * parts end up side by side in rows, so one fence setting cuts a whole group, and every cut
+ * runs edge to edge. One stock size, as many sheets as it takes.
+ */
+export function optimizeCutsInStrips(stock: Pick<StockSheet, 'id' | 'length' | 'width'>, pieces: CutPiece[], kerf: number): CutPlanResult {
+  const L = stock.length;
+  const W = stock.width;
+  const EPS = 1e-6;
+  interface Column { x: number; w: number; usedY: number }
+  interface Strip { y: number; h: number; usedX: number; columns: Column[] }
+  interface Sheet { strips: Strip[]; usedY: number; placed: PlacedPiece[] }
+  const sheets: Sheet[] = [];
+  const unplaced: string[] = [];
+
+  // Long side along the sheet where it fits (the grain), widest rips first, longest first within a rip.
+  const oriented = pieces.map(p => {
+    const long = Math.max(p.length, p.width);
+    const short = Math.min(p.length, p.width);
+    return long <= L + EPS && short <= W + EPS ? { piece: p, l: long, w: short } : { piece: p, l: short, w: long };
+  });
+  oriented.sort((a, b) => b.w - a.w || b.l - a.l);
+
+  for (const { piece, l, w } of oriented) {
+    const fits = (pl: number, pw: number) => pl <= L + EPS && pw <= W + EPS;
+    const turns = ([[l, w], ...(Math.abs(l - w) > EPS ? [[w, l]] : [])] as [number, number][]).filter(([pl, pw]) => fits(pl, pw));
+    if (turns.length === 0) { unplaced.push(piece.partName); continue; }
+    const put = (sheet: Sheet, x: number, y: number, pl: number, pw: number) =>
+      sheet.placed.push({ pieceId: piece.id, partName: piece.partName, length: pl, width: pw, x, y });
+    let done = false;
+
+    // 1 ── On top of a shorter stack in an existing column, or a new column in an existing strip.
+    for (const [pl, pw] of turns) {
+      let best: { sheet: Sheet; strip: Strip; column: Column; slack: number } | null = null;
+      for (const sheet of sheets) for (const strip of sheet.strips) for (const column of strip.columns) {
+        if (pl <= column.w + EPS && column.usedY + pw <= strip.h + EPS) {
+          const slack = column.w - pl;
+          if (!best || slack < best.slack) best = { sheet, strip, column, slack };
+        }
+      }
+      if (best) {
+        put(best.sheet, best.column.x, best.strip.y + best.column.usedY, pl, pw);
+        best.column.usedY += pw + kerf;
+        done = true;
+        break;
+      }
+      for (const sheet of sheets) {
+        const strip = sheet.strips.find(s => pw <= s.h + EPS && s.usedX + pl <= L + EPS);
+        if (!strip) continue;
+        put(sheet, strip.usedX, strip.y, pl, pw);
+        strip.columns.push({ x: strip.usedX, w: pl, usedY: pw + kerf });
+        strip.usedX += pl + kerf;
+        done = true;
+        break;
+      }
+      if (done) break;
+    }
+    if (done) continue;
+
+    // 2 ── A new strip on a sheet with room, else on a new sheet.
+    const [pl, pw] = turns[0];
+    let sheet = sheets.find(s => s.usedY + pw <= W + EPS);
+    if (!sheet) { sheet = { strips: [], usedY: 0, placed: [] }; sheets.push(sheet); }
+    const strip: Strip = { y: sheet.usedY, h: pw, usedX: pl + kerf, columns: [{ x: 0, w: pl, usedY: pw + kerf }] };
+    sheet.strips.push(strip);
+    put(sheet, 0, strip.y, pl, pw);
+    sheet.usedY += pw + kerf;
+  }
+
+  const layouts: SheetLayout[] = sheets.map((sheet, i) => {
+    const used = sheet.placed.reduce((sum, p) => sum + p.length * p.width, 0);
+    return { sheetIndex: i, stockId: stock.id, sheetLength: L, sheetWidth: W, placed: sheet.placed, wastePercent: (1 - used / (L * W)) * 100 };
+  });
+  const usedArea = layouts.reduce((s, l) => s + l.placed.reduce((a, p) => a + p.length * p.width, 0), 0);
+  return {
+    layouts,
+    totalSheets: layouts.length,
+    overallYieldPercent: layouts.length ? (usedArea / (layouts.length * L * W)) * 100 : 0,
+    totalCuts: layouts.reduce((s, l) => s + l.placed.length, 0),
+    skippedPieces: [],
+    unplacedPieces: [...new Set(unplaced)],
+  };
+}
+
 function placePiece(sheet: OpenSheet, rectIdx: number, piece: CutPiece, kerf: number, rotated = false) {
   const rect = sheet.freeRects[rectIdx];
   const pl = rotated ? piece.width : piece.length;
